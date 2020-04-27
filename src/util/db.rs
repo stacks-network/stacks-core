@@ -34,7 +34,7 @@ use rusqlite::NO_PARAMS;
 use rusqlite::Error as sqlite_error;
 use rusqlite::Connection;
 use rusqlite::Row;
-use rusqlite::types::ToSql;
+use rusqlite::types::{ToSql, ToSqlOutput, FromSql, FromSqlResult, FromSqlError, Value as RusqliteValue, ValueRef as RusqliteValueRef};
 
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
@@ -74,7 +74,9 @@ pub enum Error {
     /// I/O error
     IOError(IOError),
     /// MARF index error
-    IndexError(MARFError)
+    IndexError(MARFError),
+    /// Other error
+    Other(String)
 }
 
 impl fmt::Display for Error {
@@ -93,6 +95,7 @@ impl fmt::Display for Error {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
+            Error::Other(ref s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -113,6 +116,7 @@ impl error::Error for Error {
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
             Error::IndexError(ref e) => Some(e),
+            Error::Other(ref _s) => None
         }
     }
 }
@@ -131,16 +135,63 @@ pub trait FromColumn<T> {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<T, Error>;
 }
 
+impl FromRow<u64> for u64 {
+    fn from_row<'a>(row: &'a Row) -> Result<u64, Error> {
+        let x : i64 = row.get(0);
+        if x < 0 {
+            return Err(Error::ParseError);
+        }
+        Ok(x as u64)
+    }
+}
+
+impl FromColumn<u64> for u64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
+        let x : i64 = row.get(column_name);
+        if x < 0 {
+            return Err(Error::ParseError);
+        }
+        Ok(x as u64)
+    }
+}
+
+impl FromRow<i64> for i64 {
+    fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
+        let x : i64 = row.get(0);
+        Ok(x)
+    }
+}
+
+impl FromColumn<i64> for i64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
+        let x : i64 = row.get(column_name);
+        Ok(x)
+    }
+}
+
+pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
+    if x > (i64::max_value() as u64) {
+        return Err(Error::ParseError);
+    }
+    Ok(x as i64)
+}
+
 macro_rules! impl_byte_array_from_column {
     ($thing:ident) => {
-        impl FromColumn<$thing> for $thing {
-            fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<$thing, ::util::db::Error> {
-                let hex_str : String = row.get(column_name);
-                let byte_str = hex_bytes(&hex_str)
-                    .map_err(|_e| ::util::db::Error::ParseError)?;
+        impl rusqlite::types::FromSql for $thing {
+            fn column_result(value: rusqlite::types::ValueRef) -> rusqlite::types::FromSqlResult<Self> {
+                let hex_str = value.as_str()?;
+                let byte_str = ::util::hash::hex_bytes(hex_str)
+                    .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
                 let inst = $thing::from_bytes(&byte_str)
-                    .ok_or(::util::db::Error::ParseError)?;
+                    .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
                 Ok(inst)
+            }
+        }
+
+        impl FromColumn<$thing> for $thing {
+            fn from_column(row: &rusqlite::Row, column_name: &str) -> Result<Self, ::util::db::Error> {
+                Ok(row.get::<_, Self>(column_name))
             }
         }
 

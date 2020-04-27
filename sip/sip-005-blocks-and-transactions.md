@@ -554,7 +554,8 @@ A _Non-fungible token post-condition_ body is encoded as follows:
 * A variable-length **principal**, containing the address of the standard account or contract
   account
 * A variable-length **asset info** structure that identifies the token type
-* A variable-length **asset name** string that names the token instance
+* A variable-length **asset name**, which is the Clarity value that names the token instance,
+  serialized according to the Clarity value serialization format.
 * A 1-byte **non-fungible condition code**
 
 A **principal** structure encodes either a standard account address or a
@@ -625,14 +626,30 @@ The _payload type ID_ can take any of the following values:
 * `0x04`:  the payload that follows is a **coinbase payload**.
 
 The _STX token-transfer_ structure is encoded as follows:
-* A **recipient address**, comprised of a 1-byte address version number and a
-  20-byte public key hash that identifies a (possibly unmaterialized) standard
-account to recieve the tokens,
+* A **recipient principal** encoded as follows:
+  * A 1-byte type field indicating whether the principal is
+    * `0x05`: a recipient address
+    * `0x06`: a contract recipient
+  * If a simple recipient address, the 1-byte type is followed by a
+    1-byte address version number and a 20-byte hash identifying a standard
+    recipient account.
+  * If a contract recipient address, the 1-byte type is followed by
+    the issuer address of the contract, encoded with a 1-byte address
+    version number and the 20-byte hash that identifies the standard
+    account of the issuer. This is followed by the encoding of the
+    contract name -- encoded as described above.
 * An 8-byte number denominating the number of microSTX to send to the recipient
   address's account.
 
-Note that if a transaction contains a token-transfer payload, it MUST have only
-a standard authorization field.  It cannot be sponsored.
+Note that if a transaction contains a token-transfer payload, it MUST
+have only a standard authorization field. It cannot be sponsored. The
+recipient principal does not need to be a materialized account -- STX
+may be transfered to an account which has not been used in any prior
+transactions. In the case of a contract principal, the unmaterialized
+contract principal will receive the funds and maintain a balance in
+the STX holdings map. If and when that contract is published, the contract
+will be able to spend those STX via `(as-contract (stx-transfer? ...`
+invocations.
 
 A _smart-contract payload_ is encoded as follows:
 * A **contract name** string, described above, that encodes the human-readable
@@ -1098,8 +1115,8 @@ The following type IDs indicate the following values:
 * 0x00: 128-bit signed integer
 * 0x01: 128-bit unsigned integer
 * 0x02: buffer
-* 0x03: boolean `'true`
-* 0x04: boolean `'false`
+* 0x03: boolean `true`
+* 0x04: boolean `false`
 * 0x05: standard principal
 * 0x06: contract principal
 * 0x07: Ok response
@@ -1124,11 +1141,11 @@ The following 16 bytes are a big-endian 128-bit unsigned integer
 The following 4 bytes are the buffer length, encoded as a 32-bit unsigned big-endian
 integer.  The remaining bytes are the buffer data.
 
-**Boolean `'true`**
+**Boolean `true`**
 
 No bytes follow.
 
-**Boolean `'false`**
+**Boolean `false`**
 
 No bytes follow.
 

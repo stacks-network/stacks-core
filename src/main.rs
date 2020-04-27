@@ -23,30 +23,6 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-extern crate rand;
-extern crate ini;
-extern crate secp256k1;
-extern crate serde;
-extern crate rusqlite;
-extern crate curve25519_dalek;
-extern crate ed25519_dalek;
-#[macro_use] extern crate lazy_static;
-extern crate sha2;
-extern crate sha3;
-extern crate ripemd160;
-extern crate regex;
-extern crate time;
-extern crate byteorder;
-extern crate mio;
-extern crate url;
-
-#[macro_use] extern crate serde_derive;
-#[macro_use] extern crate serde_json;
-
-#[cfg(test)]
-#[macro_use]
-extern crate assert_json_diff;
-
 #[macro_use]
 extern crate blockstack_lib;
 use blockstack_lib::*;
@@ -57,12 +33,12 @@ use std::process;
 use std::io::prelude::*;
 use std::io;
 
-use util::log;
+use blockstack_lib::util::log;
 
-use net::StacksMessageCodec;
-use chainstate::stacks::*;
-use util::hash::{hex_bytes, to_hex};
-use util::retry::LogReader;
+use blockstack_lib::net::StacksMessageCodec;
+use blockstack_lib::chainstate::stacks::*;
+use blockstack_lib::util::hash::{hex_bytes, to_hex};
+use blockstack_lib::util::retry::LogReader;
 
 fn main() {
 
@@ -182,28 +158,6 @@ fn main() {
                 panic!("Program Execution Error: \n{}", error);
             }
         }
-        return
-    }
-
-    if argv[1] == "testnet" {
-        use testnet;
-
-        let conf = match argv.len() {
-            n if n >= 3 => {
-                println!("Starting testnet with config {}...", argv[2]);
-                testnet::helium::Config::from_config_file_path(&argv[2])
-            },
-            _ => {
-                println!("Starting testnet with default config...");
-                testnet::helium::Config::default()
-            }
-        };
-
-        println!("*** Mempool path: {}", conf.mempool.path);
-
-        let mut run_loop = testnet::helium::RunLoop::new(conf);
-        let num_round: u64 = 0; // Infinite number of rounds
-        run_loop.start(num_round);
         return
     }
 

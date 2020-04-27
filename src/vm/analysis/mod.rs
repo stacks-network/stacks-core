@@ -20,7 +20,6 @@ use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
 use self::contract_interface_builder::build_contract_interface;
 
-#[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     use vm::database::MemoryBackingStore;
     use vm::ast::parse;
@@ -38,7 +37,6 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, Cont
 
 // Legacy function
 // The analysis is not just checking type.
-#[cfg(test)]
 pub fn type_check(contract_identifier: &QualifiedContractIdentifier, 
                   expressions: &mut [SymbolicExpression],
                   analysis_db: &mut AnalysisDatabase, 

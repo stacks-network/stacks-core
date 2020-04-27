@@ -162,6 +162,8 @@ impl StacksBlockHeader {
     }
 
     pub fn is_genesis(&self) -> bool {
+        // Note: this is true if this block is the child of the first stacks block -- which
+        //   means it is the first mined block
         self.parent_block == FIRST_STACKS_BLOCK_HASH.clone()
     }
 
@@ -267,16 +269,20 @@ impl StacksBlockHeader {
         // hash (which includes the last commit's VRF seed)
         let valid = match VRF::verify(&leader_key.public_key, &self.proof, &sortition_chain_tip.sortition_hash.as_bytes().to_vec()) {
             Ok(v) => {
+                if !v {
+                    warn!("Failed to verify proof '{}'", &self.proof.to_hex());
+                }
                 v
             },
-            Err(_e) => {
+            Err(e) => {
+                warn!("Invalid Stacks block header {}: failed to verify VRF proof: {}", self.block_hash(), e);
                 false
             }
         };
 
         if !valid {
             let msg = format!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash);
-            debug!("{}", msg);
+            warn!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
 
@@ -1280,10 +1286,11 @@ mod test {
 
         let mut tx_invalid_coinbase = tx_coinbase.clone();
         tx_invalid_coinbase.anchor_mode = TransactionAnchorMode::OffChainOnly;
-        
-        let mut tx_invalid_anchor = StacksTransaction::new(TransactionVersion::Testnet,
-                                                           origin_auth.clone(),
-                                                           TransactionPayload::TokenTransfer(StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 123, TokenTransferMemo([1u8; 34])));
+
+        let stx_address = StacksAddress { version: 0, bytes: Hash160([0u8; 20]) };
+        let mut tx_invalid_anchor = StacksTransaction::new(
+            TransactionVersion::Testnet, origin_auth.clone(),
+            TransactionPayload::TokenTransfer(stx_address.into(), 123, TokenTransferMemo([1u8; 34])));
 
         tx_invalid_anchor.anchor_mode = TransactionAnchorMode::OffChainOnly;
         
@@ -1378,9 +1385,10 @@ mod test {
         let mut tx_coinbase_offchain = tx_coinbase.clone();
         tx_coinbase_offchain.anchor_mode = TransactionAnchorMode::OffChainOnly;
 
-        let mut tx_invalid_anchor = StacksTransaction::new(TransactionVersion::Testnet,
-                                                           origin_auth.clone(),
-                                                           TransactionPayload::TokenTransfer(StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 123, TokenTransferMemo([1u8; 34])));
+        let stx_address = StacksAddress { version: 0, bytes: Hash160([0u8; 20]) };
+        let mut tx_invalid_anchor = StacksTransaction::new(
+            TransactionVersion::Testnet, origin_auth.clone(),
+            TransactionPayload::TokenTransfer(stx_address.into(), 123, TokenTransferMemo([1u8; 34])));
 
         tx_invalid_anchor.anchor_mode = TransactionAnchorMode::OnChainOnly;
         

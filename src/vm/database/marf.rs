@@ -151,7 +151,7 @@ impl MarfedKV {
         Ok( MarfedKV { marf, chain_tip, side_store } )
     }
 
-    #[cfg(test)]
+    // used by benchmarks
     pub fn temporary() -> MarfedKV {
         use std::env;
         use rand::Rng;
@@ -204,14 +204,14 @@ impl MarfedKV {
         let bhh = self.chain_tip.clone();
         self.commit_to(&bhh);
     }
-    // This is used by miners, before renaming their committed blocks.
+    // This is used by miners
     //   so that the block validation and processing logic doesn't
     //   reprocess the same data as if it were already loaded
-    pub fn commit_for_move(&mut self, will_move_to: &str) {
-        debug!("commit_for_move: ({}->{})", &self.chain_tip, will_move_to); 
-        self.side_store.move_metadata_to(&self.chain_tip, will_move_to);
+    pub fn commit_mined_block(&mut self, will_move_to: &BlockHeaderHash) {
+        debug!("commit_mined_block: ({}->{})", &self.chain_tip, will_move_to); 
+        self.side_store.move_metadata_to(&self.chain_tip, &format!("{}.mined", will_move_to));
         self.side_store.commit(&self.chain_tip);
-        self.marf.commit()
+        self.marf.commit_mined(will_move_to)
             .expect("ERROR: Failed to commit MARF block");
     }
     pub fn commit_to(&mut self, final_bhh: &BlockHeaderHash) {

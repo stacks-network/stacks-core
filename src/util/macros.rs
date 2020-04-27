@@ -61,15 +61,23 @@ macro_rules! define_named_enum {
 /// Define a "u8" enum
 ///  gives you a try_from(u8) -> Option<Self> function
 macro_rules! define_u8_enum {
-    ($Name:ident { $($Variant:ident,)* }) =>
+    ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
     {
         #[derive(PartialEq)]
         #[repr(u8)]
-        enum $Name {
-            $($Variant),*,
+        pub enum $Name {
+            $($Variant = $Val),*,
         }
         impl $Name {
             pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
+
+            pub fn to_u8(&self) -> u8 {
+                match self {
+                    $(
+                        $Name::$Variant => $Val,
+                    )*
+                }
+            }
 
             pub fn from_u8(v: u8) -> Option<Self> {
                 match v {
@@ -429,57 +437,5 @@ macro_rules! fmax {
             y
         }
     }}
-}
-
-#[allow(unused_macros)]
-macro_rules! set_fault {
-    ($fault_name: expr, $fault_value: expr) => (
-        #[cfg(test)]
-        {
-            std::env::set_var(format!("BLOCKSTACK_TEST_FAULT_{}", expr), format!("{}", expr));
-        }
-    )
-}
-
-#[allow(unused_macros)]
-macro_rules! unset_fault {
-    ($fault_name: expr) => (
-        #[cfg(test)]
-        {
-            std::env::set_var(format!("BLOCKSTACK_TEST_FAULT_{}", expr), "".to_string());
-        }
-    )
-}
-
-#[allow(unused_macros)]
-macro_rules! has_fault {
-    ($fault_name: expr) => (
-        if cfg!(test) {
-            match std::env::var(format!("BLOCKSTACK_TEST_FAULT_{}", expr)) {
-                Ok(value) => value.len() > 0,
-                Err(_) => false
-            }
-        }
-        else {
-            false
-        }
-    )
-}
-
-#[allow(unused_macros)]
-macro_rules! get_fault_value {
-    ($fault_name: expr) => (
-        if cfg!(test) {
-            match std::env::var(format!("BLOCKSTACK_TEST_FAULT_{}", expr)) {
-                Ok(value) => value,
-                Err(_) => {
-                    panic!("No such fault value set: {}", expr);
-                }
-            }
-        }
-        else {
-            "".to_string()
-        }
-    )
 }
 

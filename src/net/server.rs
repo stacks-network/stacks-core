@@ -49,6 +49,8 @@ use mio::net as mio_net;
 
 use util::get_epoch_time_secs;
 
+use core::mempool::*;
+
 pub struct HttpPeer {
     pub network_id: u32,
     pub chain_view: BurnchainView,
@@ -60,8 +62,8 @@ pub struct HttpPeer {
     // outbound connections that are pending connection 
     pub connecting: HashMap<usize, (mio_net::TcpStream, Option<UrlString>, Option<HttpRequestType>)>,
 
-    // network I/O
-    network: Option<NetworkState>,
+    // server network handle
+    pub http_server_handle: usize,
 
     // info on the burn chain we're tracking 
     pub burnchain: Burnchain,
@@ -71,7 +73,7 @@ pub struct HttpPeer {
 }
 
 impl HttpPeer {
-    pub fn new(network_id: u32, burnchain: Burnchain, chain_view: BurnchainView, conn_opts: ConnectionOptions) -> HttpPeer {
+    pub fn new(network_id: u32, burnchain: Burnchain, chain_view: BurnchainView, conn_opts: ConnectionOptions, server_handle: usize) -> HttpPeer {
         HttpPeer {
             network_id: network_id,
             chain_view: chain_view,
@@ -79,19 +81,15 @@ impl HttpPeer {
             sockets: HashMap::new(),
 
             connecting: HashMap::new(),
-
-            network: None,
+            http_server_handle: server_handle,
 
             burnchain: burnchain,
             connection_opts: conn_opts
         }
     }
 
-    /// start serving
-    pub fn bind(&mut self, my_addr: &SocketAddr, max_sockets: usize) -> Result<(), net_error> {
-        let net = NetworkState::bind(my_addr, max_sockets)?;
-        self.network = Some(net);
-        Ok(())
+    pub fn set_server_handle(&mut self, h: usize) -> () {
+        self.http_server_handle = h;
     }
 
     /// Is there a HTTP conversation open to this data_url that is not in progress?
@@ -110,28 +108,24 @@ impl HttpPeer {
     pub fn get_conversation(&mut self, event_id: usize) -> Option<&mut ConversationHttp> {
         self.peers.get_mut(&event_id)
     }
+    
+    /// Get a mut ref to a conversation and its socket
+    pub fn get_conversation_and_socket(&mut self, event_id: usize) -> (Option<&mut ConversationHttp>, Option<&mut mio::net::TcpStream>) {
+        (self.peers.get_mut(&event_id), self.sockets.get_mut(&event_id))
+    }
 
     /// Connect to a new remote HTTP endpoint, given the data URL and a (resolved) socket address to
     /// its origin.  Once connected, optionally send the given request.
     /// Idempotent -- will not re-connect if already connected and there is a free conversation channel open 
     /// (will return Error::AlreadyConnected with the event ID)
-    pub fn connect_http(&mut self, data_url: UrlString, addr: SocketAddr, request: Option<HttpRequestType>) -> Result<usize, net_error> {
+    pub fn connect_http(&mut self, network_state: &mut NetworkState, data_url: UrlString, addr: SocketAddr, request: Option<HttpRequestType>) -> Result<usize, net_error> {
         if let Some(event_id) = self.find_free_conversation(&data_url) {
             return Err(net_error::AlreadyConnected(event_id));
         }
 
-        let (sock, next_event_id) = match self.network {
-            None => {
-                test_debug!("HTTP not connected");
-                return Err(net_error::NotConnected);
-            },
-            Some(ref mut network) => {
-                let sock = network.connect(&addr)?;
-                let next_event_id = network.next_event_id();
-                network.register(next_event_id, &sock)?;
-                (sock, next_event_id)
-            }
-        };
+        let sock = NetworkState::connect(&addr)?;
+        let next_event_id = network_state.next_event_id();
+        network_state.register(self.http_server_handle, next_event_id, &sock)?;
 
         self.connecting.insert(next_event_id, (sock, Some(data_url), request));
         Ok(next_event_id)
@@ -157,30 +151,21 @@ impl HttpPeer {
         }
 
         // how many other conversations are connected?
-        if self.count_inbound_ip_addrs(peer_addr) > self.connection_opts.max_clients_per_host {
+        let num_inbound = self.count_inbound_ip_addrs(peer_addr);
+        if num_inbound > self.connection_opts.max_clients_per_host {
             // too many 
-            debug!("HTTP: too many inbound peers from {:?}", peer_addr);
+            debug!("HTTP: too many inbound peers from {:?} ({} > {})", peer_addr, num_inbound, self.connection_opts.max_clients_per_host);
             return Err(net_error::TooManyPeers);
         }
 
-        test_debug!("HTTP: Have {} peers now (max {}) inbound={}", self.peers.len(), self.connection_opts.num_clients, outbound_url.is_none());
+        debug!("HTTP: Have {} peers now (max {}) inbound={}, including {} from host of {:?}", self.peers.len(), self.connection_opts.num_clients, outbound_url.is_none(), num_inbound, peer_addr);
         Ok(())
-    }
-
-    /// remove a socket from our poller
-    fn deregister_socket(&mut self, socket: mio_net::TcpStream) -> () {
-        match self.network {
-            Some(ref mut network) => {
-                let _ = network.deregister(&socket);
-            }
-            None => {}
-        }
     }
 
     /// Low-level method to register a socket/event pair on the p2p network interface.
     /// Call only once the socket is connected (called once the socket triggers ready).
     /// Will destroy the socket if we can't register for whatever reason.
-    fn register_http(&mut self, event_id: usize, socket: mio_net::TcpStream, outbound_url: Option<UrlString>, initial_request: Option<HttpRequestType>) -> Result<(), net_error> {
+    fn register_http(&mut self, network_state: &mut NetworkState, chainstate: &mut StacksChainState, event_id: usize, mut socket: mio_net::TcpStream, outbound_url: Option<UrlString>, initial_request: Option<HttpRequestType>) -> Result<(), net_error> {
         let client_addr = match socket.peer_addr() {
             Ok(addr) => addr,
             Err(e) => {
@@ -192,7 +177,7 @@ impl HttpPeer {
         match self.can_register_http(&client_addr, outbound_url.as_ref()) {
             Ok(_) => {},
             Err(e) => {
-                self.deregister_socket(socket);
+                let _ = network_state.deregister(event_id, &socket);
                 return Err(e);
             }
         }
@@ -204,45 +189,49 @@ impl HttpPeer {
 
         let mut new_convo = ConversationHttp::new(self.network_id, &self.burnchain, client_addr.clone(), outbound_url.clone(), peer_host, &self.connection_opts, event_id);
         
-        test_debug!("Registered HTTP {} as event {} (outbound={:?})", &client_addr, event_id, &outbound_url);
+        debug!("Registered HTTP {:?} as event {} (outbound={:?})", &socket, event_id, &outbound_url);
 
         if let Some(request) = initial_request {
-            test_debug!("Sending initial HTTP request to {}", &client_addr);
+            test_debug!("Sending initial HTTP request to {:?}", &socket);
             match new_convo.send_request(request) {
                 Ok(_) => {},
                 Err(e) => {
-                    self.deregister_socket(socket);
+                    let _ = network_state.deregister(event_id, &socket);
+                    return Err(e);
+                }
+            }
+
+            // prime the socket
+            match HttpPeer::saturate_http_socket(&mut socket, &mut new_convo, chainstate) {
+                Ok(_) => {},
+                Err(e) => {
+                    let _ = network_state.deregister(event_id, &socket);
                     return Err(e);
                 }
             }
         }
-
+        
         self.sockets.insert(event_id, socket);
         self.peers.insert(event_id, new_convo);
         Ok(())
     }
     
     /// Deregister a socket/event pair
-    pub fn deregister_http(&mut self, event_id: usize) -> () {
+    pub fn deregister_http(&mut self, network_state: &mut NetworkState, event_id: usize) -> () {
         if self.peers.contains_key(&event_id) {
             // kill the conversation
             self.peers.remove(&event_id);
         }
 
         let mut to_remove : Vec<usize> = vec![];
-        match self.network {
+        match self.sockets.get_mut(&event_id) {
             None => {},
-            Some(ref mut network) => {
-                match self.sockets.get_mut(&event_id) {
-                    None => {},
-                    Some(ref sock) => {
-                        let _ = network.deregister(sock);
-                        to_remove.push(event_id);   // force it to close anyway
-                    }
-                }
+            Some(ref sock) => {
+                let _ = network_state.deregister(event_id, sock);
+                to_remove.push(event_id);   // force it to close anyway
             }
         }
-
+        
         for event_id in to_remove {
             // remove socket
             self.sockets.remove(&event_id);
@@ -251,7 +240,7 @@ impl HttpPeer {
     }
     
     /// Remove slow/unresponsive peers
-    fn disconnect_unresponsive(&mut self) -> () {
+    fn disconnect_unresponsive(&mut self, network_state: &mut NetworkState) -> () {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
         for (event_id, convo) in self.peers.iter() {
@@ -269,19 +258,41 @@ impl HttpPeer {
             
             if last_request_time + self.connection_opts.idle_timeout < now && last_response_time + self.connection_opts.idle_timeout < now {
                 // it's been too long
-                test_debug!("Removing idle HTTP conversation {:?}", convo);
+                debug!("Removing idle HTTP conversation {:?}", convo);
                 to_remove.push(*event_id);
             }
         }
 
         for event_id in to_remove.drain(0..) {
-            self.deregister_http(event_id);
+            self.deregister_http(network_state, event_id);
         }
+    }
+
+    /// Saturate a conversation's socket -- either sends the whole request, or fills the socket
+    /// buffer.
+    pub fn saturate_http_socket(client_sock: &mut mio::net::TcpStream, convo: &mut ConversationHttp, chainstate: &mut StacksChainState) -> Result<(), net_error> {
+        // saturate the socket
+        loop {
+            let send_res = convo.send(client_sock, chainstate);
+            match send_res {
+                Err(e) => {
+                    debug!("Failed to send data to socket {:?}: {:?}", &client_sock, &e);
+                    return Err(e);
+                },
+                Ok(sz) => {
+                    if sz == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+       
+        Ok(())
     }
     
     /// Process new inbound HTTP connections we just accepted.
     /// Returns the event IDs of sockets we need to register
-    fn process_new_sockets(&mut self, poll_state: &mut NetworkPollState) -> Result<Vec<usize>, net_error> {
+    fn process_new_sockets(&mut self, network_state: &mut NetworkState, chainstate: &mut StacksChainState, poll_state: &mut NetworkPollState) -> Result<Vec<usize>, net_error> {
         let mut registered = vec![];
 
         for (event_id, client_sock) in poll_state.new.drain() {
@@ -290,18 +301,11 @@ impl HttpPeer {
                 continue;
             }
 
-            match self.network {
-                Some(ref mut network) => {
-                    if let Err(_e) = network.register(event_id, &client_sock) {
-                        continue;
-                    }
-                },
-                None => {
-                    test_debug!("HTTP not connected");
-                    return Err(net_error::NotConnected);
-                }
+            if let Err(_e) = network_state.register(self.http_server_handle, event_id, &client_sock) {
+                continue;
             }
-            if let Err(_e) = self.register_http(event_id, client_sock, None, None) {
+
+            if let Err(_e) = self.register_http(network_state, chainstate, event_id, client_sock, None, None) {
                 continue;
             }
             registered.push(event_id);
@@ -311,10 +315,12 @@ impl HttpPeer {
     }
 
     /// Process network traffic on a HTTP conversation.
-    /// Returns whether or not the convo is still alive.
+    /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
+    /// forwarded to the peer network.
     fn process_http_conversation(chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
-                                 chainstate: &mut StacksChainState, event_id: usize, client_sock: &mut mio_net::TcpStream,
-                                 convo: &mut ConversationHttp) -> Result<bool, net_error> {
+                                 chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
+                                 event_id: usize, client_sock: &mut mio_net::TcpStream,
+                                 convo: &mut ConversationHttp) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
         let recv_res = convo.recv(client_sock);
@@ -323,13 +329,34 @@ impl HttpPeer {
                 match e {
                     net_error::PermanentlyDrained => {
                         // socket got closed, but we might still have pending unsolicited messages
-                        debug!("Remote peer disconnected event {} (socket {:?})", event_id, &client_sock);
+                        debug!("Remote HTTP peer disconnected event {} (socket {:?})", event_id, &client_sock);
+                        convo_dead = true;
+                    },
+                    net_error::InvalidMessage => {
+                        // got sent bad data.  If this was an inbound conversation, send it a HTTP
+                        // 400 and close the socket.
+                        debug!("Got a bad HTTP message on socket {:?}", &client_sock);
+                        match convo.reply_error(client_sock, HttpResponseType::BadRequest(HttpResponseMetadata::empty_error(), "".to_string())) {
+                            Ok(_) => {
+                                match HttpPeer::saturate_http_socket(client_sock, convo, chainstate) {
+                                    Ok(_) => {},
+                                    Err(e) => {
+                                        debug!("Failed to flush HTP 400 to socket {:?}: {:?}", &client_sock, &e);
+                                        convo_dead = true;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                debug!("Failed to reply HTTP 400 to socket {:?}: {:?}", &client_sock, &e);
+                                convo_dead = true;
+                            }
+                        }
                     },
                     _ => {
-                        debug!("Failed to receive data on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
+                        debug!("Failed to receive HTTP data on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
+                        convo_dead = true;
                     }
                 }
-                convo_dead = true;
             },
             Ok(_) => {}
         }
@@ -337,37 +364,43 @@ impl HttpPeer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        match convo.chat(chain_view, burndb, peerdb, chainstate) {
-            Ok(_) => {},
+        let msgs = match convo.chat(chain_view, burndb, peerdb, chainstate, mempool) {
+            Ok(msgs) => msgs,
             Err(e) => {
-                debug!("Failed to converse on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
+                debug!("Failed to converse HTTP on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
                 convo_dead = true;
+                vec![]
             }
-        }
+        };
 
         if !convo_dead {
             // (continue) sending out data in this conversation, if the conversation is still
             // ongoing
-            match convo.send(client_sock) {
+            match convo.send(client_sock, chainstate) {
                 Ok(_) => {},
                 Err(e) => {
-                    debug!("Failed to send data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
+                    debug!("Failed to send HTTP data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
                     convo_dead = true;
                 }
             }
         }
 
-        Ok(!convo_dead)
+        Ok((!convo_dead, msgs))
+    }
+
+    /// Is an event in the process of connecting?
+    pub fn is_connecting(&self, event_id: usize) -> bool {
+        self.connecting.contains_key(&event_id)
     }
 
     /// Process newly-connected sockets
-    fn process_connecting_sockets(&mut self, poll_state: &mut NetworkPollState) -> () {
+    fn process_connecting_sockets(&mut self, network_state: &mut NetworkState, chainstate: &mut StacksChainState, poll_state: &mut NetworkPollState) -> () {
         for event_id in poll_state.ready.iter() {
             if self.connecting.contains_key(event_id) {
                 let (socket, data_url, initial_request_opt) = self.connecting.remove(event_id).unwrap();
-                debug!("Event {} connected ({:?})", event_id, &data_url);
+                debug!("HTTP event {} connected ({:?})", event_id, &data_url);
 
-                if let Err(_e) = self.register_http(*event_id, socket, data_url.clone(), initial_request_opt) {
+                if let Err(_e) = self.register_http(network_state, chainstate, *event_id, socket, data_url.clone(), initial_request_opt) {
                     debug!("Failed to register HTTP connection ({}, {:?})", event_id, data_url);
                 }
             }
@@ -376,10 +409,12 @@ impl HttpPeer {
 
     /// Process sockets that are ready, but specifically inbound or outbound only.
     /// Advance the state of all such conversations with remote peers.
-    /// Return the list of events that correspond to failed conversations
+    /// Return the list of events that correspond to failed conversations, as well as the list of
+    /// peer network messages we'll need to forward
     fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &mut BurnDB, peerdb: &mut PeerDB,
-                             chainstate: &mut StacksChainState) -> Vec<usize> {
+                             chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
+        let mut msgs = vec![];
         for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
                 test_debug!("Rogue socket event {}", event_id);
@@ -399,12 +434,13 @@ impl HttpPeer {
                 Some(ref mut convo) => {
                     // activity on a http socket
                     test_debug!("Process HTTP data from {:?}", convo);
-                    match HttpPeer::process_http_conversation(&self.chain_view, burndb, peerdb,
-                                                              chainstate, *event_id, client_sock, convo) {
-                        Ok(alive) => {
+                    match HttpPeer::process_http_conversation(&self.chain_view, burndb, peerdb, chainstate, mempool,
+                                                              *event_id, client_sock, convo) {
+                        Ok((alive, mut new_msgs)) => {
                             if !alive {
                                 to_remove.push(*event_id);
                             }
+                            msgs.append(&mut new_msgs);
                         },
                         Err(_e) => {
                             to_remove.push(*event_id);
@@ -419,40 +455,9 @@ impl HttpPeer {
             }
         }
 
-        to_remove
+        (msgs, to_remove)
     }
 
-    /// Make progress on sending any/all new outbound messages we have.
-    /// Meant to prime sockets so we wake up on the next loop pass immediately to finish sending.
-    fn send_outbound_messages(&mut self) -> Vec<usize> {
-        let mut to_remove = vec![];
-        for (event_id, convo) in self.peers.iter_mut() {
-            if !self.sockets.contains_key(&event_id) {
-                test_debug!("Rogue socket event {}", event_id);
-                to_remove.push(*event_id);
-                continue;
-            }
-
-            let client_sock_opt = self.sockets.get_mut(&event_id);
-            if client_sock_opt.is_none() {
-                test_debug!("No such socket event {}", event_id);
-                to_remove.push(*event_id);
-                continue;
-            }
-            let client_sock = client_sock_opt.unwrap();
-            let send_res = convo.send(client_sock);
-            match send_res {
-                Err(e) => {
-                    debug!("Failed to send data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
-                    to_remove.push(*event_id);
-                    continue;
-                },
-                Ok(_) => {}
-            }
-        }
-        to_remove
-    }
-    
     /// Flush outgoing replies, but don't block.
     /// Drop broken handles.
     /// Return the list of conversation event IDs to close (i.e. they're broken, or the request is done)
@@ -468,7 +473,6 @@ impl HttpPeer {
                     close.push(*event_id);
                 }
             }
-
             if convo.is_drained() && !convo.is_keep_alive() {
                 // did some work, but nothing more to do and we're not keep-alive
                 test_debug!("Close drained connection {:?}", convo);
@@ -484,34 +488,31 @@ impl HttpPeer {
     /// -- send data on ready sockets
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
-    fn dispatch_network(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
-                        chainstate: &mut StacksChainState, mut poll_state: NetworkPollState) -> Result<(), net_error> {
-        if self.network.is_none() {
-            test_debug!("HTTP not connected");
-            return Err(net_error::NotConnected);
-        }
+    /// Returns the list of messages to forward along to the peer network.
+    pub fn run(&mut self, network_state: &mut NetworkState, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+               chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, mut poll_state: NetworkPollState) -> Result<Vec<StacksMessageType>, net_error> {
 
         // update burnchain snapshot
         self.chain_view = new_chain_view;
 
         // set up new inbound conversations
-        self.process_new_sockets(&mut poll_state)?;
+        self.process_new_sockets(network_state, chainstate, &mut poll_state)?;
 
         // set up connected sockets
-        self.process_connecting_sockets(&mut poll_state);
+        self.process_connecting_sockets(network_state, chainstate, &mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let error_events = self.process_ready_sockets(&mut poll_state, burndb, peerdb, chainstate);
+        let (stacks_msgs, error_events) = self.process_ready_sockets(&mut poll_state, burndb, peerdb, chainstate, mempool);
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);
-            self.deregister_http(error_event);
+            self.deregister_http(network_state, error_event);
         }
 
         // move conversations along
         let close_events = self.flush_conversations(chainstate);
         for close_event in close_events {
             debug!("Close HTTP connection on event {}", close_event);
-            self.deregister_http(close_event);
+            self.deregister_http(network_state, close_event);
         }
 
         // remove timed-out requests 
@@ -520,35 +521,9 @@ impl HttpPeer {
         }
         
         // clear out slow or non-responsive peers
-        self.disconnect_unresponsive();
+        self.disconnect_unresponsive(network_state);
 
-        // send out any queued messages.
-        // this has the intentional side-effect of activating some sockets as writeable.
-        let error_outbound_events = self.send_outbound_messages();
-        for error_event in error_outbound_events {
-            debug!("Failed HTTP connection on event {}", error_event);
-            self.deregister_http(error_event);
-        }
-     
-        Ok(())
-    }
-
-    /// Top-level main-loop circuit to take for http server and clients.
-    /// -- polls the http server state to get new sockets and detect ready sockets
-    /// -- carries out http network conversations
-    pub fn run(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
-               chainstate: &mut StacksChainState, poll_timeout: u64) -> Result<(), net_error> {
-        let poll_state = match self.network {
-            None => {
-                test_debug!("HTTP not connected");
-                Err(net_error::NotConnected)
-            },
-            Some(ref mut network) => {
-                network.poll(poll_timeout)
-            }
-        }?;
-
-        self.dispatch_network(new_chain_view, burndb, peerdb, chainstate, poll_state)
+        Ok(stacks_msgs)
     }
 }
 
@@ -708,6 +683,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_10_threads_getinfo() {
         test_http_server("test_http_10_threads_getinfo", 51010, 51011, ConnectionOptions::default(), 10, 0,
                         |client_id, _| {
@@ -760,6 +736,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_10_threads_getblock() {
         test_http_server("test_http_getblock", 51030, 51031, ConnectionOptions::default(), 10, 0,
                         |client_id, ref mut peer_server| {
@@ -794,6 +771,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_too_many_clients() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.num_clients = 1;
@@ -838,6 +816,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_http_slow_client() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.timeout = 3;      // kill a connection after 3 seconds of idling
@@ -912,16 +891,36 @@ mod test {
     }
     
     #[test]
+    fn test_http_400() {
+        test_http_server("test_http_getinfo", 51070, 51071, ConnectionOptions::default(), 1, 0,
+                        |client_id, _| {
+                            // live example -- should fail because we don't support `Connection:
+                            // upgrade`
+                            let request_txt = "GET /favicon.ico HTTP/1.1\r\nConnection: upgrade\r\nHost: crashy-stacky.zone117x.com\r\nX-Real-IP: 213.127.17.55\r\nX-Forwarded-For: 213.127.17.55\r\nX-Forwarded-Proto: http\r\nX-Forwarded-Host: crashy-stacky.zone117x.com\r\nX-Forwarded-Port: 9001\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.113 Safari/537.36\r\nAccept: image/webp,image/apng,image/*,*/*;q=0.8\r\nReferer: http://crashy-stacky.zone117x.com:9001/v2/info\r\nAccept-Encoding: gzip, deflate\r\nAccept-Language: en-US,en;q=0.9\r\n\r\n";
+                            request_txt.as_bytes().to_vec()
+                        },
+                        |client_id, http_response_bytes_res| {
+                            // should be a HTTP 400 error 
+                            eprintln!("{:?}", &http_response_bytes_res);
+                            let http_response_bytes = http_response_bytes_res.unwrap();
+                            let http_response_str = String::from_utf8(http_response_bytes).unwrap();
+                            eprintln!("HTTP response\n{}", http_response_str);
+                            assert!(http_response_str.find("400 Bad Request").is_some());
+                            true
+                        });
+    }
+
+    #[test]
     fn test_http_noop() {
         if std::env::var("BLOCKSTACK_HTTP_TEST") != Ok("1".to_string()) {
             eprintln!("Set BLOCKSTACK_HTTP_TEST=1 to use this test.");
-            eprintln!("To test, run `curl http://localhost:51071/v2/blocks/a3b82874a8bf02b91613f61bff41580dab439ecc14f5e71c7288d89623499dfa` to download a block");
+            eprintln!("To test, run `curl http://localhost:51081/v2/blocks/a3b82874a8bf02b91613f61bff41580dab439ecc14f5e71c7288d89623499dfa` to download a block");
             return;
         }
 
         // doesn't do anything; just runs a server for 10 minutes
         let conn_opts = ConnectionOptions::default();
-        test_http_server("test_http_noop", 51070, 51071, conn_opts, 1, 600,
+        test_http_server("test_http_noop", 51080, 51081, conn_opts, 1, 600,
                         |client_id, ref mut peer_server| {
                             let peer_server_block = make_codec_test_block(25);
                             let peer_server_burn_block_hash = BurnchainHeaderHash([(client_id+1) as u8; 32]);

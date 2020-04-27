@@ -374,7 +374,7 @@ impl EventBatch {
 }
 
 impl <'a> OwnedEnvironment <'a> {
-    #[cfg(test)]
+
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
             context: GlobalContext::new(database, LimitedCostTracker::new_max_limit()),
@@ -455,7 +455,6 @@ impl <'a> OwnedEnvironment <'a> {
                             |exec_env| exec_env.eval_raw(program))
     }
 
-    #[cfg(test)]
     pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, program: &str) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)>  {
         self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
                             |exec_env| exec_env.eval_read_only(contract, program))
@@ -686,19 +685,28 @@ impl <'a,'b> Environment <'a,'b> {
                                         contract_content: &ContractAST, contract_string: &str) -> Result<()> {
         self.global_context.begin();
 
-        runtime_cost!(cost_functions::CONTRACT_STORAGE, self, contract_string.len())?;
+        // wrap in a closure so that `?` can be caught and the global_context can roll_back()
+        //  before returning.
+        let result = (|| {
+            runtime_cost!(cost_functions::CONTRACT_STORAGE, self, contract_string.len())?;
 
-        // first, store the contract _content hash_ in the data store.
-        //    this is necessary before creating and accessing metadata fields in the data store,
-        //      --or-- storing any analysis metadata in the data store.
-        self.global_context.database.insert_contract_hash(&contract_identifier, contract_string)?;
-        let memory_use = contract_string.len() as u64;
-        self.add_memory(memory_use)?;
+            if self.global_context.database.has_contract(&contract_identifier) {
+                return Err(CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into())
+            }
 
-        let result = Contract::initialize_from_ast(contract_identifier.clone(), 
-                                                   contract_content,
-                                                   &mut self.global_context);
-        self.drop_memory(memory_use);
+            // first, store the contract _content hash_ in the data store.
+            //    this is necessary before creating and accessing metadata fields in the data store,
+            //      --or-- storing any analysis metadata in the data store.
+            self.global_context.database.insert_contract_hash(&contract_identifier, contract_string)?;
+            let memory_use = contract_string.len() as u64;
+            self.add_memory(memory_use)?;
+
+            let result = Contract::initialize_from_ast(contract_identifier.clone(),
+                                                       contract_content,
+                                                       &mut self.global_context);
+            self.drop_memory(memory_use);
+            result
+        })();
 
         match result {
             Ok(contract) => {

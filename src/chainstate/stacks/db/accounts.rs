@@ -28,7 +28,7 @@ use chainstate::stacks::db::*;
 use chainstate::stacks::db::blocks::*;
 use vm::database::*;
 use vm::database::marf::*;
-use vm::clarity::ClarityConnection;
+use vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use vm::types::*;
 
 use util::db::*;
@@ -57,25 +57,18 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
         let tx_fees_anchored_text : String = row.get("tx_fees_anchored");
         let tx_fees_streamed_text : String = row.get("tx_fees_streamed");
         let burns_text : String = row.get("stx_burns");
-        let burnchain_commit_burn_i64 : i64 = row.get("burnchain_commit_burn");
-        let burnchain_sortition_burn_i64 : i64 = row.get("burnchain_sortition_burn");
+        let burnchain_commit_burn = u64::from_column(row, "burnchain_commit_burn")?;
+        let burnchain_sortition_burn = u64::from_column(row, "burnchain_sortition_burn")?;
         let fill_text : String = row.get("fill");
         let miner : bool = row.get("miner");
-        let block_height_i64 : i64 = row.get("stacks_block_height");
+        let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
         let vtxindex : u32 = row.get("vtxindex");
-
-        if burnchain_commit_burn_i64 < 0 || burnchain_sortition_burn_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
 
         let coinbase = coinbase_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
         let tx_fees_anchored = tx_fees_anchored_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
         let tx_fees_streamed = tx_fees_streamed_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
         let stx_burns = burns_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
-        let burnchain_commit_burn = burnchain_commit_burn_i64 as u64;
-        let burnchain_sortition_burn = burnchain_sortition_burn_i64 as u64;
         let fill = fill_text.parse::<u64>().map_err(|_e| db_error::ParseError)?;
-        let stacks_block_height = block_height_i64 as u64;
 
         let payment_data = MinerPaymentSchedule {
             address,
@@ -160,8 +153,8 @@ impl StacksChainState {
     /// Called each time a transaction is invoked from this principal, to e.g.
     /// debit the STX-denominated tx fee or transfer/burn STX.
     /// DOES NOT UPDATE THE NONCE
-    pub fn account_debit<'a>(clarity_tx: &mut ClarityTx<'a>, principal: &PrincipalData, amount: u64) {
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
+    pub fn account_debit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
+        clarity_tx.with_clarity_db(|ref mut db| {
             let cur_balance = db.get_account_stx_balance(principal);
             
             // last line of defense: if we don't have sufficient funds, panic.
@@ -178,8 +171,8 @@ impl StacksChainState {
 
     /// Called each time a transaction sends STX to this principal.
     /// No nonce update is needed, since the transfer action is not taken by the principal.
-    pub fn account_credit<'a>(clarity_tx: &mut ClarityTx<'a>, principal: &PrincipalData, amount: u64) {
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
+    pub fn account_credit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
+        clarity_tx.with_clarity_db(|ref mut db| {
             let cur_balance = db.get_account_stx_balance(principal);
             let final_balance = cur_balance.checked_add(amount as u128).expect("FATAL: account balance overflow");
             db.set_account_stx_balance(principal, final_balance as u128);
@@ -189,8 +182,8 @@ impl StacksChainState {
     }
    
     /// Increment an account's nonce
-    pub fn update_account_nonce<'a>(clarity_tx: &mut ClarityTx<'a>, account: &StacksAccount) {
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
+    pub fn update_account_nonce(clarity_tx: &mut ClarityTransactionConnection, account: &StacksAccount) {
+        clarity_tx.with_clarity_db(|ref mut db| {
             let next_nonce = account.nonce.checked_add(1).expect("OUT OF NONCES");
             db.set_account_nonce(&account.principal, next_nonce);
             Ok(())
@@ -202,24 +195,86 @@ impl StacksChainState {
     pub fn insert_miner_payment_schedule<'a>(tx: &mut StacksDBTx<'a>, block_reward: &MinerPaymentSchedule, user_burns: &Vec<StagingUserBurnSupport>) -> Result<(), Error> {
         assert!(block_reward.burnchain_commit_burn < i64::max_value() as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
+        assert!(block_reward.stacks_block_height < i64::max_value() as u64);
 
         let index_block_hash = StacksBlockHeader::make_index_block_hash(&block_reward.burn_header_hash, &block_reward.block_hash);
 
-        let args: &[&dyn ToSql] = &[&block_reward.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
-                    &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored), &format!("{}", block_reward.tx_fees_streamed), &format!("{}", block_reward.stx_burns), 
-                    &(block_reward.burnchain_commit_burn as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql, 
-                    &true as &dyn ToSql, &0i64 as &dyn ToSql, &index_block_hash as &dyn ToSql];
+        let args: &[&dyn ToSql] = &[
+            &block_reward.address.to_string(), 
+            &block_reward.block_hash, 
+            &block_reward.burn_header_hash, 
+            &block_reward.parent_block_hash, 
+            &block_reward.parent_burn_header_hash, 
+            &format!("{}", block_reward.coinbase),
+            &format!("{}", block_reward.tx_fees_anchored),
+            &format!("{}", block_reward.tx_fees_streamed),
+            &format!("{}", block_reward.stx_burns),
+            &u64_to_sql(block_reward.burnchain_commit_burn)?,
+            &u64_to_sql(block_reward.burnchain_sortition_burn)?,
+            &format!("{}", block_reward.fill),
+            &u64_to_sql(block_reward.stacks_block_height)?, 
+            &true,
+            &0i64,
+            &index_block_hash];
 
-        tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
+        tx.execute("INSERT INTO payments (
+                        address,
+                        block_hash,
+                        burn_header_hash,
+                        parent_block_hash,
+                        parent_burn_header_hash,
+                        coinbase,
+                        tx_fees_anchored,
+                        tx_fees_streamed,
+                        stx_burns,
+                        burnchain_commit_burn,
+                        burnchain_sortition_burn,
+                        fill,
+                        stacks_block_height,
+                        miner,
+                        vtxindex,
+                        index_block_hash) \
                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         for user_support in user_burns.iter() {
-            let args: &[&dyn ToSql] = &[&user_support.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
-                        &format!("{}", block_reward.coinbase), &"0".to_string(), &"0".to_string(), &"0".to_string(),
-                        &(user_support.burn_amount as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql,
-                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql, &index_block_hash as &dyn ToSql];
-            tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
+            assert!(user_support.burn_amount < i64::max_value() as u64);
+            
+            let args: &[&dyn ToSql] = &[
+                &user_support.address.to_string(),
+                &block_reward.block_hash,
+                &block_reward.burn_header_hash,
+                &block_reward.parent_block_hash,
+                &block_reward.parent_burn_header_hash,
+                &format!("{}", block_reward.coinbase),
+                &"0".to_string(),
+                &"0".to_string(),
+                &"0".to_string(),
+                &u64_to_sql(user_support.burn_amount)?,
+                &u64_to_sql(block_reward.burnchain_sortition_burn)?,
+                &format!("{}", block_reward.fill),
+                &u64_to_sql(block_reward.stacks_block_height)?,
+                &false,
+                &user_support.vtxindex,
+                &index_block_hash];
+
+            tx.execute("INSERT INTO payments (
+                            address,
+                            block_hash,
+                            burn_header_hash,
+                            parent_block_hash,
+                            parent_burn_header_hash,
+                            coinbase,
+                            tx_fees_anchored,
+                            tx_fees_streamed,
+                            stx_burns,
+                            burnchain_commit_burn,
+                            burnchain_sortition_burn,
+                            fill,
+                            stacks_block_height,
+                            miner,
+                            vtxindex,
+                            index_block_hash) \
                         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                        args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -274,7 +329,7 @@ impl StacksChainState {
     /// TODO: this is incomplete -- it does not calculate transaction fees.  This is just stubbed
     /// out for now -- it only grants miners and user burn supports their coinbases.
     fn calculate_miner_reward(miner: &MinerPaymentSchedule, sample: &Vec<(MinerPaymentSchedule, Vec<MinerPaymentSchedule>)>) -> MinerReward {
-        assert!(miner.burnchain_sortition_burn > 0);        // don't call this method if there was no sortition for this block!
+        // assert!(miner.burnchain_sortition_burn > 0);        // don't call this method if there was no sortition for this block!
         for i in 0..sample.len() {
             assert!(sample[i].0.miner);
             for u in sample[i].1.iter() {
@@ -498,7 +553,7 @@ mod test {
     
     #[test]
     fn get_tip_ancestor() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "get_tip_ancestor_test");
         let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
         let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);

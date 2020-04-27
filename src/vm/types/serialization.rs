@@ -6,6 +6,8 @@ use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, Buffe
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 
+use net::{StacksMessageCodec, Error as NetError};
+
 use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
 use std::collections::HashMap;
@@ -74,25 +76,34 @@ impl From<CheckErrors> for SerializationError {
 }
 
 define_u8_enum!(TypePrefix {
-    Int,
-    UInt,
-    Buffer,
-    BoolTrue,
-    BoolFalse,
-    PrincipalStandard,
-    PrincipalContract,
-    ResponseOk,
-    ResponseErr,
-    OptionalNone,
-    OptionalSome,
-    List,
-    Tuple,
+    Int = 0,
+    UInt = 1,
+    Buffer = 2,
+    BoolTrue = 3,
+    BoolFalse = 4,
+    PrincipalStandard = 5,
+    PrincipalContract = 6,
+    ResponseOk = 7,
+    ResponseErr = 8,
+    OptionalNone = 9,
+    OptionalSome = 10,
+    List = 11,
+    Tuple = 12
 });
+
+impl From<&PrincipalData> for TypePrefix {
+    fn from(v: &PrincipalData) -> TypePrefix {
+        use super::PrincipalData::*;
+        match v {
+            Standard(_) => TypePrefix::PrincipalStandard,
+            Contract(_) => TypePrefix::PrincipalContract,
+        }
+    }
+}
 
 impl From<&Value> for TypePrefix {
     fn from(v: &Value) -> TypePrefix {
         use super::Value::*;
-        use super::PrincipalData::*;
 
         match v {
             Int(_) => TypePrefix::Int,
@@ -105,8 +116,7 @@ impl From<&Value> for TypePrefix {
                     TypePrefix::BoolFalse
                 }
             },
-            Principal(Standard(_)) => TypePrefix::PrincipalStandard,
-            Principal(Contract(_)) => TypePrefix::PrincipalContract,
+            Principal(p) => TypePrefix::from(p),
             Response(response) => {
                 if response.committed {
                     TypePrefix::ResponseOk
@@ -178,6 +188,52 @@ impl ClarityValueSerializable<$Name> for $Name {
 
 serialize_guarded_string!(ClarityName);
 serialize_guarded_string!(ContractName);
+
+impl PrincipalData {
+    fn inner_consensus_serialize<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+        w.write_all(&[TypePrefix::from(self) as u8])?;
+        match self {
+            PrincipalData::Standard(p) => {
+                p.serialize_write(w)
+            },
+            PrincipalData::Contract(contract_identifier) => {
+                contract_identifier.issuer.serialize_write(w)?;
+                contract_identifier.name.serialize_write(w)
+            }
+        }
+    }
+
+    fn inner_consensus_deserialize<R: Read>(r: &mut R) -> Result<PrincipalData, SerializationError> {
+        let mut header = [0];
+        r.read_exact(&mut header)?;
+
+        let prefix = TypePrefix::from_u8(header[0])
+            .ok_or_else(|| "Bad principal prefix")?;
+
+        match prefix {
+            TypePrefix::PrincipalStandard => {
+                StandardPrincipalData::deserialize_read(r)
+                    .map(PrincipalData::from)
+            },
+            TypePrefix::PrincipalContract => {
+                let issuer = StandardPrincipalData::deserialize_read(r)?;
+                let name = ContractName::deserialize_read(r)?;
+                Ok(PrincipalData::from(QualifiedContractIdentifier { issuer, name }))
+            },
+            _ => Err("Bad principal prefix".into())
+        }
+    }
+}
+
+impl StacksMessageCodec for PrincipalData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), NetError> {
+        self.inner_consensus_serialize(fd).map_err(NetError::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PrincipalData, NetError> {
+        PrincipalData::inner_consensus_deserialize(fd).map_err(|e| NetError::DeserializeError(e.to_string()))
+    }
+}
 
 macro_rules! check_match {
     ($item:expr, $Pattern:pat) => {

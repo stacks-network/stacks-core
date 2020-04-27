@@ -94,6 +94,7 @@ use vm::clarity::{
 };
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
+use vm::costs::ExecutionCost;
 
 use core::CHAINSTATE_VERSION;
 
@@ -105,7 +106,8 @@ pub struct StacksChainState {
     pub blocks_db: DBConn,
     pub headers_state_index: MARF,
     pub blocks_path: String,
-    pub clarity_state_index_path: String
+    pub clarity_state_index_path: String,
+    pub root_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -189,30 +191,23 @@ impl FromRow<DBConfig> for DBConfig {
 
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
-        let block_height_i64 : i64 = row.get("block_height");
+        let block_height = u64::from_column(row, "block_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_timestamp_i64 : i64 = row.get("burn_header_timestamp");
+        let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
-        
-        if block_height_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-        if burn_header_timestamp_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
 
-        if block_height_i64 as u64 != stacks_header.total_work.work {
+        if block_height != stacks_header.total_work.work {
             return Err(db_error::ParseError);
         }
 
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header, 
             microblock_tail: None,
-            block_height: block_height_i64 as u64,
+            block_height: block_height,
             index_root: index_root,
             burn_header_hash: burn_header_hash,
-            burn_header_timestamp: burn_header_timestamp_i64 as u64
+            burn_header_timestamp: burn_header_timestamp
         })
     }
 }
@@ -260,11 +255,6 @@ pub struct ClarityTx<'a> {
 }
 
 impl ClarityConnection for ClarityTx<'_> {
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut ClarityDatabase) -> R {
-        ClarityConnection::with_clarity_db_readonly(&mut self.block, to_do)
-    }
-
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
         ClarityConnection::with_clarity_db_readonly_owned(&mut self.block, to_do)
@@ -286,8 +276,8 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_block();
     }
 
-    pub fn commit_block_will_move(self, will_move: &str) -> () {
-        self.block.commit_block_will_move(will_move);
+    pub fn commit_mined_block(self, block_hash: &BlockHeaderHash) -> () {
+        self.block.commit_mined_block(block_hash);
     }
 
     pub fn commit_to_block(self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
@@ -299,13 +289,12 @@ impl<'a> ClarityTx<'a> {
         self.block.rollback_block()
     }
 
-    pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
-        &mut self.block
+    pub fn reset_cost(&mut self, cost: ExecutionCost) -> () {
+        self.block.reset_block_cost(cost);
     }
 
-    pub fn get_block_path(&mut self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> PathBuf {
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, block_hash);
-        self.block.get_marf().get_block_path(&index_block_hash)
+    pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
+        &mut self.block
     }
 }
 
@@ -460,7 +449,7 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
         ((available uint) (authorized bool))
     )
     (define-private (get-participant-info (participant principal))
-        (default-to (tuple (available u0) (authorized 'false)) (map-get? rewards ((participant participant)))))
+        (default-to {available: u0, authorized: false} (map-get? rewards {participant participant})))
 
     (define-public (get-participant-reward (participant principal))
         (ok (get available (get-participant-info participant))))
@@ -638,7 +627,10 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
 
                 boot_code_account.nonce += 1;
             }
@@ -652,15 +644,20 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
                 
                 boot_code_account.nonce += 1;
             }
 
             if let Some(initial_balances) = initial_balances {
                 for (address, amount) in initial_balances {
-                    StacksChainState::account_credit(&mut clarity_tx, &address, amount);
-                }    
+                    clarity_tx.connection().as_transaction(|clarity| {
+                        StacksChainState::account_credit(clarity, &address, amount)
+                    })
+                }
             }
 
             f(&mut clarity_tx);
@@ -712,15 +709,34 @@ impl StacksChainState {
     }
 
     pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {})
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {}, ExecutionCost::max_value())
     }
 
-    pub fn open_testnet<F>(chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>, in_boot_block: F) -> Result<StacksChainState, Error> 
+    /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
+    /// parameters
+    pub fn reopen(&self) -> Result<StacksChainState, Error> {
+        StacksChainState::open(self.mainnet, self.chain_id, &self.root_path)
+    }
+    
+    /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
+    /// parameters, but with a block limit
+    pub fn reopen_limited(&self, budget: ExecutionCost) -> Result<StacksChainState, Error> {
+        StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None, |_| {}, budget)
+    }
+
+    pub fn open_testnet<F>(chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>,
+                           in_boot_block: F, block_limit: ExecutionCost) -> Result<StacksChainState, Error>  
     where F: FnOnce(&mut ClarityTx) -> () {        
-        StacksChainState::open_and_exec(false, chain_id, path_str, initial_balances, in_boot_block)
+        StacksChainState::open_and_exec(false, chain_id, path_str, initial_balances, in_boot_block, block_limit)
     }
 
-    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>, in_boot_block: F) -> Result<StacksChainState, Error> 
+    pub fn open_with_block_limit(mainnet: bool, chain_id: u32, path_str: &str, block_limit: ExecutionCost) -> Result<StacksChainState, Error> {
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {}, block_limit)
+    }
+
+    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str,
+                            initial_balances: Option<Vec<(PrincipalData, u64)>>,
+                            in_boot_block: F, block_limit: ExecutionCost) -> Result<StacksChainState, Error> 
     where F: FnOnce(&mut ClarityTx) -> () {
         let mut path = PathBuf::from(path_str);
 
@@ -762,7 +778,7 @@ impl StacksChainState {
 
         headers_path.pop();
         headers_path.pop();
-        
+
         headers_path.push("index");
         let header_index_root = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
 
@@ -779,8 +795,8 @@ impl StacksChainState {
         let vm_state = MarfedKV::open(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
             .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(vm_state);
-        
+        let clarity_state = ClarityInstance::new(vm_state, block_limit);
+
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
             chain_id: chain_id,
@@ -789,7 +805,8 @@ impl StacksChainState {
             blocks_db: blocks_db,
             headers_state_index: headers_state_index,
             blocks_path: blocks_path_root,
-            clarity_state_index_path: clarity_state_index_marf
+            clarity_state_index_path: clarity_state_index_marf,
+            root_path: path_str.to_string(),
         };
 
         if !index_exists {
@@ -840,7 +857,6 @@ impl StacksChainState {
         Ok((chainstate_tx, clarity_instance))
     }
 
-    #[cfg(test)]
     pub fn clarity_eval_read_only(&mut self, parent_id_bhh: &BlockHeaderHash,
                                   contract: &QualifiedContractIdentifier, code: &str) -> Value {
         let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, contract, code);
@@ -848,7 +864,13 @@ impl StacksChainState {
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
-    pub fn chainstate_block_begin<'a>(chainstate_tx: &'a ChainstateTx<'a>, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+    pub fn chainstate_block_begin<'a>(chainstate_tx: &'a ChainstateTx<'a>,
+                                      clarity_instance: &'a mut ClarityInstance,
+                                      parent_burn_hash: &BurnchainHeaderHash,
+                                      parent_block: &BlockHeaderHash,
+                                      new_burn_hash: &BurnchainHeaderHash,
+                                      new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(conf, chainstate_tx.headers_tx.deref().deref(),
                                                  clarity_instance, parent_burn_hash, parent_block, new_burn_hash, new_block)
@@ -861,7 +883,7 @@ impl StacksChainState {
         StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state,
                                                  parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
-
+    
     fn begin_read_only_clarity_tx<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> ClarityReadOnlyConnection<'a> {
         let index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);
         self.clarity_state.read_only_connection(&index_block, &self.headers_db)
@@ -893,7 +915,14 @@ impl StacksChainState {
     }
 
     /// Create a Clarity VM database transaction
-    fn inner_clarity_tx_begin<'a>(conf: DBConfig, headers_db: &'a Connection, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+    fn inner_clarity_tx_begin<'a>(conf: DBConfig,
+                                  headers_db: &'a Connection,
+                                  clarity_instance: &'a mut ClarityInstance,
+                                  parent_burn_hash: &BurnchainHeaderHash,
+                                  parent_block: &BlockHeaderHash,
+                                  new_burn_hash: &BurnchainHeaderHash,
+                                  new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
         let parent_index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);
@@ -916,10 +945,9 @@ impl StacksChainState {
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a parent block
     /// header
     pub fn get_index_hash(burn_hash: &BurnchainHeaderHash, header: &StacksBlockHeader) -> BlockHeaderHash {
-        if header.is_genesis() {
+        if burn_hash == &FIRST_BURNCHAIN_BLOCK_HASH {
             TrieFileStorage::block_sentinel()
-        }
-        else {
+        } else {
             header.index_block_hash(burn_hash)
         }
     } 
@@ -1040,4 +1068,3 @@ pub mod test {
         }
     }
 }
-

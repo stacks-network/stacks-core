@@ -179,10 +179,10 @@ impl PeerBlocksInv {
             let set_idx = (insert_index / 8) as usize;
             let set_bit = insert_index % 8;
             if set_idx >= self.block_inv.len() {
-                self.block_inv.push(0);
+                self.block_inv.resize(set_idx + 1, 0);
             }
             if set_idx >= self.microblocks_inv.len() {
-                self.microblocks_inv.push(0);
+                self.microblocks_inv.resize(set_idx + 1, 0);
             }
 
             if block_set {
@@ -210,6 +210,20 @@ impl PeerBlocksInv {
         assert!(self.num_sortitions / 8 <= self.block_inv.len() as u64);
 
         (new_blocks, new_microblocks)
+    }
+
+    /// Set a block's bit as available.
+    /// Return whether or not the block bit was flipped to 1.
+    pub fn set_block_bit(&mut self, block_height: u64) -> bool {
+        let (new_blocks, _) = self.merge_blocks_inv(block_height, 1, vec![0x01], vec![0x00]);
+        new_blocks != 0
+    }
+    
+    /// Set a confirmed microblock stream's bit as available.
+    /// Return whether or not the bit was flipped to 1.
+    pub fn set_microblocks_bit(&mut self, block_height: u64) -> bool {
+        let (_, new_mblocks) = self.merge_blocks_inv(block_height, 1, vec![0x00], vec![0x01]);
+        new_mblocks != 0
     }
 }
 
@@ -343,7 +357,7 @@ impl InvState {
 
             block_stats: HashMap::new(),
 
-            request_timeout: 10,
+            request_timeout: 30,
             first_block_height: first_block_height,
 
             rescan_height: first_block_height,
@@ -412,7 +426,7 @@ impl InvState {
     pub fn cull_broken_peers(&mut self) -> () {
         for nk in self.broken_peers.iter() {
             if self.sync_peers.contains(nk) {
-                test_debug!("Cull broken peer {:?}", nk);
+                debug!("Cull broken peer {:?}", nk);
                 self.sync_peers.remove(nk);
             }
         }
@@ -422,7 +436,7 @@ impl InvState {
     pub fn cull_stale_peers(&mut self) -> () {
         for nk in self.stale_peers.iter() {
             if self.sync_peers.contains(nk) {
-                test_debug!("Cull stale peer {:?}", nk);
+                debug!("Cull stale peer {:?}", nk);
                 self.sync_peers.remove(nk);
             }
         }
@@ -432,7 +446,7 @@ impl InvState {
     pub fn cull_dead_peers(&mut self) -> () {
         for nk in self.dead_peers.iter() {
             if self.sync_peers.contains(nk) {
-                test_debug!("Cull dead peer {:?}", nk);
+                debug!("Cull dead peer {:?}", nk);
                 self.sync_peers.remove(nk);
             }
         }
@@ -442,22 +456,27 @@ impl InvState {
     pub fn cull_diverged_peers(&mut self) -> () {
         for nk in self.diverged_peers.iter() {
             if self.sync_peers.contains(nk) {
-                test_debug!("Cull diverged peer {:?}", nk);
+                debug!("Cull diverged peer {:?}", nk);
                 self.sync_peers.remove(nk);
             }
         }
     }
 
-    /// Get the list of faulty peers
-    pub fn get_faulty_peers(&self) -> Vec<NeighborKey> {
+    /// Get the list of broken peers
+    pub fn get_broken_peers(&self) -> Vec<NeighborKey> {
         let mut set = HashSet::new();
         for nk in self.broken_peers.iter() {
             set.insert(nk.clone());
         }
+        set.into_iter().collect()
+    }
+    
+    /// Get the list of dead
+    pub fn get_dead_peers(&self) -> Vec<NeighborKey> {
+        let mut set = HashSet::new();
         for nk in self.dead_peers.iter() {
             set.insert(nk.clone());
         }
-
         set.into_iter().collect()
     }
 
@@ -471,6 +490,75 @@ impl InvState {
 
     pub fn del_peer(&mut self, nk: &NeighborKey) -> () {
         self.block_stats.remove(&nk);
+    }
+
+    /// Set a block or confirmed microblock stream as available, given the burn header hash and consensus hash.
+    /// Used when processing a BlocksAvailable or MicroblocksAvailable message.
+    /// Returns the optional block sortition height at which the block or confirmed microblock stream resides in the blockchain (returns
+    /// None if its bit was already set).
+    fn set_data_available(&mut self, neighbor_key: &NeighborKey, burndb: &BurnDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, microblocks: bool) -> Result<Option<u64>, net_error> {
+        let sn = match BurnDB::get_block_snapshot(burndb.conn(), burn_header_hash)? {
+            Some(sn) => sn,
+            None => {
+                // we don't know about this block
+                test_debug!("Unknown burn header {}", burn_header_hash);
+                return Ok(None);
+            }
+        };
+
+        if sn.consensus_hash != *consensus_hash {
+            // Peer processed different burn transactions than we did for this block.
+            // In PoX, this can happen if a prior reward window anchor block is missing, but we
+            // haven't discovered it yet.
+            // TODO: Until PoX is implemented, we can assume that this doesn't happen.
+            test_debug!("Incorrect consensus hash: {} != {}", &sn.consensus_hash, consensus_hash);
+            return Ok(None);
+        }
+
+        if !sn.sortition {
+            // No block is available here anyway, even though the peer agrees with us on the
+            // consensus hash.
+            // This is bad behavior on the peer's part.
+            test_debug!("No sortition at {}", burn_header_hash);
+            return Err(net_error::InvalidMessage);
+        }
+
+        match self.block_stats.get_mut(neighbor_key) {
+            Some(stats) => {
+                // NOTE: block heights are 1-indexed in the burn DB, since the 0th snapshot block is the
+                // genesis snapshot and doesn't correspond to anything (the 1st snapshot is block 0)
+                let set = 
+                    if microblocks {
+                        debug!("Neighbor {:?} now has confirmed microblock stream at {} ({})", neighbor_key, sn.block_height - 1, burn_header_hash);
+                        stats.inv.set_microblocks_bit(sn.block_height - 1)
+                    }
+                    else {
+                        debug!("Neighbor {:?} now has block at {} ({})", neighbor_key, sn.block_height - 1, burn_header_hash);
+                        stats.inv.set_block_bit(sn.block_height - 1)
+                    };
+
+                debug!("Neighbor {:?} stats: {:?}", neighbor_key, stats);
+                if set {
+                    let block_sortition_height = sn.block_height - 1 - burndb.first_block_height;
+                    Ok(Some(block_sortition_height))
+                }
+                else {
+                    Ok(None)
+                }
+            },
+            None => {
+                test_debug!("No inv stats for neighbor {:?}", neighbor_key);
+                Ok(None)
+            }
+        }
+    }
+    
+    pub fn set_block_available(&mut self, neighbor_key: &NeighborKey, burndb: &BurnDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, net_error> {
+        self.set_data_available(neighbor_key, burndb, consensus_hash, burn_header_hash, false)
+    }
+
+    pub fn set_microblocks_available(&mut self, neighbor_key: &NeighborKey, burndb: &BurnDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, net_error> {
+        self.set_data_available(neighbor_key, burndb, consensus_hash, burn_header_hash, true)
     }
 
     pub fn getblocksinv_begin(&mut self, requests: HashMap<NeighborKey, ReplyHandleP2P>, target_heights: HashMap<NeighborKey, u64>) -> () {
@@ -516,21 +604,21 @@ impl InvState {
                     };
 
                 if diverged {
-                    test_debug!("Remote neighbor {:?} NACKed us because it diverged", _nk);
+                    debug!("Remote neighbor {:?} NACKed us because it diverged", _nk);
                 }
                 else if unstable {
-                    test_debug!("Remote neighbor {:?} NACKed us because it's chain tip is different from ours", _nk);
+                    debug!("Remote neighbor {:?} NACKed us because it's chain tip is different from ours", _nk);
                 }
                 else {
                     // something else is wrong
-                    test_debug!("Remote neighbor {:?} NACKed us because its block height is not in the chain view", _nk);
+                    debug!("Remote neighbor {:?} NACKed us because its block height is not in the chain view", _nk);
                     broken = true;
                 }
             }
         }
         else {
             // some other error
-            test_debug!("Remote neighbor {:?} NACKed us with error code {}", _nk, nack_data.error_code);
+            debug!("Remote neighbor {:?} NACKed us with error code {}", _nk, nack_data.error_code);
             broken = true;
         }
 
@@ -554,12 +642,16 @@ impl InvState {
     /// Try to finish getting all BlocksInvData requests.
     /// Return true if this method is done -- i.e. all requests have been handled.
     /// Return false if we're not done.
-    pub fn getblocksinv_try_finish(&mut self, chain_view: &BurnchainView) -> Result<bool, net_error> {
+    pub fn getblocksinv_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         assert_eq!(self.state, InvWorkState::GetBlocksInvFinish);
 
         // requests that are still pending
         let mut pending_getblocksinv_requests = HashMap::new();
-        for (nk, rh) in self.getblocksinv_requests.drain() {
+        for (nk, mut rh) in self.getblocksinv_requests.drain() {
+            if let Err(_e) = network.saturate_p2p_socket(rh.get_event_id(), &mut rh) {
+                self.dead_peers.insert(nk);
+                continue;
+            }
             let res = rh.try_send_recv();
             let rh_nk = nk.clone();
             let _target_height = *self.getblocksinv_target_heights.get(&nk).expect(&format!("BUG: no target block height for request to {:?}", &nk));
@@ -575,15 +667,15 @@ impl InvState {
                         StacksMessageType::BlocksInv(blocks_inv_data) => {
                             // got a BlocksInv!
                             // but, only accept it if the peer isn't too far ahead of us
-                            test_debug!("Got BlocksInv response at height {} from {:?} at ({},{}): {:?}", _target_height, &nk, preamble_burn_block_height, preamble_burn_stable_block_height, &blocks_inv_data);
+                            debug!("Got BlocksInv response at height {} from {:?} at ({},{}): {:?}", _target_height, &nk, preamble_burn_block_height, preamble_burn_stable_block_height, &blocks_inv_data);
                             self.block_invs.insert(nk, blocks_inv_data);
                         },
                         StacksMessageType::Nack(nack_data) => {
-                            test_debug!("Remote neighbor {:?} nack'ed our GetBlocksInv", &nk);
-                            match InvState::diagnose_nack(&nk, nack_data, chain_view, preamble_burn_block_height, preamble_burn_stable_block_height, preamble_burn_consensus_hash, preamble_burn_stable_consensus_hash) {
+                            debug!("Remote neighbor {:?} nack'ed our GetBlocksInv: error {}", &nk, nack_data.error_code);
+                            match InvState::diagnose_nack(&nk, nack_data, &network.chain_view, preamble_burn_block_height, preamble_burn_stable_block_height, preamble_burn_consensus_hash, preamble_burn_stable_consensus_hash) {
                                 NackResult::Noop => {},
                                 NackResult::Stale => {
-                                    test_debug!("Peer {:?} is stale", nk);
+                                    debug!("Peer {:?} is stale", nk);
                                     self.stale_peers.insert(nk);
                                 },
                                 NackResult::Unstable => {
@@ -595,14 +687,14 @@ impl InvState {
                                     self.diverged_peers.insert(nk);
                                 },
                                 NackResult::Broken => {
-                                    test_debug!("Peer {:?} is broken", nk);
+                                    debug!("Peer {:?} is broken", nk);
                                     self.broken_peers.insert(nk);
                                 }
                             };
                         },
                         _ => {
                             // unexpected reply
-                            test_debug!("Remote neighbor {:?} sent an unexpected reply of '{}'", &nk, message.get_message_name());
+                            debug!("Remote neighbor {:?} sent an unexpected reply of '{}'", &nk, message.get_message_name());
                             self.broken_peers.insert(nk);
                         }
                     }
@@ -618,7 +710,7 @@ impl InvState {
                         Err(_e) => {
                             // connection broken.
                             // Don't try to contact this node again.
-                            test_debug!("Failed to get block inventory from {:?}: {:?}", &nk, &_e);
+                            debug!("Failed to get block inventory from {:?}: {:?}", &nk, &_e);
                             self.dead_peers.insert(nk);
                             None
                         }
@@ -632,7 +724,7 @@ impl InvState {
             }
         }
 
-        test_debug!("Still waiting for {} blocksinv replies", pending_getblocksinv_requests.len());
+        debug!("Still waiting for {} blocksinv replies", pending_getblocksinv_requests.len());
 
         // are we done?
         if pending_getblocksinv_requests.len() == 0 {
@@ -641,10 +733,7 @@ impl InvState {
             return Ok(true);
         }
 
-        // still have more to go 
-        for (nk, rh) in pending_getblocksinv_requests.drain() {
-            self.getblocksinv_requests.insert(nk, rh);
-        }
+        self.getblocksinv_requests = pending_getblocksinv_requests;
         return Ok(false);
     }
 }    
@@ -820,7 +909,7 @@ impl PeerNetwork {
             let mut inv_heights : HashMap<NeighborKey, u64> = HashMap::new();
 
             for (nk, (target_height, inv_request)) in inv_targets.drain() {
-                test_debug!("{:?}: send getblocksinv request targeted at {}: {:?} to {:?}", &network.local_peer, target_height, &inv_request, &nk);
+                debug!("{:?}: send getblocksinv request targeted at {}: {:?} to {:?}", &network.local_peer, target_height, &inv_request, &nk);
 
                 let payload = StacksMessageType::GetBlocksInv(inv_request);
                 let message = network.sign_for_peer(&nk, payload)?;
@@ -845,7 +934,7 @@ impl PeerNetwork {
     pub fn inv_getblocksinv_finish(&mut self) -> Result<bool, net_error> {
         test_debug!("{:?}: getblocksinv_try_finish", &self.local_peer);
         PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
-            inv_state.getblocksinv_try_finish(&network.chain_view)
+            inv_state.getblocksinv_try_finish(network)
         })
     }
 
@@ -865,22 +954,26 @@ impl PeerNetwork {
         }
         cur_neighbors
     }
+    
+    /// Initialize inv state
+    pub fn init_inv_sync(&mut self, burndb: &BurnDB) -> () {
+        // find out who we'll be synchronizing with for the duration of this inv sync
+        let cur_neighbors = self.get_outbound_sync_peers();
+        
+        debug!("{:?}: Initializing peer block inventory state with {} neighbors", &self.local_peer, cur_neighbors.len());
+        self.inv_state = Some(InvState::new(burndb.first_block_height, cur_neighbors));
+    }
 
     /// Drive fetching block invs.
-    /// Returns the list of broken or dead peers that we should disconnect from, as well as a flag
+    /// Returns the list of dead and broken peers that we should disconnect from, as well as a flag
     /// to indicate if we're done with the scan.
-    pub fn sync_peer_block_invs(&mut self, burndb: &mut BurnDB) -> Result<(bool, Vec<NeighborKey>), net_error> {
+    pub fn sync_peer_block_invs(&mut self, burndb: &mut BurnDB) -> Result<(bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         if self.inv_state.is_none() {
-            // find out who we'll be synchronizing with for the duration of this inv sync
-            let cur_neighbors = self.get_outbound_sync_peers();
-            
-            debug!("{:?}: Initializing peer block inventory state with {} neighbors", &self.local_peer, cur_neighbors.len());
-            self.inv_state = Some(InvState::new(burndb.first_block_height, cur_neighbors));
+            self.init_inv_sync(burndb);
         }
         
-        let state = self.inv_state.as_ref().unwrap().state;
         let mut done = false;
-
+        let state = self.inv_state.as_ref().unwrap().state;
         match state {
             InvWorkState::GetBlocksInvBegin => {
                 self.inv_getblocksinv_begin(burndb)?;
@@ -895,7 +988,7 @@ impl PeerNetwork {
 
         if !done {
             // more work to do in this round of inv requests.
-            Ok((false, vec![]))
+            Ok((false, vec![], vec![]))
         }
         else {
             // we'll need this below, but we can't access self inside the match 
@@ -910,7 +1003,7 @@ impl PeerNetwork {
                             Some(ref mut nk_stats) => {
                                 let target_height = *inv_state.getblocksinv_target_heights.get(&nk).expect(&format!("BUG: no target height for request to {:?}", &nk));
 
-                                test_debug!("{:?}: got blocksinv at block height {} from {:?}: {:?}", &self.local_peer, target_height, &nk, &blocks_inv);
+                                debug!("{:?}: got blocksinv at block height {} from {:?}: {:?}", &self.local_peer, target_height, &nk, &blocks_inv);
                                 let (new_blocks, new_microblocks) = nk_stats.inv.merge_blocks_inv(target_height, blocks_inv.bitlen, blocks_inv.block_bitvec, blocks_inv.microblocks_bitvec);
                                 test_debug!("{:?}: {:?} has {} new blocks and {} new microblocks: {},{:?}", &self.local_peer, &nk, new_blocks, new_microblocks, nk_stats.inv.num_sortitions, &nk_stats.inv);
 
@@ -975,14 +1068,15 @@ impl PeerNetwork {
                         }
                     }
 
-                    let disconnect = inv_state.get_faulty_peers();
+                    let broken = inv_state.get_broken_peers();
+                    let disconnect = inv_state.get_dead_peers();
 
                     test_debug!("{:?}: inv reset", &self.local_peer);
                     inv_state.reset();
-                    Ok((true, disconnect))
+                    Ok((true, disconnect, broken))
                 },
                 None => {
-                    Ok((true, vec![]))
+                    Ok((true, vec![], vec![]))
                 }
             }
         }
@@ -1156,8 +1250,146 @@ mod test {
     }
 
     #[test]
+    fn test_inv_set_block_microblock_bits() {
+        let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], 1, 12345);
+
+        assert!(peer_inv.set_block_bit(12345 + 1));
+        assert_eq!(peer_inv.block_inv, vec![0x03]);
+        assert_eq!(peer_inv.num_sortitions, 2);
+        assert!(!peer_inv.set_block_bit(12345 + 1));
+        assert_eq!(peer_inv.block_inv, vec![0x03]);
+        assert_eq!(peer_inv.num_sortitions, 2);
+
+        assert!(peer_inv.set_microblocks_bit(12345 + 1));
+        assert_eq!(peer_inv.microblocks_inv, vec![0x03]);
+        assert_eq!(peer_inv.num_sortitions, 2);
+        assert!(!peer_inv.set_microblocks_bit(12345 + 1));
+        assert_eq!(peer_inv.microblocks_inv, vec![0x03]);
+        assert_eq!(peer_inv.num_sortitions, 2);
+
+        assert!(peer_inv.set_block_bit(12345 + 1 + 16));
+        assert_eq!(peer_inv.block_inv, vec![0x03, 0x00, 0x02]);
+        assert_eq!(peer_inv.microblocks_inv, vec![0x03, 0x00, 0x00]);
+        assert_eq!(peer_inv.num_sortitions, 18);
+        assert!(!peer_inv.set_block_bit(12345 + 1 + 16));
+        assert_eq!(peer_inv.block_inv, vec![0x03, 0x00, 0x02]);
+        assert_eq!(peer_inv.microblocks_inv, vec![0x03, 0x00, 0x00]);
+        assert_eq!(peer_inv.num_sortitions, 18);
+        
+        assert!(peer_inv.set_microblocks_bit(12345 + 1 + 32));
+        assert_eq!(peer_inv.block_inv, vec![0x03, 0x00, 0x02, 0x00, 0x00]);
+        assert_eq!(peer_inv.microblocks_inv, vec![0x03, 0x00, 0x00, 0x00, 0x02]);
+        assert_eq!(peer_inv.num_sortitions, 34);
+        assert!(!peer_inv.set_microblocks_bit(12345 + 1 + 32));
+        assert_eq!(peer_inv.block_inv, vec![0x03, 0x00, 0x02, 0x00, 0x00]);
+        assert_eq!(peer_inv.microblocks_inv, vec![0x03, 0x00, 0x00, 0x00, 0x02]);
+        assert_eq!(peer_inv.num_sortitions, 34);
+    }
+
+    #[test]
+    fn test_sync_inv_set_blocks_microblocks_available() {
+        let mut peer_1_config = TestPeerConfig::new("test_sync_inv_set_blocks_microblocks_available", 31981, 41981);
+        let mut peer_2_config = TestPeerConfig::new("test_sync_inv_set_blocks_microblocks_available", 31982, 41982);
+
+        peer_1_config.burnchain.first_block_height = 5;
+        peer_2_config.burnchain.first_block_height = 5;
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        let num_blocks = 5;
+        let first_stacks_block_height = {
+            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        for i in 0..num_blocks {
+            let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+
+            peer_1.next_burnchain_block(burn_ops.clone());
+            peer_2.next_burnchain_block(burn_ops.clone());
+            peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+        }
+
+        let (tip, num_burn_blocks) = {
+            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let num_burn_blocks = sn.block_height - peer_1.config.burnchain.first_block_height;
+            (sn, num_burn_blocks)
+        };
+
+        let nk = peer_1.to_neighbor().addr;
+
+        let burndb = peer_1.burndb.take().unwrap();
+        peer_1.network.init_inv_sync(&burndb);
+        match peer_1.network.inv_state {
+            Some(ref mut inv) => {
+                inv.add_peer(nk.clone());
+            },
+            None => {
+                panic!("No inv state");
+            }
+        };
+        peer_1.burndb = Some(burndb);
+        
+        for i in 0..num_blocks {
+            let mut burndb = peer_1.burndb.take().unwrap();
+            let sn = {
+                let mut tx = burndb.tx_begin().unwrap();
+                let sn = BurnDB::get_block_snapshot_in_fork(&mut tx, i + 1 + first_stacks_block_height, &tip.burn_header_hash).unwrap().unwrap();
+                eprintln!("{:?}", &sn);
+                sn
+            };
+            peer_1.burndb = Some(burndb);
+        }
+
+        for i in 0..num_blocks {
+            let mut burndb = peer_1.burndb.take().unwrap();
+            match peer_1.network.inv_state {
+                Some(ref mut inv) => {
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
+
+                    let sn = {
+                        let mut tx = burndb.tx_begin().unwrap();
+                        let sn = BurnDB::get_block_snapshot_in_fork(&mut tx, i + first_stacks_block_height + 1, &tip.burn_header_hash).unwrap().unwrap();
+                        eprintln!("{:?}", &sn);
+                        sn
+                    };
+                    
+                    let sh = inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &BurnchainHeaderHash([0xfe; 32])).unwrap();
+                    assert_eq!(None, sh);
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
+
+                    let sh = inv.set_block_available(&nk, &burndb, &ConsensusHash([0xfe; 20]), &sn.burn_header_hash).unwrap();
+                    assert_eq!(None, sh);
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                    
+                    let sh = inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
+
+                    assert_eq!(Some(i + first_stacks_block_height - burndb.first_block_height), sh);
+                    assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
+                    
+                    let sh = inv.set_microblocks_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
+
+                    assert_eq!(Some(i + first_stacks_block_height - burndb.first_block_height), sh);
+                    assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
+
+                    assert!(inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
+                    assert!(inv.set_microblocks_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
+                },
+                None => {
+                    panic!("No inv state");
+                }
+            }
+            peer_1.burndb = Some(burndb);
+        }
+    }
+     
+    #[test]
     fn test_sync_inv_diagnose_nack() {
-        let peer_config = TestPeerConfig::new("test_sync_inv_diagnose_nack", 31993, 41993);
+        let peer_config = TestPeerConfig::new("test_sync_inv_diagnose_nack", 31983, 41983);
         let neighbor = peer_config.to_neighbor();
         let neighbor_key = neighbor.addr.clone();
         let nack_no_block = NackData { error_code: NackErrorCodes::NoSuchBurnchainBlock };
@@ -1194,6 +1426,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_sync_inv_2_peers_plain() {
         let mut peer_1_config = TestPeerConfig::new("test_sync_inv_2_peers_plain", 31992, 41992);
         let mut peer_2_config = TestPeerConfig::new("test_sync_inv_2_peers_plain", 31993, 41993);
@@ -1246,6 +1479,7 @@ mod test {
             match peer_1.network.inv_state {
                 Some(ref inv) => {
                     assert_eq!(inv.broken_peers.len(), 0);
+                    assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
                 },
                 None => {}
@@ -1254,6 +1488,7 @@ mod test {
             match peer_2.network.inv_state {
                 Some(ref inv) => {
                     assert_eq!(inv.broken_peers.len(), 0);
+                    assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
                 },
                 None => {}
@@ -1294,6 +1529,7 @@ mod test {
     }
    
     #[test]
+    #[ignore]
     fn test_sync_inv_2_peers_stale() {
         let mut peer_1_config = TestPeerConfig::new("test_sync_inv_2_peers_stale", 31994, 41995);
         let mut peer_2_config = TestPeerConfig::new("test_sync_inv_2_peers_stale", 31995, 41996);
@@ -1348,6 +1584,7 @@ mod test {
             match peer_1.network.inv_state {
                 Some(ref inv) => {
                     assert_eq!(inv.broken_peers.len(), 0);
+                    assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
                 },
                 None => {}
@@ -1356,6 +1593,7 @@ mod test {
             match peer_2.network.inv_state {
                 Some(ref inv) => {
                     assert_eq!(inv.broken_peers.len(), 0);
+                    assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
                     
                     if inv.stale_peers.contains(&peer_1.to_neighbor().addr) {
@@ -1393,6 +1631,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_sync_inv_2_peers_unstable() {
         let mut peer_1_config = TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31996, 41997);
         let mut peer_2_config = TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31997, 41998);
@@ -1457,6 +1696,7 @@ mod test {
             match peer_1.network.inv_state {
                 Some(ref inv) => {
                     assert_eq!(inv.broken_peers.len(), 0);
+                    assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
                 },
                 None => {}
@@ -1465,6 +1705,7 @@ mod test {
             match peer_2.network.inv_state {
                 Some(ref inv) => {
                     assert_eq!(inv.broken_peers.len(), 0);
+                    assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
                 },
                 None => {}

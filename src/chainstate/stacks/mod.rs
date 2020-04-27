@@ -58,6 +58,8 @@ use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::db::accounts::MinerReward;
 
+use chainstate::stacks::db::blocks::MemPoolRejection;
+
 use net::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
@@ -71,6 +73,7 @@ use vm::types::{
 
 use vm::representations::{ContractName, ClarityName};
 use vm::clarity::Error as clarity_error;
+use vm::costs::ExecutionCost;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
@@ -86,7 +89,8 @@ pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
 pub const STACKS_BLOCK_VERSION: u8 = 0;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
-pub const MAX_TRANSACTION_LEN: u32 = MAX_MESSAGE_LEN;
+pub const MAX_TRANSACTION_LEN: u32 = MAX_MESSAGE_LEN;       // TODO: shrink
+pub const MAX_BLOCK_LEN: u32 = MAX_MESSAGE_LEN;             // TODO: shrink
 
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
@@ -127,14 +131,17 @@ pub enum Error {
     NoSuchBlockError,
     InvalidChainstateDB,
     BlockTooBigError,
+    BlockCostExceeded,
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
+    CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
     ClarityError(clarity_error),
     DBError(db_error),
     NetError(net_error),
     MARFError(marf_error),
     ReadError(io::Error),
-    WriteError(io::Error)
+    WriteError(io::Error),
+    MemPoolError(String),
 }
 
 impl fmt::Display for Error {
@@ -148,14 +155,17 @@ impl fmt::Display for Error {
             Error::NoSuchBlockError => write!(f, "No such Stacks block"),
             Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
             Error::BlockTooBigError => write!(f, "Too much data in block"),
+            Error::BlockCostExceeded => write!(f, "Block execution budget exceeded"),
             Error::MicroblockStreamTooLongError => write!(f, "Too many microblocks in stream"),
             Error::IncompatibleSpendingConditionError => write!(f, "Spending condition is incompatible with this operation"),
+            Error::CostOverflowError(ref c1, ref c2, ref c3) => write!(f, "{}", &format!("Cost overflow: before={:?}, after={:?}, budget={:?}", c1, c2, c3)),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::NetError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::ReadError(ref e) => fmt::Display::fmt(e, f),
             Error::WriteError(ref e) => fmt::Display::fmt(e, f),
+            Error::MemPoolError(ref s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -171,15 +181,24 @@ impl error::Error for Error {
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
             Error::BlockTooBigError => None,
+            Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
             Error::IncompatibleSpendingConditionError => None,
+            Error::CostOverflowError(..) => None,
             Error::ClarityError(ref e) => Some(e),
             Error::DBError(ref e) => Some(e),
             Error::NetError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
             Error::ReadError(ref e) => Some(e),
             Error::WriteError(ref e) => Some(e),
+            Error::MemPoolError(ref _s) => None,
         }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
     }
 }
 
@@ -198,7 +217,7 @@ impl Txid {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash)]
 pub struct StacksAddress {
     pub version: u8,
     pub bytes: Hash160
@@ -441,7 +460,7 @@ pub const TOKEN_TRANSFER_MEMO_LENGTH : usize = 34;      // same as it is in Stac
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionPayload {
-    TokenTransfer(StacksAddress, u64, TokenTransferMemo),
+    TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),       // the previous epoch leader sent two microblocks with the same sequence, and this is proof
@@ -681,12 +700,15 @@ pub struct StacksBlockBuilder {
     pub header: StacksBlockHeader,
     pub txs: Vec<StacksTransaction>,
     pub micro_txs: Vec<StacksTransaction>,
+    pub total_anchored_fees: u64,
+    pub total_confirmed_streamed_fees: u64,
+    pub total_streamed_fees: u64,
     anchored_done: bool,
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
     miner_payouts: Option<Vec<MinerReward>>,
-    miner_id: usize
+    miner_id: usize,
 }
 
 // maximum amount of data a leader can send during its epoch (2MB)
@@ -871,8 +893,14 @@ pub mod test {
             ]);
         }
 
+        let stx_address = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
         let tx_payloads = vec![
-            TransactionPayload::TokenTransfer(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123, TokenTransferMemo([0u8; 34])),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(), 123, TokenTransferMemo([0u8; 34])),
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(QualifiedContractIdentifier {
+                    issuer: stx_address.into(),
+                    name: "hello-contract-name".into() }), 123, TokenTransferMemo([0u8; 34])),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress { version: 4, bytes: Hash160([0xfc; 20]) },
                 contract_name: ContractName::try_from("hello-contract-name").unwrap(),
