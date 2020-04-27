@@ -3372,6 +3372,9 @@ mod test {
             match preamble {
                 StacksHttpPreamble::Response(ref mut req) => {
                     assert_eq!(req.headers.len(), 5);
+                    assert!(req.headers.get("access-control-allow-headers").is_some());
+                    assert!(req.headers.get("access-control-allow-methods").is_some());
+                    assert!(req.headers.get("access-control-allow-origin").is_some());
                     assert!(req.headers.get("server").is_some());
                     assert!(req.headers.get("date").is_some());
                     req.headers.clear();
