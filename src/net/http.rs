@@ -2866,9 +2866,6 @@ mod test {
         assert!(txt.find("Host: localhost:6270\r\n").is_some(), "Host header is missing");
         assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
         assert!(txt.find("Content-Type: application/octet-stream\r\n").is_some(), "content-type is missing");
-        assert!(txt.find("Access-Control-Allow-Origin: *\r\n").is_some(), "CORS header is missing");
-        assert!(txt.find("Access-Control-Allow-Headers: origin, content-type\r\n").is_some(), "CORS header is missing");
-        assert!(txt.find("Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n").is_some(), "CORS header is missing");
         assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true (for HTTP/1.1)
         
         let mut bytes_10 = vec![];
@@ -3372,7 +3369,7 @@ mod test {
             // check everything in the parsed preamble except for the extra headers
             match preamble {
                 StacksHttpPreamble::Response(ref mut req) => {
-                    assert_eq!(req.headers.len(), 2);
+                    assert_eq!(req.headers.len(), 5);
                     assert!(req.headers.get("server").is_some());
                     assert!(req.headers.get("date").is_some());
                     req.headers.clear();
