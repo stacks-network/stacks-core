@@ -3122,7 +3122,8 @@ mod test {
             HttpRequestType::GetNeighbors(http_request_metadata_ip.clone()),
             HttpRequestType::GetBlock(http_request_metadata_dns.clone(), BlockHeaderHash([2u8; 32])),
             HttpRequestType::GetMicroblocksIndexed(http_request_metadata_ip.clone(), BlockHeaderHash([3u8; 32])),
-            HttpRequestType::PostTransaction(http_request_metadata_dns.clone(), make_test_transaction())
+            HttpRequestType::PostTransaction(http_request_metadata_dns.clone(), make_test_transaction()),
+            HttpRequestType::OptionsPreflight(http_request_metadata_ip.clone(), "/".to_string()),
         ];
 
         let mut tx_body = vec![];
@@ -3138,6 +3139,7 @@ mod test {
             HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port(), http_request_metadata_dns.keep_alive),
             HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
             post_transaction_preamble,
+            HttpRequestPreamble::new(HttpVersion::Http11, "OPTIONS".to_string(), format!("/"), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
         ];
 
         let expected_http_bodies = vec![
