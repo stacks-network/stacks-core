@@ -1200,7 +1200,7 @@ mod test {
     }
 
     #[test]
-        #[ignore]
+    #[ignore]
     fn test_rpc_getinfo() {
         let peer_server_info = RefCell::new(None);
         test_rpc("test_rpc_getinfo", 40000, 40001, 50000, 50001,

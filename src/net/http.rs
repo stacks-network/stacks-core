@@ -1736,17 +1736,14 @@ impl HttpResponseType {
     }
 
     fn parse_txid<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
-        let txid_buf = HttpResponseType::parse_text(preamble, fd, len_hint, 64)?;
-        if txid_buf.len() != 64 {
+        let txid_hex: String = HttpResponseType::parse_json(preamble, fd, len_hint, 64)?;
+        if txid_hex.len() != 64 {
             return Err(net_error::DeserializeError("Invalid txid: expected 64 bytes".to_string()));
         }
 
-        let mut bytes = [0u8; 64];
-        bytes.copy_from_slice(&txid_buf);
-
-        let hex_str = str::from_utf8(&bytes).map_err(|_e| net_error::DeserializeError("Failed to decode a txid".to_string()))?;
-        let txid_bytes = hex_bytes(hex_str).map_err(|_e| net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
-        Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(request_version, preamble), Txid::from_bytes(&txid_bytes).unwrap()))
+        let txid = Txid::from_hex(&txid_hex)
+            .map_err(|_e|net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
+        Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(request_version, preamble), txid))
     }
 
     fn error_reason(code: u16) -> &'static str {
@@ -1895,9 +1892,9 @@ impl HttpResponseType {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
             },
             HttpResponseType::TransactionID(ref md, ref txid) => {
-                let txid_bytes = txid.to_hex().into_bytes();
+                let txid_bytes = txid.to_hex();
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
-                HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
+                HttpResponseType::send_json(protocol, md, fd, &txid_bytes)?;
             },
             HttpResponseType::BadRequestJSON(ref md, ref data) => {
                 HttpResponsePreamble::new_serialized(fd, 400, HttpResponseType::error_reason(400), md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;

@@ -13,7 +13,6 @@ use stacks::burnchains::Address;
 use stacks::net::{AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
 use stacks::net::StacksMessageCodec;
 use stacks::vm::clarity::ClarityConnection;
-use stacks::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
@@ -520,15 +519,14 @@ fn integration_test_get_info() {
                 let tx_xfer = make_stacks_transfer(&spender_sk, round.into(), 200,
                                                    &StacksAddress::from_string(ADDR_4).unwrap().into(), 123);
 
-                let res = client.post(&path)
+                let res: String = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
                     .body(tx_xfer.clone())
                     .send()
                     .unwrap()
-                    .text()
+                    .json()
                     .unwrap();
 
-                eprintln!("{}", res);
                 assert_eq!(res, format!("{}", StacksTransaction::consensus_deserialize(&mut &tx_xfer[..]).unwrap().txid()));
                 
                 // let's submit an invalid transaction!
@@ -947,9 +945,7 @@ fn mempool_errors() {
         let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
         let spender_addr = to_addr(&spender_sk);
 
-        let mut send_to = StacksAddress::from_string(ADDR_4).unwrap();
-        send_to.version = C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-        let mut send_to = send_to.into();
+        let send_to = StacksAddress::from_string(ADDR_4).unwrap().into();
 
         if round == 1 {
             // let's submit an invalid transaction!
