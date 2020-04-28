@@ -48,7 +48,8 @@ struct LexMatcher {
 
 enum LexContext {
     ExpectNothing,
-    ExpectClosing
+    ExpectClosing,
+    ExpectClosingColon,
 }
 
 enum ParseContext {
@@ -161,7 +162,20 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                             TokenType::Colon => Ok(()),
                             _ => Err(ParseError::new(ParseErrors::SeparatorExpected(current_slice[..whole_match.end()].to_string())))
                         }
+                    },
+                    LexContext::ExpectClosingColon => {
+                        // handle the expected whitespace after a `:`
+                        match matcher.handler {
+                            TokenType::RParens => Ok(()),
+                            TokenType::RCurly => Ok(()),
+                            TokenType::Whitespace => Ok(()),
+                            TokenType::Comma => Ok(()),
+                            TokenType::Colon => Ok(()),
+                            _ => Err(ParseError::new(ParseErrors::SeparatorExpectedAfterColon(
+                                current_slice[..whole_match.end()].to_string())))
+                        }
                     }
+
                 }?;
 
                 // default to expect a closing
@@ -180,15 +194,13 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         Ok(LexItem::Whitespace)
                     },
                     TokenType::Comma => {
-                        // comma should not be followed directly by an item,
-                        //  e.g., {a: 1,b: 2} should not be legal
-                        context = LexContext::ExpectClosing;
+                        context = LexContext::ExpectNothing;
                         Ok(LexItem::CommaSeparator)
                     },
                     TokenType::Colon => {
                         // colon should not be followed directly by an item,
                         //  e.g., {a:b} should not be legal
-                        context = LexContext::ExpectClosing;
+                        context = LexContext::ExpectClosingColon;
                         Ok(LexItem::ColonSeparator)
                     },
                     TokenType::LCurly => {
@@ -677,7 +689,7 @@ r#"z (let ((x 1) (y 2))
         let shorthand_tuple_dangling_comma = "{ a: b, b: ,}";
         let decorative_colon_on_value = "{ a: b: }";
         let tuple_literal_colon_after_comma = "{ a: b, : b a}";
-        let tuple_comma_no_space = "{ a: b,c: 3 }";
+        let tuple_comma_no_space = "{ a: b,c: 3 }"; // legal
         let tuple_colon_no_space = "{ a:b }";
         let empty_tuple_literal_comma = "{,}";
         let empty_tuple_literal_colon = "{:}";
@@ -720,10 +732,11 @@ r#"z (let ((x 1) (y 2))
         assert!(match ast::parser::parse(&unexpected_comma).unwrap_err().err {
             ParseErrors::CommaSeparatorUnexpected => true, _ => false });
 
-        assert!(match ast::parser::parse(&tuple_comma_no_space).unwrap_err().err {
-            ParseErrors::SeparatorExpected(_) => true, _ => false });
+        // { a: b,c: 3 } is legal
+        ast::parser::parse(&tuple_comma_no_space).unwrap();
+
         assert!(match ast::parser::parse(&tuple_colon_no_space).unwrap_err().err {
-            ParseErrors::SeparatorExpected(_) => true, _ => false });
+            ParseErrors::SeparatorExpectedAfterColon(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&shorthand_tuple).unwrap_err().err {
             ParseErrors::TupleColonExpected(_) => true, _ => false });
