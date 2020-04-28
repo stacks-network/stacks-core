@@ -77,6 +77,7 @@ impl EventObserver {
         let payload = json!({
             "block_hash": format!("0x{:?}", chain_tip.block.block_hash()),
             "block_height": chain_tip.metadata.block_height,
+            "burn_block_time": chain_tip.metadata.burn_header_timestamp,
             "index_block_hash": format!("0x{:?}", chain_tip.metadata.index_block_hash()),
             "parent_block_hash": format!("0x{:?}", chain_tip.block.header.parent_block),
             "parent_microblock": format!("0x{:?}", chain_tip.block.header.parent_microblock),
