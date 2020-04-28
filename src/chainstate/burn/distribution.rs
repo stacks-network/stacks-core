@@ -82,7 +82,7 @@ impl BurnSamplePoint {
         let mut key_index : BTreeMap<(u64, u32), usize> = BTreeMap::new();
         for i in 0..consumed_leader_keys.len() {
             let key_loc = (consumed_leader_keys[i].block_height, consumed_leader_keys[i].vtxindex);
-            assert!(key_index.get(&key_loc).is_none());
+            assert!(key_index.get(&key_loc).is_none(), format!("duplicate entry: {:?}", &key_loc));
 
             key_index.insert(key_loc, i);
         }

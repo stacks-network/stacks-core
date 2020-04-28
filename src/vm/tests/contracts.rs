@@ -12,6 +12,7 @@ use util::hash::hex_bytes;
 use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, ClarityDatabase};
 use vm::clarity::ClarityInstance;
 use vm::ast;
+use vm::costs::ExecutionCost;
 
 use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
 
@@ -161,7 +162,7 @@ fn test_block_headers(n: u8) -> BlockHeaderHash {
 
 #[test]
 fn test_simple_token_system() {
-    let mut clarity = ClarityInstance::new(MarfedKV::temporary());
+    let mut clarity = ClarityInstance::new(MarfedKV::temporary(), ExecutionCost::max_value());
     let p1 = PrincipalData::from(PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap());
     let p2 = PrincipalData::from(PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap());
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();

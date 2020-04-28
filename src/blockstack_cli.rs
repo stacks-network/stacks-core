@@ -25,6 +25,9 @@ use blockstack_lib::burnchains::Address;
 use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
 
+const TESTNET_CHAIN_ID : u32 = 0x80000000;
+const MAINNET_CHAIN_ID : u32 = 0x00000001;
+
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 
 This CLI allows you to generate simple signed transactions for blockstack-core
@@ -181,14 +184,16 @@ fn make_contract_call(contract_address: String, contract_name: String, function_
 }
 
 
-fn make_standard_single_sig_tx(version: TransactionVersion, payload: TransactionPayload,
+fn make_standard_single_sig_tx(version: TransactionVersion, chain_id: u32, payload: TransactionPayload,
                                publicKey: &StacksPublicKey, nonce: u64, fee_rate: u64) -> StacksTransaction {
     let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(publicKey.clone())
         .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
     spending_condition.set_fee_rate(fee_rate);
     let auth = TransactionAuth::Standard(spending_condition);
-    StacksTransaction::new(version, auth, payload)
+    let mut tx = StacksTransaction::new(version, auth, payload);
+    tx.chain_id = chain_id;
+    tx
 }
 
 fn sign_transaction_single_sig_standard(transaction: &str, secret_key: &StacksPrivateKey) -> Result<StacksTransaction, CliError> {
@@ -201,7 +206,7 @@ fn sign_transaction_single_sig_standard(transaction: &str, secret_key: &StacksPr
        .ok_or("TX did not finish signing -- was this a standard single signature transaction?")?)
 }
 
-fn handle_contract_publish(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+fn handle_contract_publish(args: &[String], version: TransactionVersion, chain_id: u32) -> Result<String, CliError> {
     if args.len() >= 1 && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", PUBLISH_USAGE)))
     }
@@ -225,7 +230,7 @@ fn handle_contract_publish(args: &[String], version: TransactionVersion) -> Resu
     let sk_publisher = StacksPrivateKey::from_hex(sk_publisher)?;
 
     let payload = make_contract_publish(contract_name.clone(), contract_contents)?;
-    let unsigned_tx = make_standard_single_sig_tx(version, payload.into(), &StacksPublicKey::from_private(&sk_publisher),
+    let unsigned_tx = make_standard_single_sig_tx(version, chain_id, payload.into(), &StacksPublicKey::from_private(&sk_publisher),
                                                   nonce, fee_rate);
     let mut unsigned_tx_bytes = vec![];
     unsigned_tx.consensus_serialize(&mut unsigned_tx_bytes).expect("FATAL: invalid transaction");
@@ -237,7 +242,7 @@ fn handle_contract_publish(args: &[String], version: TransactionVersion) -> Resu
     Ok(to_hex(&signed_tx_bytes))
 }
 
-fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+fn handle_contract_call(args: &[String], version: TransactionVersion, chain_id: u32) -> Result<String, CliError> {
     if args.len() >= 1 && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", CALL_USAGE)))
     }
@@ -282,7 +287,7 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
     let sk_origin = StacksPrivateKey::from_hex(sk_origin)?;
 
     let payload = make_contract_call(contract_address.clone(), contract_name.clone(), function_name.clone(), values)?;
-    let unsigned_tx = make_standard_single_sig_tx(version, payload.into(), &StacksPublicKey::from_private(&sk_origin),
+    let unsigned_tx = make_standard_single_sig_tx(version, chain_id, payload.into(), &StacksPublicKey::from_private(&sk_origin),
                                                   nonce, fee_rate);
     
     let mut unsigned_tx_bytes = vec![];
@@ -295,12 +300,12 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
     Ok(to_hex(&signed_tx_bytes))
 }
 
-fn handle_token_transfer(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+fn handle_token_transfer(args: &[String], version: TransactionVersion, chain_id: u32) -> Result<String, CliError> {
     if args.len() >= 1 && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", TOKEN_TRANSFER_USAGE)))
     }
     if args.len() < 5 {
-        return Err(CliError::Message(format!("Incorrect argument count supplied \n\nUSAGE:\n {}", CALL_USAGE)))
+        return Err(CliError::Message(format!("Incorrect argument count supplied \n\nUSAGE:\n {}", TOKEN_TRANSFER_USAGE)))
     }
     let sk_origin = StacksPrivateKey::from_hex(&args[0])?;
     let fee_rate = args[1].parse()?;
@@ -317,7 +322,7 @@ fn handle_token_transfer(args: &[String], version: TransactionVersion) -> Result
     };
 
     let payload = TransactionPayload::TokenTransfer(recipient_address, *amount, memo);
-    let unsigned_tx = make_standard_single_sig_tx(version, payload, &StacksPublicKey::from_private(&sk_origin),
+    let unsigned_tx = make_standard_single_sig_tx(version, chain_id, payload, &StacksPublicKey::from_private(&sk_origin),
                                                   nonce, fee_rate);
     let mut unsigned_tx_bytes = vec![];
     unsigned_tx.consensus_serialize(&mut unsigned_tx_bytes).expect("FATAL: invalid transaction");
@@ -380,11 +385,19 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
         TransactionVersion::Mainnet
     };
 
+    let chain_id = 
+        if tx_version == TransactionVersion::Testnet {
+            TESTNET_CHAIN_ID
+        }
+        else {
+            MAINNET_CHAIN_ID
+        };
+
     if let Some((method, args)) = argv.split_first() {
         match method.as_str() {
-            "contract-call" => handle_contract_call(args, tx_version),
-            "publish" => handle_contract_publish(args, tx_version),
-            "token-transfer" => handle_token_transfer(args, tx_version),
+            "contract-call" => handle_contract_call(args, tx_version, chain_id),
+            "publish" => handle_contract_publish(args, tx_version, chain_id),
+            "token-transfer" => handle_token_transfer(args, tx_version, chain_id),
             "generate-sk" => generate_secret_key(args, tx_version),
             _ => Err(CliError::Usage)
         }

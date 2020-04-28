@@ -557,6 +557,7 @@ pub struct HttpResponsePreamble {
 
 /// Maximum size an HTTP request or response preamble can be (within reason)
 pub const HTTP_PREAMBLE_MAX_ENCODED_SIZE : u32 = 4096;
+pub const HTTP_PREAMBLE_MAX_NUM_HEADERS : usize = 64;
 
 /// P2P message preamble -- included in all p2p network messages
 #[derive(Debug, Clone, PartialEq)]
@@ -999,6 +1000,15 @@ impl HttpResponseMetadata {
             content_length: preamble.content_length.clone(),
         }
     }
+
+    pub fn empty_error() -> HttpResponseMetadata {
+        HttpResponseMetadata {
+            client_version: HttpVersion::Http11,
+            client_keep_alive: false,
+            request_id: HttpResponseMetadata::make_request_id(),
+            content_length: Some(0)
+        }
+    }
 }
 
 impl From<&HttpRequestType> for HttpResponseMetadata {
@@ -1361,7 +1371,7 @@ impl NetworkResult {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use net::asn::*;
     use net::chat::*;
@@ -1374,6 +1384,8 @@ mod test {
     use net::relay::*;
     use net::Error as net_error;
 
+    use core::NETWORK_P2P_PORT;
+
     use chainstate::burn::*;
     use chainstate::burn::operations::*;
     use chainstate::burn::db::burndb;
@@ -1381,6 +1393,7 @@ mod test {
     use chainstate::*;
     use chainstate::stacks::miner::*;
     use chainstate::stacks::miner::test::*;
+    use chainstate::stacks::*;
 
     use chainstate::stacks::db::StacksChainState;
 
@@ -1400,6 +1413,7 @@ mod test {
     use util::get_epoch_time_secs;
 
     use address::*;
+    use vm::costs::ExecutionCost;
 
     use std::net::*;
     use std::io;
@@ -1418,6 +1432,8 @@ mod test {
     use rand;
 
     use mio;
+
+    use util::vrf::*;
 
     // emulate a socket
     pub struct NetCursor<T> {
@@ -1710,7 +1726,7 @@ mod test {
         pub stacks_node: Option<TestStacksNode>,
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
-        chainstate_path: String,
+        pub chainstate_path: String,
     }
 
     impl TestPeer {
@@ -1732,9 +1748,12 @@ mod test {
             let peerdb_path = format!("{}/peers.db", &test_path);
             let chainstate_path = format!("{}/chainstate", &test_path);
 
-            let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, config.private_key_expire, config.data_url.clone(), &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
+            let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, None, config.private_key_expire, 
+                                             PeerAddress::from_ipv4(127,0,0,1), NETWORK_P2P_PORT, config.data_url.clone(), 
+                                             &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
+
             let mut burndb = BurnDB::connect(&burndb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
-            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}).unwrap();
+            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}, ExecutionCost::max_value()).unwrap();
             
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
@@ -2032,6 +2051,42 @@ mod test {
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
             res
+        }
+
+        // Make a tenure
+        pub fn make_tenure<F>(&mut self, mut tenure_builder: F) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>)
+        where
+            F: FnMut(&mut TestMiner, &mut BurnDB, &mut StacksChainState, VRFProof, Option<&StacksBlock>, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) 
+        {
+            let mut burndb = self.burndb.take().unwrap();
+            let mut burn_block = {
+                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
+                TestBurnchainBlock::new(&sn, 0)
+            };
+
+            let last_sortition_block = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();        // no forks here
+          
+            let mut stacks_node = self.stacks_node.take().unwrap();
+
+            let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
+            let parent_microblock_header_opt = get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
+            let last_key = stacks_node.get_last_key(&self.miner);
+
+            let network_id = self.config.network_id;
+            let chainstate_path = self.chainstate_path.clone();
+            let burn_block_height = burn_block.block_height;
+            
+            let proof = self.miner.make_proof(&last_key.public_key, &burn_block.parent_snapshot.sortition_hash)
+                .expect(&format!("FATAL: no private key for {}", last_key.public_key.to_hex()));
+        
+            let (stacks_block, microblocks) = tenure_builder(&mut self.miner, &mut burndb, &mut stacks_node.chainstate, proof, parent_block_opt.as_ref(), parent_microblock_header_opt.as_ref());
+
+            let block_commit_op = stacks_node.make_tenure_commitment(&mut burndb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
+            let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
+
+            self.stacks_node = Some(stacks_node);
+            self.burndb = Some(burndb);
+            (vec![BlockstackOperationType::LeaderKeyRegister(leader_key_op), BlockstackOperationType::LeaderBlockCommit(block_commit_op)], stacks_block, microblocks)
         }
 
         // have this peer produce an anchored block and microblock tail using its internal miner.

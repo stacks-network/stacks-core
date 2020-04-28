@@ -35,8 +35,9 @@ use net::http::*;
 use net::p2p::*;
 
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::events::StacksTransactionReceipt;
 
 use core::mempool::*;
 
@@ -86,6 +87,7 @@ pub trait RelayPayload {
     /// Get a representative digest of this message.
     /// m1.get_digest() == m2.get_digest() --> m1 == m2
     fn get_digest(&self) -> Sha512Trunc256Sum;
+    fn get_id(&self) -> String;
 }
 
 impl RelayPayload for BlocksAvailableData {
@@ -95,12 +97,18 @@ impl RelayPayload for BlocksAvailableData {
         let h = Sha512Trunc256Sum::from_data(&bytes);
         h
     }
+    fn get_id(&self) -> String {
+        format!("{:?}", &self)
+    }
 }
 
 impl RelayPayload for StacksBlock {
     fn get_digest(&self) -> Sha512Trunc256Sum {
         let h = self.block_hash();
         Sha512Trunc256Sum(h.0)
+    }
+    fn get_id(&self) -> String {
+        format!("StacksBlock({})", self.block_hash())
     }
 }
 
@@ -109,12 +117,18 @@ impl RelayPayload for StacksMicroblock {
         let h = self.block_hash();
         Sha512Trunc256Sum(h.0)
     }
+    fn get_id(&self) -> String {
+        format!("StacksMicroblock({})", self.block_hash())
+    }
 }
 
 impl RelayPayload for StacksTransaction {
     fn get_digest(&self) -> Sha512Trunc256Sum {
         let h = self.txid();
         Sha512Trunc256Sum(h.0)
+    }
+    fn get_id(&self) -> String {
+        format!("Transaction({})", self.txid())
     }
 }
 
@@ -361,8 +375,20 @@ impl RelayerStats {
         let mut norm = rankings.values().fold(0, |t, s| { t + s });
         let mut rankings_vec : Vec<(NeighborKey, usize)> = rankings.into_iter().collect();
 
+        if norm <= 1 {
+            // there is one or zero options
+            if rankings_vec.len() > 0 {
+                ret.push(rankings_vec[0].0.clone());
+                return ret;
+            }
+            else {
+                return vec![];
+            }
+        }
+
         for l in 0..count {
             if norm <= 1 {
+                // just one option
                 break;
             }
 
@@ -440,7 +466,16 @@ impl Relayer {
             }
         };
 
-        chainstate.preprocess_anchored_block(burn_tx, burn_header_hash, sn.burn_header_timestamp, block, &sn.parent_burn_header_hash)
+        // find the snapshot of the parent of this block
+        let parent_block_snapshot = match StacksChainState::get_block_snapshot_of_parent_stacks_block(burn_tx, burn_header_hash, &block.block_hash())? {
+            Some(sn) => sn,
+            None => {
+                debug!("Received block with unknown parent snapshot: {}/{}", burn_header_hash, &block.block_hash());
+                return Ok(false);
+            }
+        };
+        
+        chainstate.preprocess_anchored_block(burn_tx, burn_header_hash, sn.burn_header_timestamp, block, &parent_block_snapshot.burn_header_hash)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -676,7 +711,13 @@ impl Relayer {
     /// * list of confirmed microblock burn header hashes for newly-discovered microblock streams, so we can turn them into MicroblocksAvailable messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
-    pub fn process_new_blocks(network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState) -> Result<(Vec<BurnchainHeaderHash>, Vec<BurnchainHeaderHash>, Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
+    /// * list of transaction receipts for the processed blocks (a tuple of block header info and associated receipts)
+    pub fn process_new_blocks(network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState)
+                              -> Result<(Vec<BurnchainHeaderHash>,
+                                         Vec<BurnchainHeaderHash>, 
+                                         Vec<(Vec<RelayData>, MicroblocksData)>,
+                                         Vec<NeighborKey>,
+                                         Vec<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>), net_error> {
         let mut new_blocks = HashSet::new();
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
@@ -706,16 +747,20 @@ impl Relayer {
         
         let (new_microblocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_microblocks(network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
-        
-        // process as many epochs as we can.
-        // Try to process at least one epoch.
-        let _ = chainstate.process_blocks(new_blocks.len() + 1)?;
 
-        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors))
+        if new_blocks.len() > 0 {
+            info!("Processing newly received blocks: {}", new_blocks.len());
+        }
+        // process as many epochs as we can.
+        // Try to process at least a few epochs
+        let receipts: Vec<_> = chainstate.process_blocks(new_blocks.len() + 50)?.into_iter()
+            .filter_map(|block_result| block_result.0).collect();
+
+        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, receipts))
     }
     
     /// Produce blocks-available messages from blocks we just got.
-    fn load_blocks_available_data(burndb: &mut BurnDB, mut burn_header_hashes: Vec<BurnchainHeaderHash>) -> Result<BlocksAvailableMap, net_error> {
+    pub fn load_blocks_available_data(burndb: &mut BurnDB, mut burn_header_hashes: Vec<BurnchainHeaderHash>) -> Result<BlocksAvailableMap, net_error> {
         let mut ret = BlocksAvailableMap::new();
         for bhh in burn_header_hashes.drain(..) {
             let sn = match BurnDB::get_block_snapshot(&burndb.conn(), &bhh)? {
@@ -753,7 +798,7 @@ impl Relayer {
         let (burn_header_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip()? {
             Some(tip) => (tip.burn_header_hash, tip.anchored_block_hash, tip.height),
             None => {
-                info!("No Stacks chain tip; dropping {} transaction(s)", network_result.pushed_transactions.len());
+                debug!("No Stacks chain tip; dropping {} transaction(s)", network_result.pushed_transactions.len());
                 return Ok(vec![]);
             }
         };
@@ -788,6 +833,10 @@ impl Relayer {
         Ok(ret)
     }
 
+    pub fn advertize_blocks(&mut self, available: BlocksAvailableMap) -> Result<(), net_error> {
+        self.p2p.advertize_blocks(available)
+    }
+
     /// Given a network result, consume and store all data.
     /// * Add all blocks and microblocks to staging.
     /// * Forward BlocksAvailable messages to neighbors for newly-discovered anchored blocks
@@ -797,9 +846,10 @@ impl Relayer {
     /// * Forward transactions we didn't already have.
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
-    pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<(), net_error> {
-        match Relayer::process_new_blocks(network_result, burndb, chainstate) {
-            Ok((new_blocks, new_confirmed_microblocks, mut new_microblocks, bad_block_neighbors)) => {
+    pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB)
+                                  -> Result<Vec<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, net_error> {
+        let receipts = match Relayer::process_new_blocks(network_result, burndb, chainstate) {
+            Ok((new_blocks, new_confirmed_microblocks, mut new_microblocks, bad_block_neighbors, receipts)) => {
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
                 test_debug!("{:?}: Ban {} peers", &_local_peer, bad_block_neighbors.len());
@@ -836,25 +886,33 @@ impl Relayer {
                         warn!("Message relay error: {:?}", &relay_error);
                     }
                 }
+
+                receipts
             },
             Err(e) => {
                 warn!("Failed to process new blocks: {:?}", &e);
+
+                Vec::new()
             }
-        }
+        };
 
         // store all transactions, and forward the novel ones to neighbors
         test_debug!("{:?}: Process {} transaction(s)", &_local_peer, network_result.pushed_transactions.len());
         let mut new_txs = Relayer::process_transactions(network_result, chainstate, mempool)?;
 
-        test_debug!("{:?}: Send {} transactions to neighbors", &_local_peer, new_txs.len());
+        if new_txs.len() > 0 {
+            debug!("{:?}: Send {} transactions to neighbors", &_local_peer, new_txs.len());
+        }
+
         for (relayers, tx) in new_txs.drain(..) {
+            debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
             let msg = StacksMessageType::Transaction(tx);
             if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
                 warn!("Failed to broadcast transaction: {:?}", &e);
             }
         }
 
-        Ok(())
+        Ok(receipts)
     }
 }
 
@@ -1526,6 +1584,10 @@ mod test {
                 test_debug!("{:?} outbox overflow; try again later", &peer.to_neighbor().addr);
                 return false;
             },
+            Err(net_error::SendError(msg)) => {
+                warn!("Failed to send to {:?}: SendError({})", &peer.to_neighbor().addr, msg);
+                return false;
+            }
             Err(e) => {
                 test_debug!("{:?} encountered fatal error when forwarding: {:?}", &peer.to_neighbor().addr, &e);
                 assert!(false);

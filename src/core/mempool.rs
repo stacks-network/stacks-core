@@ -52,6 +52,9 @@ use util::db::query_row;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 
+use core::FIRST_STACKS_BLOCK_HASH;
+use core::FIRST_BURNCHAIN_BLOCK_HASH;
+
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE : u64 = 256;
 
@@ -310,6 +313,57 @@ impl MemPoolDB {
         Ok(rows)
     }
 
+    /// Get the next timestamp after this one that occurs in this chain tip.
+    pub fn get_next_timestamp(conn: &DBConn, burnchain_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64) -> Result<Option<u64>, db_error> {
+        let sql = "SELECT accept_time FROM mempool WHERE accept_time > ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY accept_time LIMIT 1";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, burnchain_header_hash, block_header_hash];
+        query_row(conn, sql, args)
+    }
+    
+    /// Get all transactions at a particular timestamp and chain tip
+    pub fn get_txs_at(conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64) -> Result<Vec<MemPoolTxInfo>, db_error> {
+        let sql = "SELECT * FROM mempool WHERE accept_time = ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY estimated_fee DESC";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, burn_header_hash, block_header_hash];
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
+        Ok(rows)
+    }
+
+    /// Given a chain tip, find the highest block-height from _before_ this tip
+    pub fn get_previous_block_height(conn: &DBConn, height: u64) -> Result<Option<u64>, db_error> {
+        let sql = "SELECT height FROM mempool WHERE height < ?1 ORDER BY height DESC LIMIT 1";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        query_row(conn, sql, args)
+    }
+
+    /// Get chain tip(s) at a given height that have transactions
+    pub fn get_chain_tips_at_height(conn: &DBConn, height: u64) -> Result<Vec<(BurnchainHeaderHash, BlockHeaderHash)>, db_error> {
+        let sql = "SELECT burn_header_hash,block_header_hash FROM mempool WHERE height = ?1";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        
+        let mut stmt = conn.prepare(sql)
+            .map_err(db_error::SqliteError)?;
+
+        let mut rows = stmt.query(args)
+            .map_err(db_error::SqliteError)?;
+
+        // gather 
+        let mut tips = vec![];
+        while let Some(row_res) = rows.next() {
+            match row_res {
+                Ok(row) => {
+                    let burn_header_hash = BurnchainHeaderHash::from_column(&row, "burn_header_hash")?;
+                    let block_hash = BlockHeaderHash::from_column(&row, "block_header_hash")?;
+                    tips.push((burn_header_hash, block_hash));
+                },
+                Err(e) => {
+                    return Err(db_error::SqliteError(e));
+                }
+            };
+        }
+
+        Ok(tips)
+    }
+
     /// Get a number of transactions after a given timestamp on a given chain tip.
     pub fn get_txs_after(conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64, count: u64) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool WHERE accept_time >= ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY estimated_fee DESC LIMIT ?4";
@@ -438,7 +492,12 @@ impl MemPoolDB {
         let height = match mempool_tx.admitter.chainstate.get_stacks_block_height(burn_header_hash, block_hash) {
             Ok(Some(h)) => h,
             Ok(None) => {
-                return Err(MemPoolRejection::NoSuchChainTip(burn_header_hash.clone(), block_hash.clone()));
+                if *burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH {
+                    0
+                }
+                else {
+                    return Err(MemPoolRejection::NoSuchChainTip(burn_header_hash.clone(), block_hash.clone()));
+                }
             },
             Err(e) => {
                 return Err(MemPoolRejection::Other(format!("Failed to load chain tip: {:?}", &e)));
@@ -484,7 +543,6 @@ impl MemPoolDB {
     }
 
     /// Directly submit to the mempool, and don't do any admissions checks.
-    #[cfg(test)]
     pub fn submit_raw(&mut self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, tx_bytes: Vec<u8>) -> Result<(), MemPoolRejection> {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).map_err(MemPoolRejection::DeserializationFailure)?;
         
@@ -513,7 +571,7 @@ impl MemPoolDB {
 
 #[cfg(test)]
 mod tests {
-    use vm::tests::integrations::*;
+
     use vm::{
         database::HeadersDB,
         types::{QualifiedContractIdentifier, PrincipalData},
@@ -535,9 +593,6 @@ mod tests {
         StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
 
     use util::db::{DBConn, FromRow};
-    use testnet;
-    use testnet::helium::Keychain;
-
     use super::MemPoolDB;
 
     use burnchains::BurnchainHeaderHash;
@@ -550,287 +605,6 @@ mod tests {
     const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
     const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
     const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
-
-    pub fn make_bad_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
-                                    recipient: &PrincipalData, amount: u64) -> Vec<u8> {
-        let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-
-        let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
-            .expect("Failed to create p2pkh spending condition from public key.");
-        spending_condition.set_nonce(nonce);
-        spending_condition.set_fee_rate(fee_rate);
-        let auth = TransactionAuth::Standard(spending_condition);
-        let unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
-        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-
-        tx_signer.sign_origin(&StacksPrivateKey::new()).unwrap();
-
-        let mut buf = vec![];
-        tx_signer.get_tx().unwrap().consensus_serialize(&mut buf).unwrap();
-        buf
-    }
-
-    #[test]
-    fn mempool_setup_chainstate() {
-        let mut conf = testnet::helium::tests::new_test_conf();
-
-        conf.burnchain.block_time = 1500;
-        
-        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-        let contract_addr = to_addr(&contract_sk);
-        conf.add_initial_balance(contract_addr.to_string(), 100000);
-
-        let num_rounds = 4;
-
-        let mut run_loop = testnet::helium::RunLoop::new(conf);
-
-        run_loop.apply_on_new_tenures(|round, tenure| {
-            let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-            if round == 1 {
-                let publish_tx = make_contract_publish(&contract_sk, 0, 100, "foo_contract", FOO_CONTRACT);
-                eprintln!("Tenure in 1 started!");
-            
-                let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
-                tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
-            }
-        });
-
-        run_loop.apply_on_new_chain_states(|round, ref mut chainstate, _block, chain_tip_info, _receipts| {
-            let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-            let contract_addr = to_addr(&contract_sk);
-
-            let other_sk =  StacksPrivateKey::from_hex(SK_2).unwrap();
-            let other_addr = to_addr(&other_sk).into();
-
-            if round == 3 {
-                let block_header = chain_tip_info;
-                let burn_hash = &block_header.burn_header_hash;
-                let block_hash = &block_header.anchored_header.block_hash();
-
-                let micro_pubkh = &block_header.anchored_header.microblock_pubkey_hash;
-
-                // let's throw some transactions at it.
-                // first a couple valid ones:
-                let tx_bytes = make_contract_publish(&contract_sk, 1, 1000, "bar_contract", FOO_CONTRACT);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap();
-
-                let tx_bytes = make_contract_call(&contract_sk, 1, 200, &contract_addr, "foo_contract", "bar", &[Value::UInt(1)]);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap();
-
-                let tx_bytes = make_stacks_transfer(&contract_sk, 1, 200, &other_addr, 1000);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap();
-
-                // bad signature
-                let tx_bytes = make_bad_stacks_transfer(&contract_sk, 1, 200, &other_addr, 1000);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let
-                        MemPoolRejection::FailedToValidate(
-                            ChainstateError::NetError(NetError::VerifyingError(_))) = e { true } else { false });
-
-                // mismatched network on contract-call!
-                let bad_addr = 
-                    StacksAddress::from_public_keys(
-                        88, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
-                    .unwrap()
-                    .into();
-
-                let tx_bytes = make_contract_call(&contract_sk, 1, 200, &bad_addr, "foo_contract", "bar", &[Value::UInt(1), Value::Int(2)]);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err();
-
-                assert!(if let MemPoolRejection::BadAddressVersionByte = e { true } else { false });
-
-                // mismatched network on transfer!
-                let bad_addr = 
-                    StacksAddress::from_public_keys(
-                        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
-                    .unwrap()
-                    .into();
-
-                let tx_bytes = make_stacks_transfer(&contract_sk, 1, 200, &bad_addr, 1000);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err();
-                assert!(if let MemPoolRejection::BadAddressVersionByte = e { true } else { false });
-
-                // bad fees
-                let tx_bytes = make_stacks_transfer(&contract_sk, 1, 0, &other_addr, 1000);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::FeeTooLow(0, _) = e { true } else { false });
-
-                // bad nonce
-                let tx_bytes = make_stacks_transfer(&contract_sk, 0, 200, &other_addr, 1000);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::BadNonces(_) = e { true } else { false });
-
-                // not enough funds
-                let tx_bytes = make_stacks_transfer(&contract_sk, 1, 110000, &other_addr, 1000);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NotEnoughFunds(110000, 99900) = e { true } else { false });
-
-                let tx_bytes = make_stacks_transfer(&contract_sk, 1, 99900, &other_addr, 1000);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NotEnoughFunds(100900, 99900) = e { true } else { false });
-
-                let tx_bytes = make_contract_call(&contract_sk, 1, 200, &contract_addr, "bar_contract", "bar", &[Value::UInt(1)]);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NoSuchContract = e { true } else { false });
-
-                let tx_bytes = make_contract_call(&contract_sk, 1, 200, &contract_addr, "foo_contract", "foobar", &[Value::UInt(1)]);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NoSuchPublicFunction = e { true } else { false });
-
-                let tx_bytes = make_contract_call(&contract_sk, 1, 200, &contract_addr, "foo_contract", "bar", &[Value::UInt(1), Value::Int(2)]);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::BadFunctionArgument(_) = e { true } else { false });
-
-                let tx_bytes = make_contract_publish(&contract_sk, 1, 1000, "foo_contract", FOO_CONTRACT);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::ContractAlreadyExists(_) = e { true } else { false });
-
-                let microblock_1 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
-                    prev_block: BlockHeaderHash([0; 32]),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                    signature: MessageSignature([1; 65])
-                };
-
-                let microblock_2 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 1,
-                    prev_block: BlockHeaderHash([0; 32]),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                    signature: MessageSignature([1; 65])
-                };
-
-                let tx_bytes = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::PoisonMicroblocksDoNotConflict = e { true } else { false });
-
-                let microblock_1 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
-                    prev_block: block_hash.clone(),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                    signature: MessageSignature([0; 65])
-                };
-
-                let microblock_2 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
-                    prev_block: block_hash.clone(),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[1,2,3]),
-                    signature: MessageSignature([0; 65])
-                };
-
-                let tx_bytes = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::InvalidMicroblocks = e { true } else { false });
-
-
-                let mut microblock_1 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
-                    prev_block: BlockHeaderHash([0; 32]),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                    signature: MessageSignature([0; 65])
-                };
-
-                let mut microblock_2 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
-                    prev_block: BlockHeaderHash([0; 32]),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[1,2,3]),
-                    signature: MessageSignature([0; 65])
-                };
-
-                microblock_1.sign(&other_sk).unwrap();
-                microblock_2.sign(&other_sk).unwrap();
-
-                let tx_bytes = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NoAnchorBlockWithPubkeyHash(_) = e { true } else { false });
-
-                let tx_bytes = make_coinbase(&contract_sk, 1, 1000);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NoCoinbaseViaMempool = e { true } else { false });
-
-
-                // find the correct priv-key
-                let mut secret_key = None;
-                let conf = testnet::helium::tests::new_test_conf();
-
-                let seed = Sha256Sum::from_data(format!("{}", conf.node.name).as_bytes());
-                let mut keychain = Keychain::default(seed.as_bytes().to_vec());
-                for _i in 0..4 {
-                    let microblock_secret_key = keychain.rotate_microblock_keypair();
-                    let mut microblock_pubkey = Secp256k1PublicKey::from_private(&microblock_secret_key);
-                    microblock_pubkey.set_compressed(true);
-                    let pubkey_hash = StacksBlockHeader::pubkey_hash(&microblock_pubkey);
-                    if pubkey_hash == *micro_pubkh {
-                        secret_key = Some(microblock_secret_key);
-                        break;
-                    }
-                }
-
-                let secret_key = secret_key.expect("Failed to find the microblock secret key");
-
-                let mut microblock_1 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
-                    prev_block: BlockHeaderHash([0; 32]),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                    signature: MessageSignature([0; 65])
-                };
-
-                let mut microblock_2 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
-                    prev_block: BlockHeaderHash([0; 32]),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[1,2,3]),
-                    signature: MessageSignature([0; 65])
-                };
-
-                microblock_1.sign(&secret_key).unwrap();
-                microblock_2.sign(&secret_key).unwrap();
-
-                let tx_bytes = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
-                let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                chainstate.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap(); 
-            }
-        });
-
-        run_loop.start(num_rounds);
-    }
 
     #[test]
     fn mempool_db_init() {

@@ -4,7 +4,7 @@ use vm::contexts::{OwnedEnvironment, AssetMap, Environment};
 use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
-use vm::ast::{ContractAST, errors::ParseError};
+use vm::ast::{ContractAST, errors::ParseError, errors::ParseErrors};
 use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
 use vm::ast;
 use vm::analysis;
@@ -33,6 +33,7 @@ use std::fmt;
 ///
 pub struct ClarityInstance {
     datastore: Option<MarfedKV>,
+    block_limit: ExecutionCost,
 }
 
 ///
@@ -74,7 +75,12 @@ pub enum Error {
 
 impl From<CheckError> for Error {
     fn from(e: CheckError) -> Self {
-        Error::Analysis(e)
+        match e.err {
+            CheckErrors::CostOverflow => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            CheckErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
+            CheckErrors::MemoryBalanceExceeded(_a, _b) => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            _ => Error::Analysis(e)
+        }
     }
 }
 
@@ -90,7 +96,12 @@ impl From<InterpreterError> for Error {
 
 impl From<ParseError> for Error {
     fn from(e: ParseError) -> Self {
-        Error::Parse(e)
+        match e.err {
+            ParseErrors::CostOverflow => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            ParseErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
+            ParseErrors::MemoryBalanceExceeded(_a, _b) => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            _ => Error::Parse(e)
+        }
     }
 }
 
@@ -134,9 +145,19 @@ macro_rules! using {
     }
 }
 
+impl ClarityBlockConnection<'_> {
+    /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
+    /// Used by the miner to "undo" applying a transaction that exceeded the budget.
+    pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {
+        if let Some(ref mut cost_tracker) = self.cost_track {
+            cost_tracker.set_total(cost);
+        }
+    }
+}
+
 impl ClarityInstance {
-    pub fn new(datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance { datastore: Some(datastore) }
+    pub fn new(datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
+        ClarityInstance { datastore: Some(datastore), block_limit }
     }
 
     pub fn begin_block<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
@@ -148,28 +169,13 @@ impl ClarityInstance {
 
         datastore.begin(current, next);
 
-        ClarityBlockConnection {
-            datastore,
-            header_db,
-            parent: self,
-            cost_track: Some(LimitedCostTracker::new_max_limit())
-        }
-    }
-
-    pub fn begin_block_with_limit<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
-                                       header_db: &'a dyn HeadersDB, limit: ExecutionCost) -> ClarityBlockConnection<'a> {
-        let mut datastore = self.datastore.take()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
-
-        datastore.begin(current, next);
+        let cost_track = Some(LimitedCostTracker::new(self.block_limit.clone()));
 
         ClarityBlockConnection {
             datastore,
             header_db,
             parent: self,
-            cost_track: Some(LimitedCostTracker::new(limit))
+            cost_track
         }
     }
 
@@ -189,7 +195,6 @@ impl ClarityInstance {
         }
     }
 
-    #[cfg(test)]
     pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
                           contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
         self.datastore.as_mut().unwrap()
@@ -332,9 +337,9 @@ impl <'a> ClarityBlockConnection <'a> {
     ///    before this saves, it updates the metadata headers in
     ///    the sidestore so that they don't get stepped on after
     ///    a miner re-executes a constructed block.
-    pub fn commit_block_will_move(mut self, will_move: &str) -> LimitedCostTracker {
-        debug!("Commit Clarity datastore to {}", will_move);
-        self.datastore.commit_for_move(will_move);
+    pub fn commit_mined_block(mut self, bhh: &BlockHeaderHash) -> LimitedCostTracker {
+        debug!("Commit mined Clarity datastore to {}", bhh);
+        self.datastore.commit_mined_block(bhh);
 
         self.parent.datastore.replace(self.datastore);
 
@@ -432,6 +437,14 @@ impl <'a> ClarityTransactionConnection <'a> {
 
             (db.destroy().into(), result)
         })
+    }
+
+    /// What's our total (block-wide) resource use so far?
+    pub fn cost_so_far(&self) -> ExecutionCost {
+        match self.cost_track {
+            Some(ref track) => track.get_total(),
+            None => ExecutionCost::zero()
+        }
     }
 
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
@@ -606,7 +619,7 @@ mod tests {
     #[test]
     pub fn bad_syntax_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -633,7 +646,7 @@ mod tests {
     #[test]
     pub fn tx_rollback() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
@@ -691,7 +704,7 @@ mod tests {
     #[test]
     pub fn simple_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -723,7 +736,7 @@ mod tests {
     #[test]
     pub fn test_block_roll_back() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
@@ -757,7 +770,7 @@ mod tests {
     #[test]
     pub fn test_tx_roll_backs() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -820,7 +833,7 @@ mod tests {
     #[test]
     pub fn test_block_limit() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -848,17 +861,16 @@ mod tests {
             conn.commit_block();
         }
 
+        clarity_instance.block_limit = ExecutionCost { write_length: u64::max_value(),
+                                                       write_count: u64::max_value(),
+                                                       read_count: u64::max_value(),
+                                                       read_length: u64::max_value(),
+                                                       runtime: 100 };
+
         {
-            let mut conn = clarity_instance.begin_block_with_limit(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                                                                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
-                                                                   &NULL_HEADER_DB,
-                                                                   ExecutionCost {
-                                                                       write_length: u64::max_value(),
-                                                                       write_count: u64::max_value(),
-                                                                       read_count: u64::max_value(),
-                                                                       read_length: u64::max_value(),
-                                                                       runtime: 100
-                                                                   });
+            let mut conn = clarity_instance.begin_block(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
             assert!(
                 match conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "do-expand", &[],
                                        |_, _| false)).unwrap_err() {

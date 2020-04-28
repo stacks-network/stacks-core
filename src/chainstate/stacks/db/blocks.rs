@@ -420,7 +420,7 @@ impl StacksChainState {
     }
     
     /// Get the path to a block in the chunk store
-    pub fn get_index_block_path(blocks_dir: &String, index_block_hash: &BlockHeaderHash) -> Result<String, Error> {
+    pub fn get_index_block_path(blocks_dir: &str, index_block_hash: &BlockHeaderHash) -> Result<String, Error> {
         let block_hash_bytes = index_block_hash.as_bytes();
         let mut block_path = PathBuf::from(blocks_dir);
 
@@ -433,7 +433,7 @@ impl StacksChainState {
     }
     
     /// Get the path to a block in the chunk store, given the burn header hash and block hash.
-    pub fn get_block_path(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<String, Error> {
+    pub fn get_block_path(blocks_dir: &str, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<String, Error> {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, block_hash);
         StacksChainState::get_index_block_path(blocks_dir, &index_block_hash)
     }
@@ -1068,7 +1068,7 @@ impl StacksChainState {
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
     fn store_staging_block<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
-        test_debug!("Store anchored block {}/{}", burn_hash, block.block_hash());
+        debug!("Store anchored block {}/{}, parent in {}", burn_hash, block.block_hash(), parent_burn_header_hash);
         assert!(commit_burn < i64::max_value() as u64);
         assert!(sortition_burn < i64::max_value() as u64);
         assert!(burn_header_timestamp < i64::max_value() as u64);
@@ -1082,7 +1082,8 @@ impl StacksChainState {
             let has_parent_args: &[&dyn ToSql] = &[&block.header.parent_block, &parent_burn_header_hash];
             let rows = query_row_columns::<BlockHeaderHash, _>(&tx, &has_parent_sql, has_parent_args, "anchored_block_hash").map_err(Error::DBError)?;
             if rows.len() > 0 {
-                // still have unprocessed parent -- this block is not attacheable
+                // still have unprocessed parent -- this block is not attacheable 
+                debug!("Store non-attacheable anchored block {}/{}", burn_hash, block.block_hash());
                 0
             }
             else {
@@ -2069,6 +2070,46 @@ impl StacksChainState {
         return Some((end, None));
     }
 
+    /// Get the block snapshot of the parent stacks block of the given stacks block
+    /// TODO: refactor and dedup with validate_anchored_block_burnchain below
+    pub fn get_block_snapshot_of_parent_stacks_block<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<BlockSnapshot>, Error> {
+        let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block_hash).map_err(Error::DBError)? {
+            Some(bc) => bc,
+            None => {
+                // unsoliciated
+                debug!("No block commit for {}/{}", burn_header_hash, block_hash);
+                return Ok(None);
+            }
+        };
+
+        // get the stacks chain tip this block commit builds off of
+        let stacks_chain_tip = 
+            if block_commit.parent_block_ptr == 0 && block_commit.parent_vtxindex == 0 {
+                // no parent -- this is the first-ever Stacks block in this fork
+                test_debug!("Block {}/{} mines off of genesis", burn_header_hash, block_hash);
+                BurnDB::get_first_block_snapshot(tx).map_err(Error::DBError)?
+            }
+            else {
+                let parent_commit = match BurnDB::get_block_commit_parent(tx, block_commit.parent_block_ptr.into(), block_commit.parent_vtxindex.into(), burn_header_hash).map_err(Error::DBError)? {
+                    Some(commit) => commit,
+                    None => {
+                        // unsolicited -- orphaned
+                        warn!("Received unsolicited block, could not find parent: {}/{}, parent={}/{}",
+                              burn_header_hash, block_hash,
+                              block_commit.parent_block_ptr, burn_header_hash);
+                        return Ok(None);
+                    }
+                };
+
+                debug!("Block {}/{} mines off of parent {},{}", burn_header_hash, block_hash, parent_commit.block_height, parent_commit.vtxindex);
+                BurnDB::get_block_snapshot(tx, &parent_commit.burn_header_hash)
+                    .map_err(Error::DBError)?
+                    .expect("FATAL: burn DB does not have snapshot for parent block commit")
+            };
+
+        Ok(Some(stacks_chain_tip))
+    }
+
     /// Validate an anchored block against the burn chain state.
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
@@ -2076,10 +2117,12 @@ impl StacksChainState {
     /// (ostensibly) selected this block for inclusion.
     pub fn validate_anchored_block_burnchain<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, mainnet: bool, chain_id: u32) -> Result<Option<(u64, u64)>, Error> {
         // sortition-winning block commit for this block?
-        let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block.block_hash()).map_err(Error::DBError)? {
+        let block_hash = block.block_hash();
+        let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block_hash).map_err(Error::DBError)? {
             Some(bc) => bc,
             None => {
                 // unsoliciated
+                warn!("Received unsolicited block: {}/{}", burn_header_hash, block_hash);
                 return Ok(None);
             }
         };
@@ -2104,7 +2147,7 @@ impl StacksChainState {
         let stacks_chain_tip = 
             if block_commit.parent_block_ptr == 0 && block_commit.parent_vtxindex == 0 {
                 // no parent -- this is the first-ever Stacks block in this fork
-                test_debug!("Block {}/{} mines off of genesis", burn_header_hash, block.block_hash());
+                test_debug!("Block {}/{} mines off of genesis", burn_header_hash, block_hash);
                 BurnDB::get_first_block_snapshot(tx).map_err(Error::DBError)?
             }
             else {
@@ -2112,11 +2155,14 @@ impl StacksChainState {
                     Some(commit) => commit,
                     None => {
                         // unsolicited -- orphaned
+                        warn!("Received unsolicited block, could not find parent: {}/{}, parent={}/{}",
+                              burn_header_hash, block_hash,
+                              block_commit.parent_block_ptr, burn_header_hash);
                         return Ok(None);
                     }
                 };
 
-                test_debug!("Block {}/{} mines off of parent {},{}", burn_header_hash, block.block_hash(), parent_commit.block_height, parent_commit.vtxindex);
+                debug!("Block {}/{} mines off of parent {},{}", burn_header_hash, block_hash, parent_commit.block_height, parent_commit.vtxindex);
                 BurnDB::get_block_snapshot(tx, &parent_commit.burn_header_hash)
                     .map_err(Error::DBError)?
                     .expect("FATAL: burn DB does not have snapshot for parent block commit")
@@ -2126,6 +2172,9 @@ impl StacksChainState {
         match block.header.validate_burnchain(&burn_chain_tip, &penultimate_sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip) {
             Ok(_) => {},
             Err(_) => {
+                warn!("Invalid block, could not validate on burnchain: {}/{}",
+                      burn_header_hash, block_hash);
+                      
                 return Ok(None);
             }
         };
@@ -2133,6 +2182,8 @@ impl StacksChainState {
         // static checks on transactions all pass
         let valid = block.validate_transactions_static(mainnet, chain_id);
         if !valid {
+            warn!("Invalid block, transactions failed static checks: {}/{}",
+                  burn_header_hash, block_hash);
             return Ok(None);
         }
 
@@ -2154,20 +2205,20 @@ impl StacksChainState {
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
-        test_debug!("preprocess anchored block {}/{}", burn_header_hash, block.block_hash());
+        debug!("preprocess anchored block {}/{}", burn_header_hash, block.block_hash());
 
         // already in queue or already processed?
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &block.block_hash());
         if StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, burn_header_hash, &block.block_hash())? {
-            test_debug!("Block already stored and processed: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            debug!("Block already stored and processed: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
         else if StacksChainState::has_staging_block(&self.blocks_db, burn_header_hash, &block.block_hash())? {
-            test_debug!("Block already stored (but not processed): {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            debug!("Block already stored (but not processed): {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
         else if StacksChainState::has_block_indexed(&self.blocks_path, &index_block_hash)? {
-            test_debug!("Block already stored to chunk store: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            debug!("Block already stored to chunk store: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
          
@@ -2194,6 +2245,7 @@ impl StacksChainState {
             }
         };
      
+        debug!("Storing staging block");
         // queue block up for processing
         StacksChainState::store_staging_block(&mut block_tx, burn_header_hash, burn_header_timestamp, &block, parent_burn_header_hash, commit_burn, sortition_burn)?;
 
@@ -2427,9 +2479,9 @@ impl StacksChainState {
                 Ok(row) => {
                     let candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
                     
-                    test_debug!("Consider block {}/{} whose parent is {}/{}", 
-                                &candidate.burn_header_hash, &candidate.anchored_block_hash,
-                                &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
+                    debug!("Consider block {}/{} whose parent is {}/{}", 
+                           &candidate.burn_header_hash, &candidate.anchored_block_hash,
+                           &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
         
                     let can_attach = {
                         if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
@@ -2448,10 +2500,12 @@ impl StacksChainState {
                             match hdr_rows.len() {
                                 0 => {
                                     // no parent processed for this block
+                                    debug!("No such parent {}/{} for block, cannot process", &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
                                     false
                                 }
                                 1 => {
                                     // can process this block 
+                                    debug!("Have parent {}/{} for this block, will process", &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
                                     true
                                 },
                                 _ => {
@@ -3060,9 +3114,16 @@ impl StacksChainState {
     pub fn will_admit_mempool_tx(&mut self, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
         let conf = self.config();
         let staging_height = match self.get_stacks_block_height(current_burn, current_block) {
-            Ok(Some(height)) => height,
+            Ok(Some(height)) => {
+                height
+            },
             Ok(None) => {
-                return Err(MemPoolRejection::NoSuchChainTip(current_burn.clone(), current_block.clone()));
+                if *current_burn == FIRST_BURNCHAIN_BLOCK_HASH {
+                    0
+                }
+                else {
+                    return Err(MemPoolRejection::NoSuchChainTip(current_burn.clone(), current_block.clone()));
+                }
             },
             Err(_e) => {
                 panic!("DB CORRUPTION: failed to query block height");

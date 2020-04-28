@@ -17,6 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 use std::marker::PhantomData;
+use std::io::{Read, Write};
 
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
@@ -43,6 +44,10 @@ use burnchains::Address;
 use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
 use burnchains::Burnchain;
+
+use net::StacksMessageCodec;
+use net::codec::{write_next};
+use net::Error as net_error;
 
 use util::hash::Hash160;
 use util::vrf::{VRF, VRFPublicKey};
@@ -170,6 +175,33 @@ impl UserBurnSupportOp {
     }
 }
 
+impl StacksMessageCodec for UserBurnSupportOp {
+
+    /*
+        Wire format:
+
+        0      2  3              22                       54                 74       78        80
+        |------|--|---------------|-----------------------|------------------|--------|---------|
+         magic  op consensus hash   proving public key       block hash 160   key blk  key
+                (truncated by 1)                                                        vtxindex
+    */
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(Opcodes::UserBurnSupport as u8))?;
+        let truncated_consensus = self.consensus_hash.to_bytes();
+        fd.write_all(&truncated_consensus[0..19]).map_err(net_error::WriteError)?;    
+        fd.write_all(&self.public_key.as_bytes()[..]).map_err(net_error::WriteError)?;    
+        write_next(fd, &self.block_header_hash_160)?;
+        write_next(fd, &self.key_block_ptr)?;
+        write_next(fd, &self.key_vtxindex)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<UserBurnSupportOp, net_error> {
+        // Op deserialized through burchain indexer
+        unimplemented!();
+    }
+}
+
 impl BlockstackOperation for UserBurnSupportOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<UserBurnSupportOp, op_error> {
         UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
@@ -264,12 +296,13 @@ mod tests {
     use deps::bitcoin::network::serialize::deserialize;
     use deps::bitcoin::blockdata::transaction::Transaction;
 
-    use util::hash::{hex_bytes, Hash160};
+    use util::hash::{hex_bytes, Hash160, to_hex};
     use util::log;
     use util::get_epoch_time_secs;
 
     struct OpFixture {
         txstr: String,
+        opstr: String,
         result: Option<UserBurnSupportOp>
     }
 
@@ -289,12 +322,13 @@ mod tests {
     #[test]
     fn test_parse() {
         let vtxindex = 1;
-        let block_height = 694;
+        let _block_height = 694;
         let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
         let tx_fixtures: Vec<OpFixture> = vec![
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402204c51707ac34b6dcbfc518ba40c5fc4ef737bf69cc21a9f8a8e6f621f511f78e002200caca0f102d5df509c045c4fe229d957aa7ef833dc8103dc2fe4db15a22bab9e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a3333333333333333333333333333333333333333010203040539300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a33333333333333333333333333333333333333330102030405".to_string(),
                 result: Some(UserBurnSupportOp {
                     address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_string(&"mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()).unwrap()),
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222200").unwrap()).unwrap(),
@@ -313,21 +347,25 @@ mod tests {
             OpFixture {
                 // invalid -- no burn output
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a473044022073490a3958b9e6128d3b7a4a8c77203c56862b2da382e96551f7efae7029b0e1022046672d1e61bdfd3dca9cc199bffd0bfb9323e432f8431bb6749da3c5bd06e9ca012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000020000000000000000536a4c5069645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a33333333333333333333333333333333333333330102030405a05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a33333333333333333333333333333333333333330102030405".to_string(),
                 result: None,
             },
             OpFixture {
                 // invalid -- bad public key
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402202bf944fa4d1dbbdd4f53e915c85f07c8a5afbf917f7cc9169e9c7d3bbadff05a022064b33a1020dd9cdd0ac6de213ee1bd8f364c9c876e716ad289f324c2a4bbe48a012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7b3333333333333333333333333333333333333333010203040539300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a33333333333333333333333333333333333333330102030405".to_string(),
                 result: None,
             },
             OpFixture {
                 // invalid -- too short 
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a473044022038534377d738ba91df50a4bc885bcd6328520438d42cc29636cc299a24dcb4c202202953e87b6c176697d01d66a742a27fd48b8d2167fb9db184d59a3be23a59992e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000300000000000000004c6a4a69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a3333333333333333333333333333333333333339300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a33333333333333333333333333333333333333330102030405".to_string(),
                 result: None,
             },
             OpFixture {
                 // invalid -- wrong opcode
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402200e6dbb4ccefc44582135091678a49228716431583dab3d789b1211d5737d02e402205b523ad156cad4ae6bb29f046b144c8c82b7c85698616ee8f5d59ea40d594dd4012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a3333333333333333333333333333333333333333010203040539300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a33333333333333333333333333333333333333330102030405".to_string(),
                 result: None,
             }
         ];
@@ -365,6 +403,16 @@ mod tests {
             
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
+
+                    let opstr = {
+                        let mut buffer= vec![];
+                        let mut magic_bytes = BLOCKSTACK_MAGIC_MAINNET.as_bytes().to_vec();
+                        buffer.append(&mut magic_bytes);
+                        parsed_tx.consensus_serialize(&mut buffer).expect("FATAL: invalid operation");
+                        to_hex(&buffer)
+                    };
+
+                    assert_eq!(tx_fixture.opstr, opstr);
                     assert_eq!(parsed_tx, result);
                 },
                 (Err(_e), None) => {},

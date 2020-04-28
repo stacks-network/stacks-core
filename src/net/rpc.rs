@@ -116,6 +116,7 @@ pub struct ConversationHttp {
     // our outstanding request/response to the remote peer, if any
     pending_request: Option<ReplyHandleHttp>,
     pending_response: Option<HttpResponseType>,
+    pending_error_response: Option<HttpResponseType>,
 }
 
 impl fmt::Display for ConversationHttp {
@@ -178,6 +179,7 @@ impl ConversationHttp {
             burnchain: burnchain.clone(),
             pending_request: None,
             pending_response: None,
+            pending_error_response: None,
             keep_alive: true,
             total_request_count: 0,
             total_reply_count: 0,
@@ -209,9 +211,9 @@ impl ConversationHttp {
     
     /// Start a HTTP request from this peer, and expect a response.
     /// Returns the request handle; does not set the handle into this connection.
-    pub fn start_request(&mut self, req: HttpRequestType) -> Result<ReplyHandleHttp, net_error> {
+    fn start_request(&mut self, req: HttpRequestType) -> Result<ReplyHandleHttp, net_error> {
         test_debug!("{:?},id={}: Start HTTP request {:?}", &self.peer_host, self.conn_id, &req);
-        let mut handle = self.connection.make_request_handle(HTTP_REQUEST_ID_RESERVED, get_epoch_time_secs() + self.timeout)?;
+        let mut handle = self.connection.make_request_handle(HTTP_REQUEST_ID_RESERVED, get_epoch_time_secs() + self.timeout, self.conn_id)?;
         let stacks_msg = StacksHttpMessage::Request(req);
         self.connection.send_message(&mut handle, &stacks_msg)?;
         Ok(handle)
@@ -225,11 +227,36 @@ impl ConversationHttp {
             test_debug!("{:?},id={}: Request in progress still", &self.peer_host, self.conn_id);
             return Err(net_error::InProgress);
         }
+        if self.pending_error_response.is_some() {
+            test_debug!("{:?},id={}: Error response is inflight", &self.peer_host, self.conn_id);
+            return Err(net_error::InProgress);
+        }
        
         let handle = self.start_request(req)?;
         
         self.pending_request = Some(handle);
         self.pending_response = None;
+        Ok(())
+    }
+
+    /// Send a HTTP error response.
+    /// Discontinues and disables sending a non-error response
+    pub fn reply_error<W: Write>(&mut self, fd: &mut W, res: HttpResponseType) -> Result<(), net_error> {
+        if self.is_request_inflight() || self.pending_response.is_some() {
+            test_debug!("{:?},id={}: Request or response is already in progress", &self.peer_host, self.conn_id);
+            return Err(net_error::InProgress);
+        }
+        if self.pending_error_response.is_some() {
+            // error already in-flight
+            return Ok(())
+        }
+
+        res.send(&mut self.connection.protocol, fd)?;
+        
+        let reply = self.connection.make_relay_handle(self.conn_id)?;
+        
+        self.pending_error_response = Some(res);
+        self.reply_streams.push_back((reply, None, false));
         Ok(())
     }
 
@@ -614,7 +641,7 @@ impl ConversationHttp {
     pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
                           chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Option<StacksMessageType>, net_error> {
 
-        let mut reply = self.connection.make_relay_handle()?;
+        let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
         let mut ret = None;
 
@@ -789,7 +816,7 @@ impl ConversationHttp {
 
         if broken || (drained_handle && drained_stream) {
             // done with this stream
-            test_debug!("{:?}: done with stream", &self);
+            test_debug!("{:?}: done with stream (broken={}, drained_handle={}, drained_stream={})", &self, broken, drained_handle, drained_stream);
             self.total_reply_count += 1;
             self.reply_streams.pop_front();
 
@@ -872,7 +899,7 @@ impl ConversationHttp {
     /// Is the conversation out of pending data?
     /// Don't consider it drained if we haven't received anything yet
     pub fn is_drained(&self) -> bool {
-        self.total_request_count > 0 && self.total_reply_count > 0 && self.is_idle()
+        ((self.total_request_count > 0 && self.total_reply_count > 0) || self.pending_error_response.is_some()) && self.is_idle()
     }
 
     /// Should the connection be kept alive even if drained?
@@ -899,6 +926,11 @@ impl ConversationHttp {
     /// Returns the list of transactions we'll need to forward to the peer network
     pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
                 chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<StacksMessageType>, net_error> {
+
+        // if we have an in-flight error, then don't take any more requests.
+        if self.pending_error_response.is_some() {
+            return Ok(vec![]);
+        }
 
         // handle in-bound HTTP request(s)
         let num_inbound = self.connection.inbox_len();
@@ -949,16 +981,48 @@ impl ConversationHttp {
 
     /// Load data into our HTTP connection
     pub fn recv<R: Read>(&mut self, r: &mut R) -> Result<usize, net_error> {
-        self.connection.recv_data(r)
+        let mut total_recv = 0;
+        loop {
+            let nrecv = match self.connection.recv_data(r) {
+                Ok(nr) => nr,
+                Err(e) => {
+                    debug!("{:?}: failed to recv: {:?}", self, &e);
+                    return Err(e);
+                }
+            };
+
+            total_recv += nrecv;
+            if nrecv == 0 {
+                break;
+            }
+        }
+        Ok(total_recv)
     }
 
-    /// Write data out of our HTTP connection 
-    pub fn send<W: Write>(&mut self, w: &mut W) -> Result<usize, net_error> {
-        let sz = self.connection.send_data(w)?;
-        if sz > 0 {
-            self.last_response_timestamp = get_epoch_time_secs();
+    /// Write data out of our HTTP connection.  Write as much as we can
+    pub fn send<W: Write>(&mut self, w: &mut W, chainstate: &mut StacksChainState) -> Result<usize, net_error> {
+        let mut total_sz = 0;
+        loop {
+            // prime the Write
+            self.try_flush(chainstate)?;
+
+            let sz = match self.connection.send_data(w) {
+                Ok(sz) => sz,
+                Err(e) => {
+                    info!("{:?}: failed to send on HTTP conversation: {:?}", self, &e);
+                    return Err(e);
+                }
+            };
+
+            total_sz += sz;
+            if sz > 0 {
+                self.last_response_timestamp = get_epoch_time_secs();
+            }
+            else {
+                break;
+            }
         }
-        Ok(sz)
+        Ok(total_sz)
     }
 
     /// Make a new getinfo request to this endpoint
@@ -1032,10 +1096,12 @@ mod test {
            
             sender.try_flush(sender_chainstate).unwrap();
             receiver.try_flush(receiver_chainstate).unwrap();
+            
+            pipe_write.try_flush().unwrap();
 
             let all_relays_flushed = receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
             
-            let nw = sender.send(&mut pipe_write).unwrap();
+            let nw = sender.send(&mut pipe_write, sender_chainstate).unwrap();
             let nr = receiver.recv(&mut pipe_read).unwrap();
 
             test_debug!("res = {}, all_relays_flushed = {} ({},{}), nr = {}, nw = {}", res, all_relays_flushed, receiver.num_pending_outbound(), sender.num_pending_outbound(), nr, nw);

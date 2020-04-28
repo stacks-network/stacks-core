@@ -226,14 +226,15 @@ impl BitcoinIndexer {
                             // need to try again
                             backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0));
                         }
-                        Err(_) => {
+                        Err(e) => {
                             // propagate other network error
-                            return handshake_result;
+                            warn!("Failed to handshake with {}:{}: {:?}", &self.config.peer_host, self.config.peer_port, &e);
+                            return Err(e);
                         }
                     }
                 }
                 Err(err_msg) => {
-                    error!("Failed to connect to peer: {}", err_msg);
+                    error!("Failed to connect to peer {}:{}: {}", &self.config.peer_host, self.config.peer_port, err_msg);
                     backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0));
                 }
             }
@@ -242,8 +243,10 @@ impl BitcoinIndexer {
             if backoff > 60.0 {
                 backoff = 60.0;
             }
-            
-            warn!("Connection broken; retrying in {} sec...", backoff);
+           
+            if backoff > 10.0 {
+                warn!("Connection broken; retrying in {} sec...", backoff);
+            }
 
             let sleep_sec = backoff as u64;
             let sleep_nsec = (((backoff - (sleep_sec as f64)) as u64) * 1_000_000) as u32;

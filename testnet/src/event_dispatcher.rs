@@ -1,20 +1,16 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::thread::spawn;
-use std::net::{SocketAddr, ToSocketAddrs};
 use mio::tcp::TcpStream;
 use serde_json::json;
-use serde::Serialize;
 
-use vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
-use vm::analysis::{contract_interface_builder::build_contract_interface};
-use burnchains::Txid;
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::events::{StacksTransactionReceipt, StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
-use chainstate::stacks::db::StacksHeaderInfo;
-use net::StacksMessageCodec;
+use stacks::burnchains::Txid;
+use stacks::chainstate::stacks::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
+use stacks::net::StacksMessageCodec;
+use stacks::vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
+use stacks::vm::analysis::{contract_interface_builder::build_contract_interface};
 
 use super::config::{EventObserverConfig, EventKeyType};
+use super::node::{ChainTip};
 
 #[derive(Debug)]
 struct EventObserver {
@@ -23,7 +19,7 @@ struct EventObserver {
 
 impl EventObserver {
 
-    pub fn send(&mut self, filtered_events: Vec<&(Txid, &StacksTransactionEvent)>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo, receipts: &Vec<StacksTransactionReceipt>) {
+    pub fn send(&mut self, filtered_events: Vec<&(Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip) {
         // Initiate a tcp socket, first using std::net TCP connect for smart DNS resolution
         let std_stream = std::net::TcpStream::connect(&self.endpoint).unwrap();
         info!("Connected to event observer at: {}", std_stream.peer_addr().unwrap());
@@ -36,10 +32,10 @@ impl EventObserver {
         ).collect();
 
         let mut tx_index: u32 = 0;
-        let serialized_txs: Vec<serde_json::Value> = receipts.iter().map(|artifact| {
-            let tx = &artifact.transaction;
+        let serialized_txs: Vec<serde_json::Value> = chain_tip.receipts.iter().map(|receipt| {
+            let tx = &receipt.transaction;
 
-            let (success, result) = match &artifact.result {
+            let (success, result) = match &receipt.result {
                 Value::Response(response_data) => {
                     (response_data.committed, response_data.data.clone())
                 },
@@ -60,7 +56,7 @@ impl EventObserver {
                 formatted_bytes
             };
             let contract_interface_json = {
-                match &artifact.contract_analysis {
+                match &receipt.contract_analysis {
                     Some(analysis) => json!(build_contract_interface(analysis)),
                     None => json!(null)
                 }
@@ -79,11 +75,11 @@ impl EventObserver {
         
         // Wrap events
         let payload = json!({
-            "block_hash": format!("0x{:?}", chain_tip.block_hash()),
-            "block_height": chain_tip_info.block_height,
-            "index_block_hash": format!("0x{:?}", chain_tip_info.index_block_hash()),
-            "parent_block_hash": format!("0x{:?}", chain_tip.header.parent_block),
-            "parent_microblock": format!("0x{:?}", chain_tip.header.parent_microblock),
+            "block_hash": format!("0x{:?}", chain_tip.block.block_hash()),
+            "block_height": chain_tip.metadata.block_height,
+            "index_block_hash": format!("0x{:?}", chain_tip.metadata.index_block_hash()),
+            "parent_block_hash": format!("0x{:?}", chain_tip.block.header.parent_block),
+            "parent_microblock": format!("0x{:?}", chain_tip.block.header.parent_microblock),
             "events": serialized_events,
             "transactions": serialized_txs,
         }).to_string();
@@ -117,13 +113,14 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_receipts(&mut self, receipts: &Vec<StacksTransactionReceipt>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo) {
+    pub fn process_chain_tip(&mut self, chain_tip: &ChainTip) {
+
         let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
         let mut events: Vec<(Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
-        for artifact in receipts.iter() {
-            let tx_hash = artifact.transaction.txid();
-            for event in artifact.events.iter() {
+        for receipt in chain_tip.receipts.iter() {
+            let tx_hash = receipt.transaction.txid();
+            for event in receipt.events.iter() {
                 match event {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
                         if let Some(observer_indexes) = self.contract_events_observers_lookup.get(&event_data.key) {
@@ -166,7 +163,7 @@ impl EventDispatcher {
             for event_id in filtered_events_ids {
                 filtered_events.push(&events[*event_id]);
             }
-            self.registered_observers[observer_id].send(filtered_events, chain_tip, chain_tip_info, receipts);
+            self.registered_observers[observer_id].send(filtered_events, chain_tip);
         }
     }
 

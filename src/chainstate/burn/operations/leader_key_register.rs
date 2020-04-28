@@ -17,6 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::io::{Read, Write};
+
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
@@ -49,11 +51,13 @@ use address::AddressHashMode;
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::StacksPrivateKey;
-
 use chainstate::burn::BlockHeaderHash;
 
-use util::vrf::{VRF,VRFPublicKey,VRFPrivateKey};
+use net::StacksMessageCodec;
+use net::codec::{write_next};
+use net::Error as net_error;
 
+use util::vrf::{VRF,VRFPublicKey,VRFPrivateKey};
 use util::log;
 use util::hash::DoubleSha256;
 
@@ -179,6 +183,34 @@ impl LeaderKeyRegisterOp {
     }
 }
 
+impl StacksMessageCodec for LeaderKeyRegisterOp {
+
+    /*
+        Wire format:
+
+        0      2  3              23                       55                          80
+        |------|--|---------------|-----------------------|---------------------------|
+         magic  op consensus hash    proving public key               memo
+    */
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
+        write_next(fd, &self.consensus_hash)?;
+        fd.write_all(&self.public_key.as_bytes()[..]).map_err(net_error::WriteError)?;    
+        
+        let memo = match self.memo.len() {
+            l if l <= 25 => self.memo[0..].to_vec().clone(),
+            _ => self.memo[0..25].to_vec().clone(),
+        };
+        fd.write_all(&memo).map_err(net_error::WriteError)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderKeyRegisterOp, net_error> {
+        // Op deserialized through burchain indexer
+        unimplemented!();
+    }
+}
+
 impl BlockstackOperation for LeaderKeyRegisterOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<LeaderKeyRegisterOp, op_error> {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
@@ -235,7 +267,7 @@ mod tests {
 
     use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash, BlockSnapshot};
     
-    use util::hash::hex_bytes;
+    use util::hash::{hex_bytes, to_hex};
     use util::log;
     use util::get_epoch_time_secs;
     
@@ -249,6 +281,7 @@ mod tests {
 
     struct OpFixture {
         txstr: String,
+        opstr: String,
         result: Option<LeaderKeyRegisterOp>,
     }
 
@@ -274,6 +307,7 @@ mod tests {
         let tx_fixtures: Vec<OpFixture> = vec![
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402203a176d95803e8d51e7884d38750322c4bfa55307a71291ef8db65191edd665f1022056f5d1720d1fde8d6a163c79f73f22f874ef9e186e98e5b60fa8ac64d298e77a012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a0102030405".to_string(),
                 result: Some(LeaderKeyRegisterOp {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
@@ -288,6 +322,7 @@ mod tests {
             },
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a473044022037d0b9d4e98eab190522acf5fb8ea8e89b6a4704e0ac6c1883d6ffa629b3edd30220202757d710ec0fb940d1715e02588bb2150110161a9ee08a83b750d961431a8e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000020000000000000000396a3769645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a39300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a".to_string(),
                 result: Some(LeaderKeyRegisterOp {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
@@ -303,21 +338,25 @@ mod tests {
             OpFixture {
                 // invalid VRF public key 
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100ddbbaf029174a9bd1588fc0b34094e9f48fec9c89704eb12a3ee70dd5ca4142e02202eab7cbf985da23e890766331f7e0009268d1db75da8b583a953528e6a099499012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7b010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "".to_string(),
                 result: None,
             },
             OpFixture {
                 // too short
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100b2680431ab771826f42b93f5238e518c6483af7026c25ddd6e970f26fec80473022050ab510ede8d7b50cea1a286d1e05fa2b2d62ffbb9983e4cade9899474d0f8b9012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000020000000000000000386a3669645e22222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a39300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "".to_string(),
                 result: None,
             },
             OpFixture {
                 // not enough outputs
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a473044022070c8ce3786cee46d283b8a02a9c6ba87ef693960a0200b4a85e1b4808ea7b23a02201c6926162fe8cf4d3bbc3fcea80baa8307543af69b5dbbad72aa659a3a87f08e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000100000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040500000000".to_string(),
+                opstr: "".to_string(),
                 result: None,
             },
             OpFixture {
                 // wrong opcode
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100a72df03441bdd08b8fd042f417e37e7ba7dc6212078835840f4cbd64f690533a0220385309a6096044828ec7889107a73da23b009157a752251ed68f8084834d4d44012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "".to_string(),
                 result: None,
             }
         ];
@@ -353,6 +392,16 @@ mod tests {
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
+
+                    let opstr = {
+                        let mut buffer= vec![];
+                        let mut magic_bytes = BLOCKSTACK_MAGIC_MAINNET.as_bytes().to_vec();
+                        buffer.append(&mut magic_bytes);
+                        parsed_tx.consensus_serialize(&mut buffer).expect("FATAL: invalid operation");
+                        to_hex(&buffer)
+                    };
+
+                    assert_eq!(tx_fixture.opstr, opstr);
                     assert_eq!(parsed_tx, result);
                 },
                 (Err(_e), None) => {},
@@ -377,7 +426,6 @@ mod tests {
         let block_122_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap();
         let block_123_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
         let block_124_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap();
-        let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000005").unwrap();
         let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000006").unwrap();
         let block_126_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000007").unwrap();
         let block_127_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000008").unwrap();

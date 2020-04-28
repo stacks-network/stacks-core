@@ -66,7 +66,8 @@ pub const FIRST_BLOCK_TESTNET: u64 = 0;
 pub const FIRST_BLOCK_REGTEST: u64 = 0;
 
 // batch size for searching for a reorg 
-const REORG_BATCH_SIZE: u64 = 2000;
+// kept small since sometimes bitcoin will just send us one header at a time
+const REORG_BATCH_SIZE: u64 = 16;
 
 pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
     match network_id {
@@ -484,30 +485,18 @@ impl BitcoinIndexer {
             panic!("Headers is at block {}, but database is at block {}", canonical_end_block, db_height);
         }
         
-        let mut start_block = 
-            if db_height < REORG_BATCH_SIZE {
-                0 
-            }
-            else {
-                db_height - REORG_BATCH_SIZE
-            };
+        let mut start_block = db_height.saturating_sub(REORG_BATCH_SIZE);
 
-        while start_block > 0 && !found {
+        while !found {
             debug!("Search for reorg'ed headers from {} - {}", start_block, start_block + REORG_BATCH_SIZE);
 
             // copy over the head of the existing headers so we can fetch to the .reorg file
-            let copy_height_start = 
-                if start_block < REORG_BATCH_SIZE - 1 {
-                    0
-                }
-                else {
-                    start_block - REORG_BATCH_SIZE - 1
-                };
+            let copy_height_start = start_block.saturating_sub(REORG_BATCH_SIZE);
 
-            let existing_headers = self.read_spv_headers(&headers_path, copy_height_start, start_block + 1)?;
+            let existing_headers = self.read_spv_headers(&headers_path, copy_height_start + 1, start_block + 1)?;
 
             let mut spv_client = SpvClient::new(&reorg_headers_path, start_block, Some(start_block + REORG_BATCH_SIZE), self.runtime.network_id);
-            spv_client.write_block_headers(copy_height_start - 1, &existing_headers)
+            spv_client.write_block_headers(copy_height_start, &existing_headers)
                 .map_err(|e| {
                     error!("Failed to write block header {} to {}", start_block, &reorg_headers_path);
                     e
@@ -532,8 +521,10 @@ impl BitcoinIndexer {
                     error!("Failed to read reorg headers from {} to {}", start_block, start_block + REORG_BATCH_SIZE);
                     e
                 })?;
-              
-            for i in (start_block..(start_block + REORG_BATCH_SIZE)).rev() {
+            
+            let max_headers_len = if canonical_headers.len() < reorg_headers.len() { canonical_headers.len() } else { reorg_headers.len() };
+            let max_height = start_block + (max_headers_len as u64);
+            for i in (start_block..max_height).rev() {
                 if canonical_headers[(i - start_block) as usize] == reorg_headers[(i - start_block) as usize] {
                     // shared history 
                     new_tip = i + 1;
@@ -542,7 +533,11 @@ impl BitcoinIndexer {
                 }
             }
 
-            start_block -= REORG_BATCH_SIZE;
+            if start_block == 0 {
+                break;
+            }
+
+            start_block = start_block.saturating_sub(REORG_BATCH_SIZE);
         }
 
         debug!("Chain history is consistent up to {}", new_tip);

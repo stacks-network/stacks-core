@@ -36,9 +36,8 @@ use sha2::Digest;
 use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
+    BlockMap,
 };
-
-use chainstate::stacks::index::storage::{BlockHashMap};
 
 use chainstate::stacks::index::node::{
     clear_backptr,
@@ -70,6 +69,7 @@ use chainstate::stacks::index::Error;
 use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
 
 use util::log;
+use util::hash::to_hex;
 use util::macros::is_trace;
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
@@ -119,23 +119,22 @@ pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
 #[inline]
 pub fn check_node_id(nid: u8) -> bool {
     let node_id = clear_backptr(nid);
-    node_id == TrieNodeID::Leaf ||
-    node_id == TrieNodeID::Node4 ||
-    node_id == TrieNodeID::Node16 ||
-    node_id == TrieNodeID::Node48 ||
-    node_id == TrieNodeID::Node256
+    TrieNodeID::from_u8(node_id).is_some()
 }
 
 /// Helper to return the number of children in a Trie, given its ID.
 #[inline]
 pub fn node_id_to_ptr_count(node_id: u8) -> usize {
-    match clear_backptr(node_id) {
+    match TrieNodeID::from_u8(clear_backptr(node_id))
+        .expect(&format!("Unknown node ID {}", node_id)) {
         TrieNodeID::Leaf => 1,
         TrieNodeID::Node4 => 4,
         TrieNodeID::Node16 => 16,
         TrieNodeID::Node48 => 48,
         TrieNodeID::Node256 => 256,
-        _ => panic!("Unknown node ID {}", node_id)
+        TrieNodeID::Empty => {
+            panic!("node_id_to_ptr_count: tried getting empty node pointer count")
+        },
     }
 }
 
@@ -197,7 +196,7 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
 }
 
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
-pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &M) -> TrieHash {
+pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &mut M) -> TrieHash {
     let mut hasher = TrieHasher::new();
 
     node.write_consensus_bytes(map, &mut hasher)
@@ -232,7 +231,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
 }
 
 #[inline]
-pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
+pub fn get_nodetype_hash_bytes<M: BlockMap>(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &mut M) -> TrieHash {
     match node {
         TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
         TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),
@@ -244,12 +243,12 @@ pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<TrieH
 
 /// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_hash_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
+pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
     let mut hashbytes = [0u8; 32];
     f.read_exact(&mut hashbytes)
         .map_err(|e| {
             if e.kind() == ErrorKind::UnexpectedEof {
-                Error::CorruptionError(format!("Failed to read hash in full from {}", f.seek(SeekFrom::Current(0)).unwrap()))
+                Error::CorruptionError(format!("Failed to read hash in full from {}", to_hex(&hashbytes)))
             }
             else {
                 eprintln!("failed: {:?}", &e);
@@ -293,11 +292,17 @@ pub fn read_root_hash(s: &mut TrieFileStorage) -> Result<TrieHash, Error> {
 pub fn count_children(children: &[TriePtr]) -> usize {
     let mut cnt = 0;
     for i in 0..children.len() {
-        if children[i].id() != TrieNodeID::Empty {
+        if children[i].id() != TrieNodeID::Empty as u8 {
             cnt += 1;
         }
     }
     cnt
+}
+
+pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
+    fseek(f, ptr.ptr() as u64)?;
+    trace!("read_nodetype at {:?}", ptr);
+    read_nodetype_at_head(f, ptr.id())
 }
 
 /// Deserialize a node.
@@ -308,11 +313,11 @@ pub fn count_children(children: &[TriePtr]) -> usize {
 ///
 /// X is fixed and determined by the TrieNodeType variant.
 /// Y is variable, but no more than TriePath::len()
-pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-    trace!("read_nodetype at {:?}", ptr);
-    let h = read_node_hash_bytes(f, ptr)?;
+pub fn read_nodetype_at_head<F: Read>(f: &mut F, ptr_id: u8) -> Result<(TrieNodeType, TrieHash), Error> {
+    let h = read_hash_bytes(f)?;
 
-    let node = match ptr.id() {
+    let node = match TrieNodeID::from_u8(ptr_id)
+        .ok_or_else(|| Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr_id)))? {
         TrieNodeID::Node4 => {
             let node = TrieNode4::from_bytes(f)?;
             TrieNodeType::Node4(node)
@@ -333,9 +338,9 @@ pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNo
             let node = TrieLeaf::from_bytes(f)?;
             TrieNodeType::Leaf(node)
         },
-        _ => {
-            return Err(Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr.id())));
-        }
+        TrieNodeID::Empty => {
+            return Err(Error::CorruptionError("read_node_type: stored empty node type".to_string()))
+        },
     };
 
     Ok((node, TrieHash(h)))

@@ -554,7 +554,8 @@ A _Non-fungible token post-condition_ body is encoded as follows:
 * A variable-length **principal**, containing the address of the standard account or contract
   account
 * A variable-length **asset info** structure that identifies the token type
-* A variable-length **asset name** string that names the token instance
+* A variable-length **asset name**, which is the Clarity value that names the token instance,
+  serialized according to the Clarity value serialization format.
 * A 1-byte **non-fungible condition code**
 
 A **principal** structure encodes either a standard account address or a
