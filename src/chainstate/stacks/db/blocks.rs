@@ -34,10 +34,10 @@ use core::*;
 use chainstate::burn::operations::*;
 
 use chainstate::stacks::Error;
-use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::*;
 use chainstate::stacks::db::*;
+use chainstate::stacks::db::transactions::TransactionNonceMismatch;
 
 use chainstate::burn::BlockSnapshot;
 
@@ -151,7 +151,7 @@ pub enum MemPoolRejection {
     DeserializationFailure(net_error),
     FailedToValidate(Error),
     FeeTooLow(u64, u64),
-    BadNonces(Error),
+    BadNonces(TransactionNonceMismatch),
     NotEnoughFunds(u128, u128),
     NoSuchContract,
     NoSuchPublicFunction,
@@ -163,9 +163,66 @@ pub enum MemPoolRejection {
     BadAddressVersionByte,
     NoCoinbaseViaMempool,
     NoSuchChainTip(BurnchainHeaderHash,BlockHeaderHash),
-    WrongNetwork,
     DBError(db_error),
     Other(String),
+}
+
+impl MemPoolRejection {
+    pub fn into_json(self, txid: &Txid) -> serde_json::Value {
+        use self::MemPoolRejection::*;
+        let (reason_code, reason_data) = match self {
+            SerializationFailure(e) => ("Serialization", 
+                                        Some(json!({"message": e.to_string()}))),
+            DeserializationFailure(e) => ("Deserialization",
+                                          Some(json!({"message": e.to_string()}))),
+            FailedToValidate(e) => ("SignatureValidation",
+                                    Some(json!({"message": e.to_string()}))),
+            FeeTooLow(actual, expected) => ("FeeTooLow", 
+                                            Some(json!({
+                                                "expected": expected,
+                                                "actual": actual}))),
+            BadNonces(TransactionNonceMismatch {
+                expected, actual, principal, is_origin, .. }) =>
+                ("BadNonce",
+                 Some(json!({
+                     "expected": expected,
+                     "actual": actual,
+                     "principal": principal.to_string(),
+                     "is_origin": is_origin}))),
+            NotEnoughFunds(expected, actual) => 
+                ("NotEnoughFunds",
+                 Some(json!({
+                     "expected": format!("0x{}", to_hex(&expected.to_be_bytes())),
+                     "actual": format!("0x{}", to_hex(&actual.to_be_bytes()))
+                 }))),
+            NoSuchContract => ("NoSuchContract", None),
+            NoSuchPublicFunction => ("NoSuchPublicFunction", None),
+            BadFunctionArgument(e) => ("BadFunctionArgument",
+                                       Some(json!({"message": e.to_string()}))),
+            ContractAlreadyExists(id) => ("ContractAlreadyExists",
+                                          Some(json!({ "contract_identifier": id.to_string() }))),
+            PoisonMicroblocksDoNotConflict => ("PoisonMicroblocksDoNotConflict", None),
+            NoAnchorBlockWithPubkeyHash(_h) => ("PoisonMicroblockHasUnknownPubKeyHash", None),
+            InvalidMicroblocks => ("PoisonMicroblockIsInvalid", None),
+            BadAddressVersionByte => ("BadAddressVersionByte", None),
+            NoCoinbaseViaMempool => ("NoCoinbaseViaMempool", None),
+            // this should never happen via the RPC interface
+            NoSuchChainTip(..) => ("ServerFailureNoSuchChainTip", None),
+            DBError(e) => ("ServerFailureDatabase",
+                                    Some(json!({"message": e.to_string()}))),                           
+            Other(s) => ("ServerFailureOther", Some(json!({ "message": s })))
+        };
+        let mut result = json!({
+            "txid": format!("0x{}", txid.to_hex()),
+            "error": "transaction rejected",
+            "reason": reason_code,
+        });
+        if let Some(reason_data) = reason_data {
+            result.as_object_mut().unwrap()
+                .insert("reason_data".to_string(), reason_data);
+        }
+        result
+    }
 }
 
 impl From<db_error> for MemPoolRejection {
@@ -3173,7 +3230,14 @@ impl StacksChainState {
 
         // 5: the paying account must have enough funds
         if fee as u128 > payer.stx_balance {
-            return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance))
+            match &tx.payload {
+                TransactionPayload::TokenTransfer(..) => {
+                    // pass: we'll return a total_spent failure below.
+                },
+                _ => {
+                    return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance));
+                }
+            }
         }
 
         // 6: payload-specific checks
@@ -3181,7 +3245,7 @@ impl StacksChainState {
             TransactionPayload::TokenTransfer(addr, amount, _memo) => {
                 // version byte matches?
                 if !StacksChainState::is_valid_address_version(chainstate_config.mainnet, addr.version()) {
-                    return Err(MemPoolRejection::BadAddressVersionByte)
+                    return Err(MemPoolRejection::BadAddressVersionByte);
                 }
 
                 // got the funds?
