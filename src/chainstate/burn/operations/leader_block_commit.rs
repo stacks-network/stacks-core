@@ -652,7 +652,7 @@ mod tests {
             burn_header_hash: block_125_hash.clone(),
         };
 
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
         let block_ops = vec![
             // 122
             vec![],
@@ -704,6 +704,12 @@ mod tests {
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
                     num_sortitions: (i + 1) as u64,
+                    stacks_block_accepted: false,
+                    stacks_block_height: 0,
+                    arrival_index: 0,
+                    canonical_stacks_tip_height: 0,
+                    canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
                 };
                 let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i]).unwrap();
                 

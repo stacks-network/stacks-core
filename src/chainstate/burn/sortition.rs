@@ -83,7 +83,13 @@ impl BlockSnapshot {
             winning_block_txid: Txid([0u8; 32]),
             winning_stacks_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             index_root: TrieHash::from_empty_data(),
-            num_sortitions: 0
+            num_sortitions: 0,
+            stacks_block_accepted: false,
+            stacks_block_height: 0,
+            arrival_index: 0,
+            canonical_stacks_tip_height: 0,
+            canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+            canonical_stacks_tip_burn_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
         }
     }
 
@@ -186,7 +192,13 @@ impl BlockSnapshot {
             winning_block_txid: non_winning_block_txid,
             winning_stacks_block_hash: non_winning_block_hash,
             index_root: TrieHash::from_empty_data(),     // will be overwritten
-            num_sortitions: parent_snapshot.num_sortitions
+            num_sortitions: parent_snapshot.num_sortitions,
+            stacks_block_accepted: false,
+            stacks_block_height: 0,
+            arrival_index: 0,
+            canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
+            canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
+            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone()
         })
     }
     
@@ -281,7 +293,13 @@ impl BlockSnapshot {
             winning_block_txid: winning_block.txid,
             winning_stacks_block_hash: winning_block.block_header_hash,
             index_root: TrieHash::from_empty_data(),     // will be overwritten,
-            num_sortitions: parent_snapshot.num_sortitions + 1
+            num_sortitions: parent_snapshot.num_sortitions + 1,
+            stacks_block_accepted: false,
+            stacks_block_height: 0,
+            arrival_index: 0,
+            canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
+            canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
+            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
         })
     }
 }
@@ -323,7 +341,7 @@ mod test {
             first_block_hash: first_burn_hash.clone()
         };
 
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
         let empty_block_header = BurnchainBlockHeader {
             block_height: first_block_height + 1,
