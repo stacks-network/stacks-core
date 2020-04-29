@@ -1458,7 +1458,7 @@ impl StacksChainState {
     /// Clear out a staging block -- mark it as processed.
     /// Mark its children as attacheable.
     /// Idempotent.
-    fn set_block_processed<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
+    fn set_block_processed<'a, 'b>(tx: &mut BlocksDBTx<'a>, mut burn_tx_opt: Option<&mut BurnDBTx<'b>>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
         let sql = "SELECT * FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 0".to_string();
         let args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash];
       
@@ -1520,6 +1520,20 @@ impl StacksChainState {
 
             tx.execute(&update_children_sql, &update_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+
+            // mark this block as processed in the burn db too
+            match burn_tx_opt {
+                Some(ref mut burn_tx) => {
+                    BurnDB::set_stacks_block_accepted(burn_tx, burn_hash, &block.parent_anchored_block_hash, &block.anchored_block_hash, block.height)
+                        .map_err(Error::DBError)?;
+                }
+                None => {
+                    if !cfg!(test) {
+                        // not allowed in production
+                        panic!("No burn DB transaction given to block processor");
+                    }
+                }
+            }
         }
         else {
             // Otherwise, all descendents of this processed block are never attacheable.
@@ -2238,7 +2252,7 @@ impl StacksChainState {
                 warn!("{}", &msg);
 
                 // orphan it
-                StacksChainState::set_block_processed(&mut block_tx, burn_header_hash, &block.block_hash(), false)?;
+                StacksChainState::set_block_processed(&mut block_tx, None, burn_header_hash, &block.block_hash(), false)?;
 
                 block_tx.commit().map_err(Error::DBError)?;
                 return Err(Error::InvalidStacksBlock(msg));
@@ -2825,7 +2839,7 @@ impl StacksChainState {
     ///
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
-    pub fn process_next_staging_block(&mut self) -> Result<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>), Error> {
+    fn process_next_staging_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>) -> Result<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>), Error> {
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
@@ -2882,7 +2896,7 @@ impl StacksChainState {
             debug!("Block already processed: {}/{}", &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash);
 
             // clear out
-            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, true)?; 
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(burn_tx), &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, true)?; 
             chainstate_tx.commit()
                 .map_err(Error::DBError)?;
 
@@ -2961,7 +2975,7 @@ impl StacksChainState {
                 // anchored block was invalid.  Either way, the anchored block will _never be_
                 // valid, so we can drop it from the chunk store and orphan all of its descendents.
                 test_debug!("Failed to append {}/{}", &next_staging_block.burn_header_hash, &block.block_hash());
-                StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, &next_staging_block.burn_header_hash, &block.header.block_hash(), false)
+                StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &block.header.block_hash(), false)
                     .expect(&format!("FATAL: failed to clear invalid block {}/{}", next_staging_block.burn_header_hash, &block.header.block_hash()));
                 
                 StacksChainState::free_block_state(&blocks_path, &next_staging_block.burn_header_hash, &block.header);
@@ -2999,7 +3013,7 @@ impl StacksChainState {
             // confirmed one or more parent microblocks
             StacksChainState::set_microblocks_confirmed(&mut chainstate_tx.blocks_tx, &next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash, last_microblock_seq)?;
         }
-        StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, &next_chain_tip.burn_header_hash, &next_chain_tip.anchored_header.block_hash(), true)?;
+        StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(burn_tx), &next_chain_tip.burn_header_hash, &next_chain_tip.anchored_header.block_hash(), true)?;
        
         chainstate_tx.commit()
             .map_err(Error::DBError)?;
@@ -3010,17 +3024,19 @@ impl StacksChainState {
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.
-    pub fn process_blocks(&mut self, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
+    pub fn process_blocks(&mut self, burndb: &mut BurnDB, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
         let mut ret = vec![];
 
         if max_blocks == 0 {
             // nothing to do
             return Ok(vec![]);
         }
+        
+        let mut tx = burndb.tx_begin()?;
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            match self.process_next_staging_block() {
+            match self.process_next_staging_block(&mut tx) {
                 Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
                     Some(next_tip) => {
                         ret.push((Some(next_tip), next_microblock_poison_opt));
@@ -3057,6 +3073,8 @@ impl StacksChainState {
             }
         }
 
+        tx.commit().map_err(Error::DBError)?;
+
         let mut block_tx = self.blocks_tx_begin()?;
         for _ in 0..max_blocks {
             // delete up to max_blocks blocks
@@ -3080,25 +3098,15 @@ impl StacksChainState {
         }
     }
 
-    /// Get the highest processed block.  Break ties on lexigraphical ordering of the block hash
+    /// Get the highest processed block on the canonical burn chain.
+    /// Break ties on lexigraphical ordering of the block hash
     /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
     /// in.
-    pub fn get_stacks_chain_tip(&self) -> Result<Option<StagingBlock>, Error> {
-        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 ORDER BY height DESC, anchored_block_hash DESC LIMIT 1";
-        let mut rows = query_rows::<StagingBlock, _>(&self.blocks_db, &sql, NO_PARAMS).map_err(Error::DBError)?;
-        let len = rows.len();
-        match len {
-            0 => {
-                Ok(None)
-            }
-            1 => {
-                Ok(Some(rows.pop().unwrap()))
-            },
-            _ => {
-                // should be impossible since this is the primary key
-                panic!("Got two or more block rows with same burn and block hashes");
-            }
-        }
+    pub fn get_stacks_chain_tip(&self, burndb: &BurnDB) -> Result<Option<StagingBlock>, Error> {
+        let (burn_bhh, block_bhh) = BurnDB::get_canonical_stacks_chain_tip_hash(burndb.conn())?;
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND burn_header_hash = ?1 AND anchored_block_hash = ?2";
+        let args : &[&dyn ToSql] = &[&burn_bhh, &block_bhh];
+        query_row(&self.blocks_db, sql, args).map_err(Error::DBError)
     }
 
     /// Get the height of a staging block
@@ -3265,6 +3273,7 @@ pub mod test {
         
     use burnchains::*;
     use chainstate::burn::*;
+    use chainstate::burn::db::burndb::*;
     use util::db::Error as db_error;
     use util::db::*;
     use util::hash::*;
@@ -3457,7 +3466,7 @@ pub mod test {
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
 
         let mut tx = chainstate.blocks_tx_begin().unwrap();
-        StacksChainState::set_block_processed(&mut tx, burn_hash, anchored_block_hash, accept).unwrap();
+        StacksChainState::set_block_processed(&mut tx, None, burn_hash, anchored_block_hash, accept).unwrap();
         tx.commit().unwrap();
         
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
