@@ -963,7 +963,7 @@ fn mempool_errors() {
                 .unwrap();
 
             eprintln!("{}", res);
-            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), format!("0x{}", tx_xfer_invalid_tx.txid()));
+            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), tx_xfer_invalid_tx.txid().to_string());
             assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
             assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "BadNonce");
             let data = res.get("reason_data").unwrap();
@@ -985,7 +985,7 @@ fn mempool_errors() {
                 .unwrap();
 
             eprintln!("{}", res);
-            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), format!("0x{}", tx_xfer_invalid_tx.txid()));
+            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), tx_xfer_invalid_tx.txid().to_string());
             assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
             assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "FeeTooLow");
             let data = res.get("reason_data").unwrap();
@@ -1005,7 +1005,7 @@ fn mempool_errors() {
                 .unwrap();
 
             eprintln!("{}", res);
-            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), format!("0x{}", tx_xfer_invalid_tx.txid()));
+            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), tx_xfer_invalid_tx.txid().to_string());
             assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
             assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "NotEnoughFunds");
             let data = res.get("reason_data").unwrap();
