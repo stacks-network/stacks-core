@@ -125,6 +125,12 @@ pub struct BlockSnapshot {
     pub winning_stacks_block_hash: BlockHeaderHash,     // hash of Stacks block that won sortition (will be all 0's if sortition is false)
     pub index_root: TrieHash,           // root hash of the index over the materialized view of all inserted data
     pub num_sortitions: u64,       // how many stacks blocks exist
+    pub stacks_block_accepted: bool,    // did we download, store, and incorporate the stacks block into the chain state
+    pub stacks_block_height: u64,       // if we accepted a block, this is its height
+    pub arrival_index: u64,             // this is the $(arrival_index)-th block to be accepted
+    pub canonical_stacks_tip_height: u64,               // memoized canonical stacks chain tip
+    pub canonical_stacks_tip_hash: BlockHeaderHash,     // memoized canonical stacks chain tip
+    pub canonical_stacks_tip_burn_hash: BurnchainHeaderHash,    // memoized canonical stacks chain tip
 }
 
 impl BlockHeaderHash {
@@ -333,7 +339,7 @@ mod tests {
     #[test]
     fn get_prev_consensus_hashes() {
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let mut db = BurnDB::connect_memory(0, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_test(0, &first_burn_hash).unwrap();
         let mut burn_block_hashes = vec![];
         {
             let mut tx = db.tx_begin().unwrap();
@@ -354,6 +360,12 @@ mod tests {
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),     // will be overwritten
                     num_sortitions: i,
+                    stacks_block_accepted: false,
+                    stacks_block_height: 0,
+                    arrival_index: 0,
+                    canonical_stacks_tip_height: 0,
+                    canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32]),
                 };
                 let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
                 burn_block_hashes.push(snapshot_row.burn_header_hash.clone());
