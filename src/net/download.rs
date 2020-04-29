@@ -1651,7 +1651,10 @@ pub mod test {
                 }).unwrap();
 
                 test_debug!("Peer {} processes {} blocks and {} microblock streams", i, result.blocks.len(), result.confirmed_microblocks.len());
-                let peer_work = peer.chainstate().process_blocks(result.blocks.len() + 1).unwrap();
+                let peer_work = peer.with_db_state(|burndb, chainstate, relayer, mempool| {
+                    chainstate.process_blocks(burndb, result.blocks.len() + 1).unwrap();
+                    Ok(())
+                }).unwrap();
                 test_debug!("Peer {} processed headers: {:?}", i, &peer_work);
 
                 assert!(check_breakage(peer));

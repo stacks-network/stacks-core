@@ -753,7 +753,7 @@ impl Relayer {
         }
         // process as many epochs as we can.
         // Try to process at least a few epochs
-        let receipts: Vec<_> = chainstate.process_blocks(new_blocks.len() + 50)?.into_iter()
+        let receipts: Vec<_> = chainstate.process_blocks(burndb, new_blocks.len() + 50)?.into_iter()
             .filter_map(|block_result| block_result.0).collect();
 
         Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, receipts))
@@ -794,8 +794,8 @@ impl Relayer {
 
     /// Store all new transactions we received, and return the list of transactions that we need to
     /// forward (as well as their relay hints).  Also, garbage-collect the mempool.
-    fn process_transactions(network_result: &mut NetworkResult, chainstate: &StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
-        let (burn_header_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip()? {
+    fn process_transactions(network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
+        let (burn_header_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip(burndb)? {
             Some(tip) => (tip.burn_header_hash, tip.anchored_block_hash, tip.height),
             None => {
                 debug!("No Stacks chain tip; dropping {} transaction(s)", network_result.pushed_transactions.len());
@@ -898,7 +898,7 @@ impl Relayer {
 
         // store all transactions, and forward the novel ones to neighbors
         test_debug!("{:?}: Process {} transaction(s)", &_local_peer, network_result.pushed_transactions.len());
-        let mut new_txs = Relayer::process_transactions(network_result, chainstate, mempool)?;
+        let mut new_txs = Relayer::process_transactions(network_result, burndb, chainstate, mempool)?;
 
         if new_txs.len() > 0 {
             debug!("{:?}: Send {} transactions to neighbors", &_local_peer, new_txs.len());

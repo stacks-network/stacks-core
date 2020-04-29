@@ -1995,7 +1995,7 @@ pub mod test {
             }
     
             loop {
-                let processed = node.chainstate.process_blocks(1).unwrap();
+                let processed = node.chainstate.process_blocks(&mut burndb, 1).unwrap();
                 if processed.len() == 0 {
                     break;
                 }

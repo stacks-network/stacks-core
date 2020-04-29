@@ -592,8 +592,8 @@ impl ConversationHttp {
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block 
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
-    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
-        match chainstate.get_stacks_chain_tip()? {
+    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burndb: &mut BurnDB, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+        match chainstate.get_stacks_chain_tip(burndb)? {
             Some(tip) => Ok(Some((tip.burn_header_hash, tip.anchored_block_hash))),
             None => {
                 let response_metadata = HttpResponseMetadata::from(req);
@@ -667,14 +667,14 @@ impl ConversationHttp {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
             },
             HttpRequestType::GetAccount(ref _md, ref principal, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate,
                                                                &burn_block, &block, principal, *with_proof)?;
                 }
                 None
             },
             HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
                                                            contract_addr, contract_name, map_name, key, *with_proof)?;
                 }
@@ -685,14 +685,14 @@ impl ConversationHttp {
                 None
             },
             HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
                                                               contract_addr, contract_name)?;
                 }
                 None
             },
             HttpRequestType::CallReadOnlyFunction(ref _md, ref ctrct_addr, ref ctrct_name, ref as_sender, ref func_name, ref args) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_readonly_function_call(
                         &mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
                         ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
@@ -700,14 +700,14 @@ impl ConversationHttp {
                 None
             },
             HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
                                                               contract_addr, contract_name, *with_proof)?;
                 }
                 None
             },
             HttpRequestType::PostTransaction(ref _md, ref tx) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     let accepted = ConversationHttp::handle_post_transaction(&mut self.connection.protocol, &mut reply, &req, burn_block, block, mempool, tx.clone())?;
                     if accepted {
                         // forward to peer network

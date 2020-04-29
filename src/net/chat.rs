@@ -2372,8 +2372,8 @@ mod test {
         chain_view.make_test_data();
 
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_test(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_test(12300, &first_burn_hash).unwrap();
         
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         
