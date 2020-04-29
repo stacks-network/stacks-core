@@ -46,7 +46,7 @@ pub enum ParseErrors {
 pub struct ParseError {
     pub err: ParseErrors,
     pub pre_expressions: Option<Vec<PreSymbolicExpression>>,
-    pub diagnostic:Diagnostic,
+    pub diagnostic: Diagnostic,
 }
 
 impl ParseError {
