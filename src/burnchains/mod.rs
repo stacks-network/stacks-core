@@ -150,6 +150,13 @@ impl BurnchainParameters {
             consensus_hash_lifetime: 24
         }
     }
+
+    pub fn is_testnet(network_id: u32) -> bool {
+        match network_id {
+            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST => true,
+            _ => false
+        }
+    }
 }
 
 pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
@@ -303,10 +310,14 @@ pub enum Error {
     MissingHeaders,
     /// Missing parent block
     MissingParentBlock,
+    /// Remote burnchain peer has misbehaved
+    BurnchainPeerBroken,
     /// filesystem error 
     FSError(io::Error),
     /// Operation processing error 
     OpError(op_error),
+    /// Try again error
+    TrySyncAgain,
 }
 
 impl fmt::Display for Error {
@@ -320,8 +331,10 @@ impl fmt::Display for Error {
             Error::MissingHeaders => write!(f, "Missing block headers"),
             Error::MissingParentBlock => write!(f, "Missing parent block"),
             Error::ThreadChannelError => write!(f, "Error in thread channel"),
+            Error::BurnchainPeerBroken => write!(f, "Remote burnchain peer has misbehaved"),
             Error::FSError(ref e) => fmt::Display::fmt(e, f),
             Error::OpError(ref e) => fmt::Display::fmt(e, f),
+            Error::TrySyncAgain => write!(f, "Try synchronizing again"),
         }
     }
 }
@@ -337,9 +350,23 @@ impl error::Error for Error {
             Error::MissingHeaders => None,
             Error::MissingParentBlock => None,
             Error::ThreadChannelError => None,
+            Error::BurnchainPeerBroken => None,
             Error::FSError(ref e) => Some(e),
             Error::OpError(ref e) => Some(e),
+            Error::TrySyncAgain => None,
         }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
+    }
+}
+
+impl From<btc_error> for Error {
+    fn from(e: btc_error) -> Error {
+        Error::Bitcoin(e)
     }
 }
 
@@ -858,7 +885,7 @@ pub mod test {
         pub fn new() -> TestBurnchainNode {
             let first_block_height = 100;
             let first_block_hash = FIRST_BURNCHAIN_BLOCK_HASH.clone();
-            let db = BurnDB::connect_memory(first_block_height, &first_block_hash).unwrap();
+            let db = BurnDB::connect_test(first_block_height, &first_block_hash).unwrap();
             TestBurnchainNode {
                 burndb: db,
                 dirty: false,
