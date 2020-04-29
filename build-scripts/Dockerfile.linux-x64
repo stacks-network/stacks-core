@@ -1,0 +1,12 @@
+FROM rust:stretch as build
+
+WORKDIR /src
+
+COPY . .
+
+RUN rustup target add x86_64-unknown-linux-gnu
+
+RUN cargo build --release --workspace=./ --target x86_64-unknown-linux-gnu
+
+FROM scratch AS export-stage
+COPY --from=build /src/target/x86_64-unknown-linux-gnu/release /

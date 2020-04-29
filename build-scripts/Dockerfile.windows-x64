@@ -1,0 +1,16 @@
+FROM rust:stretch as build
+
+WORKDIR /src
+
+COPY . .
+
+RUN rustup target add x86_64-pc-windows-gnu
+
+RUN apt-get update && apt-get install -y gcc-mingw-w64-x86-64
+
+RUN CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc \
+    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
+    cargo build --release --workspace=./ --target x86_64-pc-windows-gnu
+
+FROM scratch AS export-stage
+COPY --from=build /src/target/x86_64-pc-windows-gnu/release /
