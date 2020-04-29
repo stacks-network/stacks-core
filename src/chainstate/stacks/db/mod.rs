@@ -276,8 +276,9 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_block();
     }
 
-    pub fn commit_mined_block(self, block_hash: &BlockHeaderHash) -> () {
-        self.block.commit_mined_block(block_hash);
+    pub fn commit_mined_block(self, block_hash: &BlockHeaderHash) -> ExecutionCost {
+        self.block.commit_mined_block(block_hash)
+            .get_total()
     }
 
     pub fn commit_to_block(self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {

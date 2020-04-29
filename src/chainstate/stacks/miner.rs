@@ -521,7 +521,7 @@ impl StacksBlockBuilder {
     }
 
     /// Finish up mining an epoch's transactions
-    pub fn epoch_finish<'a>(self, tx: ClarityTx<'a>) {
+    pub fn epoch_finish(self, tx: ClarityTx) -> ExecutionCost {
         let new_burn_hash = MINER_BLOCK_BURN_HEADER_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
@@ -532,9 +532,11 @@ impl StacksBlockBuilder {
         //        let moved_name = format!("{}.mined", index_block_hash);
 
         // write out the trie...
-        tx.commit_mined_block(&index_block_hash);
+        let consumed = tx.commit_mined_block(&index_block_hash);
 
         test_debug!("\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n", self.miner_id, self.chain_tip.burn_header_hash, self.chain_tip.anchored_header.block_hash());
+
+        consumed
     }
     
     /// Unconditionally build an anchored block from a list of transactions.
@@ -574,6 +576,7 @@ impl StacksBlockBuilder {
     }
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
+    ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(chainstate_handle: &StacksChainState,       // not directly used; used as a handle to open other chainstates
                                 mempool: &MemPoolDB,
                                 parent_stacks_header: &StacksHeaderInfo,    // Stacks header we're building off of
@@ -581,7 +584,7 @@ impl StacksBlockBuilder {
                                 proof: VRFProof,                            // proof over the burnchain's last seed
                                 pubkey_hash: Hash160,
                                 coinbase_tx: &StacksTransaction,
-                                execution_budget: ExecutionCost) -> Result<StacksBlock, Error> {
+                                execution_budget: ExecutionCost) -> Result<(StacksBlock, ExecutionCost), Error> {
 
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {} else {
             return Err(Error::MemPoolError("Not a coinbase transaction".to_string()));
@@ -650,12 +653,13 @@ impl StacksBlockBuilder {
             },
         }
 
-        // the do_rebuild logic wasn't necessary
+        // the prior do_rebuild logic wasn't necessary
         // a transaction that caused a budget exception is rolled back in process_transaction
+
         // save the block so we can build microblocks off of it
         let block = builder.mine_anchored_block(&mut epoch_tx);
-        builder.epoch_finish(epoch_tx);
-        Ok(block)
+        let consumed = builder.epoch_finish(epoch_tx);
+        Ok((block, consumed))
     }
 }
 
@@ -3323,7 +3327,7 @@ pub mod test {
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
 
             last_block = Some(stacks_block.clone());
@@ -3390,7 +3394,7 @@ pub mod test {
                     mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
                 } 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());
@@ -3487,7 +3491,7 @@ pub mod test {
                 }
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());
@@ -3612,7 +3616,7 @@ pub mod test {
                 };
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());
@@ -3713,7 +3717,7 @@ pub mod test {
                     };
                 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());
@@ -3793,7 +3797,7 @@ pub mod test {
                     mempool.submit(&parent_tip_bhh, &parent_header_hash, contract_tx).unwrap();
                 }
                 
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());

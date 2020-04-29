@@ -50,6 +50,13 @@ struct RegisteredKey {
     vrf_public_key: VRFPublicKey,
 }
 
+struct AssembledAnchorBlock {
+    parent_block_burn_hash: BurnchainHeaderHash,
+    my_burn_hash: BurnchainHeaderHash,
+    anchored_block: StacksBlock,
+    consumed_execution: ExecutionCost
+}
+
 enum RelayerDirective {
     HandleNetResult(NetworkResult),
     ProcessTenure(BurnchainHeaderHash, BurnchainHeaderHash, BlockHeaderHash),
@@ -63,6 +70,7 @@ pub struct InitializedNeonNode {
     burnchain_signer: BurnchainSigner,
     last_burn_block: Option<BlockSnapshot>,
     active_keys: Vec<RegisteredKey>,
+    sleep_before_tenure: u64,
     is_miner: bool
 }
 
@@ -264,10 +272,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
         .map_err(NetError::DBError)?;
 
-    // parent_burn_header_hash
-    // block_hash
-    // mined_on_burn_header_hash
-    let mut last_mined_block: Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> = None;
+    let mut last_mined_block: Option<AssembledAnchorBlock> = None;
     let burn_fee_cap = config.burnchain.burn_fee_cap;
     let mine_microblocks = config.node.mine_microblocks;
 
@@ -288,15 +293,20 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::ProcessTenure(burn_header_hash, parent_burn_header_hash, block_header_hash) => {
-                    if let Some((parent_burn_hh, mined_block, mined_burn_hh)) = last_mined_block.take() {
+                    if let Some(my_mined) = last_mined_block.take() {
+                        let AssembledAnchorBlock {
+                            parent_block_burn_hash,
+                            anchored_block: mined_block,
+                            my_burn_hash: mined_burn_hh,
+                            consumed_execution } = my_mined;
                         if mined_block.block_hash() == block_header_hash && parent_burn_header_hash == mined_burn_hh {
                             // we won!
                             info!("Won sortition! stacks_header={}, burn_header={}",
                                   block_header_hash,
                                   mined_burn_hh);
 
-                            let (stacks_header, _) = 
-                                match inner_process_tenure(&mined_block, &burn_header_hash, &parent_burn_hh,
+                            let (stacks_header, _) =
+                                match inner_process_tenure(&mined_block, &burn_header_hash, &parent_block_burn_hash,
                                                            &mut burndb, &mut chainstate, &mut event_dispatcher) {
                                     Ok(x) => x,
                                     Err(e) => {
@@ -314,8 +324,9 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
 
                             // should we broadcast microblocks?
                             if mine_microblocks {
-                                let mined_microblock = match InitializedNeonNode::relayer_mint_microblocks(
-                                    &burn_header_hash, &block_header_hash, &mut chainstate, &keychain, &mem_pool) {
+                                let mint_result = InitializedNeonNode::relayer_mint_microblocks(
+                                    &burn_header_hash, &block_header_hash, &mut chainstate, &keychain, consumed_execution, &mem_pool);
+                                let mined_microblock = match mint_result {
                                     Ok(mined_microblock) => mined_microblock,
                                     Err(e) => {
                                         warn!("Failed to mine microblock: {}", e);
@@ -459,6 +470,8 @@ impl InitializedNeonNode {
         let burnchain_signer = keychain.get_burnchain_signer();
         let relayer = Relayer::from_p2p(&mut p2p_net);
 
+        let sleep_before_tenure = config.burnchain.commit_anchor_block_within;
+
         spawn_miner_relayer(relayer, local_peer,
                             config.clone(), keychain,
                             config.get_burn_db_file_path(),
@@ -488,6 +501,7 @@ impl InitializedNeonNode {
             last_burn_block,
             burnchain_signer,
             is_miner,
+            sleep_before_tenure,
             active_keys
         }
     }
@@ -502,8 +516,10 @@ impl InitializedNeonNode {
 
         if let Some(burnchain_tip) = self.last_burn_block.clone() {
             if let Some(key) = self.active_keys.pop() {
-                info!("Sleeping before issuing tenure");
-                thread::sleep(std::time::Duration::from_millis(30_000));
+                // sleep a little before building the anchor block, to give any broadcasted 
+                //   microblocks time to propagate.
+                debug!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
+                thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
                 self.relay_channel
                     .send(RelayerDirective::RunTenure(key, burnchain_tip))
                     .is_ok()
@@ -545,11 +561,12 @@ impl InitializedNeonNode {
                                 mined_block_shh: &BlockHeaderHash,
                                 chain_state: &mut StacksChainState,
                                 keychain: &Keychain,
+                                consumed_execution: ExecutionCost,
                                 mem_pool: &MemPoolDB) -> Result<StacksMicroblock, ChainstateError> {
         let mut microblock_miner = StacksMicroblockBuilder::new(mined_block_shh.clone(),
                                                                 mined_block_bhh.clone(),
                                                                 chain_state,
-                                                                ExecutionCost::zero())?;
+                                                                consumed_execution)?;
         let mblock_key = keychain.get_microblock_key()
             .expect("Miner attempt to mine microblocks without a microblock key");
         let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&mblock_key).to_bytes());
@@ -571,7 +588,7 @@ impl InitializedNeonNode {
                           keychain: &mut Keychain,
                           mem_pool: &mut MemPoolDB,
                           burn_fee_cap: u64,
-                          bitcoin_controller: &mut BitcoinRegtestController) -> Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> {
+                          bitcoin_controller: &mut BitcoinRegtestController) -> Option<AssembledAnchorBlock> {
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = keychain.generate_proof(
             &registered_key.vrf_public_key, 
@@ -645,7 +662,7 @@ impl InitializedNeonNode {
         
         let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
-        let anchored_block = match StacksBlockBuilder::build_anchored_block(
+        let (anchored_block, consumed_execution) = match StacksBlockBuilder::build_anchored_block(
             chain_state, mem_pool, &stacks_parent_header, parent_block_total_burn,
             vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()) {
             Ok(block) => block,
@@ -674,7 +691,11 @@ impl InitializedNeonNode {
 
         rotate_vrf_and_register(keychain, &burn_block, bitcoin_controller);
 
-        Some((parent_burn_hash, anchored_block, burn_block.burn_header_hash))
+        Some(AssembledAnchorBlock {
+            parent_block_burn_hash: parent_burn_hash,
+            my_burn_hash: burn_block.burn_header_hash,
+            consumed_execution,
+            anchored_block })
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
