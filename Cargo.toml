@@ -49,9 +49,8 @@ regex = "1"
 mio = "0.6"
 libc = "0.2"
 lazy_static = "1.4.0"
-url = "2.1.1" 
-sha2 = { version = "0.8.0", optional = true }
-sha2-asm = { version="0.5.3", optional = true }
+url = "2.1.1"
+sha2 = "0.8.0"
 
 [dependencies.serde_json]
 version = "1.0"
@@ -83,10 +82,10 @@ criterion = "0.3"
 
 [features]
 developer-mode = []
-asm = ["sha2", "sha2-asm"]
-aarch64 = ["developer-mode", "sha2"]
-default = ["developer-mode", "asm"]
+default = ["developer-mode"]
 
+[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
+sha2-asm = "0.5.3"
 
 [workspace]
 members = [".", "testnet/"]

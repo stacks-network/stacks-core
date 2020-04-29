@@ -1,13 +1,16 @@
 FROM rust:latest as build
 
-WORKDIR /src/stacks-blockchain
+WORKDIR /src
 
 COPY . .
 
-RUN cd testnet && cargo install --path . --root .
+RUN cargo build --release --workspace=./
+RUN cd /src/target/release && \
+    mkdir /out && \
+    cp blockstack-core /out && cp blockstack-cli /out && cp clarity-cli /out && cp stacks-node /out
 
 FROM debian:stable-slim
-RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev
-COPY --from=build /src/stacks-blockchain/testnet/bin /bin
+
+COPY --from=build /out/ /bin/
 
 CMD ["stacks-node", "neon"]
