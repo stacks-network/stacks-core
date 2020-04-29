@@ -371,6 +371,8 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
                                 index_block_hash TEXT NOT NULL,        -- used internally; hash of burn header and block header
                                 PRIMARY KEY(anchored_block_hash,burn_header_hash)
     );
+    CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,burn_header_hash);
+    CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,burn_header_hash);
     "#,
     r#"
     -- users who burned in support of a block

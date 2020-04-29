@@ -405,7 +405,9 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         stacks_block_hash TEXT NOT NULL,
         block_height INTEGER NOT NULL,
         PRIMARY KEY(burn_block_hash, stacks_block_hash)
-    );"#,
+    );
+    CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_burn_block_hash,stacks_block_hash);
+    "#,
     r#"
     CREATE TABLE db_config(
         version TEXT NOT NULL
@@ -740,7 +742,15 @@ impl BurnDB {
     /// to it.
     fn get_accepted_stacks_block_pointer(conn: &Connection, tip_burn_header_hash: &BurnchainHeaderHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<AcceptedStacksBlockHeader>, db_error> {
         let args : &[&dyn ToSql] = &[tip_burn_header_hash, stacks_block_hash];
-        query_row(conn, "SELECT * FROM canonical_accepted_stacks_blocks WHERE tip_burn_block_hash = ?1 AND stacks_block_hash = ?2", args)
+        let mut rows = query_rows(conn, "SELECT * FROM canonical_accepted_stacks_blocks WHERE tip_burn_block_hash = ?1 AND stacks_block_hash = ?2", args)?;
+        let len = rows.len();
+        match len {
+            0 => Ok(None),
+            1 => Ok(rows.pop()),
+            _ => {
+                panic!("BUG: the same Stacks block {} shows up twice or more in the same burn chain fork (whose tip is {})", stacks_block_hash, tip_burn_header_hash);
+            }
+        }
     }
 
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip, and calculate and store its arrival index.
@@ -851,7 +861,15 @@ impl BurnDB {
 
     /// Get a snapshot with an arrived block (i.e. a block that was marked as processed)
     fn get_snapshot_by_arrival_index(conn: &Connection, arrival_index: u64) -> Result<Option<BlockSnapshot>, db_error> {
-        query_row(conn, "SELECT * FROM snapshots WHERE arrival_index = ?1 AND stacks_block_accepted > 0", &[&u64_to_sql(arrival_index)?])
+        let mut rows = query_rows(conn, "SELECT * FROM snapshots WHERE arrival_index = ?1 AND stacks_block_accepted > 0", &[&u64_to_sql(arrival_index)?])?;
+        let len = rows.len();
+        match len {
+            0 => Ok(None),
+            1 => Ok(rows.pop()),
+            _ => {
+                panic!("BUG: multiple snapshots have the same non-zero arrival index");
+            }
+        }
     }
 
     /// Find all stacks blocks that were processed since parent_tip had been processed, and generate MARF
