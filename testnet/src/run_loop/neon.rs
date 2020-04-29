@@ -2,6 +2,10 @@ use std::process;
 use crate::{Config, NeonGenesisNode, BurnchainController, 
             BitcoinRegtestController, Keychain};
 use stacks::chainstate::burn::db::burndb::BurnDB;
+use stacks::burnchains::bitcoin::address::BitcoinAddress;
+use stacks::burnchains::Address;
+use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
+                                  address::{BitcoinAddressType}};
 
 use super::RunLoopCallbacks;
 
@@ -35,21 +39,25 @@ impl RunLoop {
         // self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 
         let mut burnchain_tip = burnchain.start();
-        let total_burn = burnchain_tip.block_snapshot.total_burn; 
 
-        let is_miner = if total_burn == 0 {
-            info!("No sortitions found yet, will try to be the genesis miner!");
+        let is_miner = if self.config.node.miner {
             let mut keychain = Keychain::default(self.config.node.seed.clone());
-            info!("Miner burnchain address: {}", 
-                  Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer()));
+            let btc_addr = BitcoinAddress::from_bytes(
+                BitcoinNetworkType::Regtest,
+                BitcoinAddressType::PublicKeyHash,
+                &Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer()).to_bytes())
+                .unwrap();
+            info!("Configured as a miner: checking if we have UTXOs at address: {}", btc_addr);
 
             let utxos = burnchain.get_utxos(
                 &keychain.generate_op_signer().get_public_key(), 1);
             if utxos.is_none() {
-                error!("I have no UTXOs, but there is no genesis block, crashing.");
-                process::exit(1);
+                error!("I have no UTXOs... spawning as a follower. Restart node when you get some UTXOs.");
+                false
+            } else {
+                info!("Have UTXOs, starting up as miner");
+                true
             }
-            true
         } else {
             false
         };

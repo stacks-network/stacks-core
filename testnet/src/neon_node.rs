@@ -63,7 +63,7 @@ pub struct InitializedNeonNode {
     burnchain_signer: BurnchainSigner,
     last_burn_block: Option<BlockSnapshot>,
     active_keys: Vec<RegisteredKey>,
-    has_mined: bool
+    is_miner: bool
 }
 
 pub struct NeonGenesisNode {
@@ -189,6 +189,7 @@ fn inner_generate_block_commit_op(
 
     let (parent_block_ptr, parent_vtxindex) =
         (parent_burnchain_height, parent_winning_vtx);
+
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
         burn_fee,
@@ -257,8 +258,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                        config: Config, mut keychain: Keychain,
                        burn_db_path: String, stacks_chainstate_path: String, 
                        relay_channel: Receiver<RelayerDirective>,
-                       mut event_dispatcher: EventDispatcher,
-                       genesis_executed: bool) -> Result<(), NetError> {
+                       mut event_dispatcher: EventDispatcher) -> Result<(), NetError> {
     // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
     //   no other codepaths should be writing once this is spawned.
     //
@@ -267,8 +267,6 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     //   should address via #1449
     let mut burndb = BurnDB::open(&burn_db_path, true)
         .map_err(NetError::DBError)?;
-
-    let mut genesis_executed = genesis_executed;
 
     let mut chainstate = StacksChainState::open_with_block_limit(
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path, config.block_limit.clone())
@@ -319,9 +317,6 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                     }
                                 };
 
-                            // if we've processed a tenure, then genesis is done.
-                            genesis_executed = true;
-
                             let blocks_available = Relayer::load_blocks_available_data(&mut burndb, vec![stacks_header.burn_header_hash])
                                 .expect("Failed to obtain block information for a block we mined.");
                             if let Err(e) = relayer.advertize_blocks(blocks_available) {
@@ -334,16 +329,9 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
-                    last_mined_block =
-                        if genesis_executed {
-                            InitializedNeonNode::relayer_run_tenure(
-                                registered_key, &mut chainstate, &burndb, last_burn_block,
-                                &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller)
-                        } else {
-                            InitializedNeonNode::relayer_run_genesis_tenure(
-                                registered_key, &mut chainstate, &burndb, last_burn_block,
-                                &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller)
-                        }
+                    last_mined_block = InitializedNeonNode::relayer_run_tenure(
+                        registered_key, &mut chainstate, &burndb, last_burn_block,
+                        &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller);
                 },
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
                     rotate_vrf_and_register(&mut keychain, last_burn_block, &mut bitcoin_controller)
@@ -451,7 +439,7 @@ impl InitializedNeonNode {
                             config.clone(), keychain,
                             config.get_burn_db_file_path(),
                             config.get_chainstate_path(),
-                            relay_recv, event_dispatcher, false)
+                            relay_recv, event_dispatcher)
             .expect("Failed to initialize mine/relay thread");
 
         spawn_peer(p2p_net, &p2p_sock, &rpc_sock,
@@ -464,7 +452,7 @@ impl InitializedNeonNode {
 
         let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
 
-        let has_mined = miner;
+        let is_miner = miner;
 
         let mut active_keys = vec![];
         if let Some(key) = registered_key {
@@ -475,7 +463,7 @@ impl InitializedNeonNode {
             relay_channel: relay_send,
             last_burn_block,
             burnchain_signer,
-            has_mined,
+            is_miner,
             active_keys
         }
     }
@@ -483,7 +471,7 @@ impl InitializedNeonNode {
 
     /// Tell the relayer to fire off a tenure and a block commit op.
     pub fn relayer_issue_tenure(&mut self) -> bool {
-        if !self.has_mined {
+        if !self.is_miner {
             // node is a follower, don't try to issue a tenure
             return true;
         }
@@ -509,7 +497,7 @@ impl InitializedNeonNode {
     ///  and advertize it if it was mined by the node.
     /// returns _false_ if the relayer hung up the channel.
     pub fn relayer_sortition_notify(&self) -> bool {
-        if !self.has_mined {
+        if !self.is_miner {
             // node is a follower, don't try to process my own tenure.
             return true;
         }
@@ -527,58 +515,6 @@ impl InitializedNeonNode {
         true
     }
 
-    fn relayer_run_genesis_tenure(registered_key: RegisteredKey,
-                                  chain_state: &mut StacksChainState,
-                                  _burn_db: &BurnDB,
-                                  block_to_build_upon: BlockSnapshot,
-                                  keychain: &mut Keychain,
-                                  mem_pool: &mut MemPoolDB,
-                                  burn_fee_cap: u64,
-                                  bitcoin_controller: &mut BitcoinRegtestController) -> Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> {
-        // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = keychain.generate_proof(
-            &registered_key.vrf_public_key, 
-            block_to_build_upon.sortition_hash.as_bytes()).unwrap();
-
-        // of the upcoming tenure.
-        let microblock_secret_key = keychain.rotate_microblock_keypair();
-        let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_secret_key).to_bytes());
-
-        // Get the stack's chain tip
-        let chain_tip = ChainTip::genesis();
-
-        // Construct the coinbase transaction - 1st txn that should be handled and included in 
-        // the upcoming tenure.
-        let coinbase_tx = inner_generate_coinbase_tx(keychain, 0);
-
-        let anchored_block = match StacksBlockBuilder::build_anchored_block(
-            chain_state, mem_pool, &chain_tip.metadata, 0,
-            vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()) {
-            Ok(block) => block,
-            Err(e) => {
-                error!("Failure mining anchored genesis block: {}", e);
-                return None
-            }
-        };
-
-        info!("Genesis block assembled: {}", anchored_block.block_hash());
-
-        let op = inner_generate_block_commit_op(
-            keychain.get_burnchain_signer(),
-            anchored_block.block_hash(),
-            burn_fee_cap,
-            &registered_key,
-            0, 0,
-            VRFSeed::from_proof(&vrf_proof));
-
-        let mut op_signer = keychain.generate_op_signer();
-        bitcoin_controller.submit_operation(op, &mut op_signer);
-
-        rotate_vrf_and_register(keychain, &block_to_build_upon, bitcoin_controller);
-
-        Some((FIRST_BURNCHAIN_BLOCK_HASH.clone(), anchored_block, block_to_build_upon.burn_header_hash))
-    }
-
     // return stack's parent's burn header hash,
     //        the anchored block,
     //        the burn header hash of the burnchain tip
@@ -590,80 +526,81 @@ impl InitializedNeonNode {
                           mem_pool: &mut MemPoolDB,
                           burn_fee_cap: u64,
                           bitcoin_controller: &mut BitcoinRegtestController) -> Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> {
-
-        let stacks_tip = match chain_state.get_stacks_chain_tip(burn_db).unwrap() {
-            Some(x) => x,
-            None => {
-                warn!("Could not mine new tenure, since no chain tip known.");
-                return None
-            }
-        };
-
-        let stacks_tip_header = match StacksChainState::get_anchored_block_header_info(
-            &chain_state.headers_db, &stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash).unwrap() {
-            Some(x) => x,
-            None => {
-                warn!("Could not mine new tenure, since could not find header for known chain tip.");
-                return None
-            }
-        };
-
-        // the stacks block I'm mining off of's burn header hash and vtx index:
-
-        let parent_burn_hash = stacks_tip.burn_header_hash.clone();
-        let parent_winning_vtxindex =
-            match BurnDB::get_block_winning_vtxindex(&burn_db.conn, &parent_burn_hash)
-                .expect("BurnDB failure.") {
-                    Some(x) => x,
-                    None => {
-                        warn!("Failed to find winning vtx index for the parent burn block {}",
-                              &parent_burn_hash);
-                        return None
-                    }
-                };
-        let parent_block =
-            match BurnDB::get_block_snapshot(&burn_db.conn, &parent_burn_hash)
-                .expect("BurnDB failure.") {
-                    Some(x) => x,
-                    None => {
-                        warn!("Failed to find block snapshot for the parent burn block {}",
-                              &parent_burn_hash);
-                        return None
-                    }
-                };
-
-        debug!("Mining tenure's last burn_block: {}, stacks tip burn_header_hash: {}",
-              &burn_block.burn_header_hash,
-              &stacks_tip.burn_header_hash);
-
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = keychain.generate_proof(
             &registered_key.vrf_public_key, 
             burn_block.sortition_hash.as_bytes()).unwrap();
 
         debug!("Generated VRF Proof: {} over {} with key {}",
-              vrf_proof.to_hex(),
-              &burn_block.sortition_hash,
-              &registered_key.vrf_public_key.to_hex());
+               vrf_proof.to_hex(),
+               &burn_block.sortition_hash,
+               &registered_key.vrf_public_key.to_hex());
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
         let microblock_secret_key = keychain.rotate_microblock_keypair();
         let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_secret_key).to_bytes());
+
+        let (stacks_parent_header, parent_burn_hash, parent_block_burn_height, parent_block_total_burn,
+             parent_winning_vtxindex, coinbase_nonce) =
+            if let Some(stacks_tip) = chain_state.get_stacks_chain_tip(burn_db).unwrap() {
+                let stacks_tip_header = match StacksChainState::get_anchored_block_header_info(
+                    &chain_state.headers_db, &stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash).unwrap() {
+                    Some(x) => x,
+                    None => {
+                        error!("Could not mine new tenure, since could not find header for known chain tip.");
+                        return None
+                    }
+                };
+
+                // the stacks block I'm mining off of's burn header hash and vtx index:
+                let parent_burn_hash = stacks_tip.burn_header_hash.clone();
+                let parent_winning_vtxindex =
+                    match BurnDB::get_block_winning_vtxindex(&burn_db.conn, &parent_burn_hash)
+                    .expect("BurnDB failure.") {
+                        Some(x) => x,
+                        None => {
+                            warn!("Failed to find winning vtx index for the parent burn block {}",
+                                  &parent_burn_hash);
+                            return None
+                        }
+                    };
+
+                let parent_block = match BurnDB::get_block_snapshot(&burn_db.conn, &parent_burn_hash)
+                    .expect("BurnDB failure.") {
+                        Some(x) => x,
+                        None => {
+                            warn!("Failed to find block snapshot for the parent burn block {}",
+                                  &parent_burn_hash);
+                            return None
+                        }
+                    };
+
+                debug!("Mining tenure's last burn_block: {}, stacks tip burn_header_hash: {}",
+                       &burn_block.burn_header_hash,
+                       &stacks_tip.burn_header_hash);
+
+                let coinbase_nonce = {
+                    let principal = keychain.origin_address().unwrap().into();
+                    let account = chain_state.with_read_only_clarity_tx(&stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash, |conn| {
+                        StacksChainState::get_account(conn, &principal)
+                    });
+                    account.nonce
+                };
+
+                (stacks_tip_header, parent_burn_hash, parent_block.block_height, parent_block.total_burn,
+                 parent_winning_vtxindex, coinbase_nonce)
+            } else {
+                warn!("No Stacks chain tip known, attempting to mine a genesis block");
+                let chain_tip = ChainTip::genesis();
+
+                (chain_tip.metadata, FIRST_BURNCHAIN_BLOCK_HASH.clone(), 0, 0, 0, 0)
+            };
         
-        // make a coinbase
-        let principal = keychain.origin_address().unwrap().into();
-        let nonce = {
-            let account = chain_state.with_read_only_clarity_tx(&stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash, |conn| {
-                StacksChainState::get_account(conn, &principal)
-            });
-            account.nonce
-        };
-        
-        let coinbase_tx = inner_generate_coinbase_tx(keychain, nonce);
+        let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
         let anchored_block = match StacksBlockBuilder::build_anchored_block(
-            chain_state, mem_pool, &stacks_tip_header, parent_block.total_burn,
+            chain_state, mem_pool, &stacks_parent_header, parent_block_total_burn,
             vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()) {
             Ok(block) => block,
             Err(e) => {
@@ -672,15 +609,19 @@ impl InitializedNeonNode {
             }
         };
 
-        info!("Finish tenure: {}", anchored_block.block_hash());
+        if parent_block_total_burn == 0 {
+            info!("Genesis block assembled: {}", anchored_block.block_hash());
+        } else {
+            info!("Stacks block assembled: {}", anchored_block.block_hash());
+        }
 
         // let's commit
         let op = inner_generate_block_commit_op(
             keychain.get_burnchain_signer(),
             anchored_block.block_hash(),
             burn_fee_cap,
-            &registered_key, 
-            parent_block.block_height.try_into()
+            &registered_key,
+            parent_block_burn_height.try_into()
                 .expect("Could not convert parent block height into u32"),
             parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof));
