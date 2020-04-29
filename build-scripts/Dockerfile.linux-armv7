@@ -13,5 +13,7 @@ RUN CC=arm-linux-gnueabihf-gcc \
     CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc \
     cargo build --release --workspace=./ --target armv7-unknown-linux-gnueabihf
 
+RUN mkdir /out && cp -R /src/target/armv7-unknown-linux-gnueabihf/release/. /out
+
 FROM scratch AS export-stage
-COPY --from=build /src/target/armv7-unknown-linux-gnueabihf/release /
+COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /

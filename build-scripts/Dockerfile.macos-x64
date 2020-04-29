@@ -20,5 +20,7 @@ RUN wget -nc "https://github.com/blockstackpbc/osxcross/releases/download/v1/osx
     CARGO_TARGET_X86_64_APPLE_DARWIN_AR=x86_64-apple-darwin18-ar \
     cargo build --target x86_64-apple-darwin --release --workspace=./
 
+RUN mkdir /out && cp -R /src/target/x86_64-apple-darwin/release/. /out
+
 FROM scratch AS export-stage
-COPY --from=build /src/target/x86_64-apple-darwin/release /
+COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /

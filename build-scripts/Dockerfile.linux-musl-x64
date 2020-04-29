@@ -13,5 +13,7 @@ RUN CC=musl-gcc \
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
     cargo build --release --workspace=./ --target x86_64-unknown-linux-musl
 
+RUN mkdir /out && cp -R /src/target/x86_64-unknown-linux-musl/release/. /out
+
 FROM scratch AS export-stage
-COPY --from=build /src/target/x86_64-unknown-linux-musl/release /
+COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /
