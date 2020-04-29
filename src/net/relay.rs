@@ -837,6 +837,10 @@ impl Relayer {
         self.p2p.advertize_blocks(available)
     }
 
+    pub fn advertize_microblocks(&mut self, available: BlocksAvailableMap) -> Result<(), net_error> {
+        self.p2p.advertize_microblocks(available)
+    }
+
     /// Given a network result, consume and store all data.
     /// * Add all blocks and microblocks to staging.
     /// * Forward BlocksAvailable messages to neighbors for newly-discovered anchored blocks

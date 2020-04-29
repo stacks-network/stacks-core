@@ -101,6 +101,10 @@ impl Keychain {
         sk
     }
 
+    pub fn get_microblock_key(&mut self) -> Option<StacksPrivateKey> {
+        self.microblocks_secret_keys.last().cloned()
+    }
+
     pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) -> () {
         let num_keys = if self.secret_keys.len() < self.threshold as usize {
             self.secret_keys.len() 

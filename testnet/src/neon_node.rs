@@ -16,7 +16,7 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp,
     BlockstackOperationType,
 };
-use stacks::chainstate::stacks::{StacksBlockBuilder};
+use stacks::chainstate::stacks::{StacksBlockBuilder, StacksMicroblockBuilder};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::stacks::{Error as ChainstateError};
 use stacks::chainstate::stacks::StacksPublicKey;
@@ -38,6 +38,7 @@ use crate::ChainTip;
 use std::convert::TryInto;
 use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
+use stacks::vm::costs::ExecutionCost;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
@@ -513,6 +514,23 @@ impl InitializedNeonNode {
             }
         }
         true
+    }
+
+    fn relayer_mint_microblocks(mined_block_bhh: &BurnchainHeaderHash,
+                                mined_block_shh: &BlockHeaderHash,
+                                chain_state: &mut StacksChainState,
+                                keychain: &Keychain,
+                                mem_pool: &MemPoolDB,
+                                burn_db: &BurnDB) -> Result<StacksMicroblock, ChainstateError> {
+        let mut microblock_miner = StacksMicroblockBuilder::new(mined_block_bhh.clone(),
+                                                            mined_block_shh.clone(),
+                                                            chain_state,
+                                                            ExecutionCost::zero())?;
+        let mblock_key = keychain.get_microblock_key()
+            .expect("Miner attempt to mine microblocks without a microblock key");
+        let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&mblock_key).to_bytes());
+
+        microblock_miner.mine_next_microblock(mem_pool, &mblock_key, &mblock_pubkey_hash)
     }
 
     // return stack's parent's burn header hash,

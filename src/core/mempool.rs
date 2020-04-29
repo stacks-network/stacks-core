@@ -35,8 +35,10 @@ use net::StacksMessageCodec;
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
+    Error as ChainstateError,
     StacksAddress,
     StacksTransaction,
+    StacksBlockHeader,
     db::StacksChainState,
     db::blocks::MemPoolRejection
 };
@@ -281,6 +283,130 @@ impl MemPoolDB {
             path: db_path.to_string(),
             admitter: admitter,
         })
+    }
+
+    fn walk(&self, chainstate: &mut StacksChainState, tip_burn_header_hash: &BurnchainHeaderHash, tip_block_hash: &BlockHeaderHash, tip_height: u64) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash, u64, u64)>, ChainstateError> {
+        // Walk back to the next-highest
+        // ancestor of this tip, and see if we can include anything from there.
+        let next_height = MemPoolDB::get_previous_block_height(&self.db, tip_height)?.unwrap_or(0);
+        if next_height == 0 && tip_height == 0 {
+            // we're done -- tried every tx
+            debug!("Done scanning mempool -- at height 0");
+            return Ok(None);
+        }
+
+        let mut next_tips = MemPoolDB::get_chain_tips_at_height(&self.db, next_height)?;
+        if next_tips.len() == 0 {
+            // we're done -- no more chain tips
+            debug!("Done scanning mempool -- no chain tips at height {}", next_height);
+            return Ok(None);
+        }
+        
+        let ancestor_tip = {
+            let mut headers_tx = chainstate.headers_tx_begin()?;
+            // `next_height` is 1-indexed, since stacks blocks start at height 1.
+            // The headers DB, however, is 0-indexed, since it includes the genesis
+            // block header hash.  Account for this.
+            let next_header_height = next_height.saturating_sub(1);
+            let cur_index_hash = StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash);
+            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &cur_index_hash, next_header_height)? {
+                Some(tip_info) => tip_info,
+                None => {
+                    // no such ancestor.  We're done
+                    debug!("Done scanning mempool -- no ancestor at height {} off of {}/{} ({})", next_height, tip_burn_header_hash, tip_block_hash, StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash));
+                    return Ok(None);
+                }
+            }
+        };
+        
+        // find out which tip is the ancestor tip
+        let mut found = false;
+        let mut next_tip_burn_header_hash = tip_burn_header_hash.clone();
+        let mut next_tip_block_hash = tip_block_hash.clone();
+
+        for (burn_bhh, block_bhh) in next_tips.drain(..) {
+            if ancestor_tip.burn_header_hash == burn_bhh && ancestor_tip.anchored_header.block_hash() == block_bhh {
+                found = true;
+                next_tip_burn_header_hash = burn_bhh;
+                next_tip_block_hash = block_bhh;
+                break;
+            }
+        }
+        
+        if !found {
+            // no such ancestor.  We're done.
+            debug!("Done scanning mempool -- none of the available prior chain tips at {} is an ancestor of {}/{}", next_height, tip_burn_header_hash, tip_block_hash);
+            return Ok(None);
+        }
+
+        let next_timestamp = match MemPoolDB::get_next_timestamp(&self.db, &next_tip_burn_header_hash, &next_tip_block_hash, 0)? {
+            Some(ts) => ts,
+            None => {
+                unreachable!("No transactions at a chain tip that exists");
+            }
+        };
+        
+        debug!("Will start scaning mempool at {}/{} height={} ts={}", &next_tip_burn_header_hash, &next_tip_block_hash, next_height, next_timestamp);
+        Ok(Some((next_tip_burn_header_hash, next_tip_block_hash, next_height, next_timestamp)))
+    }
+
+    ///
+    /// Iterate over candidates in the mempool
+    ///  todo may be called multiple times, as the mempool walks back from
+    ///   the provided block.
+    pub fn iterate_canditates<F, E>(&self,
+                                    tip_burn_header_hash: &BurnchainHeaderHash,
+                                    tip_block_hash: &BlockHeaderHash,
+                                    tip_height: u64,
+                                    chainstate: &mut StacksChainState, mut todo: F) -> Result<(), E>
+    where F: FnMut(Vec<MemPoolTxInfo>) -> Result<(), E>,
+          E: From<db_error> + From<ChainstateError> {
+        let (mut tip_burn_header_hash, mut tip_block_hash, mut tip_height) =
+            (tip_burn_header_hash.clone(), tip_block_hash.clone(), tip_height);
+
+        debug!("Begin scanning transaction mempool at {}/{} height={}", &tip_burn_header_hash, &tip_block_hash, tip_height);
+
+        let mut next_timestamp = match MemPoolDB::get_next_timestamp(&self.db,  &tip_burn_header_hash, &tip_block_hash, 0)? {
+            Some(ts) => ts,
+            None => {
+                // walk back to where the first transaction we can mine can be found
+                match self.walk(chainstate, &tip_burn_header_hash, &tip_block_hash, tip_height)? {
+                    Some((next_burn_bhh, next_block_bhh, next_height, next_timestamp)) => {
+                        tip_burn_header_hash = next_burn_bhh;
+                        tip_block_hash = next_block_bhh;
+                        tip_height = next_height;
+                        next_timestamp
+                    },
+                    None => {
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        loop {
+            let available_txs = MemPoolDB::get_txs_at(&self.db, &tip_burn_header_hash, &tip_block_hash, next_timestamp)?;
+            todo(available_txs)?;
+            next_timestamp = match MemPoolDB::get_next_timestamp(&self.db, &tip_burn_header_hash, &tip_block_hash, next_timestamp)? {
+                Some(ts) => ts,
+                None => {
+                    // walk back
+                    match self.walk(chainstate, &tip_burn_header_hash, &tip_block_hash, tip_height)? {
+                        Some((next_burn_bhh, next_block_bhh, next_height, next_timestamp)) => {
+                            tip_burn_header_hash = next_burn_bhh;
+                            tip_block_hash = next_block_bhh;
+                            tip_height = next_height;
+                            next_timestamp
+                        },
+                        None => {
+                            // no more transactions
+                            return Ok(());
+                        }
+                    }
+                }
+            };
+        }
+
     }
 
     pub fn conn(&self) -> &DBConn {
