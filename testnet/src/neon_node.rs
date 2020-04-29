@@ -108,7 +108,7 @@ fn inner_process_tenure(
 
     let mut processed_blocks = vec![];
     loop {
-        match chain_state.process_blocks(1) {
+        match chain_state.process_blocks(burn_db, 1) {
             Err(e) => panic!("Error while processing block - {:?}", e),
             Ok(ref mut blocks) => {
                 if blocks.len() == 0 {
@@ -591,7 +591,7 @@ impl InitializedNeonNode {
                           burn_fee_cap: u64,
                           bitcoin_controller: &mut BitcoinRegtestController) -> Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> {
 
-        let stacks_tip = match chain_state.get_stacks_chain_tip().unwrap() {
+        let stacks_tip = match chain_state.get_stacks_chain_tip(burn_db).unwrap() {
             Some(x) => x,
             None => {
                 warn!("Could not mine new tenure, since no chain tip known.");

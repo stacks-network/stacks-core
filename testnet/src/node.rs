@@ -158,6 +158,7 @@ impl Node {
         }
 
         let chainstate_path = config.get_chainstate_path();
+        let burndb_path = config.get_burn_db_file_path();
 
         let chain_state = match StacksChainState::open(
             false, 
@@ -185,7 +186,8 @@ impl Node {
         node.spawn_peer_server();
 
         loop {
-            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip() {
+            let burndb = BurnDB::open(&burndb_path, true).expect("BUG: failed to open burn database");
+            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&burndb) {
                 if chain_tip.burn_header_hash == burnchain_tip.block_snapshot.burn_header_hash {
                     info!("Syncing Stacks blocks - completed");
                     break;
@@ -482,7 +484,7 @@ impl Node {
 
         let mut processed_blocks = vec![];
         loop {
-            match self.chain_state.process_blocks(1) {
+            match self.chain_state.process_blocks(db, 1) {
                 Err(e) => panic!("Error while processing block - {:?}", e),
                 Ok(ref mut blocks) => {
                     if blocks.len() == 0 {
