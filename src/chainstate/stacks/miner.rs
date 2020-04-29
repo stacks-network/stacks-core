@@ -156,6 +156,10 @@ impl <'a> StacksMicroblockBuilder <'a> {
         self.clarity_tx.replace(clarity_tx);
         self.considered.replace(considered);
 
+        if txs_to_broadcast.len() == 0 {
+            return Err(Error::NoTransactionsToMine)
+        }
+
         let txid_vecs = txs_to_broadcast
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -592,17 +596,12 @@ impl StacksBlockBuilder {
 
         let mut builder = StacksBlockBuilder::make_block_builder(parent_stacks_header, proof, total_burn, pubkey_hash)?;
 
-        let cost_overflow_recovery_builder = builder.clone();     // used to construct the real anchored block if we run out of budget
-        
         let mut epoch_tx = builder.epoch_begin(&mut chainstate)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         let mut considered = HashSet::new();        // txids of all transactions we looked at
         let mut mined_origin_nonces = HashMap::new();     // map addrs of mined transaction origins to the nonces we used
         let mut mined_sponsor_nonces = HashMap::new();    // map addrs of mined transaction sponsors to the nonces we used
-
-        // set to true if we exceed budget, and need to rebuild with known-good transactions.
-        let mut do_rebuild = false;
 
         let result = mempool.iterate_canditates(&tip_burn_header_hash, &tip_block_hash, tip_height, &mut header_reader_chainstate, |available_txs| {
             for txinfo in available_txs.into_iter() {

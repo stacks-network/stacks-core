@@ -837,8 +837,14 @@ impl Relayer {
         self.p2p.advertize_blocks(available)
     }
 
-    pub fn advertize_microblocks(&mut self, available: BlocksAvailableMap) -> Result<(), net_error> {
-        self.p2p.advertize_microblocks(available)
+    pub fn broadcast_microblock(&mut self,
+                                block_header_hash: &BlockHeaderHash,
+                                block_burn_header_hash: &BurnchainHeaderHash,
+                                microblock: StacksMicroblock) -> Result<(), net_error> {
+        self.p2p.broadcast_message(vec![], StacksMessageType::Microblocks(
+            MicroblocksData { index_anchor_block:
+                              StacksBlockHeader::make_index_block_hash(block_burn_header_hash, block_header_hash),
+                              microblocks: vec![ microblock ] }))
     }
 
     /// Given a network result, consume and store all data.
