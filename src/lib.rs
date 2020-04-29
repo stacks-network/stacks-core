@@ -24,7 +24,7 @@
 #![allow(non_upper_case_globals)]
 
 extern crate rand;
-extern crate ini;
+extern crate tini;
 extern crate secp256k1;
 extern crate serde;
 extern crate rusqlite;
