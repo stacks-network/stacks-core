@@ -186,7 +186,7 @@ impl Node {
         node.spawn_peer_server();
 
         loop {
-            let burndb = BurnDB::open(&burndb_path, true).expect("BUG: failed to open burn database");
+            let burndb = BurnDB::open(&burndb_path, false).expect("BUG: failed to open burn database");
             if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&burndb) {
                 if chain_tip.burn_header_hash == burnchain_tip.block_snapshot.burn_header_hash {
                     info!("Syncing Stacks blocks - completed");
