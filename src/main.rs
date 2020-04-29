@@ -47,7 +47,7 @@ fn main() {
 
     log::set_loglevel(log::LOG_INFO).unwrap();
 
-    let argv : Vec<String> = env::args().collect();
+    let mut argv : Vec<String> = env::args().collect();
     if argv.len() < 2 {
         eprintln!("Usage: {} command [args...]", argv[0]);
         process::exit(1);
@@ -55,14 +55,38 @@ fn main() {
 
     if argv[1] == "decode-bitcoin-header" {
         if argv.len() < 4 {
-            eprintln!("Usage: {} decode-bitcoin-header BLOCK_HEIGHT PATH", argv[0]);
+            eprintln!("Usage: {} decode-bitcoin-header [-t|-r] BLOCK_HEIGHT PATH", argv[0]);
             process::exit(1);
         }
+
+        let mut testnet = false;
+        let mut regtest = false;
+        let mut idx = 0;
+        for i in 0..argv.len() {
+            if argv[i] == "-t" {
+                testnet = true;
+                idx = i;
+            }
+            else if argv[i] == "-r" {
+                regtest = true;
+                idx = i;
+            }
+        }
+        if regtest && testnet {
+            // don't allow both
+            eprintln!("Usage: {} decode-bitcoin-header [-t|-r] BLOCK_HEIGHT PATH", argv[0]);
+            process::exit(1);
+        }
+        if idx > 0 {
+            argv.remove(idx);
+        }
+
+        let mode = if testnet { BitcoinNetworkType::Testnet } else if regtest { BitcoinNetworkType::Regtest } else { BitcoinNetworkType::Mainnet };
 
         let height = argv[2].parse::<u64>().expect("Invalid block height");
         let headers_path = &argv[3];
 
-        let spv_client = spv::SpvClient::new(headers_path, 0, Some(height), BitcoinNetworkType::Mainnet, false, false).expect("FATAL: could not instantiate SPV client");
+        let spv_client = spv::SpvClient::new(headers_path, 0, Some(height), mode, false, false).expect("FATAL: could not instantiate SPV client");
         match spv_client.read_block_header(height).expect("FATAL: could not read block header database") {
             Some(header) => {
                 println!("{:#?}", header);
