@@ -40,6 +40,9 @@ use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::retry::LogReader;
 
+use blockstack_lib::burnchains::bitcoin::spv;
+use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
+
 fn main() {
 
     log::set_loglevel(log::LOG_INFO).unwrap();
@@ -56,13 +59,11 @@ fn main() {
             process::exit(1);
         }
 
-        use burnchains::bitcoin::spv;
-
         let height = argv[2].parse::<u64>().expect("Invalid block height");
         let headers_path = &argv[3];
 
-        let header_opt = spv::SpvClient::read_block_header(headers_path, height).unwrap();
-        match header_opt {
+        let spv_client = spv::SpvClient::new(headers_path, 0, Some(height), BitcoinNetworkType::Mainnet, false, false).expect("FATAL: could not instantiate SPV client");
+        match spv_client.read_block_header(height).expect("FATAL: could not read block header database") {
             Some(header) => {
                 println!("{:#?}", header);
                 process::exit(0);
