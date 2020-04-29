@@ -715,6 +715,12 @@ impl ConversationHttp {
                     }
                 }
                 None
+            },
+            HttpRequestType::OptionsPreflight(ref _md, ref _path) => {
+                let response_metadata = HttpResponseMetadata::from(&req);
+                let response = HttpResponseType::OptionsPreflight(response_metadata);
+                response.send(&mut self.connection.protocol, &mut reply).map(|_| ())?;
+                None
             }
         };
 
