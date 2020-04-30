@@ -57,7 +57,7 @@ The first step is to ensure that you have Rust and the support software installe
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Building `stacks-blockchain` requires libssl sources. Depending on your Linux distribution, you may need to manually install the `libssl-dev` package.
+_For building on Windows, follow the rustup installer instructions at https://rustup.rs/_
 
 From there, you can clone this repository:
 
@@ -71,12 +71,6 @@ Then build the project:
 
 ```bash
 cargo build
-```
-
-Building the project on ARM:
-
-```bash
-cargo build --features "aarch64" --no-default-features
 ```
 
 Run the tests:
