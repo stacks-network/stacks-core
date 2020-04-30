@@ -351,7 +351,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         burn_header_hash TEXT NOT NULL,
 
         consensus_hash TEXT NOT NULL,
-        public_key TEXT UNIQUE NOT NULL,
+        public_key TEXT NOT NULL,
         memo TEXT,
         address TEXT NOT NULL,
 
