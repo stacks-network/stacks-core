@@ -519,15 +519,14 @@ fn integration_test_get_info() {
                 let tx_xfer = make_stacks_transfer(&spender_sk, round.into(), 200,
                                                    &StacksAddress::from_string(ADDR_4).unwrap().into(), 123);
 
-                let res = client.post(&path)
+                let res: String = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
                     .body(tx_xfer.clone())
                     .send()
                     .unwrap()
-                    .text()
+                    .json()
                     .unwrap();
 
-                eprintln!("{}", res);
                 assert_eq!(res, format!("{}", StacksTransaction::consensus_deserialize(&mut &tx_xfer[..]).unwrap().txid()));
                 
                 // let's submit an invalid transaction!
@@ -890,6 +889,131 @@ fn block_limit_runtime_test() {
                 assert_eq!(block.block.txs.len(), 4);
             },
             _ => {},
+        }
+    });
+
+    run_loop.start(num_rounds);
+}
+
+
+#[test]
+fn mempool_errors() {
+    let mut conf = super::new_test_conf();
+
+    conf.burnchain.commit_anchor_block_within = 5000;
+
+    let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();
+    conf.initial_balances.push(InitialBalance { 
+        address: spender_addr,
+        amount: 100300
+    });
+
+    let num_rounds = 2;
+
+    let rpc_bind = conf.node.rpc_bind.clone();
+
+    { 
+        let mut http_opt = HTTP_BINDING.lock().unwrap();
+        http_opt.replace(format!("http://{}", &rpc_bind));
+    }
+
+    let mut run_loop = RunLoop::new(conf);
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+        let header_hash = chain_tip.block.block_hash();
+        let burn_header_hash = chain_tip.metadata.burn_header_hash;
+
+        if round == 1 { // block-height = 2
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
+            eprintln!("Tenure in 1 started!");
+            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,publish_tx).unwrap();
+        }
+
+        return
+    });
+
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _chain_state, _block, _chain_tip_info| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+        let _contract_identifier =
+            QualifiedContractIdentifier::parse(
+                &format!("{}.{}", to_addr(&contract_sk), "hello-contract")).unwrap();
+        let http_origin = {
+            HTTP_BINDING.lock().unwrap().clone().unwrap()
+        };
+        let client = reqwest::blocking::Client::new();
+        let path = format!("{}/v2/transactions", &http_origin);
+        let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+        let spender_addr = to_addr(&spender_sk);
+
+        let send_to = StacksAddress::from_string(ADDR_4).unwrap().into();
+
+        if round == 1 {
+            // let's submit an invalid transaction!
+            eprintln!("Test: POST {} (invalid)", path);
+            let tx_xfer_invalid = make_stacks_transfer(&spender_sk, 3, 200,     // bad nonce
+                                                       &send_to, 456);
+            let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
+
+            let res = client.post(&path)
+                .header("Content-Type", "application/octet-stream")
+                .body(tx_xfer_invalid.clone())
+                .send()
+                .unwrap()
+                .json::<serde_json::Value>()
+                .unwrap();
+
+            eprintln!("{}", res);
+            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), tx_xfer_invalid_tx.txid().to_string());
+            assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
+            assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "BadNonce");
+            let data = res.get("reason_data").unwrap();
+            assert_eq!(data.get("is_origin").unwrap().as_bool().unwrap(), true);
+            assert_eq!(data.get("principal").unwrap().as_str().unwrap(), &spender_addr.to_string());
+            assert_eq!(data.get("expected").unwrap().as_i64().unwrap(), 0);
+            assert_eq!(data.get("actual").unwrap().as_i64().unwrap(), 3);
+
+            let tx_xfer_invalid = make_stacks_transfer(&spender_sk, 0, 1, // bad fee
+                                                       &send_to, 456);
+            let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
+
+            let res = client.post(&path)
+                .header("Content-Type", "application/octet-stream")
+                .body(tx_xfer_invalid.clone())
+                .send()
+                .unwrap()
+                .json::<serde_json::Value>()
+                .unwrap();
+
+            eprintln!("{}", res);
+            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), tx_xfer_invalid_tx.txid().to_string());
+            assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
+            assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "FeeTooLow");
+            let data = res.get("reason_data").unwrap();
+            assert_eq!(data.get("expected").unwrap().as_u64().unwrap(), 180);
+            assert_eq!(data.get("actual").unwrap().as_u64().unwrap(), 1);
+
+            let tx_xfer_invalid = make_stacks_transfer(&contract_sk, 1, 200, // not enough funds!
+                                                       &send_to, 456);
+            let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
+
+            let res = client.post(&path)
+                .header("Content-Type", "application/octet-stream")
+                .body(tx_xfer_invalid.clone())
+                .send()
+                .unwrap()
+                .json::<serde_json::Value>()
+                .unwrap();
+
+            eprintln!("{}", res);
+            assert_eq!(res.get("txid").unwrap().as_str().unwrap(), tx_xfer_invalid_tx.txid().to_string());
+            assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
+            assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "NotEnoughFunds");
+            let data = res.get("reason_data").unwrap();
+            assert_eq!(data.get("expected").unwrap().as_str().unwrap(),
+                       format!("0x{:032x}", 656));
+            assert_eq!(data.get("actual").unwrap().as_str().unwrap(),
+                       format!("0x{:032x}", 0));
+
         }
     });
 

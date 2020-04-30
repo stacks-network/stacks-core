@@ -1038,7 +1038,7 @@ pub enum HttpResponseType {
     OptionsPreflight(HttpResponseMetadata),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
-    BadRequestJSON(HttpResponseMetadata, HashMap<String, String>),
+    BadRequestJSON(HttpResponseMetadata, serde_json::Value),
     Unauthorized(HttpResponseMetadata, String),
     PaymentRequired(HttpResponseMetadata, String),
     Forbidden(HttpResponseMetadata, String),

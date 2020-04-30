@@ -1748,17 +1748,14 @@ impl HttpResponseType {
     }
 
     fn parse_txid<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
-        let txid_buf = HttpResponseType::parse_text(preamble, fd, len_hint, 64)?;
-        if txid_buf.len() != 64 {
+        let txid_hex: String = HttpResponseType::parse_json(preamble, fd, len_hint, 66)?;
+        if txid_hex.len() != 64 {
             return Err(net_error::DeserializeError("Invalid txid: expected 64 bytes".to_string()));
         }
 
-        let mut bytes = [0u8; 64];
-        bytes.copy_from_slice(&txid_buf);
-
-        let hex_str = str::from_utf8(&bytes).map_err(|_e| net_error::DeserializeError("Failed to decode a txid".to_string()))?;
-        let txid_bytes = hex_bytes(hex_str).map_err(|_e| net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
-        Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(request_version, preamble), Txid::from_bytes(&txid_bytes).unwrap()))
+        let txid = Txid::from_hex(&txid_hex)
+            .map_err(|_e|net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
+        Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(request_version, preamble), txid))
     }
 
     fn error_reason(code: u16) -> &'static str {
@@ -1908,9 +1905,9 @@ impl HttpResponseType {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
             },
             HttpResponseType::TransactionID(ref md, ref txid) => {
-                let txid_bytes = txid.to_hex().into_bytes();
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
-                HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
+                let txid_bytes = txid.to_hex();
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_json(protocol, md, fd, &txid_bytes)?;
             },
             HttpResponseType::OptionsPreflight(ref md) => {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
@@ -3235,7 +3232,7 @@ mod test {
             (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), true), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
             (HttpResponseType::Block(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_block_info_bytes.len() as u32), true), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
             (HttpResponseType::Microblocks(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_microblock_info_bytes.len() as u32), true), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
-            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(Txid([0x1; 32]).to_hex().len() as u32), true), Txid([0x1; 32])), "/v2/transactions".to_string()),
+            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some((Txid([0x1; 32]).to_hex().len() + 2) as u32), true), Txid([0x1; 32])), "/v2/transactions".to_string()),
             
             // length is unknown
             (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
@@ -3269,13 +3266,13 @@ mod test {
             HttpResponsePreamble::new(200, "OK".to_string(), Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), HttpContentType::JSON, true, 123),
             HttpResponsePreamble::new(200, "OK".to_string(), Some(test_block_info_bytes.len() as u32), HttpContentType::Bytes, true, 123),
             HttpResponsePreamble::new(200, "OK".to_string(), Some(test_microblock_info_bytes.len() as u32), HttpContentType::Bytes, true, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(Txid([0x1; 32]).to_hex().len() as u32), HttpContentType::Text, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some((Txid([0x1; 32]).to_hex().len() + 2) as u32), HttpContentType::JSON, true, 123),
             
             // length is unknown
             HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::JSON, true, 123),
             HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, true, 123),
             HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, true, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Text, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::JSON, true, 123),
 
             // errors
             HttpResponsePreamble::new_error(400, 123, None),
@@ -3335,7 +3332,7 @@ mod test {
             "foo".as_bytes().to_vec(),
         ];
 
-        for ((test, request_path), (expected_http_preamble, expected_http_body)) in tests.iter().zip(expected_http_preambles.iter().zip(expected_http_bodies.iter())) {
+        for ((test, request_path), (expected_http_preamble, _expected_http_body)) in tests.iter().zip(expected_http_preambles.iter().zip(expected_http_bodies.iter())) {
             let mut http = StacksHttp::new();
             let mut bytes = vec![];
             test_debug!("write body:\n{:?}\n", test);
@@ -3357,7 +3354,7 @@ mod test {
 
             test_debug!("read http body\n{:?}\n", &bytes[offset..].to_vec());
 
-            let (message, total_len) = 
+            let (message, _total_len) = 
                 if expected_http_preamble.is_chunked() {
                     let (msg_opt, len) = http.stream_payload(&preamble, &mut &bytes[offset..]).unwrap();
                     (msg_opt.unwrap().0, len)
@@ -3401,7 +3398,7 @@ mod test {
         ];
         let bad_request_payloads = vec![
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\nab",
-            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: text/plain\r\nContent-length: 2\r\n\r\nab",
+            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 4\r\n\r\n\"ab\"",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\n{",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\na",
             "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\n{}",

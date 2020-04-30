@@ -621,15 +621,11 @@ impl ConversationHttp {
                         (HttpResponseType::TransactionID(response_metadata, txid), true)
                     }
                     Err(e) => {
-                        let mut rejection_info = HashMap::new();
-                        rejection_info.insert("txid".to_string(), txid.to_hex());
-                        rejection_info.insert("error".to_string(), "transaction rejected".to_string());
-                        rejection_info.insert("reason".to_string(), format!("{:?}", e));
-                        (HttpResponseType::BadRequestJSON(response_metadata, rejection_info), false)
+                        (HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)), false)
                     }
                 }
             };
-            
+
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
@@ -1210,7 +1206,7 @@ mod test {
     }
 
     #[test]
-        #[ignore]
+    #[ignore]
     fn test_rpc_getinfo() {
         let peer_server_info = RefCell::new(None);
         test_rpc("test_rpc_getinfo", 40000, 40001, 50000, 50001,
