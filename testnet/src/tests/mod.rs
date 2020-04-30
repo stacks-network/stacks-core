@@ -39,7 +39,7 @@ pub const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f
 pub const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
 pub const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
-pub const ADDR_4: &'static str = "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0";
+pub const ADDR_4: &'static str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
 
 lazy_static! {
     pub static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(

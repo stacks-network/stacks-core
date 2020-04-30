@@ -4,7 +4,42 @@
 
 This endpoint is for posting _raw_ transaction data to the node's mempool.
 
-Rejections result in a 400 error.
+Rejections result in a 400 error, with JSON data in the form:
+
+```
+{
+  "error": "transaction rejected",
+  "reason": "BadNonce",
+  "reason_data": {
+    "actual": 3,
+    "expected": 0,
+    "is_origin": true,
+    "principal": "ST2MVNFYF6H9DCMAV3HVNHTJVVE3CFWT1JYMH1EZB"
+  },
+  "txid": "0x4068179cb9169b969c80518d83890f8b808a70ab998dd227149221be9480a616"
+}
+```
+
+Possible values for the "reason" field are:
+
+* `Serialization`
+* `Deserialization`
+* `SignatureValidation`
+* `FeeTooLow`
+* `BadNonce`
+* `NotEnoughFunds`
+* `NoSuchContract`
+* `NoSuchPublicFunction`
+* `BadFunctionArgument`
+* `ContractAlreadyExists`
+* `PoisonMicroblocksDoNotConflict`
+* `PoisonMicroblockHasUnknownPubKeyHash`
+* `PoisonMicroblockIsInvalid`
+* `BadAddressVersionByte`
+* `NoCoinbaseViaMempool`
+* `ServerFailureNoSuchChainTip`
+* `ServerFailureDatabase`
+* `ServerFailureOther`
 
 ### GET /v2/accounts/[Principal]
 
