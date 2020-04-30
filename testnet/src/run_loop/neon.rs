@@ -41,7 +41,7 @@ impl RunLoop {
         let mut burnchain_tip = burnchain.start();
 
         let is_miner = if self.config.node.miner {
-            let mut keychain = Keychain::default(self.config.node.seed.clone());
+            let keychain = Keychain::default(self.config.node.seed.clone());
             let btc_addr = BitcoinAddress::from_bytes(
                 BitcoinNetworkType::Regtest,
                 BitcoinAddressType::PublicKeyHash,

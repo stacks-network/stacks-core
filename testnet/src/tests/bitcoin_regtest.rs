@@ -1,4 +1,4 @@
-use std::process::{Command, Child};
+use std::process::{Command, Child, Stdio};
 
 use crate::{Config};
 use crate::helium::RunLoop;
@@ -7,6 +7,7 @@ use stacks::chainstate::burn::operations::BlockstackOperationType::{LeaderBlockC
 use stacks::util::hash::{hex_bytes};
 use stacks::util::sleep_ms;
 
+use std::io::{BufReader, BufRead};
 use super::{PUBLISH_CONTRACT};
 
 pub enum BitcoinCoreError {
@@ -34,7 +35,7 @@ impl BitcoinCoreController {
         
         let mut command = Command::new("bitcoind");
         command
-            // .stdout(Stdio::piped())
+            .stdout(Stdio::piped())
             .arg("-conf=/dev/null") // todo(ludo): nix only
             .arg("-regtest")
             .arg("-nodebug")
@@ -43,6 +44,7 @@ impl BitcoinCoreController {
             .arg("-txindex=1")
             .arg("-server=1")
             .arg("-listenonion=0")
+            .arg("-rpcbind=127.0.0.1")
             .arg(&format!("-port={}", self.config.burnchain.peer_port))
             .arg(&format!("-datadir={}", self.config.get_burnchain_path()))
             .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
@@ -56,15 +58,34 @@ impl BitcoinCoreController {
             _ => {}
         }
 
-        let process = match command.spawn() {
+        eprintln!("bitcoind spawn: {:?}", command);
+
+        let mut process = match command.spawn() {
             Ok(child) => child,
             Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e)))
         };
 
+        eprintln!("bitcoind spawned, waiting for startup");
+        let mut out_reader = BufReader::new(process.stdout.take().unwrap());
+
+        let mut line = String::new();
+        while let Ok(bytes_read) = out_reader.read_line(&mut line) {
+            if bytes_read == 0 {
+                return Err(BitcoinCoreError::SpawnFailed("Bitcoind closed before spawning network".into()))
+            }
+            if line.contains("Done loading") {
+                break;
+            }
+        }
+
+        eprintln!("bitcoind startup finished");
+
+//        sleep_ms(5_000);
         self.bitcoind_process = Some(process);
 
         Ok(())
     }
+
 
     pub fn kill_bitcoind(&mut self) {
         if let Some(mut bitcoind_process) = self.bitcoind_process.take() {

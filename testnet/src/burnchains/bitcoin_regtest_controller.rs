@@ -436,7 +436,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn build_next_block(&self, num_blocks: u64) {
+    pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
@@ -775,6 +775,11 @@ impl BitcoinRPCRequest {
         let result = request_builder.json(&body).send();
         let response = result
             .map_err(|e| RPCError::Network(format!("RPC Error: {}", e)))?;
+        if !response.status().is_success() {
+            return Err(RPCError::Network(
+                format!("RPC response status bad: {}, {:?}",
+                        response.status(), response.text())))
+        }
         let payload = response.json::<serde_json::Value>()
             .map_err(|e| RPCError::Parsing(format!("RPC Error: {}", e)))?;
         Ok(payload)
