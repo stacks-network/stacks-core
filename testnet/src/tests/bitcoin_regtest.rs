@@ -105,7 +105,7 @@ fn bitcoind_integration_test() {
     run_loop.callbacks.on_burn_chain_initialized(|burnchain_controller| {
         // todo(ludo): we need to wait for bitcoind to be ready.
         sleep_ms(5000);
-        burnchain_controller.bootstrap_chain();
+        burnchain_controller.bootstrap_chain(201);
     });
 
     // In this serie of tests, the callback is fired post-burnchain-sync, pre-stacks-sync
