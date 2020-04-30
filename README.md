@@ -57,6 +57,8 @@ The first step is to ensure that you have Rust and the support software installe
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
+Building `stacks-blockchain` requires libssl sources. Depending on your Linux distribution, you may need to manually install the `libssl-dev` package.
+
 From there, you can clone this repository:
 
 ```bash

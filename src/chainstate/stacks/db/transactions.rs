@@ -151,10 +151,39 @@ impl StacksTransactionReceipt {
     }
 }
 
+#[derive(Debug)]
+pub struct TransactionNonceMismatch {
+    pub expected: u64,
+    pub actual: u64,
+    pub txid: Txid,
+    pub principal: PrincipalData,
+    pub is_origin: bool
+}
+
+impl std::fmt::Display for TransactionNonceMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let acct_type = if self.is_origin { "origin" } else { "sponsor" };
+        write!(f, "Bad nonce: {} account {} nonce of tx {} is {} (expected {})",
+               acct_type, &self.principal, &self.txid.to_hex(), &self.actual, &self.expected)
+    }
+}
+
+impl From<TransactionNonceMismatch> for Error {
+    fn from(e: TransactionNonceMismatch) -> Error {
+        Error::InvalidStacksTransaction(e.to_string())
+    }
+}
+
+impl From<TransactionNonceMismatch> for MemPoolRejection {
+    fn from(e: TransactionNonceMismatch) -> MemPoolRejection {
+        MemPoolRejection::BadNonces(e)
+    }
+}
+
 impl StacksChainState {
     /// Check the account nonces for the supplied stacks transaction,
     ///   returning the origin and payer accounts if valid.
-    pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction) -> Result<(StacksAccount, StacksAccount), Error> {
+    pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction) -> Result<(StacksAccount, StacksAccount), TransactionNonceMismatch> {
         // who's sending it?
         let origin = tx.get_origin();
         let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
@@ -166,9 +195,13 @@ impl StacksChainState {
                 let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
 
                 if payer.nonce() != payer_account.nonce {
-                    let msg = format!("Bad nonce: payer account {} nonce of tx {} is {} (expected {})", &payer_account.principal, tx.txid(), payer.nonce(), payer_account.nonce);
-                    warn!("{}", &msg);
-                    return Err(Error::InvalidStacksTransaction(msg));
+                    let e = TransactionNonceMismatch { expected: payer_account.nonce,
+                                                       actual: payer.nonce(),
+                                                       txid: tx.txid(),
+                                                       principal: payer_account.principal.clone(),
+                                                       is_origin: false };
+                    warn!("{}", &e);
+                    return Err(e)
                 }
 
                 payer_account
@@ -178,9 +211,13 @@ impl StacksChainState {
 
         // check nonces
         if origin.nonce() != origin_account.nonce {
-            let msg = format!("Bad nonce: origin account {} nonce of tx {} is {} (expected {})", &origin_account.principal, tx.txid(), origin.nonce(), origin_account.nonce);
-            warn!("{}", &msg);
-            return Err(Error::InvalidStacksTransaction(msg));
+            let e = TransactionNonceMismatch { expected: origin_account.nonce,
+                                               actual: origin.nonce(),
+                                               txid: tx.txid(),
+                                               principal: origin_account.principal.clone(),
+                                               is_origin: true };
+            warn!("{}", &e);
+            return Err(e)
         }
 
         Ok((origin_account, payer_account))

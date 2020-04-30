@@ -159,7 +159,7 @@ fn mempool_setup_chainstate() {
             let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let e = chain_state.will_admit_mempool_tx(burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap_err(); 
             eprintln!("Err: {:?}", e);
-            assert!(if let MemPoolRejection::NotEnoughFunds(110000, 99900) = e { true } else { false });
+            assert!(if let MemPoolRejection::NotEnoughFunds(111000, 99900) = e { true } else { false });
 
             let tx_bytes = make_stacks_transfer(&contract_sk, 1, 99900, &other_addr, 1000);
             let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();

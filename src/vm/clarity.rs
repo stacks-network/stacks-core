@@ -876,7 +876,7 @@ mod tests {
                                        |_, _| false)).unwrap_err() {
                     Error::CostError(total, limit) => {
                         eprintln!("{}, {}", total, limit);
-                        (limit.runtime == 100 && total.runtime > 100)
+                        limit.runtime == 100 && total.runtime > 100
                     },
                     x => {
                         eprintln!("{}", x);
