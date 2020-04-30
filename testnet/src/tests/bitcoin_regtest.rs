@@ -80,7 +80,6 @@ impl BitcoinCoreController {
 
         eprintln!("bitcoind startup finished");
 
-//        sleep_ms(5_000);
         self.bitcoind_process = Some(process);
 
         Ok(())

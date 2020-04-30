@@ -51,7 +51,7 @@ lazy_static! {
 pub fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
                                              sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
     serialize_sign_standard_single_sig_tx_anchor_mode(
-        payload, sender, nonce, fee_rate, TransactionAnchorMode::Any)
+        payload, sender, nonce, fee_rate, TransactionAnchorMode::OnChainOnly)
 }
 
 pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
