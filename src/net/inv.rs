@@ -49,7 +49,7 @@ use util::secp256k1::Secp256k1PrivateKey;
 use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::db::burndb;
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::burn::BlockSnapshot;
 
 use chainstate::stacks::db::StacksChainState;
@@ -73,6 +73,8 @@ use util::get_epoch_time_secs;
 use util::hash::to_hex;
 
 /// This module is responsible for synchronizing block inventories with other peers
+#[cfg(not(test))] pub const INV_SYNC_INTERVAL : u64 = 200;
+#[cfg(test)] pub const INV_SYNC_INTERVAL : u64 = 10;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeerBlocksInv {
@@ -245,14 +247,14 @@ impl NeighborBlockStats {
     /// Used to inform sending getblockinvs and get-requests for blocks.
     /// If the requested range isn't fully included in the bitvec we have, then the resulting
     /// vector will be truncated.
-    pub fn find_missing_stacks_blocks(&self, burndb: &mut BurnDB, sortition_height_start: u64, sortition_height_end: u64) -> Result<Vec<Option<BlockSnapshot>>, net_error> {
+    pub fn find_missing_stacks_blocks(&self, burndb: &BurnDB, sortition_height_start: u64, sortition_height_end: u64) -> Result<Vec<Option<BlockSnapshot>>, net_error> {
         if self.inv.num_sortitions < sortition_height_start {
             return Ok(vec![]);
         }
 
         let mut ret = vec![];
-        let mut tx = burndb.tx_begin().map_err(net_error::DBError)?;
-        let canonical_tip = BurnDB::get_canonical_burn_chain_tip(&tx).map_err(net_error::DBError)?;
+        let ic = burndb.index_conn();
+        let canonical_tip = BurnDB::get_canonical_burn_chain_tip(&ic).map_err(net_error::DBError)?;
         for height in sortition_height_start..sortition_height_end {
             if !self.inv.has_ith_block(height) {
                 // of the edge of the bitmap
@@ -260,7 +262,7 @@ impl NeighborBlockStats {
             }
             else {
                 // is this block missing from this peer, or does it not exist in the first place?
-                match BurnDB::get_block_snapshot_in_fork(&mut tx, height, &canonical_tip.burn_header_hash).map_err(net_error::DBError)? {
+                match BurnDB::get_block_snapshot_in_fork(&ic, height, &canonical_tip.burn_header_hash).map_err(net_error::DBError)? {
                     None => {
                         ret.push(None);
                     },
@@ -337,10 +339,14 @@ pub struct InvState {
     pub last_change_at: u64,
     /// Number of times we've done a rescan
     num_rescans: u64,
+    /// How often to re-sync
+    sync_interval: u64,
+    /// Did we learn something in this last scan?
+    learned_data: bool
 }
 
 impl InvState {
-    pub fn new(first_block_height: u64, initial_peers: HashSet<NeighborKey>) -> InvState {
+    pub fn new(first_block_height: u64, sync_interval: u64, initial_peers: HashSet<NeighborKey>) -> InvState {
         InvState {
             state: InvWorkState::GetBlocksInvBegin,
 
@@ -364,6 +370,8 @@ impl InvState {
             last_rescanned_at: 0,
             num_rescans: 0,
             last_change_at: 0,
+            sync_interval: sync_interval,
+            learned_data: true,     // force a first-pass
         }
     }
 
@@ -741,7 +749,7 @@ impl InvState {
 impl PeerNetwork {
     /// Given a sortition height of a block we're interested in, make a GetBlocksInv whose
     /// _lowest_ block will be at the target sortition height.
-    fn make_highest_getblocksinv(&self, nk: &NeighborKey, target_block_height: u64, burndb: &mut BurnDB) -> Result<Option<GetBlocksInv>, net_error> {
+    fn make_highest_getblocksinv(&self, nk: &NeighborKey, target_block_height: u64, burndb: &BurnDB) -> Result<Option<GetBlocksInv>, net_error> {
         if target_block_height > self.chain_view.burn_block_height {
             return Ok(None);
         }
@@ -807,9 +815,9 @@ impl PeerNetwork {
         }
         assert!(num_blocks <= BLOCKS_INV_DATA_MAX_BITLEN as u64);
 
-        let mut tx = burndb.tx_begin().map_err(net_error::DBError)?;
-        let tip = BurnDB::get_canonical_burn_chain_tip(&tx).map_err(net_error::DBError)?;
-        match BurnDB::get_consensus_at(&mut tx, highest_block_height, &tip.burn_header_hash).map_err(net_error::DBError)? {
+        let ic = burndb.index_conn();
+        let tip = BurnDB::get_canonical_burn_chain_tip(&ic).map_err(net_error::DBError)?;
+        match BurnDB::get_consensus_at(&ic, highest_block_height, &tip.burn_header_hash).map_err(net_error::DBError)? {
             Some(ch) => {
                 test_debug!("{:?}: Request BlocksInv from {:?} for {} blocks up to sortition block {}", &self.local_peer, nk, num_blocks, highest_block_height);
                 Ok(Some(GetBlocksInv { consensus_hash: ch, num_blocks: num_blocks as u16 }))
@@ -822,7 +830,7 @@ impl PeerNetwork {
     }
 
     /// Make a GetBlocksInv to send to our neighbors
-    fn make_next_getblocksinv(&self, inv_state: &mut InvState, burndb: &mut BurnDB, nk: &NeighborKey) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
+    fn make_next_getblocksinv(&self, inv_state: &mut InvState, burndb: &BurnDB, nk: &NeighborKey) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
         let target_block_height = match inv_state.get_stats(nk) {
             Some(ref stats) => burndb.first_block_height.checked_add(stats.inv.num_sortitions).expect("Blockchain sortition overflow"),
             None => {
@@ -869,7 +877,7 @@ impl PeerNetwork {
     }
 
     /// Start requesting the next batch of block inventories
-    pub fn inv_getblocksinv_begin(&mut self, burndb: &mut BurnDB) -> Result<(), net_error> {
+    pub fn inv_getblocksinv_begin(&mut self, burndb: &BurnDB) -> Result<(), net_error> {
         test_debug!("{:?}: getblocksinv_begin", &self.local_peer);
         PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
             let mut inv_targets : HashMap<NeighborKey, (u64, GetBlocksInv)> = HashMap::new();
@@ -925,6 +933,7 @@ impl PeerNetwork {
                 inv_heights.insert(nk, target_height);
             }
 
+            inv_state.learned_data = false;     // haven't learned anything yet in this scan
             inv_state.getblocksinv_begin(inv_requests, inv_heights);
             Ok(())
         })
@@ -954,6 +963,17 @@ impl PeerNetwork {
         }
         cur_neighbors
     }
+
+    /// Set a hint that we learned something new, and need to sync invs again
+    pub fn hint_sync_invs(&mut self) -> () {
+        match self.inv_state {
+            Some(ref mut inv_state) => {
+                debug!("Awaken inv sync to re-scan peer block inventories");
+                inv_state.learned_data = true;
+            },
+            None => {}
+        }
+    }
     
     /// Initialize inv state
     pub fn init_inv_sync(&mut self, burndb: &BurnDB) -> () {
@@ -961,30 +981,69 @@ impl PeerNetwork {
         let cur_neighbors = self.get_outbound_sync_peers();
         
         debug!("{:?}: Initializing peer block inventory state with {} neighbors", &self.local_peer, cur_neighbors.len());
-        self.inv_state = Some(InvState::new(burndb.first_block_height, cur_neighbors));
+        self.inv_state = Some(InvState::new(burndb.first_block_height, self.connection_opts.inv_sync_interval, cur_neighbors));
     }
 
     /// Drive fetching block invs.
     /// Returns the list of dead and broken peers that we should disconnect from, as well as a flag
     /// to indicate if we're done with the scan.
-    pub fn sync_peer_block_invs(&mut self, burndb: &mut BurnDB) -> Result<(bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
+    pub fn sync_peer_block_invs(&mut self, burndb: &BurnDB) -> Result<(bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         if self.inv_state.is_none() {
             self.init_inv_sync(burndb);
         }
-        
-        let mut done = false;
-        let state = self.inv_state.as_ref().unwrap().state;
-        match state {
-            InvWorkState::GetBlocksInvBegin => {
-                self.inv_getblocksinv_begin(burndb)?;
-            },
-            InvWorkState::GetBlocksInvFinish => {
-                done = self.inv_getblocksinv_finish()?;
-            },
-            InvWorkState::Done => {
-                done = true;
+
+        match self.inv_state {
+            Some(ref inv_state) => {
+                // NOTE: inv_state.learned_data will be true if we called init_inv_sync()
+                if !inv_state.learned_data && inv_state.last_change_at + inv_state.sync_interval >= get_epoch_time_secs() {
+                    // we didn't learn anything on the last sync, and it hasn't been enough time
+                    // since the last sync for us to do it again
+                    debug!("{:?}: Throttle inv sync until {}s", &self.local_peer, inv_state.last_change_at + inv_state.sync_interval);
+                    return Ok((true, vec![], vec![]));
+                }
+            }
+            None => {
+                unreachable!();
             }
         }
+        
+        let mut did_cycle = false;
+        let res = loop {
+            let state = self.inv_state.as_ref().unwrap().state;
+            
+            debug!("{:?}: inv-sync state is {:?}", &self.local_peer, state);
+            let done_res = match state {
+                InvWorkState::GetBlocksInvBegin => {
+                    self.inv_getblocksinv_begin(burndb)
+                        .and_then(|_| Ok(false))
+                },
+                InvWorkState::GetBlocksInvFinish => {
+                    self.inv_getblocksinv_finish()
+                        .and_then(|d| Ok(d))
+                },
+                InvWorkState::Done => {
+                    did_cycle = true;
+                    Ok(true)
+                }
+            };
+
+            if did_cycle || done_res.is_err() {
+                break done_res;
+            }
+
+            let new_state = self.inv_state.as_ref().unwrap().state;
+            if new_state == state {
+                break done_res;
+            }
+        };
+
+        let done = match res {
+            Ok(d) => d,
+            Err(e) => {
+                warn!("Failed to exeucte inventory synchronization: {:?}", &e);
+                return Err(e);
+            }
+        };
 
         if !done {
             // more work to do in this round of inv requests.
@@ -1008,8 +1067,9 @@ impl PeerNetwork {
                                 test_debug!("{:?}: {:?} has {} new blocks and {} new microblocks: {},{:?}", &self.local_peer, &nk, new_blocks, new_microblocks, nk_stats.inv.num_sortitions, &nk_stats.inv);
 
                                 if new_blocks > 0 || new_microblocks > 0 {
-                                    // learned something
+                                    // learned something new
                                     inv_state.last_change_at = get_epoch_time_secs();
+                                    inv_state.learned_data = true;
                                 }
                             }
                             None => {}
@@ -1063,8 +1123,6 @@ impl PeerNetwork {
 
                             inv_state.last_rescanned_at = get_epoch_time_secs();
                             inv_state.num_rescans += 1;
-
-                            // TODO: rescan only periodically
                         }
                     }
 
@@ -1332,10 +1390,10 @@ mod test {
         peer_1.burndb = Some(burndb);
         
         for i in 0..num_blocks {
-            let mut burndb = peer_1.burndb.take().unwrap();
+            let burndb = peer_1.burndb.take().unwrap();
             let sn = {
-                let mut tx = burndb.tx_begin().unwrap();
-                let sn = BurnDB::get_block_snapshot_in_fork(&mut tx, i + 1 + first_stacks_block_height, &tip.burn_header_hash).unwrap().unwrap();
+                let ic = burndb.index_conn();
+                let sn = BurnDB::get_block_snapshot_in_fork(&ic, i + 1 + first_stacks_block_height, &tip.burn_header_hash).unwrap().unwrap();
                 eprintln!("{:?}", &sn);
                 sn
             };
@@ -1343,15 +1401,15 @@ mod test {
         }
 
         for i in 0..num_blocks {
-            let mut burndb = peer_1.burndb.take().unwrap();
+            let burndb = peer_1.burndb.take().unwrap();
             match peer_1.network.inv_state {
                 Some(ref mut inv) => {
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
                     let sn = {
-                        let mut tx = burndb.tx_begin().unwrap();
-                        let sn = BurnDB::get_block_snapshot_in_fork(&mut tx, i + first_stacks_block_height + 1, &tip.burn_header_hash).unwrap().unwrap();
+                        let ic = burndb.index_conn();
+                        let sn = BurnDB::get_block_snapshot_in_fork(&ic, i + first_stacks_block_height + 1, &tip.burn_header_hash).unwrap().unwrap();
                         eprintln!("{:?}", &sn);
                         sn
                     };
