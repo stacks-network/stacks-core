@@ -6,7 +6,7 @@ use std::thread;
 
 use stacks::burnchains::PublicKey;
 use stacks::chainstate::stacks::db::{StacksChainState};
-use stacks::chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksWorkScore, 
+use stacks::chainstate::stacks::{StacksPrivateKey, StacksBlock, 
                                  StacksPublicKey, StacksTransaction, StacksMicroblock, StacksBlockBuilder};
 use stacks::chainstate::burn::VRFSeed;
 use stacks::core::mempool::MemPoolDB;
