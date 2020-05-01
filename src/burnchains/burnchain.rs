@@ -66,6 +66,7 @@ use chainstate::burn::BlockSnapshot;
 
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::burn::distribution::BurnSamplePoint;
 
 use chainstate::stacks::StacksAddress;
@@ -98,7 +99,7 @@ impl BurnchainStateTransition {
         }
     }
 
-    pub fn from_block_ops<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
+    pub fn from_block_ops<'a>(ic: &BurnDBConn<'a>, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
         let mut user_burns: Vec<UserBurnSupportOp> = vec![];
@@ -133,7 +134,7 @@ impl BurnchainStateTransition {
         }
 
         // find all VRF leader keys that were consumed by the block commits of this block 
-        let consumed_leader_keys = BurnDB::get_consumed_leader_keys(tx, &parent_snapshot.burn_header_hash, &block_commits)
+        let consumed_leader_keys = BurnDB::get_consumed_leader_keys(ic, &parent_snapshot.burn_header_hash, &block_commits)
             .map_err(burnchain_error::DBError)?;
 
         // calculate the burn distribution from these operations.
@@ -453,24 +454,24 @@ impl Burnchain {
     }
    
     /// Run a blockstack operation's "check()" method and return the result.
-    fn check_transaction<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, blockstack_op: &BlockstackOperationType) -> Result<(), burnchain_error> {
+    fn check_transaction<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, blockstack_op: &BlockstackOperationType) -> Result<(), burnchain_error> {
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                op.check(burnchain, block_header, tx)
+                op.check(burnchain, block_header, ic)
                     .map_err(|e| {
                           warn!("REJECTED({}) leader key register {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                           burnchain_error::OpError(e)
                     })
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                op.check(burnchain, block_header, tx)
+                op.check(burnchain, block_header, ic)
                     .map_err(|e| {
                           warn!("REJECTED({}) leader block commit {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                           burnchain_error::OpError(e)
                     })
             },
             BlockstackOperationType::UserBurnSupport(ref op) => {
-                op.check(burnchain, block_header, tx)
+                op.check(burnchain, block_header, ic)
                     .map_err(|e| {
                         warn!("REJECTED({}) user burn support {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                         burnchain_error::OpError(e)
@@ -590,13 +591,13 @@ impl Burnchain {
     /// Generate the list of blockstack operations that will be snapshotted -- a subset of the
     /// blockstack operations extracted from get_blockstack_transactions.
     /// Return the list of parsed blockstack operations whose check() method has returned true.
-    fn check_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, block_ops: &Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, burnchain_error> {
+    fn check_block_ops<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, block_ops: &Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, burnchain_error> {
         debug!("Check Blockstack transactions from block {} {}", block_header.block_height, &block_header.block_hash);
         let mut ret = vec![];
 
         // classify and check each transaction
         for blockstack_op in block_ops {
-            match Burnchain::check_transaction(tx, burnchain, block_header, blockstack_op) {
+            match Burnchain::check_transaction(ic, burnchain, block_header, blockstack_op) {
                 Err(_) => {
                     // check failed
                     continue;
@@ -628,7 +629,7 @@ impl Burnchain {
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(tx, parent_snapshot, this_block_ops)
+        let state_transition = BurnchainStateTransition::from_block_ops(&tx.as_conn(), parent_snapshot, this_block_ops)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
@@ -637,15 +638,14 @@ impl Burnchain {
         let txids = state_transition.accepted_ops.iter().map(|ref op| op.txid()).collect();
         
         // do the cryptographic sortition and pick the next winning block.
-        let mut snapshot = BlockSnapshot::make_snapshot(tx, burnchain, parent_snapshot, block_header, &state_transition.burn_dist, &txids)
+        let mut snapshot = BlockSnapshot::make_snapshot(&tx.as_conn(), burnchain, parent_snapshot, block_header, &state_transition.burn_dist, &txids)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash, e);
                 burnchain_error::DBError(e)
             })?;
         
         // store the snapshot
-        let index_root = BurnDB::append_chain_tip_snapshot(tx, parent_snapshot, &snapshot, &state_transition.accepted_ops, &state_transition.consumed_leader_keys)
-            .expect("FATAL: failed to append snapshot");
+        let index_root = BurnDB::append_chain_tip_snapshot(tx, parent_snapshot, &snapshot, &state_transition.accepted_ops, &state_transition.consumed_leader_keys)?;
 
         snapshot.index_root = index_root;
 
@@ -668,7 +668,7 @@ impl Burnchain {
         debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
 
         // check each transaction, and filter out only the ones that are valid 
-        let block_ops = Burnchain::check_block_ops(tx, burnchain, block_header, blockstack_txs)
+        let block_ops = Burnchain::check_block_ops(&tx.as_conn(), burnchain, block_header, blockstack_txs)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when checking block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
                 e
@@ -692,7 +692,7 @@ impl Burnchain {
     pub fn get_burnchain_block_attachment_info<'a>(tx: &mut BurnDBTx<'a>, block: &BurnchainBlock) -> Result<(BurnchainBlockHeader, BlockSnapshot), burnchain_error> {
         debug!("Get header for block {} {}", block.block_height(), &block.block_hash());
 
-        let parent_snapshot = match BurnDB::get_block_snapshot(tx, &block.parent_block_hash()).expect("FATAL: DB failed to query snapshot") {
+        let parent_snapshot = match BurnDB::get_block_snapshot(tx, &block.parent_block_hash())? {
             Some(sn) => {
                 sn
             },
@@ -825,10 +825,13 @@ impl Burnchain {
         debug!("Sync headers from {}", sync_height);
 
         let end_block = indexer.sync_headers(sync_height, None)?;
-        let start_block = match sync_height {
+        let mut start_block = match sync_height {
             0 => 0,
             _ => sync_height,
         };
+        if db_height < start_block {
+            start_block = db_height;
+        }
         
         debug!("Sync'ed headers from {} to {}. DB at {}", start_block, end_block, db_height);
         if start_block == db_height && db_height == end_block {
@@ -1724,8 +1727,8 @@ pub mod tests {
             }
 
             let ch = {
-                let mut tx = db.tx_begin().unwrap();
-                BurnDB::get_consensus_at(&mut tx, (i as u64) + first_block_height, &parent_burn_block_hash).unwrap().unwrap_or(ConsensusHash::empty())
+                let ic = db.index_conn();
+                BurnDB::get_consensus_at(&ic, (i as u64) + first_block_height, &parent_burn_block_hash).unwrap().unwrap_or(ConsensusHash::empty())
             };
 
             let next_leader_key = LeaderKeyRegisterOp {
