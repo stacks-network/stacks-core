@@ -6,8 +6,8 @@ use std::thread;
 
 use stacks::burnchains::PublicKey;
 use stacks::chainstate::stacks::db::{StacksChainState};
-use stacks::chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksWorkScore, 
-                                 StacksPublicKey, StacksTransaction, StacksMicroblock, StacksBlockBuilder};
+use stacks::chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksPublicKey,
+                                 StacksTransaction, StacksMicroblock, StacksBlockBuilder};
 use stacks::chainstate::burn::VRFSeed;
 use stacks::core::mempool::MemPoolDB;
 use stacks::util::vrf::VRFProof;
@@ -81,7 +81,7 @@ impl <'a> Tenure {
             &self.config.get_chainstate_path(),
             self.config.block_limit.clone()).unwrap();
 
-        let anchored_block = StacksBlockBuilder::build_anchored_block(
+        let (anchored_block, _) = StacksBlockBuilder::build_anchored_block(
             &mut chain_state, &mut self.mem_pool, &self.parent_block.metadata,
             self.parent_block_total_burn, self.vrf_proof.clone(), self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx, self.config.block_limit.clone()).unwrap();
