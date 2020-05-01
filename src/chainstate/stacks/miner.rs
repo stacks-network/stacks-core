@@ -110,7 +110,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
         let mut considered = self.considered.take()
             .expect("Microblock already open and processing");
 
-        let result = mem_pool.iterate_canditates(
+        let result = mem_pool.iterate_candidates(
             &self.anchor_block_bhh, &self.anchor_block, self.anchor_block_height, &mut self.header_reader,
             |micro_txs| {
                 for mempool_tx in micro_txs.into_iter() {
@@ -606,7 +606,7 @@ impl StacksBlockBuilder {
         let mut mined_origin_nonces = HashMap::new();     // map addrs of mined transaction origins to the nonces we used
         let mut mined_sponsor_nonces = HashMap::new();    // map addrs of mined transaction sponsors to the nonces we used
 
-        let result = mempool.iterate_canditates(&tip_burn_header_hash, &tip_block_hash, tip_height, &mut header_reader_chainstate, |available_txs| {
+        let result = mempool.iterate_candidates(&tip_burn_header_hash, &tip_block_hash, tip_height, &mut header_reader_chainstate, |available_txs| {
             for txinfo in available_txs.into_iter() {
                 // skip transactions early if we can
                 if considered.contains(&txinfo.tx.txid()) {

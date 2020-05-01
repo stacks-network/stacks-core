@@ -354,7 +354,7 @@ impl MemPoolDB {
     /// Iterate over candidates in the mempool
     ///  todo may be called multiple times, as the mempool walks back from
     ///   the provided block.
-    pub fn iterate_canditates<F, E>(&self,
+    pub fn iterate_candidates<F, E>(&self,
                                     tip_burn_header_hash: &BurnchainHeaderHash,
                                     tip_block_hash: &BlockHeaderHash,
                                     tip_height: u64,
