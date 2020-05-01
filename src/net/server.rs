@@ -60,7 +60,7 @@ pub struct HttpPeer {
     pub sockets: HashMap<usize, mio_net::TcpStream>,
 
     // outbound connections that are pending connection 
-    pub connecting: HashMap<usize, (mio_net::TcpStream, Option<UrlString>, Option<HttpRequestType>)>,
+    pub connecting: HashMap<usize, (mio_net::TcpStream, Option<UrlString>, Option<HttpRequestType>, u64)>,
 
     // server network handle
     pub http_server_handle: usize,
@@ -127,7 +127,7 @@ impl HttpPeer {
         let next_event_id = network_state.next_event_id();
         network_state.register(self.http_server_handle, next_event_id, &sock)?;
 
-        self.connecting.insert(next_event_id, (sock, Some(data_url), request));
+        self.connecting.insert(next_event_id, (sock, Some(data_url), request, get_epoch_time_secs()));
         Ok(next_event_id)
     }
 
@@ -243,6 +243,13 @@ impl HttpPeer {
     fn disconnect_unresponsive(&mut self, network_state: &mut NetworkState) -> () {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
+        for (event_id, (socket, _, _, ts)) in self.connecting.iter() {
+            if ts + self.connection_opts.timeout < now {
+                debug!("Disconnect connecting HTTP peer {:?}", &socket);
+                to_remove.push(*event_id);
+            }
+        }
+        
         for (event_id, convo) in self.peers.iter() {
             let mut last_request_time = convo.get_last_request_time();
             if last_request_time == 0 {
@@ -317,7 +324,7 @@ impl HttpPeer {
     /// Process network traffic on a HTTP conversation.
     /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
     /// forwarded to the peer network.
-    fn process_http_conversation(chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+    fn process_http_conversation(chain_view: &BurnchainView, burndb: &BurnDB, peerdb: &mut PeerDB,
                                  chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
                                  event_id: usize, client_sock: &mut mio_net::TcpStream,
                                  convo: &mut ConversationHttp) -> Result<(bool, Vec<StacksMessageType>), net_error> {
@@ -397,7 +404,7 @@ impl HttpPeer {
     fn process_connecting_sockets(&mut self, network_state: &mut NetworkState, chainstate: &mut StacksChainState, poll_state: &mut NetworkPollState) -> () {
         for event_id in poll_state.ready.iter() {
             if self.connecting.contains_key(event_id) {
-                let (socket, data_url, initial_request_opt) = self.connecting.remove(event_id).unwrap();
+                let (socket, data_url, initial_request_opt, _) = self.connecting.remove(event_id).unwrap();
                 debug!("HTTP event {} connected ({:?})", event_id, &data_url);
 
                 if let Err(_e) = self.register_http(network_state, chainstate, *event_id, socket, data_url.clone(), initial_request_opt) {
@@ -411,7 +418,7 @@ impl HttpPeer {
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the list of
     /// peer network messages we'll need to forward
-    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &BurnDB, peerdb: &mut PeerDB,
                              chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -489,7 +496,7 @@ impl HttpPeer {
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the list of messages to forward along to the peer network.
-    pub fn run(&mut self, network_state: &mut NetworkState, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+    pub fn run(&mut self, network_state: &mut NetworkState, new_chain_view: BurnchainView, burndb: &BurnDB, peerdb: &mut PeerDB,
                chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, mut poll_state: NetworkPollState) -> Result<Vec<StacksMessageType>, net_error> {
 
         // update burnchain snapshot
