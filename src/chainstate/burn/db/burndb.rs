@@ -798,7 +798,8 @@ impl BurnDB {
             };
             match height_opt {
                 Some(height) => {
-                    if stacks_block_height > height && stacks_block_height > burn_tip.canonical_stacks_tip_height {
+                    if stacks_block_height > burn_tip.canonical_stacks_tip_height {
+                        assert!(stacks_block_height > height, "BUG: DB corruption -- block height {} <= {} means we accepted a block out-of-order", stacks_block_height, height);
                         // This block builds off of a parent that is _concurrent_ with the memoized canonical stacks chain pointer.
                         // i.e. this block will reorg the Stacks chain on the canonical burnchain fork.
                         // Memoize this new stacks chain tip to the canonical burn chain snapshot.
