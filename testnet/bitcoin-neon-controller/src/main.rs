@@ -36,21 +36,29 @@ async fn main() -> http_types::Result<()> {
 
     if is_bootstrap_chain_required(&config).await? {
         println!("Bootstrapping chain");
-        generate_blocks(200, &config).await;
+        // Generate 100 blocks for the neon miner
+        let miner_address = config.neon.miner_address.clone();
+        generate_blocks(100, miner_address, &config).await;
+        // Generate 100 blocks for the neon faucet
+        let faucet_address = config.neon.faucet_address.clone();
+        generate_blocks(100, faucet_address, &config).await;
     }
 
     // Start a loop in a separate thread, generating new blocks
     // on a given frequence (coming from config).
     let conf = config.clone();
     thread::spawn(move || {
+        let mut num_blocks = 201;
         let block_time = Duration::from_millis(conf.neon.block_time);
-    
+        let miner_address = conf.neon.miner_address.clone();
+
         loop {
-            println!("Generating block");
+            println!("Generating block {}", num_blocks);
             async_std::task::block_on(async {
-                generate_blocks(1, &conf).await;
+                generate_blocks(1, miner_address.clone(), &conf).await;
             });
             thread::sleep(block_time);
+            num_blocks += 1;
         }
     });
 
@@ -180,11 +188,10 @@ async fn is_bootstrap_chain_required(config: &ConfigFile) -> http_types::Result<
     panic!("Chain height could not be determined")
 }
 
-async fn generate_blocks(blocks_count: u64, config: &ConfigFile) {
+async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile) {
     let rpc_addr = config.neon.bitcoind_rpc_host.clone();
-    let miner_address = config.neon.miner_address.clone();
 
-    let rpc_req = RPCRequest::generate_next_block_req(blocks_count, miner_address.clone());
+    let rpc_req = RPCRequest::generate_next_block_req(blocks_count, address);
 
     let stream = TcpStream::connect(rpc_addr).await.unwrap();
     let body = serde_json::to_vec(&rpc_req).unwrap();
@@ -270,6 +277,8 @@ pub struct RegtestConfig {
     block_time: u64,
     /// Address receiving coinbases and mining fee
     miner_address: String,
+    /// Address receiving coinbases and mining fee
+    faucet_address: String,
     /// RPC address used by bitcoind
     bitcoind_rpc_host: String,
     /// Credential - username
