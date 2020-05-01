@@ -55,6 +55,7 @@ use util::db::{
     Error as db_error,
     FromColumn,
     FromRow,
+    tx_begin_immediate
 };
 
 const BLOCK_HEADER_SIZE: u64 = 81;
@@ -164,13 +165,13 @@ impl SpvClient {
             return Err(db_error::ReadOnly.into());
         }
 
-        let tx = self.headers_db.transaction().map_err(db_error::SqliteError)?;
+        let tx = tx_begin_immediate(&mut self.headers_db)?;
 
         Ok(tx)
     }
     
     fn db_instantiate(conn: &mut DBConn) -> Result<(), btc_error> {
-        let tx = conn.transaction().map_err(db_error::SqliteError)?;
+        let tx = tx_begin_immediate(conn)?;
 
         for row_text in SPV_SQL {
             tx.execute(row_text, NO_PARAMS).map_err(db_error::SqliteError)?;
