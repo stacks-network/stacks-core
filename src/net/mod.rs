@@ -1211,6 +1211,8 @@ impl Hash for NeighborKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // ignores peer version and network ID -- we don't accept or deal with messages that have
         // incompatible versions or network IDs in the first place
+        let peer_major_version = self.peer_version & 0xff000000;
+        peer_major_version.hash(state);
         self.addrbytes.hash(state);
         self.port.hash(state);
     }
@@ -1218,8 +1220,8 @@ impl Hash for NeighborKey {
 
 impl PartialEq for NeighborKey {
     fn eq(&self, other: &NeighborKey) -> bool {
-        // peer version doesn't count 
-        self.network_id == other.network_id && self.addrbytes == other.addrbytes && self.port == other.port
+        // only check major version byte in peer_version
+        self.network_id == other.network_id && (self.peer_version & 0xff000000) == (other.peer_version & 0xff000000) && self.addrbytes == other.addrbytes && self.port == other.port
     }
 }
 
@@ -1759,15 +1761,15 @@ pub mod test {
 
             {
                 let prev_snapshot = {
-                    let tx = burndb.tx_begin().unwrap();
-                    BurnDB::get_first_block_snapshot(&tx).unwrap()
+                    let ic = burndb.index_conn();
+                    BurnDB::get_first_block_snapshot(&ic).unwrap()
                 };
 
                 let mut fork = TestBurnchainFork::new(prev_snapshot.block_height, &prev_snapshot.burn_header_hash, &prev_snapshot.index_root, 0);
                 for i in prev_snapshot.block_height..config.current_block {
                     let burn_block = {
-                        let mut tx = burndb.tx_begin().unwrap();
-                        let mut burn_block = fork.next_block(&mut tx);
+                        let ic = burndb.index_conn();
+                        let mut burn_block = fork.next_block(&ic);
                         stacks_node.add_key_register(&mut burn_block, &mut miner);
                         burn_block
                     };
@@ -1791,8 +1793,8 @@ pub mod test {
            
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
-                let mut tx = burndb.tx_begin().unwrap();
-                BurnDB::get_burnchain_view(&mut tx, &config.burnchain).unwrap()
+                let ic = burndb.index_conn();
+                BurnDB::get_burnchain_view(&ic, &config.burnchain).unwrap()
             };
             let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.peer_version, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
 
@@ -1816,8 +1818,8 @@ pub mod test {
             let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
             let chain_view = match self.burndb {
                 Some(ref mut burndb) => {
-                    let mut tx = burndb.tx_begin().unwrap();
-                    BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain).unwrap()
+                    let ic = burndb.index_conn();
+                    BurnDB::get_burnchain_view(&ic, &self.config.burnchain).unwrap()
                 }
                 None => panic!("Misconfigured peer: no burndb")
             };
@@ -1909,7 +1911,7 @@ pub mod test {
             let mut burndb = self.burndb.take().unwrap();
             let block_height = {
                 let mut tx = burndb.tx_begin().unwrap();
-                let tip = BurnDB::get_canonical_burn_chain_tip(&tx).unwrap();
+                let tip = BurnDB::get_canonical_burn_chain_tip(&tx.as_conn()).unwrap();
                 let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345), blockstack_ops.len() as u64);
 
                 for op in blockstack_ops.iter_mut() {
@@ -1937,17 +1939,17 @@ pub mod test {
         }
 
         pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
-            let mut burndb = self.burndb.take().unwrap();
+            let burndb = self.burndb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
-                let mut tx = burndb.tx_begin().unwrap();
-                let tip = BurnDB::get_canonical_burn_chain_tip(&tx).unwrap();
-                let sn_opt = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &tip.burn_header_hash, &block.block_hash()).unwrap();
+                let ic = burndb.index_conn();
+                let tip = BurnDB::get_canonical_burn_chain_tip(&ic).unwrap();
+                let sn_opt = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap();
                 if sn_opt.is_none() {
                     return Err(format!("No such block in canonical burn fork: {}", &block.block_hash()));
                 }
                 let sn = sn_opt.unwrap();
-                node.chainstate.preprocess_anchored_block(&mut tx, &sn.burn_header_hash, sn.burn_header_timestamp, block, &sn.parent_burn_header_hash)
+                node.chainstate.preprocess_anchored_block(&ic, &sn.burn_header_hash, sn.burn_header_timestamp, block, &sn.parent_burn_header_hash)
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };
             self.burndb = Some(burndb);
@@ -1957,13 +1959,13 @@ pub mod test {
         
         pub fn preprocess_stacks_microblocks(&mut self, microblocks: &Vec<StacksMicroblock>) -> Result<bool, String> {
             assert!(microblocks.len() > 0);
-            let mut burndb = self.burndb.take().unwrap();
+            let burndb = self.burndb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
-                let mut tx = burndb.tx_begin().unwrap();
-                let tip = BurnDB::get_canonical_burn_chain_tip(&tx).unwrap();
+                let ic = burndb.index_conn();
+                let tip = BurnDB::get_canonical_burn_chain_tip(&ic).unwrap();
                 let anchor_block_hash = microblocks[0].header.prev_block.clone();
-                let sn_opt = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &tip.burn_header_hash, &anchor_block_hash).unwrap();
+                let sn_opt = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &anchor_block_hash).unwrap();
                 if sn_opt.is_none() {
                     return Err(format!("No such anchor block in canonical burn fork: {:?}", anchor_block_hash));
                 }
@@ -1989,9 +1991,9 @@ pub mod test {
             let mut burndb = self.burndb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
-                let mut tx = burndb.tx_begin().unwrap();
-                let tip = BurnDB::get_canonical_burn_chain_tip(&tx).unwrap();
-                node.chainstate.preprocess_stacks_epoch(&mut tx, &tip, block, microblocks).unwrap();
+                let ic = burndb.index_conn();
+                let tip = BurnDB::get_canonical_burn_chain_tip(&ic).unwrap();
+                node.chainstate.preprocess_stacks_epoch(&ic, &tip, block, microblocks).unwrap();
             }
     
             loop {
@@ -2142,10 +2144,10 @@ pub mod test {
         }
 
         pub fn get_burnchain_view(&mut self) -> Result<BurnchainView, db_error> {
-            let mut burndb = self.burndb.take().unwrap();
+            let burndb = self.burndb.take().unwrap();
             let view_res = {
-                let mut tx = burndb.tx_begin().unwrap();
-                BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain)
+                let ic = burndb.index_conn();
+                BurnDB::get_burnchain_view(&ic, &self.config.burnchain)
             };
             self.burndb = Some(burndb);
             view_res
