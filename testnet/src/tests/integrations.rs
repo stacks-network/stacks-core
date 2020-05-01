@@ -723,7 +723,7 @@ fn bad_contract_tx_rollback() {
     conf.burnchain.commit_anchor_block_within = 5000;
     conf.add_initial_balance(addr_3.to_string(), 100000);
 
-    let num_rounds = 3;
+    let num_rounds = 4;
 
     let mut run_loop = RunLoop::new(conf);
     run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
@@ -747,6 +747,7 @@ fn bad_contract_tx_rollback() {
             let (burn_header_hash, block_hash) = (&tenure.parent_block.metadata.burn_header_hash, &tenure.parent_block.metadata.anchored_header.block_hash());
             tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
             
+            // doesn't consistently get mined by the StacksBlockBuilder, because order matters!
             let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 0, &addr_2.into(), 3000);
             tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
             
@@ -795,8 +796,13 @@ fn bad_contract_tx_rollback() {
             },
             2 => {
                 assert_eq!(chain_tip.metadata.block_height, 3);
-                // Block #2 should have 4 txs -- coinbase + 2 transfers + 1 publish
-                assert_eq!(chain_tip.block.txs.len(), 4);
+                // Block #2 should have 4 txs -- coinbase + 1 transfer + 1 publish
+                assert_eq!(chain_tip.block.txs.len(), 3);
+            },
+            3 => {
+                assert_eq!(chain_tip.metadata.block_height, 4);
+                // Block #2 should have 4 txs -- coinbase + 1 transfer
+                assert_eq!(chain_tip.block.txs.len(), 2);
             },
             _ => {},
         }

@@ -10,3 +10,5 @@ testnet/index.html
 testnet.log
 testnet-logs*
 legacy
+build-scripts
+dist

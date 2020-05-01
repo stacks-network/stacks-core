@@ -6,18 +6,6 @@ executors:
     docker:
       - image: circleci/buildpack-deps:stretch
 jobs:
-  deploy:
-    working_directory: /build
-    docker:
-      - image: rust:1.40-stretch
-    steps:
-      - checkout
-      - run:
-          command: |
-            bash build-scripts/start-builds.sh
-      - store_artifacts:
-          path: /build/dist/
-          destination: dist/
   test_demo:
     working_directory: /test
     docker:
@@ -115,7 +103,6 @@ workflows:
     jobs:
       - unit_tests
       - test_demo
-      - deploy
       - build-docker:
           requires:
             - unit_tests
