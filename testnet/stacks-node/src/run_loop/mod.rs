@@ -70,6 +70,18 @@ impl RunLoopCallbacks {
             burnchain_tip.block_snapshot.burn_header_hash, 
             burnchain_tip.block_snapshot.sortition_hash);
 
+        #[cfg(feature = "prometheus_monitoring")]
+        let counter_opts = prometheus::Opts::new("test_counter", "test counter help");
+    
+        #[cfg(feature = "prometheus_monitoring")]
+        let counter = prometheus::Counter::with_opts(counter_opts).unwrap();
+        
+        // if cfg!(feature = "prometheus_monitoring") {
+
+        //     let counter_opts = prometheus::Opts::new("test_counter", "test counter help");
+        //     let counter = prometheus::Counter::with_opts(counter_opts).unwrap();
+        // }
+
         if let Some(cb) = self.on_new_burn_chain_state {
             cb(round, burnchain_tip, chain_tip);
         }
@@ -80,6 +92,11 @@ impl RunLoopCallbacks {
             chain_tip.metadata.block_height, 
             chain_tip.metadata.index_block_hash(), 
             chain_tip.block.txs.len());
+
+        if cfg!(feature = "prometheus_monitoring") {
+        
+        }
+
         for tx in chain_tip.block.txs.iter() {
             match &tx.auth {            
                 TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(auth)) => println!("-> Tx issued by {:?} (fee: {}, nonce: {})", auth.signer, auth.fee_rate, auth.nonce),
@@ -99,6 +116,10 @@ impl RunLoopCallbacks {
     }
 
     pub fn invoke_new_tenure(&self, round: u64, burnchain_tip: &BurnchainTip, chain_tip: &ChainTip, tenure: &mut Tenure) {
+        if cfg!(feature = "prometheus_monitoring") {
+        
+        }
+
         if let Some(cb) = self.on_new_tenure {
             cb(round, burnchain_tip, chain_tip, tenure);
         }

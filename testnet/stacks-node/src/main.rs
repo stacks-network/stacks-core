@@ -2,6 +2,9 @@ extern crate rand;
 extern crate mio;
 extern crate serde;
 
+#[cfg(feature = "prometheus_monitoring")]
+extern crate prometheus;
+
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -18,6 +21,9 @@ pub mod event_dispatcher;
 pub mod operations;
 pub mod burnchains;
 pub mod neon_node;
+
+#[cfg(feature = "prometheus_monitoring")]
+pub mod metrics;
 
 pub use self::keychain::{Keychain};
 pub use self::node::{Node, ChainTip};

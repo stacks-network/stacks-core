@@ -88,4 +88,7 @@ default = ["developer-mode"]
 sha2-asm = "0.5.3"
 
 [workspace]
-members = [".", "testnet/"]
+members = [
+    ".", 
+    "testnet/stacks-node",
+    "testnet/bitcoin-neon-controller"]
