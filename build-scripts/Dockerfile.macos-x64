@@ -1,0 +1,26 @@
+FROM rust:stretch as build
+
+WORKDIR /src
+
+COPY . .
+
+RUN rustup target add x86_64-apple-darwin
+
+RUN apt-get update && apt-get install -y clang
+
+RUN wget -nc "https://github.com/blockstackpbc/osxcross/releases/download/v1/osxcross-e0a1718_xcode-v10.2.1.tar.xz" && \
+    tar --checkpoint=25000 -xf "osxcross-e0a1718_xcode-v10.2.1.tar.xz" -C /tmp && \
+    PATH="/tmp/osxcross/bin:$PATH" \
+    LD_LIBRARY_PATH="/tmp/osxcross/lib:$LD_LIBRARY_PATH" \
+    CC=o64-clang \
+    CXX=o64-clang++ \
+    LIBZ_SYS_STATIC=1 \
+    CC_x86_64_apple_darwin=x86_64-apple-darwin18-clang \
+    CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER=x86_64-apple-darwin18-clang \
+    CARGO_TARGET_X86_64_APPLE_DARWIN_AR=x86_64-apple-darwin18-ar \
+    cargo build --target x86_64-apple-darwin --release --workspace=./
+
+RUN mkdir /out && cp -R /src/target/x86_64-apple-darwin/release/. /out
+
+FROM scratch AS export-stage
+COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /

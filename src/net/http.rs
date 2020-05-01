@@ -111,6 +111,7 @@ lazy_static! {
         "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
+    static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -930,6 +931,9 @@ impl HttpResponsePreamble {
         fd.write_all(format!("{} {}\r\n", status_code, reason).as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all("Server: stacks/2.0\r\nDate: ".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all(rfc7231_now().as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\nAccess-Control-Allow-Origin: *".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\nAccess-Control-Allow-Headers: origin, content-type".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all("\r\nContent-Type: ".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all(content_type.as_str().as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
@@ -1168,6 +1172,7 @@ impl HttpRequestType {
             ("GET", &PATH_GET_CONTRACT_SRC, &HttpRequestType::parse_get_contract_source),
             ("GET", &PATH_GET_CONTRACT_ABI, &HttpRequestType::parse_get_contract_abi),
             ("POST", &PATH_POST_CALL_READ_ONLY, &HttpRequestType::parse_call_read_only),
+            ("OPTIONS", &PATH_OPTIONS_WILDCARD, &HttpRequestType::parse_options_preflight),
         ];
 
         // use url::Url to parse path and query string
@@ -1421,6 +1426,10 @@ impl HttpRequestType {
         Ok(HttpRequestType::PostTransaction(HttpRequestMetadata::from_preamble(preamble), tx))
     }
 
+    fn parse_options_preflight<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        Ok(HttpRequestType::OptionsPreflight(HttpRequestMetadata::from_preamble(preamble), preamble.path.to_string()))
+    }
+
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
@@ -1436,6 +1445,7 @@ impl HttpRequestType {
             HttpRequestType::GetContractABI(ref md, ..) => md,
             HttpRequestType::GetContractSrc(ref md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
+            HttpRequestType::OptionsPreflight(ref md, ..) => md,
         }
     }
     
@@ -1454,6 +1464,7 @@ impl HttpRequestType {
             HttpRequestType::GetContractABI(ref mut md, ..) => md,
             HttpRequestType::GetContractSrc(ref mut md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
+            HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
         }
     }
 
@@ -1478,7 +1489,8 @@ impl HttpRequestType {
                 format!("/v2/contracts/source/{}/{}", contract_addr, contract_name.as_str()),
             HttpRequestType::CallReadOnlyFunction(_, contract_addr, contract_name, _, func_name, ..) => {
                 format!("/v2/contracts/call-read/{}/{}/{}", contract_addr, contract_name.as_str(), func_name.as_str())
-            }
+            },
+            HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
         }
     }
 
@@ -1736,17 +1748,14 @@ impl HttpResponseType {
     }
 
     fn parse_txid<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
-        let txid_buf = HttpResponseType::parse_text(preamble, fd, len_hint, 64)?;
-        if txid_buf.len() != 64 {
+        let txid_hex: String = HttpResponseType::parse_json(preamble, fd, len_hint, 66)?;
+        if txid_hex.len() != 64 {
             return Err(net_error::DeserializeError("Invalid txid: expected 64 bytes".to_string()));
         }
 
-        let mut bytes = [0u8; 64];
-        bytes.copy_from_slice(&txid_buf);
-
-        let hex_str = str::from_utf8(&bytes).map_err(|_e| net_error::DeserializeError("Failed to decode a txid".to_string()))?;
-        let txid_bytes = hex_bytes(hex_str).map_err(|_e| net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
-        Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(request_version, preamble), Txid::from_bytes(&txid_bytes).unwrap()))
+        let txid = Txid::from_hex(&txid_hex)
+            .map_err(|_e|net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
+        Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(request_version, preamble), txid))
     }
 
     fn error_reason(code: u16) -> &'static str {
@@ -1784,6 +1793,7 @@ impl HttpResponseType {
             HttpResponseType::GetContractABI(ref md, _) => md,
             HttpResponseType::GetContractSrc(ref md, _) => md,
             HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
+            HttpResponseType::OptionsPreflight(ref md) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -1895,9 +1905,13 @@ impl HttpResponseType {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
             },
             HttpResponseType::TransactionID(ref md, ref txid) => {
-                let txid_bytes = txid.to_hex().into_bytes();
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
-                HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
+                let txid_bytes = txid.to_hex();
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_json(protocol, md, fd, &txid_bytes)?;
+            },
+            HttpResponseType::OptionsPreflight(ref md) => {
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_text(protocol, md, fd, "".as_bytes())?;
             },
             HttpResponseType::BadRequestJSON(ref md, ref data) => {
                 HttpResponsePreamble::new_serialized(fd, 400, HttpResponseType::error_reason(400), md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
@@ -1978,6 +1992,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
+                HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -1993,6 +2008,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::Microblocks(_, _) => "HTTP(Microblocks)",
                 HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",
+                HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => "HTTP(400)",
                 HttpResponseType::Unauthorized(_, _) => "HTTP(401)",
                 HttpResponseType::PaymentRequired(_, _) => "HTTP(402)",
@@ -2726,6 +2742,14 @@ mod test {
             assert_eq!(sreq.unwrap(), StacksHttpPreamble::Request((*request).clone()));
         }
     }
+
+    #[test]
+    fn test_parse_http_request_options() {
+        let data = "OPTIONS /foo HTTP/1.1\r\nHost: localhost:6270\r\n\r\n";
+        let req = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
+        let preamble = HttpRequestPreamble::from_headers(HttpVersion::Http11, "OPTIONS".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![]);
+        assert_eq!(req.unwrap(), preamble);
+    }
     
     #[test]
     fn test_parse_http_request_preamble_case_ok() {
@@ -2934,6 +2958,8 @@ mod test {
         assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
         assert!(txt.find("X-Request-Id: 456\r\n").is_some(), "X-Request-Id is missing");
         assert!(txt.find("Access-Control-Allow-Origin: *\r\n").is_some(), "CORS header is missing");
+        assert!(txt.find("Access-Control-Allow-Headers: origin, content-type\r\n").is_some(), "CORS header is missing");
+        assert!(txt.find("Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n").is_some(), "CORS header is missing");
         assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true
     }
 
@@ -3093,7 +3119,8 @@ mod test {
             HttpRequestType::GetNeighbors(http_request_metadata_ip.clone()),
             HttpRequestType::GetBlock(http_request_metadata_dns.clone(), BlockHeaderHash([2u8; 32])),
             HttpRequestType::GetMicroblocksIndexed(http_request_metadata_ip.clone(), BlockHeaderHash([3u8; 32])),
-            HttpRequestType::PostTransaction(http_request_metadata_dns.clone(), make_test_transaction())
+            HttpRequestType::PostTransaction(http_request_metadata_dns.clone(), make_test_transaction()),
+            HttpRequestType::OptionsPreflight(http_request_metadata_ip.clone(), "/".to_string()),
         ];
 
         let mut tx_body = vec![];
@@ -3109,6 +3136,7 @@ mod test {
             HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port(), http_request_metadata_dns.keep_alive),
             HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
             post_transaction_preamble,
+            HttpRequestPreamble::new(HttpVersion::Http11, "OPTIONS".to_string(), format!("/"), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
         ];
 
         let expected_http_bodies = vec![
@@ -3204,7 +3232,7 @@ mod test {
             (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), true), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
             (HttpResponseType::Block(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_block_info_bytes.len() as u32), true), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
             (HttpResponseType::Microblocks(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_microblock_info_bytes.len() as u32), true), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
-            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(Txid([0x1; 32]).to_hex().len() as u32), true), Txid([0x1; 32])), "/v2/transactions".to_string()),
+            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some((Txid([0x1; 32]).to_hex().len() + 2) as u32), true), Txid([0x1; 32])), "/v2/transactions".to_string()),
             
             // length is unknown
             (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
@@ -3238,13 +3266,13 @@ mod test {
             HttpResponsePreamble::new(200, "OK".to_string(), Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), HttpContentType::JSON, true, 123),
             HttpResponsePreamble::new(200, "OK".to_string(), Some(test_block_info_bytes.len() as u32), HttpContentType::Bytes, true, 123),
             HttpResponsePreamble::new(200, "OK".to_string(), Some(test_microblock_info_bytes.len() as u32), HttpContentType::Bytes, true, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(Txid([0x1; 32]).to_hex().len() as u32), HttpContentType::Text, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some((Txid([0x1; 32]).to_hex().len() + 2) as u32), HttpContentType::JSON, true, 123),
             
             // length is unknown
             HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::JSON, true, 123),
             HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, true, 123),
             HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, true, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Text, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::JSON, true, 123),
 
             // errors
             HttpResponsePreamble::new_error(400, 123, None),
@@ -3304,7 +3332,7 @@ mod test {
             "foo".as_bytes().to_vec(),
         ];
 
-        for ((test, request_path), (expected_http_preamble, expected_http_body)) in tests.iter().zip(expected_http_preambles.iter().zip(expected_http_bodies.iter())) {
+        for ((test, request_path), (expected_http_preamble, _expected_http_body)) in tests.iter().zip(expected_http_preambles.iter().zip(expected_http_bodies.iter())) {
             let mut http = StacksHttp::new();
             let mut bytes = vec![];
             test_debug!("write body:\n{:?}\n", test);
@@ -3326,7 +3354,7 @@ mod test {
 
             test_debug!("read http body\n{:?}\n", &bytes[offset..].to_vec());
 
-            let (message, total_len) = 
+            let (message, _total_len) = 
                 if expected_http_preamble.is_chunked() {
                     let (msg_opt, len) = http.stream_payload(&preamble, &mut &bytes[offset..]).unwrap();
                     (msg_opt.unwrap().0, len)
@@ -3340,7 +3368,10 @@ mod test {
             // check everything in the parsed preamble except for the extra headers
             match preamble {
                 StacksHttpPreamble::Response(ref mut req) => {
-                    assert_eq!(req.headers.len(), 2);
+                    assert_eq!(req.headers.len(), 5);
+                    assert!(req.headers.get("access-control-allow-headers").is_some());
+                    assert!(req.headers.get("access-control-allow-methods").is_some());
+                    assert!(req.headers.get("access-control-allow-origin").is_some());
                     assert!(req.headers.get("server").is_some());
                     assert!(req.headers.get("date").is_some());
                     req.headers.clear();
@@ -3367,7 +3398,7 @@ mod test {
         ];
         let bad_request_payloads = vec![
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\nab",
-            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: text/plain\r\nContent-length: 2\r\n\r\nab",
+            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 4\r\n\r\n\"ab\"",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\n{",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\na",
             "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\n{}",

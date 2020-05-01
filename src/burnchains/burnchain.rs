@@ -912,7 +912,7 @@ impl Burnchain {
         let input_headers = indexer.read_headers(start_block + 1, end_block + 1)?;
         let mut downloader_result : Result<(), burnchain_error> = Ok(());
         for i in 0..input_headers.len() {
-            info!("Downloading burnchain block {} out of {}...", start_block + 1 + (i as u64), end_block);
+            debug!("Downloading burnchain block {} out of {}...", start_block + 1 + (i as u64), end_block);
             if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
                 info!("Failed to feed burnchain block header {}: {:?}", start_block + 1 + (i as u64), &e);
                 downloader_result = Err(burnchain_error::TrySyncAgain);
