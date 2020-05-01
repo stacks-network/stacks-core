@@ -90,9 +90,11 @@ pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF {
     storage: TrieFileStorage,
-    open_chain_tip: Option<WriteChainTip>
+    open_chain_tip: Option<WriteChainTip>,
+    readonly: bool
 }
 
+#[derive(Clone)]
 struct WriteChainTip {
     block_hash: BlockHeaderHash,
     height: u32
@@ -105,7 +107,8 @@ impl MARF {
         MARF {
             storage,
             open_chain_tip: Some(WriteChainTip { block_hash: opened_to.clone(),
-                                                 height: 0 })
+                                                 height: 0 }),
+            readonly: false,
         }
     }
 
@@ -206,6 +209,10 @@ impl MARF {
     /// has back pointers to its immediate children in the current trie.
     /// On Ok, s will point to new_bhh and will be open for reading
     pub fn extend_trie(storage: &mut TrieFileStorage, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
+        if storage.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
         let (cur_bhh, cur_block_id) = storage.get_cur_block_and_id();
         if storage.num_blocks() == 0 || cur_bhh == TrieFileStorage::block_sentinel() {
             // brand new storage
@@ -402,6 +409,10 @@ impl MARF {
     }
 
     pub fn format(storage: &mut TrieFileStorage, first_block_hash: &BlockHeaderHash) -> Result<(), Error> {
+        if storage.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
         storage.format()?;
         storage.extend_to_block(first_block_hash)?;
         let node = TrieNode256::new(&vec![]);
@@ -467,11 +478,17 @@ impl MARF {
     }
 
     pub fn insert_leaf(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
+        if storage.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         MARF::do_insert_leaf(storage, block_hash, path, value, true)
     }
     
     // like insert_leaf, but don't update the merkle skiplist
     pub fn insert_leaf_in_batch(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
+        if storage.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         MARF::do_insert_leaf(storage, block_hash, path, value, false)
     }
 
@@ -480,6 +497,7 @@ impl MARF {
         MARF {
             storage: storage,
             open_chain_tip: None,
+            readonly: false,
         }
     }
 
@@ -600,6 +618,9 @@ impl MARF {
     }
 
     pub fn set_block_heights(&mut self, block_hash: &BlockHeaderHash, next_block_hash: &BlockHeaderHash, height: u32) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         let mut keys = vec![];
         let mut values = vec![];
 
@@ -638,6 +659,9 @@ impl MARF {
     }
 
     pub fn insert(&mut self, key: &str, value: MARFValue) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         let marf_leaf = TrieLeaf::from_value(&vec![], value);
         let path = TriePath::from_key(key);
         self.insert_raw(path, marf_leaf)
@@ -647,6 +671,9 @@ impl MARF {
     /// overwrites the existing key.  Succeeds if there are no storage errors.
     /// Must be called after a call to .begin() (will fail otherwise)
     pub fn insert_raw(&mut self, path: TriePath, marf_leaf: TrieLeaf) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         match self.open_chain_tip {
             None => {
                 Err(Error::WriteNotBegunError)
@@ -667,6 +694,9 @@ impl MARF {
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
     pub fn insert_batch(&mut self, keys: &Vec<String>, values: Vec<MARFValue>) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         assert_eq!(keys.len(), values.len());
 
         let block_hash = match self.open_chain_tip {
@@ -712,6 +742,9 @@ impl MARF {
     /// Fails if the block already exists.
     /// Storage will point to new chain tip on success.
     pub fn begin(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         if self.open_chain_tip.is_some() {
             return Err(Error::InProgressError);
         }
@@ -758,12 +791,17 @@ impl MARF {
     /// Drop the current trie from the MARF. This rolls back all
     ///   changes in the block, and closes the current chain tip.
     pub fn drop_current(&mut self) {
-        self.storage.drop_extending_trie();
-        self.open_chain_tip = None;
+        if !self.readonly {
+            self.storage.drop_extending_trie();
+            self.open_chain_tip = None;
+        }
     }
 
     /// Finish writing the next trie in the MARF.  This persists all changes.
     pub fn commit(&mut self) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         match self.open_chain_tip.take() {
             Some(_tip) => {
                 self.storage.flush()?;
@@ -778,6 +816,9 @@ impl MARF {
     ///   rather than out to the marf_data table (this prevents the
     ///   miner's block from getting stepped on after the sortition).
     pub fn commit_mined(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         match self.open_chain_tip.take() {
             Some(_tip) => {
                 self.storage.flush_mined(bhh)?;
@@ -790,6 +831,9 @@ impl MARF {
     /// Finish writing the next trie in the MARF, but change the hash of the current Trie's 
     /// block hash to something other than what we opened it as.  This persists all changes.
     pub fn commit_to(&mut self, real_bhh: &BlockHeaderHash) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         match self.open_chain_tip.take() {
             Some(_tip) => {
                 self.storage.flush_to(real_bhh)?;
@@ -854,6 +898,26 @@ impl MARF {
     /// Access internal storage
     pub fn borrow_storage_backend(&mut self) -> &mut TrieFileStorage {
         &mut self.storage
+    }
+
+    /// Reopen storage read-only
+    pub fn reopen_storage_readonly(&self) -> Result<TrieFileStorage, Error> {
+        self.storage.reopen_readonly()
+    }
+
+    /// Reopen this MARF with readonly storage.
+    pub fn reopen_readonly(&self) -> Result<MARF, Error> {
+        if self.open_chain_tip.is_some() {
+            error!("MARF at {} is already in the process of writing", &self.storage.dir_path);
+            return Err(Error::InProgressError);
+        }
+
+        let ro_storage = self.storage.reopen_readonly()?;
+        Ok(MARF {
+            storage: ro_storage,
+            open_chain_tip: None,
+            readonly: true,
+        })
     }
 
     /// Get the current root trie hash
