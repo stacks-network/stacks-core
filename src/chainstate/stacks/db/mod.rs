@@ -68,6 +68,7 @@ use util::db::{
     FromRow,
     FromColumn,
     db_mkdirs,
+    tx_begin_immediate
 };
 
 use util::hash::to_hex;
@@ -492,7 +493,7 @@ pub const MINER_FEE_WINDOW : u64 = 24;                      // number of blocks 
 
 impl StacksChainState {
     fn instantiate_headers_db(conn: &mut DBConn, mainnet: bool, chain_id: u32, marf_path: &str) -> Result<(), Error> {
-        let tx = conn.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let tx = tx_begin_immediate(conn)?;
         
         for cmd in STACKS_CHAIN_STATE_SQL {
             tx.execute(cmd, NO_PARAMS).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -826,13 +827,13 @@ impl StacksChainState {
     
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     pub fn headers_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        let tx = self.headers_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let tx = tx_begin_immediate(&mut self.headers_db)?;
         Ok(StacksDBTx::new(tx, &mut self.headers_state_index, ()))
     }
     
     /// Begin a transaction against our staging block index DB.
     pub fn blocks_tx_begin<'a>(&'a mut self) -> Result<BlocksDBTx<'a>, Error> {
-        let tx = self.blocks_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let tx = tx_begin_immediate(&mut self.blocks_db)?;
         Ok(BlocksDBTx::new(tx, self.blocks_path.clone()))
     }
 
@@ -840,8 +841,8 @@ impl StacksChainState {
     /// Used when considering a new block to append the chain state.
     pub fn chainstate_tx_begin<'a>(&'a mut self) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
         let config = self.config();
-        let headers_inner_tx = self.headers_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        let blocks_inner_tx = self.blocks_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let headers_inner_tx = tx_begin_immediate(&mut self.headers_db)?;
+        let blocks_inner_tx = tx_begin_immediate(&mut self.blocks_db)?;
 
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
