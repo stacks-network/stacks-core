@@ -62,6 +62,15 @@ impl MocknetController {
 }
 
 impl BurnchainController for MocknetController {
+    
+    fn burndb_ref(&mut self) -> &BurnDB {
+        match self.db {
+            Some(ref burndb) => burndb,
+            None => {
+                unreachable!();
+            }
+        }
+    }
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
         match self.db {

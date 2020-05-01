@@ -504,6 +504,28 @@ impl BitcoinRegtestController {
 }
 
 impl BurnchainController for BitcoinRegtestController {
+    
+    fn burndb_ref(&mut self) -> &BurnDB {
+        let network = "regtest".to_string();
+        let working_dir = self.config.get_burn_db_path();
+        let burnchain = match Burnchain::new(&working_dir,  &self.config.burnchain.chain, &network) {
+            Ok(burnchain) => burnchain,
+            Err(e) => {
+                error!("Failed to instantiate burnchain: {}", e);
+                panic!()    
+            }
+        };
+
+        let db = burnchain.open_db(false).unwrap();
+        self.db = Some(db);
+
+        match self.db {
+            Some(ref burndb) => burndb,
+            None => {
+                unreachable!()
+            }
+        }
+    }
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
         let network = "regtest".to_string();
