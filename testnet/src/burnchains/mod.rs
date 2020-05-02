@@ -17,7 +17,7 @@ pub trait BurnchainController {
     fn start(&mut self) -> BurnchainTip;
     fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) -> bool;
     fn sync(&mut self) -> BurnchainTip;
-    fn burndb_ref(&mut self) -> &BurnDB;
+    fn burndb_ref(&self) -> &BurnDB;
     fn burndb_mut(&mut self) -> &mut BurnDB;
     fn get_chain_tip(&mut self) -> BurnchainTip;
 

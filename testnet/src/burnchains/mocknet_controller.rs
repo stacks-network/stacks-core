@@ -63,13 +63,8 @@ impl MocknetController {
 
 impl BurnchainController for MocknetController {
     
-    fn burndb_ref(&mut self) -> &BurnDB {
-        match self.db {
-            Some(ref burndb) => burndb,
-            None => {
-                unreachable!();
-            }
-        }
+    fn burndb_ref(&self) -> &BurnDB {
+        self.db.as_ref().expect("BUG: did not instantiate burn DB")
     }
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
