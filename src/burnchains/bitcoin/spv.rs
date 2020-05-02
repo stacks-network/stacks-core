@@ -696,14 +696,7 @@ impl BitcoinMessageHandler for SpvClient {
                 indexer.runtime.last_getheaders_send_time = 0;
 
                 debug!("Request headers for blocks {} - {} in range {} - {}", block_height, block_height + 2000, self.start_block_height, end_block_height);
-                match self.send_next_getheaders(indexer, block_height) {
-                    Ok(_) => {
-                        Ok(true)
-                    }
-                    Err(e) => {
-                        panic!(format!("Could not read block header at {} that we just stored: {:?}", block_height, &e));
-                    }
-                }
+                self.send_next_getheaders(indexer, block_height).and_then(|_| Ok(true))
             }
             x => {
                 Err(btc_error::UnhandledMessage(x))
