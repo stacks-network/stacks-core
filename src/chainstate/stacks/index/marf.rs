@@ -2174,5 +2174,31 @@ mod test {
                 merkle_test_marf(marf.borrow_storage_backend(), &read_from_block, &path.to_vec(), &value.data.to_vec(), root_table_cache));
         }
     }
+
+    #[test]
+    fn test_marf_read_only() {
+        let f = TrieFileStorage::new_memory().unwrap();
+        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let marf = MARF::from_storage(f);
+        let mut ro_marf = marf.reopen_readonly().unwrap();
+            
+        let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
+        let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
+        let leaf = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].to_vec());
+        let value = MARFValue::from(0x1234);
+
+        if let Err(Error::ReadOnlyError) = MARF::extend_trie(ro_marf.borrow_storage_backend(), &BlockHeaderHash([0x11; 32])) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = MARF::format(ro_marf.borrow_storage_backend(), &BlockHeaderHash([0x01; 32])) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = MARF::insert_leaf(ro_marf.borrow_storage_backend(), &BlockHeaderHash([0x11; 32]), &triepath, &leaf) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = MARF::insert_leaf_in_batch(ro_marf.borrow_storage_backend(), &BlockHeaderHash([0x11; 32]), &triepath, &leaf) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = ro_marf.set_block_heights(&BlockHeaderHash([0x11; 32]), &BlockHeaderHash([0x22; 32]), 123) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = ro_marf.insert("foo", value.clone()) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = ro_marf.insert_raw(triepath.clone(), leaf.clone()) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = ro_marf.insert_batch(&vec!["foo".to_string()], vec![value.clone()]) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = ro_marf.commit() {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = ro_marf.commit_mined(&BlockHeaderHash([0x22; 32])) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = ro_marf.commit_to(&BlockHeaderHash([0x33; 32])) {} else { assert!(false); }
+        if let Err(Error::ReadOnlyError) = ro_marf.begin(&BlockHeaderHash([0x22; 32]), &BlockHeaderHash([0x33; 32])) {} else { assert!(false); }
+    }
 }
 
