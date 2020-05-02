@@ -480,13 +480,17 @@ pub fn get_ancestor_block_height(index: &MARF, ancestor_block_hash: &BlockHeader
 /// Load some index data
 fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>, Error> {
     let mut stmt = conn.prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2").map_err(Error::SqliteError)?;
-    let mut rows = stmt.query(&[&to_hex(&marf_value.to_vec())]).map_err(Error::SqliteError)?;
-    let mut all_values = vec![];
+    let mut rows = stmt.query(&[&marf_value.to_hex() as &dyn ToSql]).map_err(Error::SqliteError)?;
+    let mut value = None;
     while let Some(row_res) = rows.next() {
         match row_res {
             Ok(row) => {
                 let value_str : String = row.get(0);
-                all_values.push(value_str);
+                if value.is_some() {
+                    // should be impossible
+                    panic!("FATAL: two or more values for {}", &to_hex(&marf_value.to_vec()));
+                }
+                value = Some(value_str);
             },
             Err(e) => {
                 panic!("FATAL: Failed to read row from Sqlite ({})", e);
@@ -494,18 +498,7 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
         };
     }
 
-    match all_values.len() {
-        0 => {
-            return Ok(None);
-        }
-        1 => {
-            return Ok(Some(all_values[0].clone()));
-        }
-        _ => {
-            // should be impossible
-            panic!("FATAL: two or more values for {}", &to_hex(&marf_value.to_vec()));
-        }
-    }
+    Ok(value)
 }
 
 /// Get a value from the fork index
