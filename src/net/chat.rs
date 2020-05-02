@@ -858,7 +858,7 @@ impl ConversationP2P {
                     get_blocks_inv.num_blocks as u64
                 };
 
-            match BurnDB::get_stacks_header_hashes(&burndb.index_conn(), num_headers, &get_blocks_inv.consensus_hash) {
+            match BurnDB::get_stacks_header_hashes(&burndb.index_conn(), num_headers, &get_blocks_inv.consensus_hash, Some(chainstate.get_block_header_cache())) {
                 Ok(blocks_hashes) => Ok(blocks_hashes),
                 Err(e) => match e {
                     db_error::NotFoundError => {
@@ -872,7 +872,11 @@ impl ConversationP2P {
             }
         }?;
 
-        let blocks_inv_data : BlocksInvData = chainstate.get_blocks_inventory(&block_hashes).map_err(|e| net_error::from(e))?;
+        // update cache
+        BurnDB::merge_block_header_cache(chainstate.borrow_block_header_cache(), &block_hashes);
+
+        let inv_query : Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)> = block_hashes.into_iter().map(|(bhh, _, hh_opt)| (bhh, hh_opt)).collect();
+        let blocks_inv_data : BlocksInvData = chainstate.get_blocks_inventory(&inv_query).map_err(|e| net_error::from(e))?;
 
         debug!("{:?}: Handle GetBlocksInv from {:?}. Reply {:?} to request {:?}", &local_peer, &self, &blocks_inv_data, get_blocks_inv);
 
@@ -2069,7 +2073,6 @@ mod test {
             // confirm that sequence numbers are increasing
             assert_eq!(reply_handshake_1.preamble.seq, 2*i);
             assert_eq!(reply_ping_1.preamble.seq, 2*i + 1);
-            assert_eq!(convo_1.seq, 2*i + 2);
 
             // convo_2 got updated with convo_1's peer info, but no heartbeat info 
             assert_eq!(convo_2.peer_heartbeat, 0);
