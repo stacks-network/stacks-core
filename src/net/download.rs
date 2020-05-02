@@ -97,7 +97,7 @@ use core::EMPTY_MICROBLOCK_PARENT_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use core::FIRST_BURNCHAIN_BLOCK_HASH;
 
-#[cfg(not(test))] pub const BLOCK_DOWNLOAD_INTERVAL : u64 = 120;
+#[cfg(not(test))] pub const BLOCK_DOWNLOAD_INTERVAL : u64 = 180;
 #[cfg(test)] pub const BLOCK_DOWNLOAD_INTERVAL : u64 = 30;
 
 /// This module is responsible for downloading blocks and microblocks from other peers, using block
@@ -500,7 +500,7 @@ impl BlockDownloader {
     /// Get the availability of each block in the given sortition range, using the inv state.
     /// Return the local block headers, paired with the list of peers that can serve them.
     /// Possibly less than the given range request.
-    pub fn get_block_availability(inv_state: &InvState, burndb: &BurnDB, sortition_height_start: u64, mut sortition_height_end: u64) -> Result<Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>, Vec<NeighborKey>)>, net_error> {
+    pub fn get_block_availability(inv_state: &InvState, burndb: &BurnDB, chainstate: &mut StacksChainState, sortition_height_start: u64, mut sortition_height_end: u64) -> Result<Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>, Vec<NeighborKey>)>, net_error> {
         // what blocks do we have in this range?
         let mut local_blocks = {
             let first_block_height = burndb.first_block_height;
@@ -526,18 +526,20 @@ impl BlockDownloader {
             let last_ancestor = BurnDB::get_block_snapshot_in_fork(&ic, first_block_height + sortition_height_end, &tip.burn_header_hash).map_err(net_error::DBError)?.ok_or(net_error::DBError(db_error::NotFoundError))?;
             
             debug!("Load {} headers off of {} ({})", sortition_height_end - sortition_height_start, last_ancestor.block_height, &last_ancestor.consensus_hash);
-            let local_blocks = BurnDB::get_stacks_header_hashes(&ic, sortition_height_end - sortition_height_start, &last_ancestor.consensus_hash).map_err(net_error::DBError)?;
+            let local_blocks = BurnDB::get_stacks_header_hashes(&ic, sortition_height_end - sortition_height_start, &last_ancestor.consensus_hash, Some(chainstate.get_block_header_cache())).map_err(net_error::DBError)?;
 
-            for (_i, (_burn_header, _block_hash_opt)) in local_blocks.iter().enumerate() {
+            for (_i, (_burn_header, _, _block_hash_opt)) in local_blocks.iter().enumerate() {
                 test_debug!("  Loaded {} ({}): {:?}/{:?}", (_i as u64) + sortition_height_start, (_i as u64) + sortition_height_start + first_block_height, _burn_header, _block_hash_opt);
             }
             debug!("End headers load");
 
+            // update cache 
+            BurnDB::merge_block_header_cache(chainstate.borrow_block_header_cache(), &local_blocks);
             local_blocks
         };
 
         let mut ret = vec![];
-        for (i, (burn_header_hash, block_hash_opt)) in local_blocks.drain(..).enumerate() {
+        for (i, (burn_header_hash, _consensus_hash, block_hash_opt)) in local_blocks.drain(..).enumerate() {
             let sortition_height = sortition_height_start + (i as u64);
             match block_hash_opt {
                 Some(block_hash) => {
@@ -632,8 +634,15 @@ impl BlockDownloader {
 
     /// Set a hint that we should re-scan for blocks
     pub fn hint_download_rescan(&mut self) -> () {
-        self.empty_block_download_passes = 0;
-        self.empty_microblock_download_passes = 0;
+        if self.empty_block_download_passes > 0 {
+            self.empty_block_download_passes = 0;
+            self.next_block_sortition_height = 0;
+        }
+
+        if self.empty_microblock_download_passes > 0 {
+            self.empty_microblock_download_passes = 0;
+            self.next_microblock_sortition_height = 0;
+        }
 
         debug!("Awaken downloader to restart scanning");
     }
@@ -691,7 +700,7 @@ impl PeerNetwork {
         debug!("{:?}: find {} availability over sortitions ({}-{})...", &self.local_peer, if microblocks { "microblocks" } else { "anchored blocks" }, start_sortition_height, start_sortition_height + scan_batch_size);
 
         let mut availability = PeerNetwork::with_inv_state(self, |ref mut _network, ref mut inv_state| {
-            BlockDownloader::get_block_availability(inv_state, burndb, start_sortition_height, start_sortition_height + scan_batch_size)
+            BlockDownloader::get_block_availability(inv_state, burndb, chainstate, start_sortition_height, start_sortition_height + scan_batch_size)
         })?;
 
         debug!("{:?}: {} availability calculated over {} sortitions ({}-{})", &self.local_peer, if microblocks { "microblocks" } else { "anchored blocks" }, availability.len(), start_sortition_height, start_sortition_height + scan_batch_size);
@@ -1474,6 +1483,15 @@ pub mod test {
     use net::relay::*;
     use chainstate::stacks::*;
     use std::collections::HashMap;
+
+    fn get_peer_availability(peer: &mut TestPeer, start_height: u64, end_height: u64) -> Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> {
+        let inv_state = peer.network.inv_state.take().unwrap();
+        let availability = peer.with_db_state(|ref mut burndb, ref mut chainstate, ref mut _relayer, ref mut _mempool| {
+            BlockDownloader::get_block_availability(&inv_state, burndb, chainstate, start_height, end_height)
+        }).unwrap();
+        peer.network.inv_state = Some(inv_state);
+        availability
+    }
     
     #[test]
     fn test_get_block_availability() {
@@ -1527,7 +1545,8 @@ pub mod test {
                     let mut count = inv.get_inv_sortitions(&peer_2.to_neighbor().addr);
 
                     // continue until peer 1 knows that peer 2 has blocks
-                    let peer_1_availability = BlockDownloader::get_block_availability(peer_1.network.inv_state.as_mut().unwrap(), peer_1.burndb.as_mut().unwrap(), first_stacks_block_height - 1, first_stacks_block_height + num_blocks).unwrap();
+                    let peer_1_availability = get_peer_availability(&mut peer_1, first_stacks_block_height - 1, first_stacks_block_height + num_blocks);
+
                     let mut all_availability = true;
                     for (_, _, neighbors) in peer_1_availability.iter() {
                         if neighbors.len() != 1 {
@@ -1574,8 +1593,9 @@ pub mod test {
         }
 
         info!("Completed walk round {} step(s)", round);
-        
-        let availability = BlockDownloader::get_block_availability(peer_1.network.inv_state.as_mut().unwrap(), peer_1.burndb.as_mut().unwrap(), first_stacks_block_height - 1, first_stacks_block_height + num_blocks).unwrap();
+       
+        let availability = get_peer_availability(&mut peer_1, first_stacks_block_height - 1, first_stacks_block_height + num_blocks);
+
         eprintln!("availability.len() == {}", availability.len());
         eprintln!("block_data.len() == {}", block_data.len());
         
@@ -1598,20 +1618,22 @@ pub mod test {
             let ic = peer.burndb.as_mut().unwrap().index_conn();
             let tip = BurnDB::get_canonical_burn_chain_tip(&ic).unwrap();
             let ancestor = BurnDB::get_block_snapshot_in_fork(&ic, end_height, &tip.burn_header_hash).unwrap().unwrap();
-            BurnDB::get_stacks_header_hashes(&ic, num_headers, &ancestor.consensus_hash).unwrap()
+            BurnDB::get_stacks_header_hashes(&ic, num_headers, &ancestor.consensus_hash, None).unwrap()
         };
+
+        let inv_query : Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)> = block_hashes.into_iter().map(|(bhh, _, hh_opt)| (bhh, hh_opt)).collect();
 
         let mut inv = BlocksInvData::empty();
         for i in 0..((end_height - start_height)/(BLOCKS_INV_DATA_MAX_BITLEN as u64)) {
             let end = 
-                if (i + 1) * (BLOCKS_INV_DATA_MAX_BITLEN as u64) > (block_hashes.len() as u64) { 
-                    block_hashes.len() 
+                if (i + 1) * (BLOCKS_INV_DATA_MAX_BITLEN as u64) > (inv_query.len() as u64) { 
+                    inv_query.len() 
                 }
                 else { 
                     ((i + 1) * (BLOCKS_INV_DATA_MAX_BITLEN as u64)) as usize
                 };
 
-            let block_slice = &block_hashes[((i * (BLOCKS_INV_DATA_MAX_BITLEN as u64)) as usize)..(end as usize)];
+            let block_slice = &inv_query[((i * (BLOCKS_INV_DATA_MAX_BITLEN as u64)) as usize)..(end as usize)];
             let mut next_inv = peer.chainstate().get_blocks_inventory(&block_slice).unwrap();
             
             inv.bitlen += next_inv.bitlen;
@@ -1739,8 +1761,8 @@ pub mod test {
             let peer_inv = get_blocks_inventory(peer, 0, num_burn_blocks);
             peer_invs.push(peer_inv);
 
-            let availability = BlockDownloader::get_block_availability(peer.network.inv_state.as_mut().unwrap(), peer.burndb.as_ref().unwrap(), 
-                                                                       first_stacks_block_height - first_sortition_height, first_stacks_block_height - first_sortition_height + (num_blocks as u64)).unwrap();
+            let availability = get_peer_availability(peer, first_stacks_block_height - first_sortition_height, first_stacks_block_height - first_sortition_height + (num_blocks as u64));
+            
             assert_eq!(availability.len(), num_blocks);
             assert_eq!(block_data.len(), num_blocks);
 
