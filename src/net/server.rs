@@ -263,7 +263,7 @@ impl HttpPeer {
                 last_response_time = convo.get_connection_time();
             }
             
-            if last_request_time + self.connection_opts.idle_timeout < now && last_response_time + self.connection_opts.idle_timeout < now {
+            if last_request_time + self.connection_opts.timeout < now && last_response_time + self.connection_opts.idle_timeout < now {
                 // it's been too long
                 debug!("Removing idle HTTP conversation {:?}", convo);
                 to_remove.push(*event_id);
