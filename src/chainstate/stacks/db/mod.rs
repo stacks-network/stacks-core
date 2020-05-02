@@ -56,6 +56,11 @@ use chainstate::stacks::index::marf::{
 
 use chainstate::stacks::index::storage::TrieFileStorage;
 
+use chainstate::burn::db::burndb::{
+    BlockHeaderCache,
+    BurnDB
+};
+
 use std::path::{Path, PathBuf};
 
 use util::db::Error as db_error;
@@ -109,6 +114,7 @@ pub struct StacksChainState {
     pub blocks_path: String,
     pub clarity_state_index_path: String,
     pub root_path: String,
+    cached_header_hashes: BlockHeaderCache,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -808,6 +814,7 @@ impl StacksChainState {
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
             root_path: path_str.to_string(),
+            cached_header_hashes: BlockHeaderCache::new(),
         };
 
         if !index_exists {
@@ -823,6 +830,16 @@ impl StacksChainState {
             chain_id: self.chain_id,
             version: CHAINSTATE_VERSION.to_string()
         }
+    }
+
+    /// Get stacks header hashes cache reference
+    pub fn get_block_header_cache(&self) -> &BlockHeaderCache {
+        &self.cached_header_hashes
+    }
+
+    /// Get mutable stacks header hashes cache reference
+    pub fn borrow_block_header_cache(&mut self) -> &mut BlockHeaderCache {
+        &mut self.cached_header_hashes
     }
     
     /// Begin a transaction against the (indexed) stacks chainstate DB.
