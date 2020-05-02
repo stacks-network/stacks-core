@@ -1009,6 +1009,14 @@ impl PeerNetwork {
         event_id_opt
     }
 
+    /// Get a ref to a conversation given a neighbor key
+    pub fn get_convo(&self, neighbor_key: &NeighborKey) -> Option<&ConversationP2P> {
+        match self.events.get(neighbor_key) {
+            Some(event_id) => self.peers.get(event_id),
+            None => None
+        }
+    }
+
     /// Deregister a socket from our p2p network instance.
     fn deregister_socket(&mut self, event_id: usize, socket: mio_net::TcpStream) -> () {
         match self.network {
