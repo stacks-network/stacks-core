@@ -73,7 +73,7 @@ use util::get_epoch_time_secs;
 use util::hash::to_hex;
 
 /// This module is responsible for synchronizing block inventories with other peers
-#[cfg(not(test))] pub const INV_SYNC_INTERVAL : u64 = 200;
+#[cfg(not(test))] pub const INV_SYNC_INTERVAL : u64 = 150;
 #[cfg(test)] pub const INV_SYNC_INTERVAL : u64 = 10;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -342,11 +342,13 @@ pub struct InvState {
     /// How often to re-sync
     sync_interval: u64,
     /// Did we learn something in this last scan?
-    learned_data: bool
+    pub learned_data: bool,
+    /// Should we do a full re-scan?
+    hint_do_full_rescan: bool,
 }
 
 impl InvState {
-    pub fn new(first_block_height: u64, sync_interval: u64, initial_peers: HashSet<NeighborKey>) -> InvState {
+    pub fn new(first_block_height: u64, request_timeout: u64, sync_interval: u64, initial_peers: HashSet<NeighborKey>) -> InvState {
         InvState {
             state: InvWorkState::GetBlocksInvBegin,
 
@@ -363,7 +365,7 @@ impl InvState {
 
             block_stats: HashMap::new(),
 
-            request_timeout: 30,
+            request_timeout: request_timeout,
             first_block_height: first_block_height,
 
             rescan_height: first_block_height,
@@ -372,6 +374,7 @@ impl InvState {
             last_change_at: 0,
             sync_interval: sync_interval,
             learned_data: true,     // force a first-pass
+            hint_do_full_rescan: true,
         }
     }
 
@@ -771,7 +774,7 @@ impl PeerNetwork {
                     // no higher than its highest known block.
                     Some(sn) => {
                         if sn.block_height < highest_block_height {
-                            test_debug!("{:?}: neighbor {:?} has processed only up to burn block {} (we are targeting {})", &self.local_peer, nk, sn.block_height, target_block_height);
+                            debug!("{:?}: neighbor {:?} has processed only up to burn block {} (we are targeting {})", &self.local_peer, nk, sn.block_height, target_block_height);
 
                             highest_block_height = sn.block_height;
                             num_blocks = if highest_block_height >= target_block_height { highest_block_height - target_block_height } else { 0 };
@@ -810,7 +813,7 @@ impl PeerNetwork {
         }
 
         if num_blocks == 0 {
-            test_debug!("{:?}: will not request BlocksInv from {:?}, since we are sync'ed up to its highest sortition block", &self.local_peer, nk);
+            debug!("{:?}: will not request BlocksInv from {:?}, since we are sync'ed up to its highest sortition block", &self.local_peer, nk);
             return Ok(None);
         }
         assert!(num_blocks <= BLOCKS_INV_DATA_MAX_BITLEN as u64);
@@ -845,7 +848,10 @@ impl PeerNetwork {
             let request_opt = self.make_highest_getblocksinv(nk, target_block_height, burndb)?;
             match request_opt {
                 Some(request) => Ok(Some((target_block_height, request))),
-                None => Ok(None)
+                None => {
+                    debug!("{:?}: will not fetch inventory from {:?} target block height {} < {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height);
+                    Ok(None)
+                }
             }
         }
         else {
@@ -855,7 +861,10 @@ impl PeerNetwork {
             let request_opt = self.make_highest_getblocksinv(nk, inv_state.rescan_height, burndb)?;
             match request_opt {
                 Some(request) => Ok(Some((inv_state.rescan_height, request))),
-                None => Ok(None)
+                None => {
+                    debug!("{:?}: will not fetch inventory from {:?} rescan height {}", &self.local_peer, nk, inv_state.rescan_height);
+                    Ok(None)
+                }
             }
         }
     }
@@ -885,11 +894,21 @@ impl PeerNetwork {
                 // don't talk to inbound peers; only outbound (and only ones we have the key for)
                 // (we make this check each time we begin a round of inv requests, since the set of
                 // available peers can change during this time).
-                let is_outbound = match network.peers.get(event_id) {
-                    Some(convo) => convo.is_outbound() && convo.is_authenticated(),
+                let is_target = match network.peers.get(event_id) {
+                    Some(convo) => {
+                        if !convo.is_outbound() {
+                            debug!("{:?}: skip {:?}: not outbound", &network.local_peer, convo);
+                            continue;
+                        }
+                        if !convo.is_authenticated() {
+                            debug!("{:?}: skip {:?}: not authenticated", &network.local_peer, convo);
+                            continue;
+                        }
+                        true
+                    }
                     None => false
                 };
-                if !is_outbound {
+                if !is_target {
                     continue;
                 }
 
@@ -902,7 +921,7 @@ impl PeerNetwork {
                 let (target_block_height, inv) = match network.make_next_getblocksinv(inv_state, burndb, &nk)? {
                     Some(request) => request,
                     None => {
-                        test_debug!("{:?}: skip {:?}, since we could not make a GetBlocksInv for it", &network.local_peer, &nk);
+                        debug!("{:?}: skip {:?}, since we could not make a GetBlocksInv for it", &network.local_peer, &nk);
                         continue;
                     }
                 };
@@ -910,7 +929,7 @@ impl PeerNetwork {
                 inv_targets.insert(nk.clone(), (target_block_height, inv));
             }
 
-            test_debug!("{:?}: Will send {} getblocksinv requests", &network.local_peer, inv_targets.len());
+            debug!("{:?}: Will send {} getblocksinv requests (out of {} active events)", &network.local_peer, inv_targets.len(), network.events.len());
 
             // send to all of them 
             let mut inv_requests : HashMap<NeighborKey, ReplyHandleP2P> = HashMap::new();
@@ -970,6 +989,7 @@ impl PeerNetwork {
             Some(ref mut inv_state) => {
                 debug!("Awaken inv sync to re-scan peer block inventories");
                 inv_state.learned_data = true;
+                inv_state.hint_do_full_rescan = true;
             },
             None => {}
         }
@@ -981,7 +1001,7 @@ impl PeerNetwork {
         let cur_neighbors = self.get_outbound_sync_peers();
         
         debug!("{:?}: Initializing peer block inventory state with {} neighbors", &self.local_peer, cur_neighbors.len());
-        self.inv_state = Some(InvState::new(burndb.first_block_height, self.connection_opts.inv_sync_interval, cur_neighbors));
+        self.inv_state = Some(InvState::new(burndb.first_block_height, self.connection_opts.timeout, self.connection_opts.inv_sync_interval, cur_neighbors));
     }
 
     /// Drive fetching block invs.
@@ -995,7 +1015,7 @@ impl PeerNetwork {
         match self.inv_state {
             Some(ref inv_state) => {
                 // NOTE: inv_state.learned_data will be true if we called init_inv_sync()
-                if !inv_state.learned_data && inv_state.last_change_at + inv_state.sync_interval >= get_epoch_time_secs() {
+                if !inv_state.hint_do_full_rescan && !inv_state.learned_data && inv_state.last_change_at + inv_state.sync_interval >= get_epoch_time_secs() {
                     // we didn't learn anything on the last sync, and it hasn't been enough time
                     // since the last sync for us to do it again
                     debug!("{:?}: Throttle inv sync until {}s", &self.local_peer, inv_state.last_change_at + inv_state.sync_interval);
@@ -1102,26 +1122,30 @@ impl PeerNetwork {
                                 self.chain_view.burn_block_height - inv_state.rescan_height
                             };
 
-                        test_debug!("{:?}: Advanced rescan height to {} from {}", &self.local_peer, inv_state.rescan_height, _old_scan_height);
+                        debug!("{:?}: Advanced inv-sync rescan height to {} from {}", &self.local_peer, inv_state.rescan_height, _old_scan_height);
                     }
                     else {
                         let mut all_synced = true;
                         for nk in inv_state.sync_peers.iter() {
-                            if inv_state.is_inv_valid(nk) && !inv_state.is_inv_synced(nk, min_sortitions_to_sync) && !inv_state.stale_peers.contains(nk) {
+                            if inv_state.getblocksinv_target_heights.get(nk).is_some() && inv_state.is_inv_valid(nk) && !inv_state.is_inv_synced(nk, min_sortitions_to_sync) && !inv_state.stale_peers.contains(nk) {
                                 // a non-stale peer that we're not yet fully sync'ed with yet
-                                test_debug!("{:?} Not all neighbors sync'ed yet; still need {:?}", &self.local_peer, nk);
+                                debug!("{:?} Not all neighbors sync'ed yet; still need {:?}", &self.local_peer, nk);
                                 all_synced = false;
                             }
                         }
 
                         if all_synced {
                             // restart sync'ing with the current neighbors
-                            test_debug!("{:?}: Sync'ed with all ({}) up-to-date neighbors ({} sortitions); restarting scan with {} peers", &self.local_peer, inv_state.sync_peers.len(), min_sortitions_to_sync, cur_neighbors.len());
+                            debug!("{:?}: Inv-sync finished with all ({}) up-to-date neighbors ({} sortitions); restarting scan with {} peers", &self.local_peer, inv_state.sync_peers.len(), min_sortitions_to_sync, cur_neighbors.len());
 
                             inv_state.rescan_height = burndb.first_block_height;
                             inv_state.set_sync_peers(cur_neighbors);
 
-                            inv_state.last_rescanned_at = get_epoch_time_secs();
+                            if !inv_state.hint_do_full_rescan {
+                                // finished all scanning duties
+                                inv_state.last_rescanned_at = get_epoch_time_secs();
+                                inv_state.hint_do_full_rescan = false;
+                            }
                             inv_state.num_rescans += 1;
                         }
                     }
