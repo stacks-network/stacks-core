@@ -370,7 +370,7 @@ impl std::default::Default for ConnectionOptions {
             soft_max_neighbors_per_host: 10,     // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them,
-            walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk
+            walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk.  Note that this should be _smaller_ than inv_sync_interval
             inv_sync_interval: INV_SYNC_INTERVAL,               // how often to synchronize block inventories
             download_interval: BLOCK_DOWNLOAD_INTERVAL,         // how often to synchronize blocks
             dns_timeout: 15_000,            // DNS timeout, in millis
