@@ -301,6 +301,7 @@ pub struct PeerNetwork {
     pub walk_deadline: u64,
     pub walk_count: u64,
     pub walk_total_step_count: u64,
+    pub walk_wakeup_hint: bool,
     pub walk_result: NeighborWalkResult,        // last successful neighbor walk result
     
     // peer block inventory state
@@ -356,6 +357,7 @@ impl PeerNetwork {
             walk_deadline: 0,
             walk_count: 0,
             walk_total_step_count: 0,
+            walk_wakeup_hint: false,
             walk_result: NeighborWalkResult::new(),
             
             inv_state: None,
@@ -1639,6 +1641,16 @@ impl PeerNetwork {
                     if self.do_network_inv_sync(burndb)? {
                         // proceed to get blocks
                         self.work_state = PeerNetworkWorkState::BlockDownload;
+
+                        // pass along hints
+                        if let Some(ref inv_sync) = self.inv_state {
+                            if inv_sync.learned_data {
+                                // tell the downloader to wake up
+                                if let Some(ref mut downloader) = self.block_downloader {
+                                    downloader.hint_download_rescan();
+                                }
+                            }
+                        }
                     }
                 },
                 PeerNetworkWorkState::BlockDownload => {
@@ -1976,9 +1988,10 @@ impl PeerNetwork {
             BurnDB::get_burnchain_view(&ic, &self.burnchain).map_err(net_error::DBError)?
         };
         if self.chain_view != new_chain_view {
-            // got more burn blocks.  wake up the inv-sync and downloader 
-            self.hint_sync_invs();
-            self.hint_download_rescan();
+            // got more burn blocks.  wake up the neighbor-walker, inv-sync and downloader 
+            self.walk_wakeup_hint = true;       // do a walk pass so we learn their new highest sortition heights...
+            self.hint_sync_invs();              // ...so we can ask them for their new inventories at those heights...
+            self.hint_download_rescan();        // ...so we can go and download their new blocks
         }
         self.chain_view = new_chain_view;
        
