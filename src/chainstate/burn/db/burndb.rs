@@ -94,6 +94,8 @@ const BLOCK_HEIGHT_MAX : u64 = ((1 as u64) << 63) - 1;
 pub const REWARD_WINDOW_START : u64 = 144 * 15;
 pub const REWARD_WINDOW_END : u64 = 144 * 90 + REWARD_WINDOW_START;
 
+pub type BlockHeaderCache = HashMap<(BurnchainHeaderHash, ConsensusHash), Option<BlockHeaderHash>>;
+
 // for using BurnchainHeaderHash values as block hashes in a MARF
 impl From<BurnchainHeaderHash> for BlockHeaderHash {
     fn from(bhh: BurnchainHeaderHash) -> BlockHeaderHash {
@@ -1667,7 +1669,7 @@ impl BurnDB {
     /// Returns up to num_headers prior block header hashes.
     /// The list of hashes will be in ascending order -- the lowest-height block is item 0.
     /// The last hash will be the hash for the given consensus hash.
-    pub fn get_stacks_header_hashes<'a>(ic: &BurnDBConn<'a>, num_headers: u64, tip_consensus_hash: &ConsensusHash) -> Result<Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)>, db_error> {
+    pub fn get_stacks_header_hashes<'a>(ic: &BurnDBConn<'a>, num_headers: u64, tip_consensus_hash: &ConsensusHash, cache: Option<&BlockHeaderCache>) -> Result<Vec<(BurnchainHeaderHash, ConsensusHash, Option<BlockHeaderHash>)>, db_error> {
         let mut ret = vec![];
         let tip_snapshot = match BurnDB::get_block_snapshot_consensus(ic, tip_consensus_hash)? {
             Some(sn) => sn,
@@ -1688,27 +1690,48 @@ impl BurnDB {
         
         let tip_block_hash = tip_snapshot.burn_header_hash;
         if tip_snapshot.sortition {
-            ret.push((tip_block_hash.clone(), Some(tip_snapshot.winning_stacks_block_hash)));
+            ret.push((tip_block_hash.clone(), tip_snapshot.consensus_hash.clone(), Some(tip_snapshot.winning_stacks_block_hash)));
         }
         else {
-            ret.push((tip_block_hash.clone(), None));
+            ret.push((tip_block_hash.clone(), tip_snapshot.consensus_hash.clone(), None));
         }
 
         let mut last_snapshot = tip_snapshot;
         for _i in 1..headers_count {
             let ancestor_block_hash = last_snapshot.parent_burn_header_hash.clone();
+            if let Some(ref cached) = cache {
+                if let Some(header_hash_opt) = cached.get(&(ancestor_block_hash, last_snapshot.consensus_hash)) {
+                    // cache hit
+                    ret.push((ancestor_block_hash, last_snapshot.consensus_hash.clone(), header_hash_opt.clone()));
+                    continue;
+                }
+            }
+
+            // cache miss
             let ancestor_snapshot = BurnDB::get_block_snapshot(ic, &ancestor_block_hash)?.expect(&format!("Discontiguous index: missing block {}", ancestor_block_hash));
-            if ancestor_snapshot.sortition {
-                ret.push((ancestor_block_hash, Some(ancestor_snapshot.winning_stacks_block_hash)));
-            }
-            else {
-                ret.push((ancestor_block_hash, None));
-            }
+            let header_hash_opt = 
+                if ancestor_snapshot.sortition {
+                    Some(ancestor_snapshot.winning_stacks_block_hash.clone())
+                }
+                else {
+                    None
+                };
+
+            ret.push((ancestor_block_hash.clone(), ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
             last_snapshot = ancestor_snapshot;
         }
 
         ret.reverse();
         Ok(ret)
+    }
+
+    /// Merge the result of get_stacks_header_hashes() into a BlockHeaderCache
+    pub fn merge_block_header_cache(cache: &mut BlockHeaderCache, header_data: &Vec<(BurnchainHeaderHash, ConsensusHash, Option<BlockHeaderHash>)>) -> () {
+        for (bhh, ch, hh_opt) in header_data.iter() {
+            if !cache.contains_key(&(*bhh, *ch)) {
+                cache.insert(((*bhh).clone(), (*ch).clone()), (*hh_opt).clone());
+            }
+        }
     }
 
     /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
@@ -3037,13 +3060,16 @@ mod tests {
         }
         
         let canonical_tip = BurnDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let mut cache = BlockHeaderCache::new();
 
         {
             let ic = db.index_conn();
-            let hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash).unwrap();
+            let hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+
             assert_eq!(hashes.len(), 256);
             for i in 0..256 {
-                let (ref burn_hash, ref block_hash_opt) = &hashes[i];
+                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3053,15 +3079,53 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+
+                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
+                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
             }
         }
 
         {
             let ic = db.index_conn();
-            let hashes = BurnDB::get_stacks_header_hashes(&ic, 192, &canonical_tip.consensus_hash).unwrap();
+            let hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, None).unwrap();
+            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+
+            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+
+            assert_eq!(hashes.len(), 256);
+            assert_eq!(cached_hashes.len(), 256);
+            for i in 0..256 {
+                assert_eq!(cached_hashes[i], hashes[i]);
+                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
+                if i % 3 == 0 {
+                    assert!(block_hash_opt.is_none());
+                }
+                else {
+                    assert!(block_hash_opt.is_some());
+                    let block_hash = block_hash_opt.unwrap();
+                    assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
+                }
+                assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                
+                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
+                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
+            }
+        }
+
+        {
+            let ic = db.index_conn();
+            let hashes = BurnDB::get_stacks_header_hashes(&ic, 192, &canonical_tip.consensus_hash, None).unwrap();
+            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+
+            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 192, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+
             assert_eq!(hashes.len(), 192);
+            assert_eq!(cached_hashes.len(), 192);
             for i in 64..256 {
-                let (ref burn_hash, ref block_hash_opt) = &hashes[i - 64];
+                assert_eq!(cached_hashes[i-64], hashes[i-64]);
+                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i - 64];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3071,15 +3135,25 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                
+                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
+                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
             }
         }
         
         {
             let ic = db.index_conn();
-            let hashes = BurnDB::get_stacks_header_hashes(&ic, 257, &canonical_tip.consensus_hash).unwrap();
+            let hashes = BurnDB::get_stacks_header_hashes(&ic, 257, &canonical_tip.consensus_hash, None).unwrap();
+            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+
+            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 257, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+
             assert_eq!(hashes.len(), 256);
+            assert_eq!(cached_hashes.len(), 256);
             for i in 0..256 {
-                let (ref burn_hash, ref block_hash_opt) = &hashes[i];
+                assert_eq!(cached_hashes[i], hashes[i]);
+                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3089,12 +3163,26 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                
+                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
+                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
             }
         }
         
         {
             let ic = db.index_conn();
-            let err = BurnDB::get_stacks_header_hashes(&ic, 256, &ConsensusHash([0x03; 20])).unwrap_err();
+            let err = BurnDB::get_stacks_header_hashes(&ic, 256, &ConsensusHash([0x03; 20]), None).unwrap_err();
+            match err {
+                db_error::NotFoundError => {},
+                _ => {
+                    eprintln!("Got wrong error: {:?}", &err);
+                    assert!(false);
+                    unreachable!();
+                }
+            }
+            
+            let err = BurnDB::get_stacks_header_hashes(&ic, 256, &ConsensusHash([0x03; 20]), Some(&cache)).unwrap_err();
             match err {
                 db_error::NotFoundError => {},
                 _ => {
