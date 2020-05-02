@@ -204,7 +204,7 @@ impl ConversationHttp {
         &self.peer_addr
     }
 
-    /// Is a conversation in-progress?
+    /// Is a request in-progress?
     pub fn is_request_inflight(&self) -> bool {
         self.pending_request.is_some()
     }
