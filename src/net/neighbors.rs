@@ -74,7 +74,7 @@ pub const NUM_INITIAL_WALKS : u64 = 10;     // how many unthrottled walks should
 pub const MAX_NEIGHBOR_BLOCK_DELAY : u64 = 288;     // maximum delta between our current block height and the neighbor's that we will treat this neighbor as fresh
 
 #[cfg(test)] pub const NEIGHBOR_WALK_INTERVAL : u64 = 0;
-#[cfg(not(test))] pub const NEIGHBOR_WALK_INTERVAL : u64 = 600;
+#[cfg(not(test))] pub const NEIGHBOR_WALK_INTERVAL : u64 = 120;     // seconds
 
 impl Neighbor {
     pub fn empty(key: &NeighborKey, pubk: &Secp256k1PublicKey, expire_block: u64) -> Neighbor {
@@ -1590,10 +1590,13 @@ impl PeerNetwork {
         if self.walk.is_none() {
             // time to do a walk yet?
             if self.walk_count > NUM_INITIAL_WALKS && self.walk_deadline > get_epoch_time_secs() {
-                // we've done enough walks for an initial mixing,
-                // so throttle ourselves down until the walk deadline passes.
-                debug!("{:?}: Throttle walk until {} to walk again", &self.local_peer, self.walk_deadline);
-                return (true, None);
+                if !self.walk_wakeup_hint {
+                    // we've done enough walks for an initial mixing,
+                    // so throttle ourselves down until the walk deadline passes.
+                    debug!("{:?}: Throttle walk until {} to walk again", &self.local_peer, self.walk_deadline);
+                    return (true, None);
+                }
+                self.walk_wakeup_hint = false;
             }
         }
 
