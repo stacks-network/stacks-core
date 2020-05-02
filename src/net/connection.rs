@@ -358,7 +358,7 @@ impl std::default::Default for ConnectionOptions {
             inbox_maxlen: 5,
             outbox_maxlen: 5,
             timeout: 30,                    // how long to wait for a reply
-            idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
+            idle_timeout: 15,               // how long a non-request HTTP connection can be idle before it's closed
             heartbeat: 3600,                // send a heartbeat once an hour by default
             private_key_lifetime: 4302,     // key expires after ~1 month
             num_neighbors: 32,              // how many outbound connections we can have, full-stop
