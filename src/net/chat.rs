@@ -2070,10 +2070,6 @@ mod test {
                 }
             };
 
-            // confirm that sequence numbers are increasing
-            assert_eq!(reply_handshake_1.preamble.seq, 2*i);
-            assert_eq!(reply_ping_1.preamble.seq, 2*i + 1);
-
             // convo_2 got updated with convo_1's peer info, but no heartbeat info 
             assert_eq!(convo_2.peer_heartbeat, 0);
             assert_eq!(convo_2.connection.get_public_key().unwrap().to_bytes_compressed(), Secp256k1PublicKey::from_private(&local_peer_1.private_key).to_bytes_compressed());
