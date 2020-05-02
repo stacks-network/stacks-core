@@ -1021,18 +1021,10 @@ impl PeerNetwork {
                     if next_block_sortition_height >= network.chain_view.burn_block_height {
                         // wrapped around
                         next_block_sortition_height = 0;
-                        if num_block_requests == 0 {
-                            // and it was empty
-                            downloader.empty_block_download_passes += 1;
-                        }
                     }
                     if next_microblock_sortition_height >= network.chain_view.burn_block_height {
                         // wrapped around
                         next_microblock_sortition_height = 0;
-                        if num_mblock_requests == 0 {
-                            // and it was empty
-                            downloader.empty_microblock_download_passes += 1;
-                        }
                     }
 
                     test_debug!("{:?}: Pessimistically increase block and microblock sortition heights to ({},{})", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);

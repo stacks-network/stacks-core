@@ -765,11 +765,16 @@ impl PeerNetwork {
                 (self.chain_view.burn_block_height, self.chain_view.burn_block_height - target_block_height)
             };
 
-        // from our last walks, if the peer knows of a higher block height than
+        // from our last conversation, if the peer knows of a higher block height than
         // target_block_height but lower than highest_block_height, use that instead.
-        match (self.walk_result.stable_burn_chain_tips.get(nk), self.walk_result.burn_chain_tips.get(nk)) {
-            (Some((stable_tip_height, stable_tip_consensus_hash)), Some((tip_height, tip_consensus_hash))) => {
-                match BurnDB::get_block_snapshot_consensus(burndb.conn(), tip_consensus_hash).map_err(net_error::DBError)? {
+        match self.get_convo(nk) {
+            Some(convo) => {
+                let stable_tip_height = convo.get_stable_burnchain_tip_height();
+                let stable_tip_consensus_hash = convo.get_stable_burnchain_tip_consensus_hash();
+                let tip_height = convo.get_burnchain_tip_height();
+                let tip_consensus_hash = convo.get_burnchain_tip_consensus_hash();
+
+                match BurnDB::get_block_snapshot_consensus(burndb.conn(), &tip_consensus_hash).map_err(net_error::DBError)? {
                     // we know about this peer's latest consensus hash's snapshot.  Ask for blocks
                     // no higher than its highest known block.
                     Some(sn) => {
@@ -780,10 +785,11 @@ impl PeerNetwork {
                             num_blocks = if highest_block_height >= target_block_height { highest_block_height - target_block_height } else { 0 };
                         }
                     },
+
                     // this peer is unstable -- its tip consensus hash differs from ours, but we
                     // agree with its stable consensus hash.  Ask only for blocks no higher than
                     // its stable consensus hash.
-                    None => match BurnDB::get_block_snapshot_consensus(burndb.conn(), stable_tip_consensus_hash).map_err(net_error::DBError)? {
+                    None => match BurnDB::get_block_snapshot_consensus(burndb.conn(), &stable_tip_consensus_hash).map_err(net_error::DBError)? {
                         Some(sn) => {
                             if sn.block_height < highest_block_height {
                                 test_debug!("{:?}: neighbor {:?} is unstable, and has processed only up to stable burn block {} (we are targeting {})", &self.local_peer, nk, sn.block_height, target_block_height);
@@ -793,14 +799,14 @@ impl PeerNetwork {
                             }
                         },
                         None => {
-                            if *stable_tip_height <= target_block_height {
+                            if stable_tip_height <= target_block_height {
                                 // this peer has diverged from us
-                                test_debug!("{:?}: neighbor {:?}'s highest stable consensus hash {:?} does not match any of ours", &self.local_peer, nk, stable_tip_consensus_hash);
+                                test_debug!("{:?}: neighbor {:?}'s highest stable consensus hash {:?} does not match any of ours", &self.local_peer, nk, &stable_tip_consensus_hash);
                                 return Ok(None);
                             }
-                            else if *tip_height <= target_block_height {
+                            else if tip_height <= target_block_height {
                                 // this peer is unstable
-                                test_debug!("{:?}: neighbor {:?}'s highest stable consensus hash {:?} does not match our latest", &self.local_peer, nk, stable_tip_consensus_hash);
+                                test_debug!("{:?}: neighbor {:?}'s highest stable consensus hash {:?} does not match our latest", &self.local_peer, nk, &stable_tip_consensus_hash);
                                 return Ok(None);
                             }
                             // otherwise, this peer is simply ahead of us.
@@ -809,7 +815,7 @@ impl PeerNetwork {
                 }
             },
             // never talked to this peer before
-            (_, _) => {}
+            None => {}
         }
 
         if num_blocks == 0 {

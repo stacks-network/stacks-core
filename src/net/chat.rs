@@ -314,6 +314,8 @@ pub struct ConversationP2P {
     // highest block height and consensus hash this peer has seen
     pub burnchain_tip_height: u64,
     pub burnchain_tip_consensus_hash: ConsensusHash,
+    pub burnchain_stable_tip_height: u64,
+    pub burnchain_stable_tip_consensus_hash: ConsensusHash,
 
     pub stats: NeighborStats,
 
@@ -468,6 +470,8 @@ impl ConversationP2P {
 
             burnchain_tip_height: 0,
             burnchain_tip_consensus_hash: ConsensusHash([0x00; 20]),
+            burnchain_stable_tip_height: 0,
+            burnchain_stable_tip_consensus_hash: ConsensusHash([0x00; 20]),
 
             stats: NeighborStats::new(outbound),
             reply_handles: VecDeque::new(),
@@ -501,6 +505,22 @@ impl ConversationP2P {
     
     pub fn ref_public_key(&self) -> Option<&StacksPublicKey> {
         self.connection.ref_public_key()
+    }
+
+    pub fn get_burnchain_tip_height(&self) -> u64 {
+        self.burnchain_tip_height
+    }
+    
+    pub fn get_stable_burnchain_tip_height(&self) -> u64 {
+        self.burnchain_stable_tip_height
+    }
+
+    pub fn get_burnchain_tip_consensus_hash(&self) -> ConsensusHash {
+        self.burnchain_tip_consensus_hash.clone()
+    }
+
+    pub fn get_stable_burnchain_tip_consensus_hash(&self) -> ConsensusHash {
+        self.burnchain_stable_tip_consensus_hash.clone()
     }
     
     /// Determine whether or not a given (height, consensus_hash) pair _disagrees_ with our
@@ -1340,6 +1360,12 @@ impl ConversationP2P {
                 self.stats.last_recv_time = now;
                 self.stats.last_contact_time = get_epoch_time_secs();
                 self.stats.add_healthpoint(true);
+
+                // update chain view from preamble
+                self.burnchain_tip_height = msg.preamble.burn_block_height;
+                self.burnchain_tip_consensus_hash = msg.preamble.burn_consensus_hash.clone();
+                self.burnchain_stable_tip_height = msg.preamble.burn_stable_block_height;
+                self.burnchain_stable_tip_consensus_hash = msg.preamble.burn_stable_consensus_hash.clone();
             }
             else {
                 // got an unhandled message we didn't ask for
