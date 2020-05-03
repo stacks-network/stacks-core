@@ -754,9 +754,11 @@ impl PeerNetwork {
     /// _lowest_ block will be at the target sortition height.
     fn make_highest_getblocksinv(&self, nk: &NeighborKey, target_block_height: u64, burndb: &BurnDB) -> Result<Option<GetBlocksInv>, net_error> {
         if target_block_height > self.chain_view.burn_block_height {
+            debug!("{:?}: target block height for neighbor {:?} is {}, which is higher than our chain view height {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height);
             return Ok(None);
         }
 
+        // ask for all blocks in-between target_block_height and highest_block_height
         let (mut highest_block_height, mut num_blocks) = 
             if target_block_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64) < self.chain_view.burn_block_height {
                 (target_block_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64), BLOCKS_INV_DATA_MAX_BITLEN as u64)
@@ -774,12 +776,13 @@ impl PeerNetwork {
                 let tip_height = convo.get_burnchain_tip_height();
                 let tip_consensus_hash = convo.get_burnchain_tip_consensus_hash();
 
+                debug!("{:?}: chain view of {:?} is ({},{})-({},{})", &self.local_peer, nk, stable_tip_height, &stable_tip_consensus_hash, tip_height, &tip_consensus_hash);
                 match BurnDB::get_block_snapshot_consensus(burndb.conn(), &tip_consensus_hash).map_err(net_error::DBError)? {
                     // we know about this peer's latest consensus hash's snapshot.  Ask for blocks
                     // no higher than its highest known block.
                     Some(sn) => {
                         if sn.block_height < highest_block_height {
-                            debug!("{:?}: neighbor {:?} has processed only up to burn block {} (we are targeting {})", &self.local_peer, nk, sn.block_height, target_block_height);
+                            debug!("{:?}: neighbor {:?} has processed only up to burn block {} (we are targeting {} and higher)", &self.local_peer, nk, sn.block_height, target_block_height);
 
                             highest_block_height = sn.block_height;
                             num_blocks = if highest_block_height >= target_block_height { highest_block_height - target_block_height } else { 0 };
@@ -815,11 +818,15 @@ impl PeerNetwork {
                 }
             },
             // never talked to this peer before
-            None => {}
+            None => {
+                debug!("{:?}: no conversation open for {}", &self.local_peer, nk);
+                return Ok(None);
+            }
         }
 
         if num_blocks == 0 {
-            debug!("{:?}: will not request BlocksInv from {:?}, since we are sync'ed up to its highest sortition block", &self.local_peer, nk);
+            // target_block_height was higher than the highest known height of the remote node
+            debug!("{:?}: will not request BlocksInv from {:?}, since we are sync'ed up to its highest sortition block (our target was {}, its highest block was {})", &self.local_peer, nk, target_block_height, highest_block_height);
             return Ok(None);
         }
         assert!(num_blocks <= BLOCKS_INV_DATA_MAX_BITLEN as u64);
@@ -840,6 +847,8 @@ impl PeerNetwork {
 
     /// Make a GetBlocksInv to send to our neighbors
     fn make_next_getblocksinv(&self, inv_state: &mut InvState, burndb: &BurnDB, nk: &NeighborKey) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
+        // target_block_height is the highest sortition height we know this node knows about.
+        // Ask for block inventory data _after_ this.
         let target_block_height = match inv_state.get_stats(nk) {
             Some(ref stats) => burndb.first_block_height.checked_add(stats.inv.num_sortitions).expect("Blockchain sortition overflow"),
             None => {
@@ -848,14 +857,13 @@ impl PeerNetwork {
         };
 
         if target_block_height < self.chain_view.burn_block_height {
-            // Still working on an initial sync of the peer's block inventory.
-            // We don't yet know about which blocks this node knows about.
+            // We don't yet know all of the blocks this node knows about.
             test_debug!("{:?}: not sync'ed with {:?} yet (target {} < tip {}); make GetBlocksInv based at {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height, target_block_height);
             let request_opt = self.make_highest_getblocksinv(nk, target_block_height, burndb)?;
             match request_opt {
                 Some(request) => Ok(Some((target_block_height, request))),
                 None => {
-                    debug!("{:?}: will not fetch inventory from {:?} target block height {} < {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height);
+                    debug!("{:?}: will not fetch inventory from {:?} even though target block height {} < {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height);
                     Ok(None)
                 }
             }
