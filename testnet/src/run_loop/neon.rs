@@ -38,9 +38,6 @@ impl RunLoop {
 
         // self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 
-        // TODO (hack): instantiate the burnchain
-        let _ = burnchain.burndb_mut();
-
         let mut burnchain_tip = burnchain.start();
 
         let is_miner = if self.config.node.miner {
@@ -74,6 +71,9 @@ impl RunLoop {
         } else {
             node.into_initialized_node(burnchain_tip.clone())
         };
+
+        // TODO (hack) instantiate the burndb in the burnchain
+        let _ = burnchain.burndb_mut();
 
         // Start the runloop
         info!("Begin run loop");
