@@ -1343,7 +1343,7 @@ impl ConversationP2P {
             let _seq = msg.request_id();
 
             if update_stats {
-                // successfully got a message -- update stats
+                // successfully got a message we asked for-- update stats
                 if self.stats.first_contact_time == 0 {
                     self.stats.first_contact_time = now;
                 }
@@ -1362,10 +1362,17 @@ impl ConversationP2P {
                 self.stats.add_healthpoint(true);
 
                 // update chain view from preamble
-                self.burnchain_tip_height = msg.preamble.burn_block_height;
-                self.burnchain_tip_consensus_hash = msg.preamble.burn_consensus_hash.clone();
-                self.burnchain_stable_tip_height = msg.preamble.burn_stable_block_height;
-                self.burnchain_stable_tip_consensus_hash = msg.preamble.burn_stable_consensus_hash.clone();
+                if msg.preamble.burn_block_height > self.burnchain_tip_height {
+                    self.burnchain_tip_height = msg.preamble.burn_block_height;
+                    self.burnchain_tip_consensus_hash = msg.preamble.burn_consensus_hash.clone();
+                }
+
+                if msg.preamble.burn_stable_block_height > self.burnchain_stable_tip_height {
+                    self.burnchain_stable_tip_height = msg.preamble.burn_stable_block_height;
+                    self.burnchain_stable_tip_consensus_hash = msg.preamble.burn_stable_consensus_hash.clone();
+                }
+
+                debug!("{:?}: remote chain view is ({},{})-({},{})", self, self.burnchain_stable_tip_height, &self.burnchain_stable_tip_consensus_hash, self.burnchain_tip_height, &self.burnchain_tip_consensus_hash);
             }
             else {
                 // got an unhandled message we didn't ask for
