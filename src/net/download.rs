@@ -882,9 +882,6 @@ impl PeerNetwork {
                 let mut next_block_sortition_height = block_sortition_height;
                 let mut next_microblock_sortition_height = microblock_sortition_height;
 
-                let mut num_block_requests = 0;
-                let mut num_mblock_requests = 0;
-
                 debug!("{:?}: Look for blocks at sortition {}, microblocks at sortition {}", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
 
                 // fetch as many blocks and microblocks as we can -- either
@@ -959,7 +956,6 @@ impl PeerNetwork {
                         downloader.blocks_to_try.insert(height, requests);
 
                         height += 1;
-                        num_block_requests += 1;
                     }
                     
                     // queue up microblock requests in order by sortition height.
@@ -992,7 +988,6 @@ impl PeerNetwork {
                         downloader.microblocks_to_try.insert(mblock_height, requests);
 
                         mblock_height += 1;
-                        num_mblock_requests += 1;
                     }
 
                     debug!("{:?}: block download scan now at ({},{}) (was ({},{}))", &network.local_peer, height, mblock_height, block_sortition_height, microblock_sortition_height);
