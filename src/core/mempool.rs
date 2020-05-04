@@ -352,8 +352,12 @@ impl MemPoolDB {
 
     ///
     /// Iterate over candidates in the mempool
-    ///  todo may be called multiple times, as the mempool walks back from
-    ///   the provided block.
+    ///  todo will be called once for each bundle of transactions at
+    ///  each ancestor chain tip from the given one, starting with the
+    ///  most recent chain tip and working backwards until there are
+    ///  no more transactions to consider. Each batch of transactions
+    ///  passed to todo will be sorted in fee order, starting with the
+    ///  highest.
     pub fn iterate_candidates<F, E>(&self,
                                     tip_burn_header_hash: &BurnchainHeaderHash,
                                     tip_block_hash: &BlockHeaderHash,

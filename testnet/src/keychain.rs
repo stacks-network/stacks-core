@@ -96,7 +96,7 @@ impl Keychain {
                 Err(_) => seed = Sha256Sum::from_data(seed.as_bytes())
             }
         };
-        sk.compress_public = true;
+        sk.set_compress_public(true);
         self.microblocks_secret_keys.push(sk.clone());
 
         sk

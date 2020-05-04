@@ -61,7 +61,7 @@ pub struct Secp256k1PrivateKey {
     // serde is broken for secp256k1, so do it ourselves
     #[serde(serialize_with = "secp256k1_privkey_serialize", deserialize_with = "secp256k1_privkey_deserialize")]
     key: LibSecp256k1PrivateKey,
-    pub compress_public: bool
+    compress_public: bool
 }
 
 pub struct MessageSignature(pub [u8; 65]);
@@ -177,7 +177,7 @@ impl Secp256k1PublicKey {
         self.compressed
     }
 
-    pub fn set_compressed(&mut self, value: bool) -> () {
+    pub fn set_compressed(&mut self, value: bool) {
         self.compressed = value;
     }
 
@@ -327,7 +327,7 @@ impl Secp256k1PrivateKey {
         self.compress_public
     }
 
-    pub fn set_compress_public(&mut self, value: bool) -> () {
+    pub fn set_compress_public(&mut self, value: bool) {
         self.compress_public = value;
     }
 
