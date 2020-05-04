@@ -254,7 +254,6 @@ impl NetworkHandleServer {
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum PeerNetworkWorkState {
-    NeighborWalk,
     BlockInvSync,
     BlockDownload,
     Prune
@@ -301,7 +300,6 @@ pub struct PeerNetwork {
     pub walk_deadline: u64,
     pub walk_count: u64,
     pub walk_total_step_count: u64,
-    pub walk_wakeup_hint: bool,
     pub walk_result: NeighborWalkResult,        // last successful neighbor walk result
     
     // peer block inventory state
@@ -351,13 +349,12 @@ impl PeerNetwork {
             burnchain: burnchain,
             connection_opts: connection_opts,
 
-            work_state: PeerNetworkWorkState::NeighborWalk,
+            work_state: PeerNetworkWorkState::BlockInvSync,
 
             walk: None,
             walk_deadline: 0,
             walk_count: 0,
             walk_total_step_count: 0,
-            walk_wakeup_hint: false,
             walk_result: NeighborWalkResult::new(),
             
             inv_state: None,
@@ -1527,6 +1524,11 @@ impl PeerNetwork {
             return Ok(true);
         }
 
+        if self.do_prune {
+            // wait until we do a prune before we try and find new neighbors
+            return Ok(true);
+        }
+
         // walk the peer graph and deal with new/dropped connections
         let (done, walk_result_opt) = self.walk_peer_graph();
         match walk_result_opt {
@@ -1637,13 +1639,6 @@ impl PeerNetwork {
             debug!("{:?}: network work state is {:?}", &self.local_peer, &self.work_state);
             let cur_state = self.work_state;
             match self.work_state {
-                PeerNetworkWorkState::NeighborWalk => {
-                    // walk the peer graph and deal with new/dropped connections
-                    if self.do_network_neighbor_walk()? {
-                        // proceed to synchronize block invs
-                        self.work_state = PeerNetworkWorkState::BlockInvSync;
-                    }
-                },
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories 
                     if self.do_network_inv_sync(burndb)? {
@@ -1684,11 +1679,13 @@ impl PeerNetwork {
                     // clear out neighbor connections after we finish sending
                     if self.do_prune {
                         do_prune = true;
+
+                        // re-enable neighbor walks
                         self.do_prune = false;
                     }
 
                     // restart
-                    self.work_state = PeerNetworkWorkState::NeighborWalk;
+                    self.work_state = PeerNetworkWorkState::BlockInvSync;
                 }
             }
 
@@ -1996,10 +1993,9 @@ impl PeerNetwork {
             BurnDB::get_burnchain_view(&ic, &self.burnchain).map_err(net_error::DBError)?
         };
         if self.chain_view != new_chain_view {
-            // got more burn blocks.  wake up the neighbor-walker, inv-sync and downloader 
-            self.walk_wakeup_hint = true;       // do a walk pass so we learn their new highest sortition heights...
-            self.hint_sync_invs();              // ...so we can ask them for their new inventories at those heights...
-            self.hint_download_rescan();        // ...so we can go and download their new blocks
+            // got more burn blocks.  wake up the inv-sync and downloader 
+            self.hint_sync_invs();
+            self.hint_download_rescan();
         }
         self.chain_view = new_chain_view;
        
@@ -2024,7 +2020,7 @@ impl PeerNetwork {
 
         // do some Actual Work(tm)
         // do this _after_ processing new sockets, so the act of opening a socket doesn't trample
-        // an already-used network ID
+        // an already-used network ID.
         let do_prune = self.do_network_work(burndb, chainstate, dns_client_opt, network_result)?;
         if do_prune {
             // prune back our connections if it's been a while
@@ -2037,6 +2033,9 @@ impl PeerNetwork {
             }
             self.prune_connections();
         }
+        
+        // In parallel, do a neighbor walk
+        self.do_network_neighbor_walk()?;
         
         // remove timed-out requests from other threads 
         for (_, convo) in self.peers.iter_mut() {
