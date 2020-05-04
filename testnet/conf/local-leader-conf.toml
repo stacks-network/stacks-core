@@ -7,7 +7,7 @@ miner = true
 
 [burnchain]
 chain = "bitcoin"
-mode = "neon"
+mode = "mocknet"
 peer_host = "127.0.0.1"
 rpc_port = 28443
 peer_port = 18444
@@ -29,6 +29,7 @@ amount = 10000000000000000
 address = "ST31HHVBKYCYQQJ5AQ25ZHA6W2A548ZADDQ6S16GP"
 amount = 10000000000000000
 
-# [[events_observer]]
-# endpoint = "127.0.0.1:8080"
-# events_keys = ["*"]
+[[events_observer]]
+endpoint = "http://127.0.0.1:8080"
+retry_count = 5
+events_keys = ["*"]
