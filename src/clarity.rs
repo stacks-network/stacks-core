@@ -54,6 +54,8 @@ where command is one of:
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
   eval_at_chaintip   like `eval`, but does not advance to a new block.
+  eval_at_block      like `eval_at_chaintip`, but accepts a index-block-hash to evaluate at,
+                     must be passed eval string via stdin.
   eval_raw           to typecheck and evaluate an expression without a contract or database context.
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
@@ -206,6 +208,21 @@ where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
     marf_return.rollback();
     result
 }
+
+fn at_block<F,R>(blockhash: &str, mut marf_kv: MarfedKV, f: F) -> R
+where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
+
+    // store CLI data alongside the MARF database state
+    let from = BlockHeaderHash::from_hex(blockhash)
+        .expect(&format!("FATAL: failed to parse inputted blockhash"));
+    let to = BlockHeaderHash([2u8; 32]);        // 0x0202020202 ... (pattern not used anywhere else)
+
+    marf_kv.begin(&from, &to);
+    let (mut marf_return, result) = f(marf_kv);
+    marf_return.rollback();
+    result
+}
+
 
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
@@ -463,6 +480,44 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     println!("Program executed successfully! Output: \n{}", x);
                 },
                 Err(error) => { 
+                    eprintln!("Program execution error: \n{}", error);
+                    panic_test!();
+                }
+            }
+        },
+        "eval_at_block" => {
+            if args.len() != 4 {
+                eprintln!("Usage: {} {} [index-block-hash] [contract-identifier] [vm/clarity dir]",
+                          invoked_by, &args[0]);
+                panic_test!();
+            }
+            let chain_tip = &args[1];
+            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[2]),
+                                                      "Failed to parse contract identifier.");
+            let content: String = {
+                let mut buffer = String::new();
+                friendly_expect(io::stdin().read_to_string(&mut buffer),
+                                "Error reading from stdin.");
+                buffer
+            };
+
+            let vm_filename = &args[3];
+            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let result = at_block(chain_tip, marf_kv, |mut marf| {
+                let result = {
+                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
+                    vm_env.get_exec_environment(None)
+                        .eval_read_only(&contract_identifier, &content)
+                };
+                (marf, result)
+            });
+
+            match result {
+                Ok(x) => {
+                    println!("Program executed successfully! Output: \n{}", x);
+                },
+                Err(error) => {
                     eprintln!("Program execution error: \n{}", error);
                     panic_test!();
                 }
