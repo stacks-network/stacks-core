@@ -21,7 +21,7 @@ pub trait BurnchainController {
     fn get_chain_tip(&mut self) -> BurnchainTip;
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self);
+    fn bootstrap_chain(&mut self, blocks_count: u64);
 }
 
 #[derive(Debug, Clone)]

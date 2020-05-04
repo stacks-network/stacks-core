@@ -143,19 +143,19 @@ fn test_implicit_syntax_tuple() {
         "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
             (begin
-                (map-insert kv-store {key key}
-                                     {value value})
+                (map-insert kv-store {key: key}
+                                     {value: value})
                 value))
          (define-private (kv-get (key int))
-            (unwrap! (get value (map-get? kv-store {key key})) 0))
+            (unwrap! (get value (map-get? kv-store {key: key})) 0))
          (define-private (kv-set (key int) (value int))
             (begin
-                (map-set kv-store {key key}
-                                  {value value})
+                (map-set kv-store {key : key}
+                                  {value: value,})
                 value))
          (define-private (kv-del (key int))
             (begin
-                (map-delete kv-store {key key})
+                (map-delete kv-store {key: key})
                 key))
         ";
 
@@ -343,17 +343,17 @@ fn test_factorial_contract() {
     let test1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
          (define-private (init-factorial (id int) (factorial int))
-           (map-insert factorials {id id} {current:1, index: factorial}))
+           (map-insert factorials {id: id} {current: 1, index: factorial}))
          (define-private (compute (id int))
-           (let ((entry (unwrap! (map-get? factorials {id id}) 0)))
+           (let ((entry (unwrap! (map-get? factorials {id : id}) 0)))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
                              current
                              (begin
-                               (map-set factorials {id id}
-                                                   {current (* current index)
-                                                    index (- index 1)})
+                               (map-set factorials {id: id}
+                                                   {current: (* current index),
+                                                    index: (- index 1)})
                                0)))))
         (init-factorial 1337 3)
         (init-factorial 8008 5)
@@ -489,7 +489,7 @@ fn lists_system() {
     test_bad_tuple_2.push_str("(map-insert lists (tuple (name 1)) (tuple (contents (list 1 2 6)) (discontents 1)))");
 
     let mut test_bad_tuple_3 = test1.to_string();
-    test_bad_tuple_3.push_str("(map-insert lists {name 1} {contents (list false true false)})");
+    test_bad_tuple_3.push_str("(map-insert lists {name: 1} {contents: (list false true false)})");
 
     let mut test_bad_tuple_4 = test1.to_string();
     test_bad_tuple_4.push_str("(map-insert lists (tuple (name (list 1))) (tuple (contents (list 1 2 3))))");

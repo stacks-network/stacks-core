@@ -93,6 +93,7 @@ pub fn new_test_conf() -> Config {
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
 
     let mut conf = Config::default();
+    conf.node.seed = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
     conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
 
     let mut rng = rand::thread_rng();
