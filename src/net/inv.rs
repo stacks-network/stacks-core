@@ -594,7 +594,7 @@ impl InvState {
             // peer nacked us -- it doesn't know about the block(s) we asked about.
             if preamble_burn_block_height < chain_view.burn_block_height {
                 // Because it's stale
-                test_debug!("Remote neighbor {:?} is still bootstrapping (at block {})", _nk, preamble_burn_block_height);
+                test_debug!("Remote neighbor {:?} is still bootstrapping at block {}, whereas we are at block {}", _nk, preamble_burn_block_height, chain_view.burn_block_height);
                 stale = true;
             }
             else {
@@ -682,7 +682,7 @@ impl InvState {
                             self.block_invs.insert(nk, blocks_inv_data);
                         },
                         StacksMessageType::Nack(nack_data) => {
-                            debug!("Remote neighbor {:?} nack'ed our GetBlocksInv: error {}", &nk, nack_data.error_code);
+                            debug!("Remote neighbor {:?} nack'ed our GetBlocksInv: NACK code {}", &nk, nack_data.error_code);
                             match InvState::diagnose_nack(&nk, nack_data, &network.chain_view, preamble_burn_block_height, preamble_burn_stable_block_height, preamble_burn_consensus_hash, preamble_burn_stable_consensus_hash) {
                                 NackResult::Noop => {},
                                 NackResult::Stale => {
@@ -1155,11 +1155,12 @@ impl PeerNetwork {
                             inv_state.rescan_height = burndb.first_block_height;
                             inv_state.set_sync_peers(cur_neighbors);
 
-                            if !inv_state.hint_do_full_rescan {
+                            if inv_state.hint_do_full_rescan {
                                 // finished all scanning duties
-                                inv_state.last_rescanned_at = get_epoch_time_secs();
                                 inv_state.hint_do_full_rescan = false;
                             }
+                            
+                            inv_state.last_rescanned_at = get_epoch_time_secs();
                             inv_state.num_rescans += 1;
                         }
                     }
@@ -1167,7 +1168,7 @@ impl PeerNetwork {
                     let broken = inv_state.get_broken_peers();
                     let disconnect = inv_state.get_dead_peers();
 
-                    test_debug!("{:?}: inv reset", &self.local_peer);
+                    test_debug!("{:?}: inv scan reset", &self.local_peer);
                     inv_state.reset();
                     Ok((true, disconnect, broken))
                 },
