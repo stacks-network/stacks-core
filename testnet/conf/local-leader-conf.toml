@@ -7,7 +7,7 @@ miner = true
 
 [burnchain]
 chain = "bitcoin"
-mode = "mocknet"
+mode = "neon"
 peer_host = "127.0.0.1"
 rpc_port = 28443
 peer_port = 18444
