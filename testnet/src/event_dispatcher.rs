@@ -96,7 +96,7 @@ impl EventObserver {
 
             match response {
                 Ok(response) => {
-                    if response.status() == StatusCode::OK {
+                    if response.status().is_success() {
                         break;
                     }
                     error!("Event dispatcher: POST {:?} failed with error {:?}", self.endpoint, response);
@@ -113,9 +113,7 @@ impl EventObserver {
 
             retry_count += 1;
             backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
-            let sleep_sec = backoff as u64;
-            let sleep_nsec = (((backoff - (sleep_sec as f64)) as u64) * 1_000_000) as u32;
-            let duration = Duration::new(sleep_sec, sleep_nsec);
+            let duration = Duration::from_millis((backoff * 1_000.0) as u64);
             debug!("Event dispatcher will retry posting in {:?}", duration);
             sleep(duration);
         };
