@@ -123,7 +123,6 @@ fn bitcoind_integration_test() {
     let mut run_loop = RunLoop::new(conf);
 
     run_loop.callbacks.on_burn_chain_initialized(|burnchain_controller| {
-        // todo(ludo): we need to wait for bitcoind to be ready.
         sleep_ms(5000);
         burnchain_controller.bootstrap_chain(201);
     });
