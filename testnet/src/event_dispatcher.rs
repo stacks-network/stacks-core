@@ -1,6 +1,10 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use mio::tcp::TcpStream;
+use std::time::Duration;
+use std::thread::sleep;
+
+use rand::{Rng, thread_rng};
+use reqwest::{StatusCode, blocking::Client};
 use serde_json::json;
 
 use stacks::burnchains::Txid;
@@ -14,18 +18,13 @@ use super::node::{ChainTip};
 
 #[derive(Debug)]
 struct EventObserver {
-    endpoint: String
+    endpoint: String,
+    retry_count: u8
 }
 
 impl EventObserver {
 
     pub fn send(&mut self, filtered_events: Vec<&(Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip) {
-        // Initiate a tcp socket, first using std::net TCP connect for smart DNS resolution
-        let std_stream = std::net::TcpStream::connect(&self.endpoint).unwrap();
-        info!("Connected to event observer at: {}", std_stream.peer_addr().unwrap());
-
-        // Then wrap as mio TCP stream
-        let stream = TcpStream::from_stream(std_stream).unwrap();
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(txid, event)|
             event.json_serialize(txid)
@@ -86,11 +85,40 @@ impl EventObserver {
         }).to_string();
 
         // Send payload
-        let res = stream.write_bufs(&vec![payload.as_bytes().into()]);
-        if let Err(err) = res {
-            error!("Event dispatcher failed sending buffer: {:?}", err);
-            panic!();
-        }
+        let mut retry_count = 0;
+        let mut backoff: f64 = 1.0;
+        let mut rng = thread_rng();
+        loop {
+            let response = Client::new()
+                .post(&self.endpoint)
+                .json(&payload)
+                .send();
+
+            match response {
+                Ok(response) => {
+                    if response.status() == StatusCode::OK {
+                        break;
+                    }
+                    error!("Event dispatcher: POST {:?} failed with error {:?}", self.endpoint, response);
+                },
+                Err(e) => {
+                    error!("Event dispatcher: POST {:?} failed with error {:?}", self.endpoint, e);
+                }
+            };
+
+            if retry_count >= self.retry_count {
+                error!("Event dispatcher: exponential backoff failed");
+                panic!();                   
+            }
+
+            retry_count += 1;
+            backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
+            let sleep_sec = backoff as u64;
+            let sleep_nsec = (((backoff - (sleep_sec as f64)) as u64) * 1_000_000) as u32;
+            let duration = Duration::new(sleep_sec, sleep_nsec);
+            debug!("Event dispatcher will retry posting in {:?}", duration);
+            sleep(duration);
+        };
     }
 }
 
@@ -179,7 +207,10 @@ impl EventDispatcher {
     pub fn register_observer(&mut self, conf: &EventObserverConfig) {
         // let event_observer = EventObserver::new(&conf.address, conf.port);
         info!("Registering event observer at: {}", conf.endpoint);
-        let event_observer = EventObserver { endpoint: conf.endpoint.clone() };
+        let event_observer = EventObserver { 
+            endpoint: conf.endpoint.clone(),
+            retry_count: conf.retry_count
+        };
 
         let observer_index = self.registered_observers.len() as u16;
 
