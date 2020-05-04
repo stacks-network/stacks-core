@@ -51,7 +51,7 @@ fn bitcoind_integration_test() {
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone());
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
-    btc_regtest_controller.bootstrap_chain();
+    btc_regtest_controller.bootstrap_chain(201);
 
     eprintln!("Chain bootstrapped...");
 
@@ -125,7 +125,7 @@ fn microblock_integration_test() {
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone());
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
-    btc_regtest_controller.bootstrap_chain();
+    btc_regtest_controller.bootstrap_chain(201);
 
     eprintln!("Chain bootstrapped...");
 
