@@ -220,7 +220,7 @@ pub struct RPCRequest {
     /// Identifier for this Request, which should appear in the response
     pub id: serde_json::Value,
     /// jsonrpc field, MUST be "2.0"
-    pub jsonrpc: Option<String>,
+    pub jsonrpc: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -238,7 +238,7 @@ impl RPCRequest {
             method: "generatetoaddress".to_string(),
             params: vec![blocks_count.into(), address.into()],
             id: 0.into(),
-            jsonrpc: Some("2.0".to_string())
+            jsonrpc: "2.0".to_string()
         }
     }
 
@@ -247,7 +247,7 @@ impl RPCRequest {
             method: "getblockhash".to_string(),
             params: vec![200.into()],
             id: 0.into(),
-            jsonrpc: Some("2.0".to_string())
+            jsonrpc: "2.0".to_string()
         }
     }
 }
