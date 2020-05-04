@@ -47,7 +47,7 @@ async fn main() -> http_types::Result<()> {
             Err(err) => err.duration(),
         }.as_secs() as u64;
 
-        let time_since_genesis = now - config.neon.genesis_timestamp.clone();
+        let time_since_genesis = now - config.neon.genesis_timestamp;
         
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
