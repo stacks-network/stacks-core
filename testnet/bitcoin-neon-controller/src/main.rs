@@ -5,6 +5,7 @@ use std::fs::File;
 use std::env;
 use std::thread;
 use std::time::Duration;
+use std::time::{UNIX_EPOCH, SystemTime};
 
 use async_h1::{client};
 use async_std::net::{TcpListener, TcpStream};
@@ -32,24 +33,39 @@ async fn main() -> http_types::Result<()> {
         panic!("Config argument missing");
     }
 
+    // Generating block
+    // Baseline: 100 for miner, 100 for faucet
     let config = ConfigFile::from_path(&argv[1]);
+    let mut num_blocks = 100;
+    let block_time = Duration::from_millis(config.neon.block_time);
 
     if is_bootstrap_chain_required(&config).await? {
         println!("Bootstrapping chain");
-        // Generate 100 blocks for the neon miner
+
+        let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(dur) => dur,
+            Err(err) => err.duration(),
+        }.as_secs() as u64;
+
+        let time_since_genesis = now - config.neon.genesis_timestamp.clone();
+        
+        // If the testnet crashed, we need to generate a chain that would be
+        // longer that the previous chain.
+        num_blocks += time_since_genesis / block_time.as_secs();
+
         let miner_address = config.neon.miner_address.clone();
-        generate_blocks(100, miner_address, &config).await;
+        generate_blocks(num_blocks, miner_address, &config).await;
+
         // Generate 100 blocks for the neon faucet
         let faucet_address = config.neon.faucet_address.clone();
         generate_blocks(100, faucet_address, &config).await;
+        num_blocks += 100;
     }
 
     // Start a loop in a separate thread, generating new blocks
     // on a given frequence (coming from config).
     let conf = config.clone();
     thread::spawn(move || {
-        let mut num_blocks = 201;
-        let block_time = Duration::from_millis(conf.neon.block_time);
         let miner_address = conf.neon.miner_address.clone();
 
         loop {
@@ -285,6 +301,8 @@ pub struct RegtestConfig {
     bitcoind_rpc_user: String,
     /// Credential - password
     bitcoind_rpc_pass: String,
+    /// Used for deducting the right amount of blocks
+    genesis_timestamp: u64,
 }
 
 impl RegtestConfig {

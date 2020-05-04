@@ -6,6 +6,7 @@ faucet_address = "n3k15aVS4rEWhVYn4YfAFjD8Em5mmsducg"
 bitcoind_rpc_host = "127.0.0.1:18443"
 bitcoind_rpc_user = "helium-node"
 bitcoind_rpc_pass = "secret"
+genesis_timestamp = 1588615296
 
 # Faucet:
 # Private Key          cTYqAVPS7uJTAcxyzkXWjmRGoCjkPcb38wZVRjyXov1RiRDWPQj3
