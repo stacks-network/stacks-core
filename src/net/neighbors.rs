@@ -1590,13 +1590,10 @@ impl PeerNetwork {
         if self.walk.is_none() {
             // time to do a walk yet?
             if self.walk_count > NUM_INITIAL_WALKS && self.walk_deadline > get_epoch_time_secs() {
-                if !self.walk_wakeup_hint {
-                    // we've done enough walks for an initial mixing,
-                    // so throttle ourselves down until the walk deadline passes.
-                    debug!("{:?}: Throttle walk until {} to walk again", &self.local_peer, self.walk_deadline);
-                    return (true, None);
-                }
-                self.walk_wakeup_hint = false;
+                // we've done enough walks for an initial mixing,
+                // so throttle ourselves down until the walk deadline passes.
+                debug!("{:?}: Throttle walk until {} to walk again", &self.local_peer, self.walk_deadline);
+                return (true, None);
             }
         }
 
