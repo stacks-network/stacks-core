@@ -204,6 +204,6 @@ impl BurnchainController for MocknetController {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self) {}
+    fn bootstrap_chain(&mut self, num_blocks: u64) {}
 }
 
