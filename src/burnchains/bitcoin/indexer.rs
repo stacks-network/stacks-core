@@ -542,11 +542,12 @@ impl BitcoinIndexer {
             let max_headers_len = if canonical_headers.len() < reorg_headers.len() { canonical_headers.len() } else { reorg_headers.len() };
             let max_height = start_block + (max_headers_len as u64);
 
-            // scan for common ancestor
-            for i in (start_block..max_height).rev() {
+            // scan for common ancestor, but excluding the block we wrote to bootstrap the
+            // reorg_spv_client.
+            for i in (start_block+1..max_height).rev() {
                 if canonical_headers[(i - start_block) as usize].header == reorg_headers[(i - start_block) as usize].header {
                     // found common ancestor
-                    debug!("Found common Bitcoin block ancestor at height {}", i);
+                    debug!("Found common Bitcoin block ancestor at height {}: {:?}", i, &canonical_headers[(i - start_block) as usize].header);
                     new_tip = i;
                     found_common_ancestor = true;
                     break;
@@ -566,6 +567,9 @@ impl BitcoinIndexer {
             }
 
             start_block = start_block.saturating_sub(REORG_BATCH_SIZE);
+
+            // try again 
+            reorg_spv_client = self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
         }
 
         debug!("Bitcoin headers history is consistent up to {}", new_tip);
