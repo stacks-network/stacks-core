@@ -1600,7 +1600,7 @@ mod test {
         peer_2.dump_frontier();
 
         let peer_2_inv = peer_1.network.inv_state.as_ref().unwrap().block_stats.get(&peer_2.to_neighbor().addr).unwrap().inv.clone();
-        test_debug!("peer 1's view of peer 2: {:?}", &peer_2_inv);
+        info!("peer 1's view of peer 2: {:?}", &peer_2_inv);
 
         assert_eq!(peer_2_inv.num_sortitions, num_burn_blocks);
         
