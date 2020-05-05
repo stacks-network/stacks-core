@@ -1868,7 +1868,7 @@ impl BurnDB {
     /// Used mainly by the network code to determine what the chain tip currently looks like.
     pub fn get_burnchain_view<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain) -> Result<BurnchainView, db_error> {
         let chain_tip = BurnDB::get_canonical_burn_chain_tip(ic)?;
-        if chain_tip.block_height == 0 || chain_tip.block_height < burnchain.first_block_height {
+        if chain_tip.block_height < burnchain.first_block_height {
             // should never happen, but don't panic since this is network-callable code
             error!("Invalid block height from DB: {}: expected at least {}", chain_tip.block_height, burnchain.first_block_height);
             return Err(db_error::Corruption);
@@ -1910,12 +1910,9 @@ impl BurnDB {
             };
 
         let mut last_consensus_hashes = HashMap::new();
-        let mut last_tip = chain_tip.clone();
-        last_consensus_hashes.insert(last_tip.block_height, last_tip.consensus_hash.clone());
-        for _ in oldest_height..chain_tip.block_height-1 {
-            let tip = BurnDB::get_block_snapshot(ic, &last_tip.parent_burn_header_hash)?.expect(&format!("BUG: no snapshot for {:?}", &last_tip.parent_burn_header_hash));
-            last_consensus_hashes.insert(tip.block_height, tip.consensus_hash.clone());
-            last_tip = tip;
+        for height in oldest_height..chain_tip.block_height {
+            let ch = BurnDB::get_consensus_at(ic, height, &chain_tip.burn_header_hash)?.unwrap_or(ConsensusHash::empty());
+            last_consensus_hashes.insert(height, ch);
         }
 
         test_debug!("Chain view: {},{}-{},{}", chain_tip.block_height, chain_tip.consensus_hash, stable_block_height, stable_snapshot.consensus_hash);
