@@ -101,6 +101,7 @@ use std::convert::{
 use chainstate::stacks::index::Error as Error;
 
 use util::log;
+use util::db::tx_begin_immediate;
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
@@ -125,7 +126,7 @@ CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT PRIMARY KEY);
 ";
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
-    let tx = conn.transaction()?;
+    let tx = tx_begin_immediate(conn)?;
 
     tx.execute_batch(SQL_MARF_DATA_TABLE)?;
     tx.execute_batch(SQL_MARF_MINED_TABLE)?;
@@ -218,7 +219,7 @@ pub fn get_node_hash_bytes_by_bhh(conn: &Connection, bhh: &BlockHeaderHash, ptr:
 }
 
 pub fn lock_bhh_for_extension(conn: &mut Connection, bhh: &BlockHeaderHash) -> Result<bool, Error> {
-    let tx = conn.transaction()?;
+    let tx = tx_begin_immediate(conn)?;
     let is_bhh_committed = tx.query_row("SELECT 1 FROM marf_data WHERE block_hash = ? LIMIT 1", &[bhh],
                                         |_row| ()).optional()?.is_some();
     if is_bhh_committed {
@@ -253,7 +254,7 @@ pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
 }
 
 pub fn clear_tables(conn: &mut Connection) -> Result<(), Error> {
-    let tx = conn.transaction()?;
+    let tx = tx_begin_immediate(conn)?;
     tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
     tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
     tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;

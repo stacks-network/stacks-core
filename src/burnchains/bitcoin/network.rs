@@ -45,36 +45,10 @@ use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::PeerMessage;
 
 use util::log;
+use util::get_epoch_time_secs;
 
-// Borrowed from Andrew Poelstra's rust-bitcoin library.
-/// Lock the socket in the BitcoinIndexer's runtime state and do something with it.
-///
-/// $s -- BitcoinIndexer.runtime (something with .socket as Arc<Mutex<Option<net::TcpSocket>>>)
-/// $sock -- name of locked socket object in $body
-/// $body -- code to execute with locked $sock
-macro_rules! with_socket(($s:ident, $sock:ident, $body:block) => ({
-    use ::std::ops::DerefMut;
-    let sock_lock = $s.socket_locked();
-    match sock_lock {
-        Err(_) => {
-            Err(btc_error::SocketMutexPoisoned.into())
-        }
-        Ok(mut guard) => {
-            match *guard.deref_mut() {
-                Some(ref mut $sock) => {
-                    $body
-                }
-                None => {
-                    Err(btc_error::SocketNotConnectedToPeer.into())
-                }
-            }
-        }
-    }
-}));
-
-impl BitcoinIndexer {
-    
-    // Based on Andrew Poelstra's rust-bitcoin library.
+// Based on Andrew Poelstra's rust-bitcoin library.
+impl BitcoinIndexer { 
     /// Send a Bitcoin protocol message on the wire
     pub fn send_message(&mut self, payload: btc_message::NetworkMessage) -> Result<(), btc_error> {
         let message = btc_message::RawNetworkMessage {
@@ -82,9 +56,10 @@ impl BitcoinIndexer {
             payload: payload 
         };
 
-        with_socket!(self, sock, {
+        self.with_socket(|ref mut sock| {
             message.consensus_encode(&mut RawEncoder::new(&mut *sock))
                 .map_err(btc_error::SerializationError)?;
+
             sock.flush().map_err(btc_error::Io)
         })
     }
@@ -94,7 +69,7 @@ impl BitcoinIndexer {
     pub fn recv_message(&mut self) -> Result<PeerMessage, btc_error> {
         let magic = network_id_to_bytes(self.runtime.network_id);
 
-        with_socket!(self, sock, {
+        self.with_socket(|ref mut sock| {
             // read the message off the wire
             let mut decoder = RawDecoder::new(sock);
 
@@ -121,57 +96,53 @@ impl BitcoinIndexer {
                 return Err(btc_error::InvalidMagic);
             }
 
-            Ok(PeerMessage::new(decoded.payload))
+            Ok(decoded.payload)
         })
     }
 
     /// Get sender address from our socket 
     pub fn get_local_sockaddr(&mut self) -> Result<SocketAddr, btc_error> {
-        with_socket!(self, sock, {
-            match sock.local_addr() {
-                Ok(addr) => {
-                    return Ok(addr);
-                }
-                Err(e) => {
-                    return Err(btc_error::Io(e));
-                }
-            }
+        self.with_socket(|ref mut sock| {
+            sock.local_addr().map_err(btc_error::Io)
         })
     }
 
     /// Get receiver address from our socket 
     pub fn get_remote_sockaddr(&mut self) -> Result<SocketAddr, btc_error> {
-        with_socket!(self, sock, {
-            match sock.peer_addr() {
-                Ok(addr) => {
-                    return Ok(addr);
-                }
-                Err(e) => {
-                    return Err(btc_error::Io(e));
-                }
-            }
+        self.with_socket(|ref mut sock| {
+            sock.peer_addr().map_err(btc_error::Io)
         })
     }
 
     /// Handle and consume message we received, if we can.
     /// Returns UnhandledMessage if we can't handle the given message.
     pub fn handle_message<T: BitcoinMessageHandler>(&mut self, message: PeerMessage, handler: Option<&mut T>) -> Result<bool, btc_error> {
+        if self.runtime.last_getdata_send_time > 0 && self.runtime.last_getdata_send_time + self.runtime.timeout < get_epoch_time_secs() {
+            warn!("Timed out waiting for block data.  Killing connection.");
+            return Err(btc_error::TimedOut);
+        }
+        
+        if self.runtime.last_getheaders_send_time > 0 && self.runtime.last_getheaders_send_time + self.runtime.timeout < get_epoch_time_secs() {
+            warn!("Timed out waiting for headers data.  Killing connection.");
+            return Err(btc_error::TimedOut);
+        }
+
         // classify the message here, so we can pass it along to the handler explicitly
-        match message.deref() {
-            btc_message::NetworkMessage::Version(_msg_body) => {
-                return self.handle_version(message.clone())
+        match message {
+            btc_message::NetworkMessage::Version(..) => {
+                return self.handle_version(message)
                     .and_then(|_r| Ok(true));
             }
             btc_message::NetworkMessage::Verack => {
-                return self.handle_verack(message.clone())
+                return self.handle_verack(message)
                     .and_then(|_r| Ok(true));
             }
-            btc_message::NetworkMessage::Ping(ref _nonce) => {
-                return self.handle_ping(message.clone())
+            btc_message::NetworkMessage::Ping(..) => {
+                return self.handle_ping(message)
                     .and_then(|_r| Ok(true));
             }
-            btc_message::NetworkMessage::Pong(ref nonce) => {
-                return self.handle_pong(message.clone(), *nonce)
+            btc_message::NetworkMessage::Pong(..) => {
+                return self.handle_pong(message)
                     .and_then(|_r| Ok(true));
             }
             _ => {
@@ -201,7 +172,6 @@ impl BitcoinIndexer {
         debug!("Established connection to {}:{}, who has {} blocks", self.config.peer_host, self.config.peer_port, self.runtime.block_height);
         Ok(self.runtime.block_height)
     }
-
 
     /// Connect to a remote peer, do a handshake with the remote peer, and use exponential backoff until we
     /// succeed in establishing a connection.
@@ -284,7 +254,7 @@ impl BitcoinIndexer {
 
     /// Receive a Version message and reply with a Verack
     pub fn handle_version(&mut self, version_message: PeerMessage) -> Result<(), btc_error> {
-        match version_message.deref() {
+        match version_message {
             btc_message::NetworkMessage::Version(msg_body) => {
                 debug!("Handle version -- remote peer blockchain height is {}", msg_body.start_height);
                 self.runtime.block_height = msg_body.start_height as u64;
@@ -308,7 +278,7 @@ impl BitcoinIndexer {
     /// Handle a verack we received.
     /// Does nothing.
     pub fn handle_verack(&mut self, verack_message: PeerMessage) -> Result<(), btc_error> {
-        match verack_message.deref() {
+        match verack_message {
             btc_message::NetworkMessage::Verack => {
                 debug!("Handle verack");
                 return Ok(());
@@ -322,7 +292,7 @@ impl BitcoinIndexer {
 
     /// Respond to a Ping message by sending a Pong message 
     pub fn handle_ping(&mut self, ping_message: PeerMessage) -> Result<(), btc_error> {
-        match ping_message.deref() {
+        match ping_message {
             btc_message::NetworkMessage::Ping(ref n) => {
                 debug!("Handle ping {}", n);
                 let payload = btc_message::NetworkMessage::Pong(*n);
@@ -339,13 +309,9 @@ impl BitcoinIndexer {
     
     /// Respond to a Pong message.
     /// Does nothing.
-    pub fn handle_pong(&mut self, pong_message: PeerMessage, expected_nonce: u64) -> Result<(), btc_error> {
-        match pong_message.deref() {
+    pub fn handle_pong(&mut self, pong_message: PeerMessage) -> Result<(), btc_error> {
+        match pong_message {
             btc_message::NetworkMessage::Pong(n) => {
-                if expected_nonce != *n {
-                    return Err(btc_error::InvalidReply);
-                }
-
                 debug!("Handle pong {}", n);
                 return Ok(());
             }
@@ -364,6 +330,8 @@ impl BitcoinIndexer {
         let payload = btc_message::NetworkMessage::GetHeaders(getheaders);
 
         debug!("Send GetHeaders {} for 2000 headers to {}:{}", prev_block_hash.be_hex_string(), self.config.peer_host, self.config.peer_port);
+        
+        self.runtime.last_getheaders_send_time = get_epoch_time_secs();
         self.send_message(payload)
     }
 
@@ -382,6 +350,7 @@ impl BitcoinIndexer {
 
         let getdata = btc_message::NetworkMessage::GetData(getdata_invs);
 
+        self.runtime.last_getdata_send_time = get_epoch_time_secs();
         debug!("Send GetData {}-{} to {}:{}", block_hashes[0].be_hex_string(), block_hashes[block_hashes.len() - 1].be_hex_string(), self.config.peer_host, self.config.peer_port);
         self.send_message(getdata)
     }

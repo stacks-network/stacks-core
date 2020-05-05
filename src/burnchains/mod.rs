@@ -150,6 +150,13 @@ impl BurnchainParameters {
             consensus_hash_lifetime: 24
         }
     }
+
+    pub fn is_testnet(network_id: u32) -> bool {
+        match network_id {
+            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST => true,
+            _ => false
+        }
+    }
 }
 
 pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
@@ -303,10 +310,14 @@ pub enum Error {
     MissingHeaders,
     /// Missing parent block
     MissingParentBlock,
+    /// Remote burnchain peer has misbehaved
+    BurnchainPeerBroken,
     /// filesystem error 
     FSError(io::Error),
     /// Operation processing error 
     OpError(op_error),
+    /// Try again error
+    TrySyncAgain,
 }
 
 impl fmt::Display for Error {
@@ -320,8 +331,10 @@ impl fmt::Display for Error {
             Error::MissingHeaders => write!(f, "Missing block headers"),
             Error::MissingParentBlock => write!(f, "Missing parent block"),
             Error::ThreadChannelError => write!(f, "Error in thread channel"),
+            Error::BurnchainPeerBroken => write!(f, "Remote burnchain peer has misbehaved"),
             Error::FSError(ref e) => fmt::Display::fmt(e, f),
             Error::OpError(ref e) => fmt::Display::fmt(e, f),
+            Error::TrySyncAgain => write!(f, "Try synchronizing again"),
         }
     }
 }
@@ -337,9 +350,23 @@ impl error::Error for Error {
             Error::MissingHeaders => None,
             Error::MissingParentBlock => None,
             Error::ThreadChannelError => None,
+            Error::BurnchainPeerBroken => None,
             Error::FSError(ref e) => Some(e),
             Error::OpError(ref e) => Some(e),
+            Error::TrySyncAgain => None,
         }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
+    }
+}
+
+impl From<btc_error> for Error {
+    fn from(e: btc_error) -> Error {
+        Error::Bitcoin(e)
     }
 }
 
@@ -700,7 +727,7 @@ pub mod test {
         }
 
         pub fn add_leader_block_commit<'a>(&mut self, 
-                                           tx: &mut BurnDBTx<'a>, 
+                                           ic: &BurnDBConn<'a>,
                                            miner: &mut TestMiner, 
                                            block_hash: &BlockHeaderHash, 
                                            burn_fee: u64, 
@@ -717,12 +744,12 @@ pub mod test {
             
             let last_snapshot = match fork_snapshot {
                 Some(sn) => sn.clone(),
-                None => BurnDB::get_canonical_burn_chain_tip(tx).unwrap()
+                None => BurnDB::get_canonical_burn_chain_tip(ic).unwrap()
             };
 
             let last_snapshot_with_sortition = match parent_block_snapshot {
                 Some(sn) => sn.clone(),
-                None => BurnDB::get_first_block_snapshot(tx).unwrap()
+                None => BurnDB::get_first_block_snapshot(ic).unwrap()
             };
              
             // prove on the last-ever sortition's hash to produce the new seed
@@ -731,7 +758,7 @@ pub mod test {
 
             let new_seed = VRFSeed::from_proof(&proof);
 
-            let mut txop = match BurnDB::get_block_commit(tx, &last_snapshot_with_sortition.winning_block_txid, &last_snapshot_with_sortition.burn_header_hash)
+            let mut txop = match BurnDB::get_block_commit(ic, &last_snapshot_with_sortition.winning_block_txid, &last_snapshot_with_sortition.burn_header_hash)
                 .expect("FATAL: failed to read block commit") {
                 Some(parent) => {
                     let txop = LeaderBlockCommitOp::new(block_hash, self.block_height, &new_seed, &parent, leader_key.block_height as u32, leader_key.vtxindex as u16, burn_fee, &input);
@@ -818,20 +845,20 @@ pub mod test {
             self.pending_blocks.push(b);
         }
 
-        pub fn get_tip<'a>(&mut self, tx: &mut BurnDBTx<'a>) -> BlockSnapshot {
+        pub fn get_tip<'a>(&mut self, ic: &BurnDBConn<'a>) -> BlockSnapshot {
             test_debug!("Get tip snapshot at {}", &self.tip_header_hash);
-            BurnDB::get_block_snapshot(tx, &self.tip_header_hash).unwrap().unwrap()
+            BurnDB::get_block_snapshot(ic, &self.tip_header_hash).unwrap().unwrap()
         }
 
-        pub fn next_block<'a>(&mut self, tx: &mut BurnDBTx<'a>) -> TestBurnchainBlock {
-            let fork_tip = self.get_tip(tx);
+        pub fn next_block<'a>(&mut self, ic: &BurnDBConn<'a>) -> TestBurnchainBlock {
+            let fork_tip = self.get_tip(ic);
             TestBurnchainBlock::new(&fork_tip, self.fork_id)
         }
 
         pub fn mine_pending_blocks(&mut self, db: &mut BurnDB, burnchain: &Burnchain) -> BlockSnapshot {
             let mut snapshot = {
-                let mut tx = db.tx_begin().unwrap();
-                self.get_tip(&mut tx)
+                let ic = db.index_conn();
+                self.get_tip(&ic)
             };
 
             for mut block in self.pending_blocks.drain(..) {
@@ -858,7 +885,7 @@ pub mod test {
         pub fn new() -> TestBurnchainNode {
             let first_block_height = 100;
             let first_block_hash = FIRST_BURNCHAIN_BLOCK_HASH.clone();
-            let db = BurnDB::connect_memory(first_block_height, &first_block_hash).unwrap();
+            let db = BurnDB::connect_test(first_block_height, &first_block_hash).unwrap();
             TestBurnchainNode {
                 burndb: db,
                 dirty: false,
@@ -888,8 +915,8 @@ pub mod test {
         assert_eq!(miners.len(), block_hashes.len());
 
         let mut block = {
-            let mut tx = node.burndb.tx_begin().unwrap();
-            fork.next_block(&mut tx)
+            let ic = node.burndb.index_conn();
+            fork.next_block(&ic)
         };
 
         let mut next_commits = vec![];
@@ -901,9 +928,9 @@ pub mod test {
             // make a Stacks block (hash) for each of the prior block's keys
             for j in 0..miners.len() {
                 let block_commit_op = {
-                    let mut tx = node.burndb.tx_begin().unwrap();
+                    let ic = node.burndb.index_conn();
                     let hash = block_hashes[j].clone();
-                    block.add_leader_block_commit(&mut tx, &mut miners[j], &hash, ((j + 1) as u64) * 1000, &prev_keys[j], None, None)
+                    block.add_leader_block_commit(&ic, &mut miners[j], &hash, ((j + 1) as u64) * 1000, &prev_keys[j], None, None)
                 };
                 next_commits.push(block_commit_op);
             }

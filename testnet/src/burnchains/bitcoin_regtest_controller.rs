@@ -12,6 +12,7 @@ use super::super::Config;
 
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::BurnchainStateTransition;
+use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
@@ -52,8 +53,8 @@ impl BitcoinRegtestController {
         
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
-        
-        let res = SpvClient::init_block_headers(&config.burnchain.spv_headers_path, BitcoinNetworkType::Regtest);
+    
+        let res = SpvClient::new(&config.burnchain.spv_headers_path, 0, None, BitcoinNetworkType::Regtest, true, false);
         if let Err(err) = res {
             error!("Unable to init block headers: {}", err);
             panic!()
@@ -132,11 +133,32 @@ impl BitcoinRegtestController {
     fn receive_blocks(&mut self) -> BurnchainTip {
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
 
-        let (block_snapshot, state_transition) = match burnchain.sync_with_indexer(&mut burnchain_indexer) {
-            Ok(res) => res,
-            Err(e) => {
-                error!("Unable to sync burnchain: {}", e);
-                panic!()
+        let (block_snapshot, state_transition) = loop {
+            match burnchain.sync_with_indexer(&mut burnchain_indexer) {
+                Ok(x) => {
+                    break x;
+                }
+                Err(e) => {
+                    // keep trying
+                    error!("Unable to sync with burnchain: {}", e);
+                    match e {
+                        burnchain_error::TrySyncAgain => {
+                            // try again immediately
+                            continue;
+                        },
+                        burnchain_error::BurnchainPeerBroken => {
+                            // remote burnchain peer broke, and produced a shorter blockchain fork.
+                            // just keep trying
+                            sleep_ms(5000);
+                            continue;
+                        },
+                        _ => {
+                            // delay and try again
+                            sleep_ms(5000);
+                            continue;
+                        }
+                    }
+                }
             }
         };
 
@@ -192,50 +214,65 @@ impl BitcoinRegtestController {
             .expect("Public key incorrect");        
         let filter_addresses = vec![address.to_b58()];
 
-        let request_builder = self.get_rpc_request_builder();
-        let result = BitcoinRPCRequest::list_unspent(
-            request_builder,
-            filter_addresses.clone(), 
-            false, 
-            amount_required);
-
-        // Perform request
-        let mut utxos = match result {
-                Ok(utxos) => utxos,
-                Err(e) => {
-                    error!("Bitcoin RPC failure: error listing utxos {:?}", e);
-                    panic!();    
-                }
-        };
-
-        if utxos.len() == 0 {
-            let request_builder = self.get_rpc_request_builder();
-            let _result = BitcoinRPCRequest::import_public_key(
-                request_builder,
-                &public_key);
-
-            // todo(ludo): rescan can take time. we should probably add a few retries, with exp backoff.
-            sleep_ms(1000);
-
+        let mut utxos = loop {
             let request_builder = self.get_rpc_request_builder();
             let result = BitcoinRPCRequest::list_unspent(
                 request_builder,
-                filter_addresses, 
+                filter_addresses.clone(), 
                 false, 
                 amount_required);
 
-            utxos = match result {
-                    Ok(utxos) => utxos,
+            // Perform request
+            match result {
+                    Ok(utxos) => {
+                        break utxos;
+                    }
                     Err(e) => {
                         error!("Bitcoin RPC failure: error listing utxos {:?}", e);
-                        panic!();    
+                        sleep_ms(5000);
+                        continue;
                     }
             };
+        };
 
+        let utxos = 
             if utxos.len() == 0 {
-                return None
+                loop {
+                    let request_builder = self.get_rpc_request_builder();
+                    let _result = BitcoinRPCRequest::import_public_key(
+                        request_builder,
+                        &public_key);
+
+                    // todo(ludo): rescan can take time. we should probably add a few retries, with exp backoff.
+                    sleep_ms(1000);
+
+                    let request_builder = self.get_rpc_request_builder();
+                    let result = BitcoinRPCRequest::list_unspent(
+                        request_builder,
+                        filter_addresses.clone(), 
+                        false, 
+                        amount_required);
+
+                    utxos = match result {
+                            Ok(utxos) => utxos,
+                            Err(e) => {
+                                error!("Bitcoin RPC failure: error listing utxos {:?}", e);
+                                sleep_ms(5000);
+                                continue;
+                            }
+                    };
+
+                    if utxos.len() == 0 {
+                        return None;
+                    }
+                    else {
+                        break utxos;
+                    }
+                }
             }
-        }
+            else {
+                utxos
+            };
 
         let total_unspent: u64 = utxos.iter().map(|o| o.get_sat_amount()).sum();
         if total_unspent < amount_required {
@@ -467,6 +504,10 @@ impl BitcoinRegtestController {
 }
 
 impl BurnchainController for BitcoinRegtestController {
+    
+    fn burndb_ref(&self) -> &BurnDB {
+        self.db.as_ref().expect("BUG: did not instantiate the burn DB")
+    }
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
         let network = "regtest".to_string();
@@ -517,7 +558,7 @@ impl BurnchainController for BitcoinRegtestController {
                 if burnchain_tip.block_snapshot.block_height > current_height {
                     break burnchain_tip;
                 }
-                sleep_ms(500);
+                sleep_ms(5000);
             }
         }
     }
