@@ -566,15 +566,6 @@ impl ConversationP2P {
             test_debug!("remote peer is too far ahead of us: {} > {}", msg.preamble.burn_stable_block_height, chain_view.burn_block_height);
             return Ok(false);
         }
-        else {
-            // remote node's unstable burn block height is at or behind ours.
-            // if their view is sufficiently fresh, make sure their consensus hash matches our view.
-            let res = ConversationP2P::check_consensus_hash_disagreement(msg.preamble.burn_block_height, &msg.preamble.burn_consensus_hash, chain_view);
-            if res {
-                // our chain tip disagrees with their chain tip -- don't engage
-                return Ok(false);
-            }
-        }
 
         // must agree on stable consensus hash
         let rules_disagree = ConversationP2P::check_consensus_hash_disagreement(msg.preamble.burn_stable_block_height, &msg.preamble.burn_stable_consensus_hash, chain_view);
@@ -2467,7 +2458,8 @@ mod test {
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(false));
+            // considered valid as long as the stable consensus hash is valid
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(true));
         }
 
         // stable consensus hash mismatch 
