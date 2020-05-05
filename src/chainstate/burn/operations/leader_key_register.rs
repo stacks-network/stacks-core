@@ -35,7 +35,7 @@ use util::db::DBConn;
 use util::db::DBTx;
 
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::stacks::index::TrieHash;
 
 use burnchains::BurnchainTransaction;
@@ -216,10 +216,9 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
+    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), op_error> {
         // this will be the chain tip we're building on
-        let chain_tip = BurnDB::get_block_snapshot(tx, &block_header.parent_block_hash)
-            .expect("FATAL: failed to query parent block snapshot")
+        let chain_tip = BurnDB::get_block_snapshot(ic, &block_header.parent_block_hash)?
             .expect("FATAL: no parent snapshot in the DB");
 
         /////////////////////////////////////////////////////////////////
@@ -227,8 +226,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         /////////////////////////////////////////////////////////////////
 
         // key selected here must never have been submitted on this fork before 
-        let has_key_already = BurnDB::has_VRF_public_key(tx, &self.public_key, &chain_tip.burn_header_hash)
-            .expect("Sqlite failure while fetching VRF public key");
+        let has_key_already = BurnDB::has_VRF_public_key(ic, &self.public_key, &chain_tip.burn_header_hash)?;
 
         if has_key_already {
             warn!("Invalid leader key registration: public key {} previously used", &self.public_key.to_hex());
@@ -239,8 +237,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)
-            .expect("Sqlite failure while checking consensus hash freshness");
+        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(ic, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)?;
 
         if !consensus_hash_recent {
             warn!("Invalid leader key registration: invalid consensus hash {}", &self.consensus_hash);
@@ -582,7 +579,7 @@ mod tests {
         ];
 
         for fixture in check_fixtures {
-            let mut tx = db.tx_begin().unwrap();
+            let ic = db.index_conn();
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
                 block_hash: fixture.op.burn_header_hash.clone(),
@@ -591,7 +588,7 @@ mod tests {
                 parent_index_root: tip_root_index.clone(),
                 timestamp: get_epoch_time_secs()
             };
-            assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &header, &ic)));
         }
     }
 

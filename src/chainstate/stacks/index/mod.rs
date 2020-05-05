@@ -42,6 +42,7 @@ use chainstate::burn::BlockHeaderHash;
 
 use util::log;
 use util::hash::to_hex;
+use util::db::Error as db_error;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
 pub struct TrieHash(pub [u8; 32]);
@@ -253,6 +254,16 @@ impl From<rusqlite::Error> for Error {
             Error::NotFoundError
         } else {
             Error::SQLError(err)
+        }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        match e {
+            db_error::SqliteError(se) => Error::SQLError(se),
+            db_error::NotFoundError => Error::NotFoundError,
+            _ => Error::CorruptionError(format!("{}", &e))
         }
     }
 }

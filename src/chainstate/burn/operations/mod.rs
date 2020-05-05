@@ -28,6 +28,7 @@ use std::error;
 use std::io;
 use std::fs;
 use std::convert::TryInto; 
+use std::convert::From;
 
 use util::db::DBConn;
 use util::db::DBTx;
@@ -37,7 +38,7 @@ use burnchains::Burnchain;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
 use burnchains::{
@@ -55,13 +56,16 @@ use chainstate::stacks::index::TrieHash;
 
 use util::secp256k1::MessageSignature;
 use util::vrf::VRFPublicKey;
+use util::db::Error as db_error;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug)]
 pub enum Error {
     /// Failed to parse the operation from the burnchain transaction
     ParseError,
     /// Invalid input data
     InvalidInput,
+    /// Database error
+    DBError(db_error),
     
     // all the things that can go wrong with block commits
     BlockCommitPredatesGenesis,
@@ -85,6 +89,7 @@ impl fmt::Display for Error {
         match *self {
             Error::ParseError => write!(f, "Failed to parse transaction into Blockstack operation"),
             Error::InvalidInput => write!(f, "Invalid input"),
+            Error::DBError(ref e) => fmt::Display::fmt(e, f),
 
             Error::BlockCommitPredatesGenesis => write!(f, "Block commit predates genesis block"),
             Error::BlockCommitAlreadyExists => write!(f, "Block commit commits to an already-seen block"),
@@ -107,6 +112,7 @@ impl error::Error for Error {
         match *self {
             Error::ParseError => None,
             Error::InvalidInput => None,
+            Error::DBError(ref e) => Some(e),
 
             Error::BlockCommitPredatesGenesis => None,
             Error::BlockCommitAlreadyExists => None,
@@ -121,6 +127,12 @@ impl error::Error for Error {
             Error::UserBurnSupportBadConsensusHash => None,
             Error::UserBurnSupportNoLeaderKey => None,
         }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
     }
 }
 
@@ -176,7 +188,7 @@ pub struct UserBurnSupportOp {
 }
 
 pub trait BlockstackOperation {
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), Error>;
+    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), Error>;
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<Self, Error>
         where Self: Sized;
 }

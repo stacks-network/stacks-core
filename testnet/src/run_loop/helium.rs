@@ -69,9 +69,7 @@ impl RunLoop {
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
         let mut chain_tip = ChainTip::genesis();
 
-        if self.config.burnchain.mode == "mocknet" {
-            self.node.spawn_peer_server();
-        }
+        self.node.spawn_peer_server();
 
         // Bootstrap the chain: node will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.

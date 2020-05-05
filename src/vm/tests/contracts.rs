@@ -503,7 +503,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
         env.execute_contract(&QualifiedContractIdentifier::local("proxy-compute").unwrap(), "proxy-compute", &args, false).unwrap();
         assert_eq!(
             env.eval_read_only(&QualifiedContractIdentifier::local("factorial-contract").unwrap(),
-                               "(get current (unwrap! (map-get? factorials {id 8008}) false))").unwrap(),
+                               "(get current (unwrap! (map-get? factorials {id: 8008}) false))").unwrap(),
             *expected_result);
     }
 }
@@ -792,6 +792,7 @@ fn test_all() {
                     test_simple_naming_system,
                     test_simple_contract_call ];
     for test in to_test.iter() {
+        eprintln!("..");
         with_memory_environment(test, false);
         with_marfed_environment(test, false);
     }

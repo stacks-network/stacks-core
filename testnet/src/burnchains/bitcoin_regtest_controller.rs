@@ -504,6 +504,10 @@ impl BitcoinRegtestController {
 }
 
 impl BurnchainController for BitcoinRegtestController {
+    
+    fn burndb_ref(&self) -> &BurnDB {
+        self.db.as_ref().expect("BUG: did not instantiate the burn DB")
+    }
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
         let network = "regtest".to_string();
@@ -581,7 +585,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
     
     #[cfg(test)]
-    fn bootstrap_chain(&mut self) {
+    fn bootstrap_chain(&mut self, num_blocks: u64) {
 
         if let Some(local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
 
@@ -601,7 +605,7 @@ impl BurnchainController for BitcoinRegtestController {
             let request_builder = self.get_rpc_request_builder();
             let result = BitcoinRPCRequest::generate_to_address(
                 request_builder, 
-                201,
+                num_blocks,
                 address.to_b58());
 
             match result {

@@ -21,6 +21,7 @@ use rusqlite::{Connection, OpenFlags, NO_PARAMS, OptionalExtension};
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
+use rusqlite::TransactionBehavior;
 
 use rand;
 use rand::RngCore;
@@ -31,8 +32,9 @@ use std::convert::From;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_row, query_row_columns, query_count, IndexDBTx, db_mkdirs};
+use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_row, query_row_columns, query_count, IndexDBTx, IndexDBConn, db_mkdirs};
 use util::db::Error as db_error;
+use util::db::tx_begin_immediate;
 use util::get_epoch_time_secs;
 
 use chainstate::ChainstateDB;
@@ -91,6 +93,8 @@ const BLOCK_HEIGHT_MAX : u64 = ((1 as u64) << 63) - 1;
 
 pub const REWARD_WINDOW_START : u64 = 144 * 15;
 pub const REWARD_WINDOW_END : u64 = 144 * 90 + REWARD_WINDOW_START;
+
+pub type BlockHeaderCache = HashMap<(BurnchainHeaderHash, ConsensusHash), Option<BlockHeaderHash>>;
 
 // for using BurnchainHeaderHash values as block hashes in a MARF
 impl From<BurnchainHeaderHash> for BlockHeaderHash {
@@ -423,20 +427,22 @@ pub struct BurnDB {
     pub first_burn_header_hash: BurnchainHeaderHash,
 }
 
+#[derive(Clone)]
 pub struct BurnDBTxContext {
     pub first_block_height: u64,
 }
 
 pub type BurnDBTx<'a> = IndexDBTx<'a, BurnDBTxContext>;
+pub type BurnDBConn<'a> = IndexDBConn<'a, BurnDBTxContext>;
 
-fn burndb_get_ancestor_block_hash<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BurnchainHeaderHash>, db_error> {
-    if block_height < tx.context.first_block_height {
+fn burndb_get_ancestor_block_hash<'a>(iconn: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BurnchainHeaderHash>, db_error> {
+    if block_height < iconn.context.first_block_height {
         return Ok(None);
     }
     
     let tip_bhh = BlockHeaderHash::from(tip_block_hash.clone());
-    let first_block_height = tx.context.first_block_height;
-    match tx.get_ancestor_block_hash(block_height - first_block_height, &tip_bhh)? {
+    let first_block_height = iconn.context.first_block_height;
+    match iconn.get_ancestor_block_hash(block_height - first_block_height, &tip_bhh)? {
         Some(bhh) => {
             Ok(Some(BurnchainHeaderHash::from(bhh)))
         },
@@ -448,7 +454,7 @@ fn burndb_get_ancestor_block_hash<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, 
 
 impl BurnDB {
     fn instantiate(conn: &mut Connection, index_path: &str, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> Result<(), db_error> {
-        let tx = conn.transaction().map_err(db_error::SqliteError)?;
+        let tx = tx_begin_immediate(conn)?;
 
         // create first (sentinel) snapshot
         let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash, first_burn_header_timestamp);
@@ -493,7 +499,7 @@ impl BurnDB {
             &FIRST_BURNCHAIN_BLOCK_HASH,
         ];
 
-        burndbtx.tx.execute("INSERT INTO snapshots (
+        burndbtx.tx_mut().execute("INSERT INTO snapshots (
                                 block_height,
                                 burn_header_hash,
                                 burn_header_timestamp,
@@ -790,7 +796,7 @@ impl BurnDB {
             let height_opt = match BurnDB::get_accepted_stacks_block_pointer(tx, &burn_tip.burn_header_hash, parent_stacks_block_hash)? {
                 // this block builds on a block accepted _after_ this burn chain tip was processed?
                 Some(accepted_header) => Some(accepted_header.height),
-                None => match BurnDB::index_value_get(tx, &burn_tip.burn_header_hash, &parent_key)? {
+                None => match BurnDB::index_value_get(&tx.as_conn(), &burn_tip.burn_header_hash, &parent_key)? {
                     // this block builds on a block accepted _before_ this burn chain tip was processed?
                     Some(height_str) => Some(height_str.parse::<u64>().expect(&format!("BUG: MARF stacks block key '{}' does not map to a u64", parent_key))),
                     None => None
@@ -836,16 +842,16 @@ impl BurnDB {
     }
 
     /// Get an ancestor block snapshot if the given ancestor hash is indeed an ancestor.
-    pub fn get_ancestor_snapshot_by_hash<'a>(tx: &mut BurnDBTx<'a>, ancestor_hash: &BurnchainHeaderHash, tip_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
-        let _ = BurnDB::get_block_snapshot(tx, tip_hash)?.ok_or(db_error::NotFoundError)?;
-        let an_sn = match BurnDB::get_block_snapshot(tx, ancestor_hash)? {
+    pub fn get_ancestor_snapshot_by_hash<'a>(ic: &BurnDBConn<'a>, ancestor_hash: &BurnchainHeaderHash, tip_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+        let _ = BurnDB::get_block_snapshot(ic, tip_hash)?.ok_or(db_error::NotFoundError)?;
+        let an_sn = match BurnDB::get_block_snapshot(ic, ancestor_hash)? {
             Some(sn) => sn,
             None => {
                 return Ok(None);
             }
         };
 
-        match burndb_get_ancestor_block_hash(tx, an_sn.block_height, tip_hash)? {
+        match burndb_get_ancestor_block_hash(ic, an_sn.block_height, tip_hash)? {
             Some(bhh) => {
                 if bhh != an_sn.burn_header_hash {
                     return Ok(None);
@@ -882,7 +888,7 @@ impl BurnDB {
         let mut values = vec![];
 
         let max_arrival_index_key = BurnDB::make_stacks_block_max_arrival_index_key();
-        let old_max_arrival_index_str = BurnDB::index_value_get(tx, &parent_tip.burn_header_hash, &max_arrival_index_key)?.unwrap_or("0".to_string());
+        let old_max_arrival_index_str = BurnDB::index_value_get(&tx.as_conn(), &parent_tip.burn_header_hash, &max_arrival_index_key)?.unwrap_or("0".to_string());
         let old_max_arrival_index = old_max_arrival_index_str.parse::<u64>().expect("BUG: max arrival index is not a u64");
         let max_arrival_index = BurnDB::get_arrival_index(tx)?;
 
@@ -898,7 +904,7 @@ impl BurnDB {
             };
 
             // must be an ancestor of this tip, or must be this tip
-            match BurnDB::get_ancestor_snapshot_by_hash(tx, &arrival_sn.burn_header_hash, &parent_tip.burn_header_hash)? {
+            match BurnDB::get_ancestor_snapshot_by_hash(&tx.as_conn(), &arrival_sn.burn_header_hash, &parent_tip.burn_header_hash)? {
                 Some(sn) => {
                     // this block arrived on an ancestor block
                     assert_eq!(sn, arrival_sn);
@@ -949,18 +955,15 @@ impl BurnDB {
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 debug!("ACCEPTED({}) leader key register {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
-                BurnDB::insert_leader_key(tx, op)
-                    .expect("FATAL: failed to store leader key to Sqlite");
+                BurnDB::insert_leader_key(tx, op)?;
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
                 debug!("ACCEPTED({}) leader block commit {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
-                BurnDB::insert_block_commit(tx, op)
-                    .expect("FATAL: failed to store leader block commit to Sqlite");
+                BurnDB::insert_block_commit(tx, op)?;
             },
             BlockstackOperationType::UserBurnSupport(ref op) => {
                 debug!("ACCEPTED({}) user burn support {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
-                BurnDB::insert_user_burn(tx, op)
-                    .expect("FATAL: failed to store user burn support to Sqlite");
+                BurnDB::insert_user_burn(tx, op)?;
             }
         }
         Ok(())
@@ -1015,11 +1018,11 @@ impl BurnDB {
     }
 
     /// Get a value from the fork index
-    fn index_value_get<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, key: &String) -> Result<Option<String>, db_error> {
+    fn index_value_get<'a>(ic: &BurnDBConn<'a>, burn_header_hash: &BurnchainHeaderHash, key: &String) -> Result<Option<String>, db_error> {
         let mut header_hash_bytes = [0u8; 32];
         header_hash_bytes.copy_from_slice(burn_header_hash.as_bytes());
         let header_hash = BlockHeaderHash(header_hash_bytes);
-        tx.get_indexed(&header_hash, key)
+        ic.get_indexed(&header_hash, key)
     }
 
     /// Record fork information to the index and calculate the new fork index root hash.
@@ -1105,7 +1108,7 @@ impl BurnDB {
         sn.canonical_stacks_tip_height = parent_sn.canonical_stacks_tip_height;
         sn.canonical_stacks_tip_hash = parent_sn.canonical_stacks_tip_hash;
         sn.canonical_stacks_tip_burn_hash = parent_sn.canonical_stacks_tip_burn_hash;
-
+ 
         BurnDB::insert_block_snapshot(tx, &sn)?;
 
         for block_op in block_ops {
@@ -1134,9 +1137,9 @@ impl BurnDB {
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
-    pub fn get_ancestor_snapshot<'a>(tx: &mut BurnDBTx<'a>, ancestor_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_ancestor_snapshot<'a>(ic: &BurnDBConn<'a>, ancestor_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
-        let ancestor_hash = match burndb_get_ancestor_block_hash(tx, ancestor_block_height, &tip_block_hash)? {
+        let ancestor_hash = match burndb_get_ancestor_block_hash(ic, ancestor_block_height, &tip_block_hash)? {
             Some(bhh) => {
                 BurnchainHeaderHash::from(bhh)
             },
@@ -1146,15 +1149,15 @@ impl BurnDB {
             }
         };
 
-        BurnDB::get_block_snapshot(tx, &ancestor_hash)
+        BurnDB::get_block_snapshot(ic, &ancestor_hash)
     }
 
     /// Get consensus hash from a particular chain tip's history
     /// Returns None if the block height or block hash does not correspond to a
     /// known snapshot.
-    pub fn get_consensus_at<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<ConsensusHash>, db_error> {
+    pub fn get_consensus_at<'a>(ic: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<ConsensusHash>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        match BurnDB::get_ancestor_snapshot(tx, block_height, tip_block_hash)? {
+        match BurnDB::get_ancestor_snapshot(ic, block_height, tip_block_hash)? {
             Some(sn) => Ok(Some(sn.consensus_hash.clone())),
             None => Ok(None)
         }
@@ -1166,9 +1169,14 @@ impl BurnDB {
             return Err(db_error::ReadOnly);
         }
 
-        let tx = self.conn.transaction().map_err(db_error::SqliteError)?;
+        let tx = tx_begin_immediate(&mut self.conn)?;
         let index_tx = BurnDBTx::new(tx, &mut self.marf, BurnDBTxContext { first_block_height: self.first_block_height });
         Ok(index_tx)
+    }
+
+    /// Make an indexed connectino
+    pub fn index_conn<'a>(&'a self) -> BurnDBConn<'a> {
+        BurnDBConn::new(&self.conn, &self.marf, BurnDBTxContext { first_block_height: self.first_block_height })
     }
 
     /// Insert a leader key registration.
@@ -1308,7 +1316,7 @@ impl BurnDB {
                 test_debug!("No snapshot with consensus hash {}", consensus_hash);
                 Ok(None)
             },
-            1 => Ok(Some(rows.pop().expect("BUG: non-empty vec didn't pop Some(...)"))),
+            1 => Ok(rows.pop()),
             _ => {
                 // should never happen 
                 panic!("FATAL: multiple block snapshots for the same block with consensus hash {}", consensus_hash);
@@ -1332,9 +1340,9 @@ impl BurnDB {
     }
     
     /// Get a snapshot for an existing block in a particular fork, given its tip
-    pub fn get_block_snapshot_in_fork<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_block_snapshot_in_fork<'a>(ic: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, tip_block_hash)? {
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(ic, block_height, tip_block_hash)? {
             Some(sn) => {
                 sn
             },
@@ -1345,7 +1353,7 @@ impl BurnDB {
 
         let qry = "SELECT * FROM snapshots WHERE burn_header_hash = ?1 AND block_height = ?2".to_string();
         let args : &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(block_height)?];
-        let rows = query_rows::<BlockSnapshot, _>(tx, &qry.to_string(), args)?;
+        let rows = query_rows::<BlockSnapshot, _>(ic, &qry.to_string(), args)?;
         match rows.len() {
             0 => Ok(None),
             1 => Ok(Some(rows[0].clone())),
@@ -1360,9 +1368,9 @@ impl BurnDB {
     /// matching block commit's fork index root (block_height and vtxindex are the leader's
     /// calculated location in this fork).
     /// Returns None if there is no leader key at this location.
-    pub fn get_leader_key_at<'a>(tx: &mut BurnDBTx<'a>, key_block_height: u64, key_vtxindex: u32, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
+    pub fn get_leader_key_at<'a>(ic: &BurnDBConn<'a>, key_block_height: u64, key_vtxindex: u32, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
         assert!(key_block_height < BLOCK_HEIGHT_MAX);
-        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, key_block_height, tip_block_hash)? {
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(ic, key_block_height, tip_block_hash)? {
             Some(sn) => {
                 sn
             },
@@ -1374,7 +1382,7 @@ impl BurnDB {
 
         let qry = "SELECT * FROM leader_keys WHERE burn_header_hash = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2".to_string();
         let args : &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(key_block_height)?, &key_vtxindex];
-        let rows = query_rows::<LeaderKeyRegisterOp, _>(tx, &qry, args)?;
+        let rows = query_rows::<LeaderKeyRegisterOp, _>(ic, &qry, args)?;
         match rows.len() {
             0 => {
                 test_debug!("No leader keys at {},{} in {}", key_block_height, key_vtxindex, &ancestor_snapshot.burn_header_hash);
@@ -1392,13 +1400,13 @@ impl BurnDB {
     /// Find the VRF public keys consumed by each block candidate in the given list.
     /// The burn DB should have a key for each candidate; otherwise the candidate would not have
     /// been accepted.
-    pub fn get_consumed_leader_keys<'a>(tx: &mut BurnDBTx<'a>, parent_tip_block_hash: &BurnchainHeaderHash, block_candidates: &Vec<LeaderBlockCommitOp>) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
+    pub fn get_consumed_leader_keys<'a>(ic: &BurnDBConn<'a>, parent_tip_block_hash: &BurnchainHeaderHash, block_candidates: &Vec<LeaderBlockCommitOp>) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
         // get the set of VRF keys consumed by these commits 
         let mut leader_keys = vec![];
         for i in 0..block_candidates.len() {
             let leader_key_block_height = block_candidates[i].key_block_ptr as u64;
             let leader_key_vtxindex = block_candidates[i].key_vtxindex as u32;
-            let leader_key = BurnDB::get_leader_key_at(tx, leader_key_block_height, leader_key_vtxindex, parent_tip_block_hash)?
+            let leader_key = BurnDB::get_leader_key_at(ic, leader_key_block_height, leader_key_vtxindex, parent_tip_block_hash)?
                 .expect(&format!("FATAL: no leader key for accepted block commit {} (at {},{})", &block_candidates[i].txid, leader_key_block_height, leader_key_vtxindex));
                     
             leader_keys.push(leader_key);
@@ -1409,9 +1417,9 @@ impl BurnDB {
 
     /// Get all leader keys registered in a block on the burn chain's history in this fork.
     /// Returns the list of leader keys in order by vtxindex.
-    pub fn get_leader_keys_by_block<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
+    pub fn get_leader_keys_by_block<'a>(ic: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, tip_block_hash)? {
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(ic, block_height, tip_block_hash)? {
             Some(sn) => {
                 sn
             },
@@ -1424,14 +1432,14 @@ impl BurnDB {
         let qry = "SELECT * FROM leader_keys WHERE burn_header_hash = ?1 AND block_height = ?2 ORDER BY vtxindex ASC".to_string();
         let args : &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(block_height)?];
 
-        query_rows::<LeaderKeyRegisterOp, _>(tx, &qry.to_string(), args)
+        query_rows::<LeaderKeyRegisterOp, _>(ic, &qry.to_string(), args)
     }
 
     /// Get all block commitments registered in a block on the burn chain's history in this fork.
     /// Returns the list of block commits in order by vtxindex.
-    pub fn get_block_commits_by_block<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<LeaderBlockCommitOp>, db_error> {
+    pub fn get_block_commits_by_block<'a>(ic: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<LeaderBlockCommitOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, tip_block_hash)? {
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(ic, block_height, tip_block_hash)? {
             Some(sn) => {
                 sn
             },
@@ -1444,14 +1452,14 @@ impl BurnDB {
         let qry = "SELECT * FROM block_commits WHERE burn_header_hash = ?1 AND block_height = ?2 ORDER BY vtxindex ASC".to_string();
         let args: &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(block_height)?];
 
-        query_rows::<LeaderBlockCommitOp, _>(tx, &qry.to_string(), args)
+        query_rows::<LeaderBlockCommitOp, _>(ic, &qry.to_string(), args)
     }
 
     /// Get all user burns registered in a block on is fork.
     /// Returns list of user burns in order by vtxindex.
-    pub fn get_user_burns_by_block<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<UserBurnSupportOp>, db_error> {
+    pub fn get_user_burns_by_block<'a>(ic: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<UserBurnSupportOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, tip_block_hash)? {
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(ic, block_height, tip_block_hash)? {
             Some(sn) => {
                 sn
             },
@@ -1464,7 +1472,7 @@ impl BurnDB {
         let qry = "SELECT * FROM user_burn_support WHERE burn_header_hash = ?1 AND block_height = ?2 ORDER BY vtxindex ASC".to_string();
         let args: &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(block_height)?];
 
-        query_rows::<UserBurnSupportOp, _>(tx, &qry.to_string(), args)
+        query_rows::<UserBurnSupportOp, _>(ic, &qry.to_string(), args)
     }
     
     /// Get all user burns that burned for a particular block in a fork.
@@ -1492,11 +1500,11 @@ impl BurnDB {
     }
 
     /// Find out how any burn tokens were destroyed in a given block on a given fork.
-    pub fn get_block_burn_amount<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<u64, db_error> {
+    pub fn get_block_burn_amount<'a>(ic: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<u64, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
-        let user_burns = BurnDB::get_user_burns_by_block(tx, block_height, tip_block_hash)?;
-        let block_commits = BurnDB::get_block_commits_by_block(tx, block_height, tip_block_hash)?;
+        let user_burns = BurnDB::get_user_burns_by_block(ic, block_height, tip_block_hash)?;
+        let block_commits = BurnDB::get_block_commits_by_block(ic, block_height, tip_block_hash)?;
         let mut burn_total : u64 = 0;
         
         for i in 0..user_burns.len() {
@@ -1519,9 +1527,9 @@ impl BurnDB {
     
     /// Get a parent block commit at a specific location in the burn chain on a particular fork.
     /// Returns None if there is no block commit at this location.
-    pub fn get_block_commit_parent<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, vtxindex: u32, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    pub fn get_block_commit_parent<'a>(ic: &BurnDBConn<'a>, block_height: u64, vtxindex: u32, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, tip_block_hash)? {
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(ic, block_height, tip_block_hash)? {
             Some(sn) => {
                 sn
             },
@@ -1532,7 +1540,7 @@ impl BurnDB {
 
         let qry = "SELECT * FROM block_commits WHERE burn_header_hash = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2".to_string();
         let args: &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(block_height)?, &vtxindex];
-        let rows = query_rows::<LeaderBlockCommitOp, _>(tx, &qry, args)?;
+        let rows = query_rows::<LeaderBlockCommitOp, _>(ic, &qry, args)?;
 
         match rows.len() {
             0 => {
@@ -1582,11 +1590,11 @@ impl BurnDB {
     }
 
     /// Get a block snapshot for a winning block hash in a given burn chain fork.
-    pub fn get_block_snapshot_for_winning_stacks_block<'a>(tx: &mut BurnDBTx<'a>, tip_burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
-        match BurnDB::index_value_get(tx, tip_burn_header_hash, &format!("burndb::sortition_block_hash::{}", block_hash))? {
+    pub fn get_block_snapshot_for_winning_stacks_block<'a>(ic: &BurnDBConn<'a>, tip_burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+        match BurnDB::index_value_get(ic, tip_burn_header_hash, &format!("burndb::sortition_block_hash::{}", block_hash))? {
             Some(burn_header_hash_str) => {
                 let bhh = BurnchainHeaderHash::from_hex(&burn_header_hash_str).expect(&format!("FATAL: corrupt database: failed to parse {} as a hex string", &burn_header_hash_str));
-                BurnDB::get_block_snapshot(tx, &bhh)
+                BurnDB::get_block_snapshot(ic, &bhh)
             },
             None => {
                 Ok(None)
@@ -1595,8 +1603,8 @@ impl BurnDB {
     }
 
     /// Find out whether or not a particular VRF key was used before in this fork segment's history.
-    pub fn has_VRF_public_key<'a>(tx: &mut BurnDBTx<'a>, key: &VRFPublicKey, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
-        let tip_snapshot = match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
+    pub fn has_VRF_public_key<'a>(ic: &BurnDBConn<'a>, key: &VRFPublicKey, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+        let tip_snapshot = match BurnDB::get_block_snapshot(ic, tip_block_hash)? {
             None => {
                 error!("No tip with index root {}", tip_block_hash);
                 return Err(db_error::NotFoundError);
@@ -1606,7 +1614,7 @@ impl BurnDB {
             }
         };
 
-        let key_status = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &format!("burndb::vrf::{}", key.to_hex()))? {
+        let key_status = match BurnDB::index_value_get(ic, &tip_snapshot.burn_header_hash, &format!("burndb::vrf::{}", key.to_hex()))? {
             Some(_) => {
                 // key was seen before
                 true
@@ -1621,14 +1629,14 @@ impl BurnDB {
     }
     
     /// Get all fresh consensus hashes in this fork.
-    pub fn get_fresh_consensus_hashes<'a>(tx: &mut BurnDBTx<'a>, current_block_height: u64, consensus_hash_lifetime: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<ConsensusHash>, db_error> {
+    pub fn get_fresh_consensus_hashes<'a>(ic: &BurnDBConn<'a>, current_block_height: u64, consensus_hash_lifetime: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<ConsensusHash>, db_error> {
         assert!(current_block_height < BLOCK_HEIGHT_MAX);
-        let first_snapshot = BurnDB::get_first_block_snapshot(tx)?;
-        match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
+        let first_snapshot = BurnDB::get_first_block_snapshot(ic)?;
+        let mut last_snapshot = match BurnDB::get_block_snapshot(ic, tip_block_hash)? {
             None => {
                 return Err(db_error::NotFoundError);
             }
-            Some(_) => {}
+            Some(sn) => sn
         };
 
         let mut oldest_height = 
@@ -1643,15 +1651,15 @@ impl BurnDB {
             oldest_height = first_snapshot.block_height;
         }
 
-        let mut fresh_chs = vec![];
-
-        for i in oldest_height..current_block_height+1 {
-            // all of these values should exist
-            let block_hash = burndb_get_ancestor_block_hash(tx, i, tip_block_hash)?.expect(&format!("Discontiguous index: missing block {}", i));
-            let ancestor_snapshot = BurnDB::get_block_snapshot(tx, &block_hash)?.expect(&format!("Discontiguous index: missing block {}", block_hash));
+        let mut fresh_chs = vec![last_snapshot.consensus_hash.clone()];
+        for _i in oldest_height..current_block_height {
+            let ancestor_snapshot = BurnDB::get_block_snapshot(ic, &last_snapshot.parent_burn_header_hash)?.expect(&format!("Discontiguous index: missing block {}", last_snapshot.parent_burn_header_hash));
             fresh_chs.push(ancestor_snapshot.consensus_hash);
+            last_snapshot = ancestor_snapshot;
         }
 
+        // first item is the _oldest_ consensus hash
+        fresh_chs.reverse();
         return Ok(fresh_chs);
     }
     
@@ -1661,20 +1669,20 @@ impl BurnDB {
     /// Returns up to num_headers prior block header hashes.
     /// The list of hashes will be in ascending order -- the lowest-height block is item 0.
     /// The last hash will be the hash for the given consensus hash.
-    pub fn get_stacks_header_hashes<'a>(tx: &mut BurnDBTx<'a>, num_headers: u64, tip_consensus_hash: &ConsensusHash) -> Result<Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)>, db_error> {
+    pub fn get_stacks_header_hashes<'a>(ic: &BurnDBConn<'a>, num_headers: u64, tip_consensus_hash: &ConsensusHash, cache: Option<&BlockHeaderCache>) -> Result<Vec<(BurnchainHeaderHash, ConsensusHash, Option<BlockHeaderHash>)>, db_error> {
         let mut ret = vec![];
-        let tip_snapshot = match BurnDB::get_block_snapshot_consensus(tx, tip_consensus_hash)? {
+        let tip_snapshot = match BurnDB::get_block_snapshot_consensus(ic, tip_consensus_hash)? {
             Some(sn) => sn,
             None => {
                 return Err(db_error::NotFoundError);
             }
         };
 
-        assert!(tip_snapshot.block_height >= tx.context.first_block_height, "DB corruption: have snapshot with a smaller block height than the first block height");
+        assert!(tip_snapshot.block_height >= ic.context.first_block_height, "DB corruption: have snapshot with a smaller block height than the first block height");
 
         let headers_count = 
-            if tip_snapshot.block_height - tx.context.first_block_height  < num_headers {
-                tip_snapshot.block_height - tx.context.first_block_height
+            if tip_snapshot.block_height - ic.context.first_block_height  < num_headers {
+                tip_snapshot.block_height - ic.context.first_block_height
             }
             else {
                 num_headers
@@ -1682,35 +1690,56 @@ impl BurnDB {
         
         let tip_block_hash = tip_snapshot.burn_header_hash;
         if tip_snapshot.sortition {
-            ret.push((tip_block_hash.clone(), Some(tip_snapshot.winning_stacks_block_hash)));
+            ret.push((tip_block_hash.clone(), tip_snapshot.consensus_hash.clone(), Some(tip_snapshot.winning_stacks_block_hash)));
         }
         else {
-            ret.push((tip_block_hash.clone(), None));
+            ret.push((tip_block_hash.clone(), tip_snapshot.consensus_hash.clone(), None));
         }
 
-        for i in 1..headers_count {
-            // all of these values should exist
-            let ancestor_height = tip_snapshot.block_height - i;
-            let ancestor_block_hash = burndb_get_ancestor_block_hash(tx, ancestor_height, &tip_block_hash)?.expect(&format!("Discontiguous index: missing block {}", ancestor_height));
-            let ancestor_snapshot = BurnDB::get_block_snapshot(tx, &ancestor_block_hash)?.expect(&format!("Discontiguous index: missing block {}", ancestor_block_hash));
-            if ancestor_snapshot.sortition {
-                ret.push((ancestor_block_hash, Some(ancestor_snapshot.winning_stacks_block_hash)));
+        let mut last_snapshot = tip_snapshot;
+        for _i in 1..headers_count {
+            let ancestor_block_hash = last_snapshot.parent_burn_header_hash.clone();
+            if let Some(ref cached) = cache {
+                if let Some(header_hash_opt) = cached.get(&(ancestor_block_hash, last_snapshot.consensus_hash)) {
+                    // cache hit
+                    ret.push((ancestor_block_hash, last_snapshot.consensus_hash.clone(), header_hash_opt.clone()));
+                    continue;
+                }
             }
-            else {
-                ret.push((ancestor_block_hash, None));
-            }
+
+            // cache miss
+            let ancestor_snapshot = BurnDB::get_block_snapshot(ic, &ancestor_block_hash)?.expect(&format!("Discontiguous index: missing block {}", ancestor_block_hash));
+            let header_hash_opt = 
+                if ancestor_snapshot.sortition {
+                    Some(ancestor_snapshot.winning_stacks_block_hash.clone())
+                }
+                else {
+                    None
+                };
+
+            ret.push((ancestor_block_hash.clone(), ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
+            last_snapshot = ancestor_snapshot;
         }
 
         ret.reverse();
         Ok(ret)
     }
 
+    /// Merge the result of get_stacks_header_hashes() into a BlockHeaderCache
+    pub fn merge_block_header_cache(cache: &mut BlockHeaderCache, header_data: &Vec<(BurnchainHeaderHash, ConsensusHash, Option<BlockHeaderHash>)>) -> () {
+        for (bhh, ch, hh_opt) in header_data.iter() {
+            if !cache.contains_key(&(*bhh, *ch)) {
+                cache.insert(((*bhh).clone(), (*ch).clone()), (*hh_opt).clone());
+            }
+        }
+    }
+
     /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
     /// The fork must exist.
-    pub fn is_fresh_consensus_hash<'a>(tx: &mut BurnDBTx<'a>, current_block_height: u64, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+    pub fn is_fresh_consensus_hash<'a>(ic: &BurnDBConn<'a>, current_block_height: u64, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
         assert!(current_block_height < BLOCK_HEIGHT_MAX);
-        let first_snapshot = BurnDB::get_first_block_snapshot(tx)?;
-        match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
+        let first_snapshot = BurnDB::get_first_block_snapshot(ic)?;
+        match BurnDB::get_block_snapshot(ic, tip_block_hash)? {
             None => {
                 return Err(db_error::NotFoundError);
             }
@@ -1729,23 +1758,21 @@ impl BurnDB {
             oldest_height = first_snapshot.block_height;
         }
 
-        for i in oldest_height..current_block_height+1 {
-            // all of these values should exist
-            let block_hash = match burndb_get_ancestor_block_hash(tx, i, tip_block_hash)? {
-                Some(bhh) => {
-                    BurnchainHeaderHash::from(bhh)
-                },
-                None => {
-                    panic!("Discontiguous index: missing block {}", i);
-                }
-            };
+        let mut last_snapshot = BurnDB::get_block_snapshot(ic, tip_block_hash)?
+            .ok_or(db_error::NotFoundError)?;
 
-            let ancestor_snapshot = match BurnDB::get_block_snapshot(tx, &block_hash)? {
+        if last_snapshot.consensus_hash == *consensus_hash {
+            return Ok(true);
+        }
+
+        for _i in oldest_height..current_block_height {
+            // all of these values should exist
+            let ancestor_snapshot = match BurnDB::get_block_snapshot(ic, &last_snapshot.parent_burn_header_hash)? {
                 Some(sn) => {
                     sn
                 },
                 None => {
-                    panic!("Discontiguous index: missing block {}", block_hash);
+                    panic!("Discontiguous index: missing block {}", last_snapshot.parent_burn_header_hash);
                 }
             };
 
@@ -1753,6 +1780,8 @@ impl BurnDB {
                 // found!
                 return Ok(true);
             }
+
+            last_snapshot = ancestor_snapshot;
         }
 
         return Ok(false);
@@ -1761,10 +1790,10 @@ impl BurnDB {
     /// Determine whether or not a leader key has been consumed by a subsequent block commitment in
     /// this fork's history.
     /// Will return false if the leader key does not exist.
-    pub fn is_leader_key_consumed<'a>(tx: &mut BurnDBTx<'a>, leader_key: &LeaderKeyRegisterOp, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+    pub fn is_leader_key_consumed<'a>(ic: &BurnDBConn<'a>, leader_key: &LeaderKeyRegisterOp, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
         assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
         
-        let tip_snapshot = match BurnDB::get_block_snapshot(tx, tip_block_hash)? { 
+        let tip_snapshot = match BurnDB::get_block_snapshot(ic, tip_block_hash)? { 
             None => {
                 error!("No tip with index root {}", tip_block_hash);
                 return Err(db_error::NotFoundError);
@@ -1774,7 +1803,7 @@ impl BurnDB {
             }
         };
 
-        let key_status = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &format!("burndb::vrf::{}", leader_key.public_key.to_hex()))? {
+        let key_status = match BurnDB::index_value_get(ic, &tip_snapshot.burn_header_hash, &format!("burndb::vrf::{}", leader_key.public_key.to_hex()))? {
             Some(status_str) => {
                 if status_str == "1" {
                     // key is still available
@@ -1800,10 +1829,10 @@ impl BurnDB {
     /// Get the latest block snapshot on this fork where a sortition occured.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
-    pub fn get_last_snapshot_with_sortition<'a>(tx: &mut BurnDBTx<'a>, burn_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<BlockSnapshot, db_error> {
+    pub fn get_last_snapshot_with_sortition<'a>(ic: &BurnDBConn<'a>, burn_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<BlockSnapshot, db_error> {
         assert!(burn_block_height < BLOCK_HEIGHT_MAX);
         test_debug!("Get snapshot at burn block {}, expect height {}", tip_block_hash, burn_block_height);
-        let tip_snapshot = match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
+        let tip_snapshot = match BurnDB::get_block_snapshot(ic, tip_block_hash)? {
             None => {
                 error!("No tip at burn block {}", tip_block_hash);
                 return Err(db_error::NotFoundError);
@@ -1815,17 +1844,17 @@ impl BurnDB {
 
         assert_eq!(tip_snapshot.block_height, burn_block_height);
 
-        let ancestor_hash = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &"burndb::last_sortition".to_string())? {
+        let ancestor_hash = match BurnDB::index_value_get(ic, &tip_snapshot.burn_header_hash, &"burndb::last_sortition".to_string())? {
             Some(hex_str) => {
                 BurnchainHeaderHash::from_hex(&hex_str).expect(&format!("FATAL: corrupt database: failed to parse {} into a hex string", &hex_str))
             },
             None => {
                 // no prior sortitions, so get the first
-                return BurnDB::get_first_block_snapshot(tx);
+                return BurnDB::get_first_block_snapshot(ic);
             }
         };
 
-        match BurnDB::get_block_snapshot(tx, &ancestor_hash) {
+        match BurnDB::get_block_snapshot(ic, &ancestor_hash) {
             Ok(snapshot_opt) => {
                 Ok(snapshot_opt.expect(&format!("FATAL: corrupt index: no snapshot {}", ancestor_hash)))
             },
@@ -1837,8 +1866,8 @@ impl BurnDB {
 
     /// Get a burn blockchain snapshot, given a burnchain configuration struct.
     /// Used mainly by the network code to determine what the chain tip currently looks like.
-    pub fn get_burnchain_view<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain) -> Result<BurnchainView, db_error> {
-        let chain_tip = BurnDB::get_canonical_burn_chain_tip(tx)?;
+    pub fn get_burnchain_view<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain) -> Result<BurnchainView, db_error> {
+        let chain_tip = BurnDB::get_canonical_burn_chain_tip(ic)?;
         if chain_tip.block_height < burnchain.first_block_height {
             // should never happen, but don't panic since this is network-callable code
             error!("Invalid block height from DB: {}: expected at least {}", chain_tip.block_height, burnchain.first_block_height);
@@ -1859,7 +1888,7 @@ impl BurnDB {
                 chain_tip.block_height - (burnchain.stable_confirmations as u64)
             };
 
-        let stable_snapshot = match BurnDB::get_block_snapshot_in_fork(tx, stable_block_height, &chain_tip.burn_header_hash)? {
+        let stable_snapshot = match BurnDB::get_block_snapshot_in_fork(ic, stable_block_height, &chain_tip.burn_header_hash)? {
             Some(sn) => {
                 sn
             },
@@ -1882,7 +1911,7 @@ impl BurnDB {
 
         let mut last_consensus_hashes = HashMap::new();
         for height in oldest_height..chain_tip.block_height {
-            let ch = BurnDB::get_consensus_at(tx, height, &chain_tip.burn_header_hash)?.unwrap_or(ConsensusHash::empty());
+            let ch = BurnDB::get_consensus_at(ic, height, &chain_tip.burn_header_hash)?.unwrap_or(ConsensusHash::empty());
             last_consensus_hashes.insert(height, ch);
         }
 
@@ -1908,8 +1937,8 @@ impl BurnDB {
 
     /// Do we expect a stacks block in this particular fork?
     /// i.e. is this block hash part of the fork history identified by tip_block_hash?
-    pub fn expects_stacks_block_in_fork<'a>(tx: &mut BurnDBTx<'a>, block_hash: &BlockHeaderHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
-        match BurnDB::index_value_get(tx, tip_block_hash, &format!("burndb::sortition_block_hash::{}", block_hash))? {
+    pub fn expects_stacks_block_in_fork<'a>(ic: &BurnDBConn<'a>, block_hash: &BlockHeaderHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+        match BurnDB::index_value_get(ic, tip_block_hash, &format!("burndb::sortition_block_hash::{}", block_hash))? {
             Some(_) => {
                 Ok(true)
             },
@@ -2009,8 +2038,8 @@ mod tests {
         };
 
         {
-            let mut tx = db.tx_begin().unwrap();
-            let leader_key_opt = BurnDB::get_leader_key_at(&mut tx, block_height + 1, vtxindex, &snapshot.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let leader_key_opt = BurnDB::get_leader_key_at(&ic, block_height + 1, vtxindex, &snapshot.burn_header_hash).unwrap();
             assert!(leader_key_opt.is_some());
             assert_eq!(leader_key_opt.unwrap(), leader_key);
         }
@@ -2033,12 +2062,12 @@ mod tests {
         };
 
         {
-            let mut tx = db.tx_begin().unwrap();
-            let leader_key_opt = BurnDB::get_leader_key_at(&mut tx, block_height + 1, vtxindex, &new_snapshot.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let leader_key_opt = BurnDB::get_leader_key_at(&ic, block_height + 1, vtxindex, &new_snapshot.burn_header_hash).unwrap();
             assert!(leader_key_opt.is_some());
             assert_eq!(leader_key_opt.unwrap(), leader_key);
             
-            let leader_key_none = BurnDB::get_leader_key_at(&mut tx, block_height + 1, vtxindex+1, &new_snapshot.burn_header_hash).unwrap();
+            let leader_key_none = BurnDB::get_leader_key_at(&ic, block_height + 1, vtxindex+1, &new_snapshot.burn_header_hash).unwrap();
             assert!(leader_key_none.is_none());
         }
     }
@@ -2106,15 +2135,15 @@ mod tests {
 
         // test get_consumed_leader_keys()
         {
-            let mut tx = db.tx_begin().unwrap();
-            let keys = BurnDB::get_consumed_leader_keys(&mut tx, &snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
+            let ic = db.index_conn();
+            let keys = BurnDB::get_consumed_leader_keys(&ic, &snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
 
         // test is_leader_key_consumed()
         {
-            let mut tx = db.tx_begin().unwrap();
-            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &snapshot.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &snapshot.burn_header_hash).unwrap();
             assert!(!is_consumed);
         }
         
@@ -2137,19 +2166,19 @@ mod tests {
         };
 
         {
-            let mut tx = db.tx_begin().unwrap();
-            let res_block_commits = BurnDB::get_block_commits_by_block(&mut tx, block_height+2, &snapshot_consumed.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let res_block_commits = BurnDB::get_block_commits_by_block(&ic, block_height+2, &snapshot_consumed.burn_header_hash).unwrap();
             assert_eq!(res_block_commits.len(), 1);
             assert_eq!(res_block_commits[0], block_commit);
 
-            let no_block_commits = BurnDB::get_block_commits_by_block(&mut tx, block_height+1, &snapshot_consumed.burn_header_hash).unwrap();
+            let no_block_commits = BurnDB::get_block_commits_by_block(&ic, block_height+1, &snapshot_consumed.burn_header_hash).unwrap();
             assert_eq!(no_block_commits.len(), 0);
         }
         
         // test is_leader_key_consumed() now that the commit exists
         {
-            let mut tx = db.tx_begin().unwrap();
-            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &snapshot_consumed.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &snapshot_consumed.burn_header_hash).unwrap();
             assert!(is_consumed);
         }
 
@@ -2174,15 +2203,15 @@ mod tests {
         
         // test get_block_commit_parent()
         {
-            let mut tx = db.tx_begin().unwrap();
-            let parent = BurnDB::get_block_commit_parent(&mut tx, block_height + 2, block_commit.vtxindex, &empty_snapshot.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let parent = BurnDB::get_block_commit_parent(&ic, block_height + 2, block_commit.vtxindex, &empty_snapshot.burn_header_hash).unwrap();
             assert!(parent.is_some());
             assert_eq!(parent.unwrap(), block_commit);
 
-            let parent = BurnDB::get_block_commit_parent(&mut tx, block_height + 3, block_commit.vtxindex, &empty_snapshot.burn_header_hash).unwrap();
+            let parent = BurnDB::get_block_commit_parent(&ic, block_height + 3, block_commit.vtxindex, &empty_snapshot.burn_header_hash).unwrap();
             assert!(parent.is_none());
             
-            let parent = BurnDB::get_block_commit_parent(&mut tx, block_height + 2, block_commit.vtxindex + 1, &empty_snapshot.burn_header_hash).unwrap();
+            let parent = BurnDB::get_block_commit_parent(&ic, block_height + 2, block_commit.vtxindex + 1, &empty_snapshot.burn_header_hash).unwrap();
             assert!(parent.is_none());
         }
 
@@ -2199,18 +2228,18 @@ mod tests {
         
         // test get_consumed_leader_keys() (should be doable at any subsequent index root)
         {
-            let mut tx = db.tx_begin().unwrap();
-            let keys = BurnDB::get_consumed_leader_keys(&mut tx, &empty_snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
+            let ic = db.index_conn();
+            let keys = BurnDB::get_consumed_leader_keys(&ic, &empty_snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
         
         // test is_leader_key_consumed() (should be duable at any subsequent index root)
         {
-            let mut tx = db.tx_begin().unwrap();
-            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &empty_snapshot.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &empty_snapshot.burn_header_hash).unwrap();
             assert!(is_consumed);
             
-            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &snapshot.burn_header_hash).unwrap();
+            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &snapshot.burn_header_hash).unwrap();
             assert!(!is_consumed);
         }
 
@@ -2236,11 +2265,11 @@ mod tests {
 
         // test get_consumed_leader_keys() and is_leader_key_consumed() against this new fork
         {
-            let mut tx = db.tx_begin().unwrap();
-            let keys = BurnDB::get_consumed_leader_keys(&mut tx, &fork_snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
+            let ic = db.index_conn();
+            let keys = BurnDB::get_consumed_leader_keys(&ic, &fork_snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
 
-            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &fork_snapshot.burn_header_hash).unwrap();
+            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &fork_snapshot.burn_header_hash).unwrap();
             assert!(!is_consumed);
         }
     }
@@ -2315,12 +2344,12 @@ mod tests {
         };
 
         {
-            let mut tx = db.tx_begin().unwrap();
-            let res_user_burns = BurnDB::get_user_burns_by_block(&mut tx, block_height+2, &user_burn_snapshot.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let res_user_burns = BurnDB::get_user_burns_by_block(&ic, block_height+2, &user_burn_snapshot.burn_header_hash).unwrap();
             assert_eq!(res_user_burns.len(), 1);
             assert_eq!(res_user_burns[0], user_burn);
 
-            let no_user_burns = BurnDB::get_user_burns_by_block(&mut tx, block_height+1, &user_burn_snapshot.burn_header_hash).unwrap();
+            let no_user_burns = BurnDB::get_user_burns_by_block(&ic, block_height+1, &user_burn_snapshot.burn_header_hash).unwrap();
             assert_eq!(no_user_burns.len(), 0);
         }
     }
@@ -2364,8 +2393,8 @@ mod tests {
         };
 
         let has_key_before = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::has_VRF_public_key(&mut tx, &public_key, &no_key_snapshot.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::has_VRF_public_key(&ic, &public_key, &no_key_snapshot.burn_header_hash).unwrap()
         };
 
         assert!(!has_key_before);
@@ -2388,8 +2417,8 @@ mod tests {
         };
 
         let has_key_after = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::has_VRF_public_key(&mut tx, &public_key, &key_snapshot.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::has_VRF_public_key(&ic, &public_key, &key_snapshot.burn_header_hash).unwrap()
         };
 
         assert!(has_key_after);
@@ -2441,29 +2470,29 @@ mod tests {
         let ch_missing = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,255]).unwrap();
 
         let fresh_check = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_fresh_consensus_hash(&mut tx, 255, consensus_hash_lifetime, &ch_fresh, &tip.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::is_fresh_consensus_hash(&ic, 255, consensus_hash_lifetime, &ch_fresh, &tip.burn_header_hash).unwrap()
         };
 
         assert!(fresh_check);
 
         let oldest_fresh_check = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_fresh_consensus_hash(&mut tx, 255, consensus_hash_lifetime, &ch_oldest_fresh, &tip.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::is_fresh_consensus_hash(&ic, 255, consensus_hash_lifetime, &ch_oldest_fresh, &tip.burn_header_hash).unwrap()
         };
 
         assert!(oldest_fresh_check);
 
         let newest_stale_check = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_fresh_consensus_hash(&mut tx, 255, consensus_hash_lifetime, &ch_newest_stale, &tip.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::is_fresh_consensus_hash(&ic, 255, consensus_hash_lifetime, &ch_newest_stale, &tip.burn_header_hash).unwrap()
         };
 
         assert!(!newest_stale_check);
 
         let missing_check = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_fresh_consensus_hash(&mut tx, 255, consensus_hash_lifetime, &ch_missing, &tip.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::is_fresh_consensus_hash(&ic, 255, consensus_hash_lifetime, &ch_missing, &tip.burn_header_hash).unwrap()
         };
 
         assert!(!missing_check);
@@ -2503,7 +2532,7 @@ mod tests {
                 last_snapshot.index_root = index_root;
 
                 // should succeed within the tx 
-                let ch = BurnDB::get_consensus_at(&mut tx, i+1, &last_snapshot.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
+                let ch = BurnDB::get_consensus_at(&tx.as_conn(), i+1, &last_snapshot.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
                 assert_eq!(ch, last_snapshot.consensus_hash);
             }
 
@@ -2514,9 +2543,9 @@ mod tests {
 
         for i in 0..256 {
             // should succeed within the conn
-            let mut tx = db.tx_begin().unwrap();
+            let ic = db.index_conn();
             let expected_ch = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap();
-            let ch = BurnDB::get_consensus_at(&mut tx, i+1, &tip.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
+            let ch = BurnDB::get_consensus_at(&ic, i+1, &tip.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
             assert_eq!(ch, expected_ch);
         }
     }
@@ -2615,11 +2644,11 @@ mod tests {
         };
     
         {
-            let mut tx = db.tx_begin().unwrap();
-            let burn_amt = BurnDB::get_block_burn_amount(&mut tx, block_height + 2, &commit_snapshot.burn_header_hash).unwrap();
+            let ic = db.index_conn();
+            let burn_amt = BurnDB::get_block_burn_amount(&ic, block_height + 2, &commit_snapshot.burn_header_hash).unwrap();
             assert_eq!(burn_amt, block_commit.burn_fee + user_burn.burn_fee);
 
-            let no_burn_amt = BurnDB::get_block_burn_amount(&mut tx, block_height + 1, &commit_snapshot.burn_header_hash).unwrap();
+            let no_burn_amt = BurnDB::get_block_burn_amount(&ic, block_height + 1, &commit_snapshot.burn_header_hash).unwrap();
             assert_eq!(no_burn_amt, 0);
         }
     }
@@ -2705,8 +2734,8 @@ mod tests {
         };
 
         let initial_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height - 2, &chain_tip.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::get_last_snapshot_with_sortition(&ic, block_height - 2, &chain_tip.burn_header_hash).unwrap()
         };
 
         first_snapshot.index_root = initial_snapshot.index_root.clone();
@@ -2726,8 +2755,8 @@ mod tests {
         };
 
         let mut next_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height - 1, &chain_tip.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::get_last_snapshot_with_sortition(&ic, block_height - 1, &chain_tip.burn_header_hash).unwrap()
         };
 
         next_snapshot.index_root = initial_snapshot.index_root.clone();
@@ -2747,8 +2776,8 @@ mod tests {
         };
 
         let next_snapshot_2 = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height, &chain_tip.burn_header_hash).unwrap()
+            let ic = db.index_conn();
+            BurnDB::get_last_snapshot_with_sortition(&ic, block_height, &chain_tip.burn_header_hash).unwrap()
         };
 
         snapshot_with_sortition.index_root = next_snapshot_2.index_root.clone();
@@ -2761,8 +2790,8 @@ mod tests {
     /// (i-1)th block.
     fn verify_fork_integrity(db: &mut BurnDB, tip_header_hash: &BurnchainHeaderHash) {
         let mut child = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_block_snapshot(&mut tx, tip_header_hash).unwrap().unwrap()
+            let ic = db.index_conn();
+            BurnDB::get_block_snapshot(&ic, tip_header_hash).unwrap().unwrap()
         };
 
         let initial = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
@@ -2773,8 +2802,8 @@ mod tests {
 
         while child.block_height > initial.block_height {
             let parent = {
-                let mut tx = db.tx_begin().unwrap();
-                BurnDB::get_block_snapshot_in_fork(&mut tx, child.block_height - 1, &child.burn_header_hash).unwrap().unwrap()
+                let ic = db.index_conn();
+                BurnDB::get_block_snapshot_in_fork(&ic, child.block_height - 1, &child.burn_header_hash).unwrap().unwrap()
             };
 
             test_debug!("Verify {} == {} - 1 and hash={},parent_hash={} == parent={}",
@@ -3023,7 +3052,7 @@ mod tests {
                 last_snapshot.index_root = index_root;
 
                 // should succeed within the tx 
-                let ch = BurnDB::get_consensus_at(&mut tx, i+1, &last_snapshot.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
+                let ch = BurnDB::get_consensus_at(&tx.as_conn(), i+1, &last_snapshot.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
                 assert_eq!(ch, last_snapshot.consensus_hash);
             }
 
@@ -3031,13 +3060,16 @@ mod tests {
         }
         
         let canonical_tip = BurnDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let mut cache = BlockHeaderCache::new();
 
         {
-            let mut tx = db.tx_begin().unwrap();
-            let hashes = BurnDB::get_stacks_header_hashes(&mut tx, 256, &canonical_tip.consensus_hash).unwrap();
+            let ic = db.index_conn();
+            let hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+
             assert_eq!(hashes.len(), 256);
             for i in 0..256 {
-                let (ref burn_hash, ref block_hash_opt) = &hashes[i];
+                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3047,15 +3079,53 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+
+                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
+                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
             }
         }
 
         {
-            let mut tx = db.tx_begin().unwrap();
-            let hashes = BurnDB::get_stacks_header_hashes(&mut tx, 192, &canonical_tip.consensus_hash).unwrap();
+            let ic = db.index_conn();
+            let hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, None).unwrap();
+            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+
+            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+
+            assert_eq!(hashes.len(), 256);
+            assert_eq!(cached_hashes.len(), 256);
+            for i in 0..256 {
+                assert_eq!(cached_hashes[i], hashes[i]);
+                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
+                if i % 3 == 0 {
+                    assert!(block_hash_opt.is_none());
+                }
+                else {
+                    assert!(block_hash_opt.is_some());
+                    let block_hash = block_hash_opt.unwrap();
+                    assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
+                }
+                assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                
+                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
+                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
+            }
+        }
+
+        {
+            let ic = db.index_conn();
+            let hashes = BurnDB::get_stacks_header_hashes(&ic, 192, &canonical_tip.consensus_hash, None).unwrap();
+            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+
+            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 192, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+
             assert_eq!(hashes.len(), 192);
+            assert_eq!(cached_hashes.len(), 192);
             for i in 64..256 {
-                let (ref burn_hash, ref block_hash_opt) = &hashes[i - 64];
+                assert_eq!(cached_hashes[i-64], hashes[i-64]);
+                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i - 64];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3065,15 +3135,25 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                
+                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
+                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
             }
         }
         
         {
-            let mut tx = db.tx_begin().unwrap();
-            let hashes = BurnDB::get_stacks_header_hashes(&mut tx, 257, &canonical_tip.consensus_hash).unwrap();
+            let ic = db.index_conn();
+            let hashes = BurnDB::get_stacks_header_hashes(&ic, 257, &canonical_tip.consensus_hash, None).unwrap();
+            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+
+            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 257, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+
             assert_eq!(hashes.len(), 256);
+            assert_eq!(cached_hashes.len(), 256);
             for i in 0..256 {
-                let (ref burn_hash, ref block_hash_opt) = &hashes[i];
+                assert_eq!(cached_hashes[i], hashes[i]);
+                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3083,12 +3163,26 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
+                
+                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
+                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
             }
         }
         
         {
-            let mut tx = db.tx_begin().unwrap();
-            let err = BurnDB::get_stacks_header_hashes(&mut tx, 256, &ConsensusHash([0x03; 20])).unwrap_err();
+            let ic = db.index_conn();
+            let err = BurnDB::get_stacks_header_hashes(&ic, 256, &ConsensusHash([0x03; 20]), None).unwrap_err();
+            match err {
+                db_error::NotFoundError => {},
+                _ => {
+                    eprintln!("Got wrong error: {:?}", &err);
+                    assert!(false);
+                    unreachable!();
+                }
+            }
+            
+            let err = BurnDB::get_stacks_header_hashes(&ic, 256, &ConsensusHash([0x03; 20]), Some(&cache)).unwrap_err();
             match err {
                 db_error::NotFoundError => {},
                 _ => {
@@ -3176,13 +3270,13 @@ mod tests {
         // verify that all Stacks block in this fork can be looked up from this chain tip
         last_snapshot = BurnDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         {
-            let mut tx = db.tx_begin().unwrap();
+            let ic = db.index_conn();
             for i in 0..5 {
                 let parent_stacks_block_hash = BlockHeaderHash([i as u8; 32]);
                 let parent_key = BurnDB::make_stacks_block_index_key(&parent_stacks_block_hash);
 
                 test_debug!("Look up '{}' off of {}", &parent_key, &last_snapshot.burn_header_hash);
-                let value_opt = BurnDB::index_value_get(&mut tx, &last_snapshot.burn_header_hash, &parent_key).unwrap();
+                let value_opt = BurnDB::index_value_get(&ic, &last_snapshot.burn_header_hash, &parent_key).unwrap();
                 assert!(value_opt.is_some());
                 assert_eq!(value_opt.unwrap(), format!("{}", i));
             }

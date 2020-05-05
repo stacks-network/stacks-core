@@ -154,9 +154,9 @@ lazy_static! {
     static ref HELIUM_DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
         inbox_maxlen: 100,
         outbox_maxlen: 100,
-        timeout: 5000,
+        timeout: 30,
         idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
-        heartbeat: 60000,
+        heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
         num_neighbors: 4,
@@ -168,7 +168,9 @@ lazy_static! {
         soft_max_neighbors_per_host: 10,
         soft_max_neighbors_per_org: 100,
         soft_max_clients_per_host: 1000,
-        walk_interval: 20,
+        walk_interval: 30,
+        inv_sync_interval: 45,
+        download_interval: 60,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         .. std::default::Default::default()

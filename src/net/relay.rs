@@ -42,6 +42,7 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 use core::mempool::*;
 
 use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -457,8 +458,8 @@ impl Relayer {
     }
 
     /// Insert a staging block
-    fn process_new_anchored_block<'a>(burn_tx: &mut BurnDBTx<'a>, chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
-        let sn = match BurnDB::get_block_snapshot(&burn_tx, burn_header_hash)? {
+    fn process_new_anchored_block<'a>(burn_ic: &BurnDBConn<'a>, chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
+        let sn = match BurnDB::get_block_snapshot(burn_ic, burn_header_hash)? {
             Some(sn) => sn,
             None => {
                 debug!("Received unknown block {}/{}", burn_header_hash, block.block_hash());
@@ -467,7 +468,7 @@ impl Relayer {
         };
 
         // find the snapshot of the parent of this block
-        let parent_block_snapshot = match StacksChainState::get_block_snapshot_of_parent_stacks_block(burn_tx, burn_header_hash, &block.block_hash())? {
+        let parent_block_snapshot = match StacksChainState::get_block_snapshot_of_parent_stacks_block(burn_ic, burn_header_hash, &block.block_hash())? {
             Some(sn) => sn,
             None => {
                 debug!("Received block with unknown parent snapshot: {}/{}", burn_header_hash, &block.block_hash());
@@ -475,7 +476,7 @@ impl Relayer {
             }
         };
         
-        chainstate.preprocess_anchored_block(burn_tx, burn_header_hash, sn.burn_header_timestamp, block, &parent_block_snapshot.burn_header_hash)
+        chainstate.preprocess_anchored_block(burn_ic, burn_header_hash, sn.burn_header_timestamp, block, &parent_block_snapshot.burn_header_hash)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -553,11 +554,11 @@ impl Relayer {
     /// Preprocess all our downloaded blocks.
     /// Return burn block hashes for the blocks that we got.
     /// Does not fail on invalid blocks; just logs a warning.
-    fn preprocess_downloaded_blocks<'a>(burn_tx: &mut BurnDBTx<'a>, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<BurnchainHeaderHash> {
+    fn preprocess_downloaded_blocks<'a>(burn_ic: &BurnDBConn<'a>, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<BurnchainHeaderHash> {
         let mut new_blocks = HashSet::new();
 
         for (burn_header_hash, block) in network_result.blocks.iter() {
-            match Relayer::process_new_anchored_block(burn_tx, chainstate, burn_header_hash, block) {
+            match Relayer::process_new_anchored_block(burn_ic, chainstate, burn_header_hash, block) {
                 Ok(accepted) => {
                     if accepted {
                         new_blocks.insert((*burn_header_hash).clone());
@@ -582,7 +583,7 @@ impl Relayer {
     /// Return burn block hashes for blocks we got, as well as the list of peers that served us
     /// invalid data.
     /// Does not fail; just logs warnings.
-    fn preprocess_pushed_blocks<'a>(burn_tx: &mut BurnDBTx<'a>, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> (HashSet<BurnchainHeaderHash>, Vec<NeighborKey>) {
+    fn preprocess_pushed_blocks<'a>(burn_ic: &BurnDBConn<'a>, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> (HashSet<BurnchainHeaderHash>, Vec<NeighborKey>) {
         let mut new_blocks = HashSet::new();
         let mut bad_neighbors = vec![];
 
@@ -590,7 +591,7 @@ impl Relayer {
         // If a neighbor sends us an invalid block, ban them.
         for (neighbor_key, blocks_datas) in network_result.pushed_blocks.iter() {
             for blocks_data in blocks_datas.iter() {
-                match Relayer::validate_blocks_push(burn_tx, blocks_data) {
+                match Relayer::validate_blocks_push(burn_ic, blocks_data) {
                     Ok(_) => {},
                     Err(_) => {
                         // punish this peer 
@@ -601,7 +602,7 @@ impl Relayer {
 
                 for (burn_header_hash, block) in blocks_data.blocks.iter() {
                     debug!("Received pushed block {}/{} from {}", burn_header_hash, block.block_hash(), neighbor_key);
-                    match Relayer::process_new_anchored_block(burn_tx, chainstate, burn_header_hash, block) {
+                    match Relayer::process_new_anchored_block(burn_ic, chainstate, burn_header_hash, block) {
                         Ok(accepted) => {
                             if accepted {
                                 new_blocks.insert((*burn_header_hash).clone());
@@ -722,22 +723,20 @@ impl Relayer {
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
         {
-            let mut burn_tx = burndb.tx_begin()?;
+            let burn_ic = burndb.index_conn();
 
             // process blocks we downloaded
-            let mut new_dled_blocks = Relayer::preprocess_downloaded_blocks(&mut burn_tx, network_result, chainstate);
+            let mut new_dled_blocks = Relayer::preprocess_downloaded_blocks(&burn_ic, network_result, chainstate);
             for new_dled_block in new_dled_blocks.drain() {
                 new_blocks.insert(new_dled_block);
             }
 
             // process blocks pushed to us
-            let (mut new_pushed_blocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_blocks(&mut burn_tx, network_result, chainstate);
+            let (mut new_pushed_blocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_blocks(&burn_ic, network_result, chainstate);
             for new_pushed_block in new_pushed_blocks.drain() {
                 new_blocks.insert(new_pushed_block);
             }
             bad_neighbors.append(&mut new_bad_neighbors);
-
-            // no need to commit the burn_tx, since it's only required for reading the MARF
         }
 
         let mut new_dled_mblocks = Relayer::preprocess_downloaded_microblocks(network_result, chainstate);
@@ -753,14 +752,15 @@ impl Relayer {
         }
         // process as many epochs as we can.
         // Try to process at least a few epochs
-        let receipts: Vec<_> = chainstate.process_blocks(burndb, new_blocks.len() + 50)?.into_iter()
+        let max_epochs = if new_blocks.len() < 3 { 3 } else { new_blocks.len() };
+        let receipts: Vec<_> = chainstate.process_blocks(burndb, max_epochs)?.into_iter()
             .filter_map(|block_result| block_result.0).collect();
 
         Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, receipts))
     }
     
     /// Produce blocks-available messages from blocks we just got.
-    pub fn load_blocks_available_data(burndb: &mut BurnDB, mut burn_header_hashes: Vec<BurnchainHeaderHash>) -> Result<BlocksAvailableMap, net_error> {
+    pub fn load_blocks_available_data(burndb: &BurnDB, mut burn_header_hashes: Vec<BurnchainHeaderHash>) -> Result<BlocksAvailableMap, net_error> {
         let mut ret = BlocksAvailableMap::new();
         for bhh in burn_header_hashes.drain(..) {
             let sn = match BurnDB::get_block_snapshot(&burndb.conn(), &bhh)? {
@@ -794,7 +794,7 @@ impl Relayer {
 
     /// Store all new transactions we received, and return the list of transactions that we need to
     /// forward (as well as their relay hints).  Also, garbage-collect the mempool.
-    fn process_transactions(network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
+    fn process_transactions(network_result: &mut NetworkResult, burndb: &BurnDB, chainstate: &StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
         let (burn_header_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip(burndb)? {
             Some(tip) => (tip.burn_header_hash, tip.anchored_block_hash, tip.height),
             None => {

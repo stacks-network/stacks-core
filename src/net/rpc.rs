@@ -132,11 +132,11 @@ impl fmt::Debug for ConversationHttp {
 }
 
 impl PeerInfoData {
-    pub fn from_db(burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<PeerInfoData, net_error> {
+    pub fn from_db(burnchain: &Burnchain, burndb: &BurnDB, peerdb: &mut PeerDB) -> Result<PeerInfoData, net_error> {
         let burnchain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).map_err(net_error::DBError)?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn()).map_err(net_error::DBError)?;
         let stable_burnchain_tip = {
-            let mut tx = burndb.tx_begin().map_err(net_error::DBError)?;
+            let ic = burndb.index_conn();
             let stable_height = 
                 if burnchain_tip.block_height < burnchain.stable_confirmations as u64 {
                     0
@@ -145,7 +145,7 @@ impl PeerInfoData {
                     burnchain_tip.block_height - (burnchain.stable_confirmations as u64)
                 };
 
-            BurnDB::get_block_snapshot_in_fork(&mut tx, stable_height, &burnchain_tip.burn_header_hash)
+            BurnDB::get_block_snapshot_in_fork(&ic, stable_height, &burnchain_tip.burn_header_hash)
                 .map_err(net_error::DBError)?
                 .ok_or(net_error::DBError(db_error::NotFoundError))?
         };
@@ -204,7 +204,7 @@ impl ConversationHttp {
         &self.peer_addr
     }
 
-    /// Is a conversation in-progress?
+    /// Is a request in-progress?
     pub fn is_request_inflight(&self) -> bool {
         self.pending_request.is_some()
     }
@@ -262,7 +262,7 @@ impl ConversationHttp {
 
     /// Handle a GET peer info.
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
-    fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<(), net_error> {
+    fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain, burndb: &BurnDB, peerdb: &mut PeerDB) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         match PeerInfoData::from_db(burnchain, burndb, peerdb) {
@@ -592,7 +592,7 @@ impl ConversationHttp {
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block 
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
-    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burndb: &mut BurnDB, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burndb: &BurnDB, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
         match chainstate.get_stacks_chain_tip(burndb)? {
             Some(tip) => Ok(Some((tip.burn_header_hash, tip.anchored_block_hash))),
             None => {
@@ -634,7 +634,7 @@ impl ConversationHttp {
     /// those new streams into the `reply_streams` set.
     /// Returns a StacksMessageType option -- it's Some(...) if we need to forward a message to the
     /// peer network (like a transaction or a block or microblock)
-    pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+    pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &BurnDB, peerdb: &mut PeerDB,
                           chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Option<StacksMessageType>, net_error> {
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
@@ -926,7 +926,7 @@ impl ConversationHttp {
 
     /// Make progress on in-flight requests and replies.
     /// Returns the list of transactions we'll need to forward to the peer network
-    pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+    pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &BurnDB, peerdb: &mut PeerDB,
                 chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<StacksMessageType>, net_error> {
 
         // if we have an in-flight error, then don't take any more requests.

@@ -51,6 +51,10 @@ use net::MessageSequence;
 use net::codec::*;
 use net::MAX_MESSAGE_LEN;
 
+use net::inv::INV_SYNC_INTERVAL;
+use net::download::BLOCK_DOWNLOAD_INTERVAL;
+use net::neighbors::NEIGHBOR_WALK_INTERVAL;
+
 use util::strings::UrlString;
 
 use vm::{
@@ -328,6 +332,8 @@ pub struct ConnectionOptions {
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
     pub walk_interval: u64,
+    pub inv_sync_interval: u64,
+    pub download_interval: u64,
     pub dns_timeout: u128,
     pub max_inflight_blocks: u64,
     pub read_only_call_limit: ExecutionCost,
@@ -352,7 +358,7 @@ impl std::default::Default for ConnectionOptions {
             inbox_maxlen: 5,
             outbox_maxlen: 5,
             timeout: 30,                    // how long to wait for a reply
-            idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
+            idle_timeout: 15,               // how long a non-request HTTP connection can be idle before it's closed
             heartbeat: 3600,                // send a heartbeat once an hour by default
             private_key_lifetime: 4302,     // key expires after ~1 month
             num_neighbors: 32,              // how many outbound connections we can have, full-stop
@@ -364,7 +370,9 @@ impl std::default::Default for ConnectionOptions {
             soft_max_neighbors_per_host: 10,     // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them,
-            walk_interval: 300,             // how often to do a neighbor walk
+            walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk.  Note that this should be _smaller_ than inv_sync_interval
+            inv_sync_interval: INV_SYNC_INTERVAL,               // how often to synchronize block inventories
+            download_interval: BLOCK_DOWNLOAD_INTERVAL,         // how often to synchronize blocks
             dns_timeout: 15_000,            // DNS timeout, in millis
             max_inflight_blocks: 6,         // number of parallel block downloads
             read_only_call_limit: ExecutionCost { write_length: 0, write_count: 0,

@@ -62,6 +62,10 @@ impl MocknetController {
 }
 
 impl BurnchainController for MocknetController {
+    
+    fn burndb_ref(&self) -> &BurnDB {
+        self.db.as_ref().expect("BUG: did not instantiate burn DB")
+    }
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
         match self.db {
@@ -204,6 +208,6 @@ impl BurnchainController for MocknetController {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self) {}
+    fn bootstrap_chain(&mut self, num_blocks: u64) {}
 }
 

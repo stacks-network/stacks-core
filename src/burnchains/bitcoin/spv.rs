@@ -55,6 +55,7 @@ use util::db::{
     Error as db_error,
     FromColumn,
     FromRow,
+    tx_begin_immediate
 };
 
 const BLOCK_HEADER_SIZE: u64 = 81;
@@ -164,13 +165,13 @@ impl SpvClient {
             return Err(db_error::ReadOnly.into());
         }
 
-        let tx = self.headers_db.transaction().map_err(db_error::SqliteError)?;
+        let tx = tx_begin_immediate(&mut self.headers_db)?;
 
         Ok(tx)
     }
     
     fn db_instantiate(conn: &mut DBConn) -> Result<(), btc_error> {
-        let tx = conn.transaction().map_err(db_error::SqliteError)?;
+        let tx = tx_begin_immediate(conn)?;
 
         for row_text in SPV_SQL {
             tx.execute(row_text, NO_PARAMS).map_err(db_error::SqliteError)?;
@@ -695,14 +696,7 @@ impl BitcoinMessageHandler for SpvClient {
                 indexer.runtime.last_getheaders_send_time = 0;
 
                 debug!("Request headers for blocks {} - {} in range {} - {}", block_height, block_height + 2000, self.start_block_height, end_block_height);
-                match self.send_next_getheaders(indexer, block_height) {
-                    Ok(_) => {
-                        Ok(true)
-                    }
-                    Err(e) => {
-                        panic!(format!("Could not read block header at {} that we just stored: {:?}", block_height, &e));
-                    }
-                }
+                self.send_next_getheaders(indexer, block_height).and_then(|_| Ok(true))
             }
             x => {
                 Err(btc_error::UnhandledMessage(x))

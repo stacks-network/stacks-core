@@ -86,7 +86,8 @@ use rusqlite::{
     types::{ FromSql,
              ToSql },
     NO_PARAMS,
-    Error as SqliteError
+    Error as SqliteError,
+    OpenFlags
 };
 
 use std::convert::{
@@ -97,6 +98,8 @@ use std::convert::{
 use chainstate::stacks::index::Error as Error;
 
 use util::log;
+use util::db::tx_begin_immediate;
+use util::db::Error as db_error;
 
 pub fn ftell<F: Seek>(f: &mut F) -> Result<u64, Error> {
     f.seek(SeekFrom::Current(0))
@@ -486,6 +489,8 @@ pub struct TrieFileStorage {
 
     block_hash_cache: HashMap<u32, BlockHeaderHash>,
 
+    pub readonly: bool,
+
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
     #[cfg(test)]
@@ -522,7 +527,8 @@ impl TrieFileStorage {
             block_hash_cache: HashMap::new(),
   
             miner_tip: None,
-            
+            readonly: false,
+
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
             #[cfg(test)]
@@ -532,7 +538,51 @@ impl TrieFileStorage {
         Ok(ret)
     }
 
+    pub fn reopen_readonly(&self) -> Result<TrieFileStorage, Error> {
+        if let Some((ref block_bhh, _)) = self.last_extended {
+            error!("MARF storage already opened to in-progress block {}", block_bhh);
+            return Err(Error::InProgressError);
+        }
+
+        let db = Connection::open_with_flags(&self.dir_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        trace!("Make read-only view of TrieFileStorage: {}", &self.dir_path);
+        
+        let ret = TrieFileStorage {
+            dir_path: self.dir_path.clone(),
+            db: db,
+
+            last_extended: None,
+            cur_block: self.cur_block.clone(),
+            cur_block_id: self.cur_block_id.clone(),
+            
+            read_count: 0,
+            read_backptr_count: 0,
+            read_node_count: 0,
+            read_leaf_count: 0,
+
+            write_count: 0,
+            write_node_count: 0,
+            write_leaf_count: 0,
+
+            trie_ancestor_hash_bytes_cache: self.trie_ancestor_hash_bytes_cache.clone(),
+            block_hash_cache: self.block_hash_cache.clone(),
+  
+            miner_tip: None,
+            readonly: true,
+            
+            // used in testing in order to short-circuit block-height lookups
+            //   when the trie struct is tested outside of marf.rs usage
+            #[cfg(test)]
+            test_genesis_block: self.test_genesis_block.clone()
+        };
+
+        Ok(ret)
+    }
+
     pub fn set_miner_tip(&mut self, miner_tip: BlockHeaderHash) {
+        if self.readonly {
+            panic!("Tried to set miner tip on read-only storage");
+        }
         self.miner_tip = Some(miner_tip)
     }
 
@@ -639,6 +689,10 @@ impl TrieFileStorage {
 
     /// Extend the forest of Tries to include a new block.
     pub fn extend_to_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
         self.flush()?;
 
         let size_hint = match self.last_extended {
@@ -778,6 +832,10 @@ impl TrieFileStorage {
     }
 
     pub fn format(&mut self) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
         debug!("Format TrieFileStorage {}", &self.dir_path);
 
         // blow away db
@@ -815,6 +873,10 @@ impl TrieFileStorage {
     /// On err, S may point to a prior block.  The caller should call s.open(...) if an error
     /// occurs.
     pub fn write_children_hashes<W: Write>(&mut self, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
         trace!("get_children_hashes_bytes for {:?}", node);
 
         let mut map = TrieSqlHashMapCursor { db: &self.db,
@@ -916,6 +978,10 @@ impl TrieFileStorage {
     }
     
     pub fn write_nodetype(&mut self, disk_ptr: u32, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
         trace!("write_nodetype({:?}): at {}: {:?} {:?}", &self.cur_block, disk_ptr, &hash, node);
 
         self.write_count += 1;
@@ -939,6 +1005,10 @@ impl TrieFileStorage {
     }
 
     pub fn write_node<T: TrieNode + std::fmt::Debug>(&mut self, ptr: u32, node: &T, hash: TrieHash) -> Result<(), Error> {
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
         let node_type = node.as_trie_node_type();
         self.write_nodetype(ptr, &node_type, hash)
     }
@@ -952,6 +1022,9 @@ impl TrieFileStorage {
         // TODO: this needs to be more robust.  Also fsync the parent directory itself, before and
         // after.  Turns out rename(2) isn't crash-consistent, and turns out syscalls can get
         // reordered.
+        if self.readonly {
+            return Err(Error::ReadOnlyError);
+        }
         if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
             trace!("Buffering block flush started.");
             let mut buffer = Cursor::new(Vec::new());
@@ -962,7 +1035,7 @@ impl TrieFileStorage {
 
             debug!("Flush: {} to {}", bhh, flush_options);
 
-            let tx = self.db.transaction()?;
+            let tx = tx_begin_immediate(&mut self.db)?;
             let block_id = match flush_options {
                 FlushOptions::CurrentHeader => {
                     trie_sql::write_trie_blob(&tx, bhh, &buffer)?
@@ -1011,16 +1084,17 @@ impl TrieFileStorage {
     }
 
     pub fn drop_extending_trie(&mut self) {
-        if let Some((ref bhh, _)) = self.last_extended.take() {
-            let tx = self.db.transaction()
-                .expect("Corruption: Failed to obtain db transaction");
-            trie_sql::drop_lock(&tx, bhh)
-                .expect("Corruption: Failed to drop the extended trie lock");
-            tx.commit()
-                .expect("Corruption: Failed to drop the extended trie");
+        if !self.readonly {
+            if let Some((ref bhh, _)) = self.last_extended.take() {
+                let tx = tx_begin_immediate(&mut self.db)
+                    .expect("Corruption: Failed to obtain db transaction");
+                trie_sql::drop_lock(&tx, bhh)
+                    .expect("Corruption: Failed to drop the extended trie lock");
+                tx.commit()
+                    .expect("Corruption: Failed to drop the extended trie");
+            }
+            self.last_extended = None;
         }
-
-        self.last_extended = None;
     }
 
     pub fn last_ptr(&mut self) -> Result<u32, Error> {
