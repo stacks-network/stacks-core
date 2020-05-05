@@ -114,7 +114,7 @@ impl EventObserver {
             retry_count += 1;
             backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
             let duration = Duration::from_millis((backoff * 1_000.0) as u64);
-            debug!("Event dispatcher will retry posting in {:?}", duration);
+            info!("Event dispatcher will retry posting in {:?}", duration);
             sleep(duration);
         };
     }
