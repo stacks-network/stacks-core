@@ -66,6 +66,7 @@ use chainstate::burn::BlockSnapshot;
 
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::burn::distribution::BurnSamplePoint;
 
 use chainstate::stacks::StacksAddress;
@@ -98,7 +99,7 @@ impl BurnchainStateTransition {
         }
     }
 
-    pub fn from_block_ops<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
+    pub fn from_block_ops<'a>(ic: &BurnDBConn<'a>, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
         let mut user_burns: Vec<UserBurnSupportOp> = vec![];
@@ -133,7 +134,7 @@ impl BurnchainStateTransition {
         }
 
         // find all VRF leader keys that were consumed by the block commits of this block 
-        let consumed_leader_keys = BurnDB::get_consumed_leader_keys(tx, &parent_snapshot.burn_header_hash, &block_commits)
+        let consumed_leader_keys = BurnDB::get_consumed_leader_keys(ic, &parent_snapshot.burn_header_hash, &block_commits)
             .map_err(burnchain_error::DBError)?;
 
         // calculate the burn distribution from these operations.
@@ -347,28 +348,20 @@ impl Burnchain {
         Ok(())
     }
 
-    fn make_indexer<I>(&self) -> Result<I, burnchain_error> 
-    where
-        I: BurnchainIndexer
-    {
+    fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
-        let indexer_res = BurnchainIndexer::init(&self.working_dir, &self.network_name);
-        let mut indexer: I = indexer_res?;
-        self.setup_chainstate(&mut indexer)?;
+        let indexer : I = BurnchainIndexer::init(&self.working_dir, &self.network_name)?;
         Ok(indexer)
     }
 
-    fn setup_chainstate<I>(&self, indexer: &mut I) -> Result<(), burnchain_error>
-    where
-        I: BurnchainIndexer
-    {
+    fn setup_chainstate<I: BurnchainIndexer>(&self, indexer: &mut I) -> Result<(), burnchain_error> {
         let headers_path = indexer.get_headers_path();
         let headers_pathbuf = PathBuf::from(&headers_path);
 
         let headers_height =
             if headers_pathbuf.exists() {
-                indexer.get_headers_height(&headers_path)?
+                indexer.get_headers_height()?
             }
             else {
                 0
@@ -376,7 +369,7 @@ impl Burnchain {
 
         if !headers_pathbuf.exists() || headers_height < indexer.get_first_block_height() {
             debug!("Fetch initial headers");
-            indexer.sync_headers(&headers_path, headers_height, None)
+            indexer.sync_headers(headers_height, None)
                 .map_err(|e| {
                     error!("Failed to sync initial headers");
                     e
@@ -394,15 +387,12 @@ impl Burnchain {
         db_path
     }
 
-    fn connect_db<I>(&self, indexer: &I, readwrite: bool) -> Result<BurnDB, burnchain_error>
-    where
-        I: BurnchainIndexer,
-    {
+    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<BurnDB, burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
         let first_block_height = indexer.get_first_block_height();
-        let first_block_header_hash = indexer.get_first_block_header_hash(&indexer.get_headers_path())?;
-        let first_block_header_timestamp = indexer.get_first_block_header_timestamp(&indexer.get_headers_path())?;
+        let first_block_header_hash = indexer.get_first_block_header_hash()?;
+        let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
         
         let db_path = self.get_db_path();
         BurnDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)
@@ -464,24 +454,24 @@ impl Burnchain {
     }
    
     /// Run a blockstack operation's "check()" method and return the result.
-    fn check_transaction<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, blockstack_op: &BlockstackOperationType) -> Result<(), burnchain_error> {
+    fn check_transaction<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, blockstack_op: &BlockstackOperationType) -> Result<(), burnchain_error> {
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                op.check(burnchain, block_header, tx)
+                op.check(burnchain, block_header, ic)
                     .map_err(|e| {
                           warn!("REJECTED({}) leader key register {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                           burnchain_error::OpError(e)
                     })
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                op.check(burnchain, block_header, tx)
+                op.check(burnchain, block_header, ic)
                     .map_err(|e| {
                           warn!("REJECTED({}) leader block commit {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                           burnchain_error::OpError(e)
                     })
             },
             BlockstackOperationType::UserBurnSupport(ref op) => {
-                op.check(burnchain, block_header, tx)
+                op.check(burnchain, block_header, ic)
                     .map_err(|e| {
                         warn!("REJECTED({}) user burn support {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                         burnchain_error::OpError(e)
@@ -601,13 +591,13 @@ impl Burnchain {
     /// Generate the list of blockstack operations that will be snapshotted -- a subset of the
     /// blockstack operations extracted from get_blockstack_transactions.
     /// Return the list of parsed blockstack operations whose check() method has returned true.
-    fn check_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, block_ops: &Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, burnchain_error> {
+    fn check_block_ops<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, block_ops: &Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, burnchain_error> {
         debug!("Check Blockstack transactions from block {} {}", block_header.block_height, &block_header.block_hash);
         let mut ret = vec![];
 
         // classify and check each transaction
         for blockstack_op in block_ops {
-            match Burnchain::check_transaction(tx, burnchain, block_header, blockstack_op) {
+            match Burnchain::check_transaction(ic, burnchain, block_header, blockstack_op) {
                 Err(_) => {
                     // check failed
                     continue;
@@ -639,7 +629,7 @@ impl Burnchain {
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(tx, parent_snapshot, this_block_ops)
+        let state_transition = BurnchainStateTransition::from_block_ops(&tx.as_conn(), parent_snapshot, this_block_ops)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
@@ -648,15 +638,14 @@ impl Burnchain {
         let txids = state_transition.accepted_ops.iter().map(|ref op| op.txid()).collect();
         
         // do the cryptographic sortition and pick the next winning block.
-        let mut snapshot = BlockSnapshot::make_snapshot(tx, burnchain, parent_snapshot, block_header, &state_transition.burn_dist, &txids)
+        let mut snapshot = BlockSnapshot::make_snapshot(&tx.as_conn(), burnchain, parent_snapshot, block_header, &state_transition.burn_dist, &txids)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash, e);
                 burnchain_error::DBError(e)
             })?;
         
         // store the snapshot
-        let index_root = BurnDB::append_chain_tip_snapshot(tx, parent_snapshot, &snapshot, &state_transition.accepted_ops, &state_transition.consumed_leader_keys)
-            .expect("FATAL: failed to append snapshot");
+        let index_root = BurnDB::append_chain_tip_snapshot(tx, parent_snapshot, &snapshot, &state_transition.accepted_ops, &state_transition.consumed_leader_keys)?;
 
         snapshot.index_root = index_root;
 
@@ -679,7 +668,7 @@ impl Burnchain {
         debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
 
         // check each transaction, and filter out only the ones that are valid 
-        let block_ops = Burnchain::check_block_ops(tx, burnchain, block_header, blockstack_txs)
+        let block_ops = Burnchain::check_block_ops(&tx.as_conn(), burnchain, block_header, blockstack_txs)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when checking block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
                 e
@@ -703,7 +692,7 @@ impl Burnchain {
     pub fn get_burnchain_block_attachment_info<'a>(tx: &mut BurnDBTx<'a>, block: &BurnchainBlock) -> Result<(BurnchainBlockHeader, BlockSnapshot), burnchain_error> {
         debug!("Get header for block {} {}", block.block_height(), &block.block_hash());
 
-        let parent_snapshot = match BurnDB::get_block_snapshot(tx, &block.parent_block_hash()).expect("FATAL: DB failed to query snapshot") {
+        let parent_snapshot = match BurnDB::get_block_snapshot(tx, &block.parent_block_hash())? {
             Some(sn) => {
                 sn
             },
@@ -757,68 +746,63 @@ impl Burnchain {
     pub fn process_block(db: &mut BurnDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
-        let mut tx = db.tx_begin()
-            .expect("FATAL: failed to begin Sqlite transaction");
+        let mut tx = db.tx_begin()?;
 
         let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(&mut tx, block)?;
         let blockstack_txs = Burnchain::get_blockstack_transactions(block, &header);
         let new_snapshot = Burnchain::process_block_txs(&mut tx, &parent_snapshot, &header, burnchain, blockstack_txs)?;
         
         // commit everything!
-        tx.commit().expect("FATAL: failed to commit Sqlite transaction");
+        tx.commit()?;
         Ok(new_snapshot)
     }
 
-    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I, chain_tip: &BlockSnapshot) -> Result<u64, burnchain_error> {
+    /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
+    /// Return the new chain tip
+    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<u64, burnchain_error> {
         let headers_path = indexer.get_headers_path();
-        let sync_height;
         
-        // how far are we in sync'ing the db to?
-        let db_height = chain_tip.block_height;
-
         // sanity check -- how many headers do we have? 
-        let headers_height = indexer.get_headers_height(&headers_path)
+        // Note that this value is 1-indexed -- the smallest possible value it returns is 1,
+        // So, subtract 1.
+        let headers_height = indexer.get_headers_height()
             .map_err(|e| {
-                error!("Failed to read headers height");
+                error!("Failed to read headers height from {}: {:?}", headers_path, &e);
+                e
+            })? - 1;
+
+        // did we encounter a reorg since last sync?  Find the highest common ancestor of the
+        // remote bitcoin peer's chain state.
+        // Note that this value is 0-indexed -- the smallest possible value it returns is 0.
+        let reorg_height = indexer.find_chain_reorg()
+            .map_err(|e| {
+                error!("Failed to check for reorgs from {}: {:?}", headers_path, &e);
                 e
             })?;
 
-        if headers_height < db_height {
-            error!("Missing headers -- possibly corrupt database or headers file");
-            return Err(burnchain_error::MissingHeaders);
-        }
-
-        // did we encounter a reorg since last sync?
-        let new_height = indexer.find_chain_reorg(&headers_path, db_height)
-            .map_err(|e| {
-                error!("Failed to check for reorgs from {}", db_height);
-                e
-            })?;
-        
-        if new_height < db_height {
-            warn!("Detected burnchain reorg at height {} (< {}). Re-sync'ing...", new_height, db_height);
-
-            // drop associated headers as well 
-            indexer.drop_headers(&headers_path, new_height)?;
-            sync_height = new_height;
+        if reorg_height < headers_height {
+            warn!("Burnchain reorg detected: highest common ancestor at height {}", reorg_height);
+            return Ok(reorg_height);
         }
         else {
-            sync_height = db_height;
+            // no reorg
+            return Ok(headers_height);
         }
-        Ok(sync_height)
     }
 
-    /// Top-level burnchain sync
+    /// Top-level burnchain sync.
+    /// Returns new latest block height.
     pub fn sync<I: BurnchainIndexer + 'static>(&mut self) -> Result<u64, burnchain_error> {
         let mut indexer: I = self.make_indexer()?;
         let (chain_tip, _) = self.sync_with_indexer(&mut indexer)?;
         Ok(chain_tip.block_height)
     }
 
-    /// Top-level burnchain sync
+    /// Top-level burnchain sync.
+    /// Returns (snapshot of new burnchain tip, last state-transition processed if any)
+    /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
     pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
-        let headers_path = indexer.get_headers_path();
-        
+        self.setup_chainstate(indexer)?;
         let mut burndb = self.connect_db(indexer, true)?;
         let burn_chain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn())
             .map_err(|e| {
@@ -829,33 +813,33 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let sync_reorg_res = Burnchain::sync_reorg(indexer, &burn_chain_tip);
-        let sync_height = sync_reorg_res?;
+        let orig_header_height = indexer.get_headers_height()?;     // 1-indexed
+        let sync_height = Burnchain::sync_reorg(indexer)?;
+        if sync_height + 1 < orig_header_height {
+            // a reorg happened
+            warn!("Dropping headers higher than {} due to burnchain reorg", sync_height);
+            indexer.drop_headers(sync_height)?;
+        }
 
-        // get latest headers 
-        let header_height_res = indexer.get_headers_height(&headers_path);
-        let header_height = header_height_res?;
-        
-        // TODO: do this atomically -- write to headers_path.new, do the sync, and then merge the files
-        // and rename the merged file over the headers file (atomic)
-        debug!("Sync headers from {}", header_height);
-        let end_block_res = indexer.sync_headers(&headers_path, header_height, None);
-        let end_block = end_block_res?;
-        
-        debug!("Sync'ed headers from {} to {}", header_height, end_block);
+        // get latest headers.
+        debug!("Sync headers from {}", sync_height);
 
-        if db_height >= end_block {
+        let end_block = indexer.sync_headers(sync_height, None)?;
+        let mut start_block = match sync_height {
+            0 => 0,
+            _ => sync_height,
+        };
+        if db_height < start_block {
+            start_block = db_height;
+        }
+        
+        debug!("Sync'ed headers from {} to {}. DB at {}", start_block, end_block, db_height);
+        if start_block == db_height && db_height == end_block {
             // all caught up
             return Ok((burn_chain_tip, None));
         }
 
-        // initial inputs
-        // TODO: stream this -- don't need to load them all into RAM
-        let start_block = match sync_height {
-            0 => 0,
-            _ => sync_height + 1,
-        };
-        let input_headers = indexer.read_headers(&headers_path, start_block, end_block + 1)?;
+        info!("Node will fetch burnchain blocks {}-{}...", start_block, end_block);
 
         // synchronize 
         let (downloader_send, downloader_recv) = sync_channel(1);
@@ -905,8 +889,8 @@ impl Burnchain {
             Ok(())
         });
 
-        let db_thread : thread::JoinHandle<Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error>> = thread::spawn(move || {
-            let mut last_processed: Option<(BlockSnapshot, BurnchainStateTransition)> = None;
+        let db_thread : thread::JoinHandle<Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error>> = thread::spawn(move || {
+            let mut last_processed = (burn_chain_tip, None);
             while let Ok(Some(burnchain_block)) = db_recv.recv() {
                 debug!("Try recv next parsed block");
 
@@ -915,34 +899,55 @@ impl Burnchain {
                 }
                 
                 let insert_start = get_epoch_time_ms();
-                let res = Burnchain::process_block(&mut burndb, &burnchain_config, &burnchain_block)?;
-                last_processed = Some(res);
+                let (tip, transition) = Burnchain::process_block(&mut burndb, &burnchain_config, &burnchain_block)?;
+                last_processed = (tip, Some(transition));
                 let insert_end = get_epoch_time_ms();
 
                 debug!("Inserted block {} in {}ms", burnchain_block.block_height(), insert_end - insert_start);
             }
-            Ok(last_processed.unwrap())
+            Ok(last_processed)
         });
 
         // feed the pipeline!
+        let input_headers = indexer.read_headers(start_block + 1, end_block + 1)?;
+        let mut downloader_result : Result<(), burnchain_error> = Ok(());
         for i in 0..input_headers.len() {
-            downloader_send.send(Some(input_headers[i].clone()))
-                .map_err(|_e| burnchain_error::ThreadChannelError)?;
+            debug!("Downloading burnchain block {} out of {}...", start_block + 1 + (i as u64), end_block);
+            if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
+                info!("Failed to feed burnchain block header {}: {:?}", start_block + 1 + (i as u64), &e);
+                downloader_result = Err(burnchain_error::TrySyncAgain);
+                break;
+            }
         }
 
-        downloader_send.send(None)
-            .map_err(|_e| burnchain_error::ThreadChannelError)?;
+        if downloader_result.is_ok() {
+            if let Err(e) = downloader_send.send(None) {
+                info!("Failed to instruct downloader thread to finish: {:?}", &e);
+                downloader_result = Err(burnchain_error::TrySyncAgain);
+            }
+        }
 
         // join up 
-        download_thread.join().unwrap().unwrap();
-        parse_thread.join().unwrap().unwrap();
-        let (block_snapshot, state_transition) = db_thread.join().unwrap().unwrap();
-        
-        if block_snapshot.block_height != end_block {
-            return Err(burnchain_error::ThreadChannelError)
+        let _ = download_thread.join().unwrap();
+        let _ = parse_thread.join().unwrap();
+        let (block_snapshot, state_transition_opt) = match db_thread.join().unwrap() {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Failed to join burnchain download thread: {:?}", &e);
+                return Err(burnchain_error::TrySyncAgain);
+            }
+        };
+
+        if block_snapshot.block_height < end_block {
+            warn!("Try synchronizing the burn chain again: final snapshot {} < {}", block_snapshot.block_height, end_block);
+            return Err(burnchain_error::TrySyncAgain);
         }
 
-        Ok((block_snapshot, Some(state_transition)))
+        if let Err(e) = downloader_result {
+            return Err(e);
+        }
+
+        Ok((block_snapshot, state_transition_opt))
     }
 }
 
@@ -1251,6 +1256,12 @@ pub mod tests {
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             index_root: TrieHash::from_empty_data(),        // TBD
             num_sortitions: 0,
+            stacks_block_accepted: false,
+            stacks_block_height: 0,
+            arrival_index: 0,
+            canonical_stacks_tip_height: 0,
+            canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+            canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
         };
 
         let block_ops_122 = vec![
@@ -1277,6 +1288,12 @@ pub mod tests {
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             index_root: TrieHash::from_empty_data(),        // TBD
             num_sortitions: 0,
+            stacks_block_accepted: false,
+            stacks_block_height: 0,
+            arrival_index: 0,
+            canonical_stacks_tip_height: 0,
+            canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+            canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
         };
 
         let block_ops_123 = vec![
@@ -1309,6 +1326,12 @@ pub mod tests {
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             index_root: TrieHash::from_empty_data(),        // TBD
             num_sortitions: 0,
+            stacks_block_accepted: false,
+            stacks_block_height: 0,
+            arrival_index: 0,
+            canonical_stacks_tip_height: 0,
+            canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+            canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
         };
 
         // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
@@ -1339,7 +1362,7 @@ pub mod tests {
             block_commit_1.clone(),
         ];
  
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
        
         // NOTE: the .txs() method will NOT be called, so we can pass an empty vec![] here
         let block121 = BurnchainBlock::Bitcoin(BitcoinBlock::new(121, &block_121_hash, &first_burn_hash, &vec![], 121));
@@ -1447,7 +1470,13 @@ pub mod tests {
                 winning_block_txid: block_124_winners[scenario_idx].txid.clone(),
                 winning_stacks_block_hash: block_124_winners[scenario_idx].block_header_hash.clone(),
                 index_root: TrieHash::from_empty_data(),        // TDB
-                num_sortitions: if next_sortition { 1 } else { 0 }
+                num_sortitions: if next_sortition { 1 } else { 0 },
+                stacks_block_accepted: false,
+                stacks_block_height: 0,
+                arrival_index: 0,
+                canonical_stacks_tip_height: 0,
+                canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+                canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
             };
 
             if next_sortition {
@@ -1656,7 +1685,7 @@ pub mod tests {
         let mut expected_burn_total : u64 = 0;
 
         // insert all operations
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
         let mut prev_snapshot = BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height as u64);
         let mut all_stacks_block_hashes = vec![];
 
@@ -1698,8 +1727,8 @@ pub mod tests {
             }
 
             let ch = {
-                let mut tx = db.tx_begin().unwrap();
-                BurnDB::get_consensus_at(&mut tx, (i as u64) + first_block_height, &parent_burn_block_hash).unwrap().unwrap_or(ConsensusHash::empty())
+                let ic = db.index_conn();
+                BurnDB::get_consensus_at(&ic, (i as u64) + first_block_height, &parent_burn_block_hash).unwrap().unwrap_or(ConsensusHash::empty())
             };
 
             let next_leader_key = LeaderKeyRegisterOp {

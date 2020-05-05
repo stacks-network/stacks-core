@@ -72,6 +72,9 @@ impl RunLoop {
             node.into_initialized_node(burnchain_tip.clone())
         };
 
+        // TODO (hack) instantiate the burndb in the burnchain
+        let _ = burnchain.burndb_mut();
+
         // Start the runloop
         info!("Begin run loop");
         loop {
@@ -86,9 +89,9 @@ impl RunLoop {
             // first, let's process all blocks in (block_height, next_height]
             for block_to_process in (block_height+1)..(next_height+1) {
                 let block = {
-                    let mut tx = burnchain.burndb_mut().tx_begin().unwrap();
+                    let ic = burnchain.burndb_ref().index_conn();
                     BurnDB::get_ancestor_snapshot(
-                        &mut tx, block_to_process, &burnchain_tip.block_snapshot.burn_header_hash)
+                        &ic, block_to_process, &burnchain_tip.block_snapshot.burn_header_hash)
                         .unwrap()
                         .expect("Failed to find block in fork processed by bitcoin indexer")
                 };

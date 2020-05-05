@@ -36,7 +36,7 @@ use util::uint::Uint256;
 use util::HexError;
 
 /// A Bitcoin hash, 32-bytes, computed from x as SHA256(SHA256(x))
-pub struct Sha256dHash([u8; 32]);
+pub struct Sha256dHash(pub [u8; 32]);
 impl_array_newtype!(Sha256dHash, u8, 32);
 
 /// An object that allows serializing data into a sha256d

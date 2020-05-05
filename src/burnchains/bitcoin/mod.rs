@@ -49,7 +49,9 @@ use deps::bitcoin::network::serialize::Error as btc_serialize_error;
 
 use util::HexError as btc_hex_error;
 
-pub type PeerMessage = Arc<deps::bitcoin::network::message::NetworkMessage>;
+use util::db::Error as db_error;
+
+pub type PeerMessage = deps::bitcoin::network::message::NetworkMessage;
 
 // Borrowed from Andrew Poelstra's rust-bitcoin 
 
@@ -58,8 +60,6 @@ pub type PeerMessage = Arc<deps::bitcoin::network::message::NetworkMessage>;
 pub enum Error {
     /// I/O error
     Io(io::Error),
-    /// Socket mutex was poisoned
-    SocketMutexPoisoned,
     /// Not connected to peer
     SocketNotConnectedToPeer,
     /// Serialization error 
@@ -78,6 +78,8 @@ pub enum Error {
     ConnectionError,
     /// general filesystem error
     FilesystemError(io::Error),
+    /// Database error
+    DBError(db_error),
     /// Hashing error
     HashError(btc_hex_error),
     /// Non-contiguous header 
@@ -92,13 +94,14 @@ pub enum Error {
     ConfigError(String),
     /// Tried to synchronize to a point above the chain tip
     BlockchainHeight,
+    /// Request timed out
+    TimedOut,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::Io(ref e) => fmt::Display::fmt(e, f),
-            Error::SocketMutexPoisoned => write!(f, "socket mutex was poisoned"),
             Error::SocketNotConnectedToPeer => write!(f, "not connected to peer"),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
             Error::InvalidMessage(ref _msg) => write!(f, "Invalid message to send"),
@@ -108,6 +111,7 @@ impl fmt::Display for Error {
             Error::ConnectionBroken => write!(f, "connection to peer node is broken"),
             Error::ConnectionError => write!(f, "connection to peer could not be (re-)established"),
             Error::FilesystemError(ref e) => fmt::Display::fmt(e, f),
+            Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::HashError(ref e) => fmt::Display::fmt(e, f),
             Error::NoncontiguousHeader => write!(f, "Non-contiguous header"),
             Error::MissingHeader => write!(f, "Missing header"),
@@ -115,6 +119,7 @@ impl fmt::Display for Error {
             Error::InvalidByteSequence => write!(f, "Invalid sequence of bytes"),
             Error::ConfigError(ref e_str) => fmt::Display::fmt(e_str, f),
             Error::BlockchainHeight => write!(f, "Value is beyond the end of the blockchain"),
+            Error::TimedOut => write!(f, "Request timed out"),
         }
     }
 }
@@ -123,7 +128,7 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::Io(ref e) => Some(e),
-            Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => None,
+            Error::SocketNotConnectedToPeer => None,
             Error::SerializationError(ref e) => Some(e),
             Error::InvalidMessage(ref _msg) => None,
             Error::InvalidReply => None,
@@ -132,6 +137,7 @@ impl error::Error for Error {
             Error::ConnectionBroken => None,
             Error::ConnectionError => None,
             Error::FilesystemError(ref e) => Some(e),
+            Error::DBError(ref e) => Some(e),
             Error::HashError(ref e) => Some(e),
             Error::NoncontiguousHeader => None,
             Error::MissingHeader => None,
@@ -139,7 +145,14 @@ impl error::Error for Error {
             Error::InvalidByteSequence => None,
             Error::ConfigError(ref _e_str) => None,
             Error::BlockchainHeight => None,
+            Error::TimedOut => None,
         }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
     }
 }
 

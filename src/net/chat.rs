@@ -73,6 +73,10 @@ use util::log;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 
+use rand;
+use rand::Rng;
+use rand::thread_rng;
+
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
 pub struct NeighborHealthPoint {
@@ -295,7 +299,6 @@ pub struct ConversationP2P {
     pub conn_id: usize,
 
     pub burnchain: Burnchain,                   // copy of our burnchain config
-    pub seq: u32,                               // our sequence number when talknig to this peer
     pub heartbeat: u32,                         // how often do we send heartbeats?
 
     pub peer_network_id: u32,
@@ -311,6 +314,8 @@ pub struct ConversationP2P {
     // highest block height and consensus hash this peer has seen
     pub burnchain_tip_height: u64,
     pub burnchain_tip_consensus_hash: ConsensusHash,
+    pub burnchain_stable_tip_height: u64,
+    pub burnchain_stable_tip_consensus_hash: ConsensusHash,
 
     pub stats: NeighborStats,
 
@@ -450,7 +455,6 @@ impl ConversationP2P {
             version: version,
             connection: ConnectionP2P::new(StacksP2P::new(), conn_opts, None),
             conn_id: conn_id,
-            seq: 0,
             heartbeat: conn_opts.heartbeat,
             burnchain: burnchain.clone(),
 
@@ -466,6 +470,8 @@ impl ConversationP2P {
 
             burnchain_tip_height: 0,
             burnchain_tip_consensus_hash: ConsensusHash([0x00; 20]),
+            burnchain_stable_tip_height: 0,
+            burnchain_stable_tip_consensus_hash: ConsensusHash([0x00; 20]),
 
             stats: NeighborStats::new(outbound),
             reply_handles: VecDeque::new(),
@@ -499,6 +505,22 @@ impl ConversationP2P {
     
     pub fn ref_public_key(&self) -> Option<&StacksPublicKey> {
         self.connection.ref_public_key()
+    }
+
+    pub fn get_burnchain_tip_height(&self) -> u64 {
+        self.burnchain_tip_height
+    }
+    
+    pub fn get_stable_burnchain_tip_height(&self) -> u64 {
+        self.burnchain_stable_tip_height
+    }
+
+    pub fn get_burnchain_tip_consensus_hash(&self) -> ConsensusHash {
+        self.burnchain_tip_consensus_hash.clone()
+    }
+
+    pub fn get_stable_burnchain_tip_consensus_hash(&self) -> ConsensusHash {
+        self.burnchain_stable_tip_consensus_hash.clone()
     }
     
     /// Determine whether or not a given (height, consensus_hash) pair _disagrees_ with our
@@ -544,15 +566,6 @@ impl ConversationP2P {
             test_debug!("remote peer is too far ahead of us: {} > {}", msg.preamble.burn_stable_block_height, chain_view.burn_block_height);
             return Ok(false);
         }
-        else {
-            // remote node's unstable burn block height is at or behind ours.
-            // if their view is sufficiently fresh, make sure their consensus hash matches our view.
-            let res = ConversationP2P::check_consensus_hash_disagreement(msg.preamble.burn_block_height, &msg.preamble.burn_consensus_hash, chain_view);
-            if res {
-                // our chain tip disagrees with their chain tip -- don't engage
-                return Ok(false);
-            }
-        }
 
         // must agree on stable consensus hash
         let rules_disagree = ConversationP2P::check_consensus_hash_disagreement(msg.preamble.burn_stable_block_height, &msg.preamble.burn_stable_consensus_hash, chain_view);
@@ -565,14 +578,10 @@ impl ConversationP2P {
         Ok(true)
     }
 
-    /// Get next message sequence number, and increment.
+    /// Get next message sequence number
     fn next_seq(&mut self) -> u32 {
-        if self.seq == u32::max_value() {
-            self.seq = 0;
-        }
-        let ret = self.seq;
-        self.seq += 1;
-        ret
+        let mut rng = thread_rng();
+        rng.gen::<u32>()
     }
 
     /// Generate a signed message for this conversation 
@@ -850,9 +859,8 @@ impl ConversationP2P {
 
     /// Handle an inbound GetBlocksInv request.
     /// Returns a reply handle to the generated message (possibly a nack)
-    fn handle_getblocksinv(&mut self, local_peer: &LocalPeer, burndb: &mut BurnDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView, preamble: &Preamble, get_blocks_inv: &GetBlocksInv) -> Result<ReplyHandleP2P, net_error> {
+    fn handle_getblocksinv(&mut self, local_peer: &LocalPeer, burndb: &BurnDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView, preamble: &Preamble, get_blocks_inv: &GetBlocksInv) -> Result<ReplyHandleP2P, net_error> {
         let block_hashes = {
-            let mut burndb_tx = burndb.tx_begin().map_err(net_error::DBError)?;
             let num_headers = 
                 if (get_blocks_inv.num_blocks as u32) > BLOCKS_INV_DATA_MAX_BITLEN {
                     BLOCKS_INV_DATA_MAX_BITLEN as u64
@@ -861,7 +869,7 @@ impl ConversationP2P {
                     get_blocks_inv.num_blocks as u64
                 };
 
-            match BurnDB::get_stacks_header_hashes(&mut burndb_tx, num_headers, &get_blocks_inv.consensus_hash) {
+            match BurnDB::get_stacks_header_hashes(&burndb.index_conn(), num_headers, &get_blocks_inv.consensus_hash, Some(chainstate.get_block_header_cache())) {
                 Ok(blocks_hashes) => Ok(blocks_hashes),
                 Err(e) => match e {
                     db_error::NotFoundError => {
@@ -875,7 +883,11 @@ impl ConversationP2P {
             }
         }?;
 
-        let blocks_inv_data : BlocksInvData = chainstate.get_blocks_inventory(&block_hashes).map_err(|e| net_error::from(e))?;
+        // update cache
+        BurnDB::merge_block_header_cache(chainstate.borrow_block_header_cache(), &block_hashes);
+
+        let inv_query : Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)> = block_hashes.into_iter().map(|(bhh, _, hh_opt)| (bhh, hh_opt)).collect();
+        let blocks_inv_data : BlocksInvData = chainstate.get_blocks_inventory(&inv_query).map_err(|e| net_error::from(e))?;
 
         debug!("{:?}: Handle GetBlocksInv from {:?}. Reply {:?} to request {:?}", &local_peer, &self, &blocks_inv_data, get_blocks_inv);
 
@@ -992,7 +1004,7 @@ impl ConversationP2P {
     
     /// Handle an inbound authenticated p2p data-plane message.
     /// Return the message if not handled
-    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &mut BurnDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, msg: StacksMessage) -> Result<Option<StacksMessage>, net_error> {
+    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &BurnDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, msg: StacksMessage) -> Result<Option<StacksMessage>, net_error> {
         let res = match msg.payload {
             StacksMessageType::GetNeighbors => self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble),
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(local_peer, burndb, chainstate, chain_view, &msg.preamble, get_blocks_inv),
@@ -1272,7 +1284,7 @@ impl ConversationP2P {
     /// Attempts to fulfill requests in other threads as a result of processing a message.
     /// Returns the list of unfulfilled Stacks messages we received -- messages not destined for
     /// any other thread in this program (i.e. "unsolicited messages").
-    pub fn chat(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &mut BurnDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
+    pub fn chat(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &BurnDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} messages pending", &self, num_inbound);
 
@@ -1322,7 +1334,7 @@ impl ConversationP2P {
             let _seq = msg.request_id();
 
             if update_stats {
-                // successfully got a message -- update stats
+                // successfully got a message we asked for-- update stats
                 if self.stats.first_contact_time == 0 {
                     self.stats.first_contact_time = now;
                 }
@@ -1339,6 +1351,19 @@ impl ConversationP2P {
                 self.stats.last_recv_time = now;
                 self.stats.last_contact_time = get_epoch_time_secs();
                 self.stats.add_healthpoint(true);
+
+                // update chain view from preamble
+                if msg.preamble.burn_block_height > self.burnchain_tip_height {
+                    self.burnchain_tip_height = msg.preamble.burn_block_height;
+                    self.burnchain_tip_consensus_hash = msg.preamble.burn_consensus_hash.clone();
+                }
+
+                if msg.preamble.burn_stable_block_height > self.burnchain_stable_tip_height {
+                    self.burnchain_stable_tip_height = msg.preamble.burn_stable_block_height;
+                    self.burnchain_stable_tip_consensus_hash = msg.preamble.burn_stable_consensus_hash.clone();
+                }
+
+                debug!("{:?}: remote chain view is ({},{})-({},{})", self, self.burnchain_stable_tip_height, &self.burnchain_stable_tip_consensus_hash, self.burnchain_tip_height, &self.burnchain_tip_consensus_hash);
             }
             else {
                 // got an unhandled message we didn't ask for
@@ -1583,12 +1608,12 @@ mod test {
         // it along to the chat caller (us)
         test_debug!("send handshake");
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         test_debug!("send handshake-accept");
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -1686,11 +1711,11 @@ mod test {
 
         // convo_2 receives it and automatically rejects it.
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a handshakreject
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -1771,11 +1796,11 @@ mod test {
 
         // convo_2 receives it and processes it, and barfs
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2_err = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view);
+        let unhandled_2_err = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view);
 
         // convo_1 gets a nack and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         // the waiting reply aborts on disconnect
         let reply_1_err = rh_1.recv(0);
@@ -1844,11 +1869,11 @@ mod test {
 
         // convo_2 receives it and processes it automatically (consuming it), and give back a handshake reject
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         // convo_1 gets a handshake reject and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // get back handshake reject
         let reply_1 = rh_1.recv(0).unwrap();
@@ -1927,13 +1952,13 @@ mod test {
         test_debug!("send handshake {:?}", &handshake_1);
         test_debug!("send ping {:?}", &ping_1);
         convo_send_recv(&mut convo_1, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         test_debug!("reply handshake-accept");
         test_debug!("send pong");
         convo_send_recv(&mut convo_2, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
         let reply_ping_1 = rh_ping_1.recv(0).unwrap();
@@ -2022,11 +2047,11 @@ mod test {
             // convo_2 receives the handshake and ping and processes both, and since no one is waiting for the handshake, will forward
             // it along to the chat caller (us)
             convo_send_recv(&mut convo_1, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_2);
-            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
             // convo_1 has a handshakeaccept 
             convo_send_recv(&mut convo_2, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_1);
-            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
             let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
             let reply_ping_1 = rh_ping_1.recv(0).unwrap();
@@ -2068,11 +2093,6 @@ mod test {
                     assert!(false);
                 }
             };
-
-            // confirm that sequence numbers are increasing
-            assert_eq!(reply_handshake_1.preamble.seq, 2*i);
-            assert_eq!(reply_ping_1.preamble.seq, 2*i + 1);
-            assert_eq!(convo_1.seq, 2*i + 2);
 
             // convo_2 got updated with convo_1's peer info, but no heartbeat info 
             assert_eq!(convo_2.peer_heartbeat, 0);
@@ -2147,11 +2167,11 @@ mod test {
 
         // convo_2 will reply with a nack since peer_1 hasn't authenticated yet
         convo_send_recv(&mut convo_1, vec![&mut rh_ping_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a nack 
         convo_send_recv(&mut convo_2, vec![&mut rh_ping_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_ping_1.recv(0).unwrap();
        
@@ -2234,12 +2254,12 @@ mod test {
         // it along to the chat caller (us)
         test_debug!("send handshake");
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         test_debug!("send handshake-accept");
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -2281,12 +2301,12 @@ mod test {
         // convo_2 receives it, and handles it
         test_debug!("send getblocksinv");
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 gets back a blocksinv message
         test_debug!("send blocksinv");
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -2318,12 +2338,12 @@ mod test {
         // convo_2 receives it, and handles it
         test_debug!("send getblocksinv (diverged)");
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &mut burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 gets back a nack message
         test_debug!("send nack (diverged)");
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &mut burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -2372,8 +2392,8 @@ mod test {
         chain_view.make_test_data();
 
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_test(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_test(12300, &first_burn_hash).unwrap();
         
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         
@@ -2438,7 +2458,8 @@ mod test {
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(false));
+            // considered valid as long as the stable consensus hash is valid
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(true));
         }
 
         // stable consensus hash mismatch 

@@ -27,6 +27,7 @@ use chainstate::burn::{BlockHeaderHash, VRFSeed};
 
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -284,13 +285,12 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
         
-    fn check<'a>(&self, _burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
+    fn check<'a>(&self, _burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
         
         // this will be the chain tip we're building on
-        let chain_tip = BurnDB::get_block_snapshot(tx, &block_header.parent_block_hash)
-            .expect("FATAL: failed to query parent block snapshot")
+        let chain_tip = BurnDB::get_block_snapshot(ic, &block_header.parent_block_hash)?
             .expect("FATAL: no parent snapshot in the DB");
 
         /////////////////////////////////////////////////////////////////////////////////////
@@ -306,8 +306,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         // This tx must occur after the start of the network
         /////////////////////////////////////////////////////////////////////////////////////
     
-        let first_block_snapshot = BurnDB::get_first_block_snapshot(tx)
-            .expect("FATAL: failed to query first block snapshot");
+        let first_block_snapshot = BurnDB::get_first_block_snapshot(ic)?;
 
         if self.block_height < first_block_snapshot.block_height {
             warn!("Invalid block commit: predates genesis height {}", first_block_snapshot.block_height);
@@ -318,8 +317,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         // Block must be unique in this burnchain fork
         /////////////////////////////////////////////////////////////////////////////////////
         
-        let is_already_committed = BurnDB::expects_stacks_block_in_fork(tx, &self.block_header_hash, &chain_tip.burn_header_hash)
-            .expect("FATAL: failed to query DB for prior instances of this block");
+        let is_already_committed = BurnDB::expects_stacks_block_in_fork(ic, &self.block_header_hash, &chain_tip.burn_header_hash)?;
 
         if is_already_committed {
             warn!("Invalid block commit: already committed to {}", self.block_header_hash);
@@ -335,8 +333,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoLeaderKey);
         }
 
-        let register_key = match BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)
-            .expect("Sqlite failure while getting a prior leader VRF key") {
+        let register_key = match BurnDB::get_leader_key_at(ic, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)? {
             Some(key) => {
                 key
             },
@@ -346,8 +343,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             }
         };
 
-        let is_key_consumed = BurnDB::is_leader_key_consumed(tx, &register_key, &chain_tip.burn_header_hash)
-            .expect("Sqlite failure while verifying that a leader VRF key is not consumed");
+        let is_key_consumed = BurnDB::is_leader_key_consumed(ic, &register_key, &chain_tip.burn_header_hash)?;
 
         if is_key_consumed {
             warn!("Invalid block commit: leader key at ({},{}) is already used as of {} in fork {}", register_key.block_height, register_key.vtxindex, chain_tip.block_height, chain_tip.burn_header_hash);
@@ -368,8 +364,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
-            match BurnDB::get_block_commit_parent(tx, parent_block_height, self.parent_vtxindex.into(), &chain_tip.burn_header_hash)
-                .expect("Sqlite failure while verifying that this block commitment is new") {
+            match BurnDB::get_block_commit_parent(ic, parent_block_height, self.parent_vtxindex.into(), &chain_tip.burn_header_hash)? {
                 Some(_) => {},
                 None => {
                     warn!("Invalid block commit: no parent block in this fork");
@@ -652,7 +647,7 @@ mod tests {
             burn_header_hash: block_125_hash.clone(),
         };
 
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
         let block_ops = vec![
             // 122
             vec![],
@@ -704,6 +699,12 @@ mod tests {
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
                     num_sortitions: (i + 1) as u64,
+                    stacks_block_accepted: false,
+                    stacks_block_height: 0,
+                    arrival_index: 0,
+                    canonical_stacks_tip_height: 0,
+                    canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
                 };
                 let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i]).unwrap();
                 
@@ -964,7 +965,7 @@ mod tests {
         ];
 
         for fixture in fixtures {
-            let mut tx = db.tx_begin().unwrap();
+            let ic = db.index_conn();
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
                 block_hash: fixture.op.burn_header_hash.clone(),
@@ -973,7 +974,7 @@ mod tests {
                 parent_index_root: tip_index_root.clone(),
                 timestamp: get_epoch_time_secs()
             };
-            assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &header, &ic)));
         }
     }
 }

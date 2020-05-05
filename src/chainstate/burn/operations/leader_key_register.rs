@@ -35,7 +35,7 @@ use util::db::DBConn;
 use util::db::DBTx;
 
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::stacks::index::TrieHash;
 
 use burnchains::BurnchainTransaction;
@@ -216,10 +216,9 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
+    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), op_error> {
         // this will be the chain tip we're building on
-        let chain_tip = BurnDB::get_block_snapshot(tx, &block_header.parent_block_hash)
-            .expect("FATAL: failed to query parent block snapshot")
+        let chain_tip = BurnDB::get_block_snapshot(ic, &block_header.parent_block_hash)?
             .expect("FATAL: no parent snapshot in the DB");
 
         /////////////////////////////////////////////////////////////////
@@ -227,8 +226,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         /////////////////////////////////////////////////////////////////
 
         // key selected here must never have been submitted on this fork before 
-        let has_key_already = BurnDB::has_VRF_public_key(tx, &self.public_key, &chain_tip.burn_header_hash)
-            .expect("Sqlite failure while fetching VRF public key");
+        let has_key_already = BurnDB::has_VRF_public_key(ic, &self.public_key, &chain_tip.burn_header_hash)?;
 
         if has_key_already {
             warn!("Invalid leader key registration: public key {} previously used", &self.public_key.to_hex());
@@ -239,8 +237,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)
-            .expect("Sqlite failure while checking consensus hash freshness");
+        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(ic, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)?;
 
         if !consensus_hash_recent {
             warn!("Invalid leader key registration: invalid consensus hash {}", &self.consensus_hash);
@@ -459,7 +456,7 @@ mod tests {
             first_block_hash: first_burn_hash.clone()
         };
         
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
         let leader_key_1 = LeaderKeyRegisterOp { 
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
@@ -516,7 +513,13 @@ mod tests {
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
-                    num_sortitions: i + 1
+                    num_sortitions: i + 1,
+                    stacks_block_accepted: false,
+                    stacks_block_height: 0,
+                    arrival_index: 0,
+                    canonical_stacks_tip_height: 0,
+                    canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
                 };
                 let next_tip_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
                 snapshot_row.index_root = next_tip_root;
@@ -576,7 +579,7 @@ mod tests {
         ];
 
         for fixture in check_fixtures {
-            let mut tx = db.tx_begin().unwrap();
+            let ic = db.index_conn();
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
                 block_hash: fixture.op.burn_header_hash.clone(),
@@ -585,7 +588,7 @@ mod tests {
                 parent_index_root: tip_root_index.clone(),
                 timestamp: get_epoch_time_secs()
             };
-            assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &header, &ic)));
         }
     }
 
