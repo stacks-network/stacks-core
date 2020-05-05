@@ -248,9 +248,7 @@ impl BitcoinIndexer {
                 warn!("Connection broken; retrying in {} sec...", backoff);
             }
 
-            let sleep_sec = backoff as u64;
-            let sleep_nsec = (((backoff - (sleep_sec as f64)) as u64) * 1_000_000) as u32;
-            let duration = time::Duration::new(sleep_sec, sleep_nsec);
+            let duration = time::Duration::from_millis((backoff * 1_000.0) as u64);
             thread::sleep(duration);
         }
     }
