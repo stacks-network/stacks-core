@@ -4,7 +4,7 @@ use std::time::Duration;
 use std::thread::sleep;
 
 use rand::{Rng, thread_rng};
-use reqwest::{StatusCode, blocking::Client};
+use reqwest::blocking::Client;
 use serde_json::json;
 
 use stacks::burnchains::Txid;
@@ -82,7 +82,7 @@ impl EventObserver {
             "parent_microblock": format!("0x{:?}", chain_tip.block.header.parent_microblock),
             "events": serialized_events,
             "transactions": serialized_txs,
-        }).to_string();
+        });
 
         // Send payload
         let mut retry_count = 0;
