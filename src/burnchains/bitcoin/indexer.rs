@@ -566,9 +566,8 @@ impl BitcoinIndexer {
                 break;
             }
 
-            start_block = start_block.saturating_sub(REORG_BATCH_SIZE);
-
             // try again 
+            start_block = start_block.saturating_sub(REORG_BATCH_SIZE);
             reorg_spv_client = self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
         }
 
