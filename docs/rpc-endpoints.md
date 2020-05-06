@@ -20,18 +20,43 @@ Rejections result in a 400 error, with JSON data in the form:
 }
 ```
 
-Possible values for the "reason" field are:
+Possible values for the "reason" field and "reason_data" field are:
 
 * `Serialization`
+   * The `reason_data` field will be an object containing a `message`
+     string detailing the serialization error
 * `Deserialization`
+   * The `reason_data` field will be an object containing a `message`
+     string detailing the deserialization error
 * `SignatureValidation`
-* `FeeTooLow`
+   * The `reason_data` field will be an object containing a `message`
+     string detailing the signature validation error
 * `BadNonce`
+   * The `reason_data` field will be an object containing:
+     * `expected` - a number representing the expected nonce,
+     * `actual` - a number representing the actual nonce,
+     * `is_origin` - a boolean representing whether the nonce error
+       occurred on the 'origin' or 'sponsor' of the transaction,
+     * `principal` - a string representing the principal address
+       that had the bad nonce
+* `FeeTooLow`
+   * The `reason_data` field will be an object containing:
+     * `expected` - a number representing the minimum expected fee,
+     * `actual` - a number representing the supplied fee
 * `NotEnoughFunds`
+   * The `reason_data` field will be an object containing:
+     * `expected` - a hex string representing the expected
+       number of microstacks
+     * `actual` - a hex string representing the actual
+       number of microstacks the account possesses
 * `NoSuchContract`
 * `NoSuchPublicFunction`
 * `BadFunctionArgument`
+   * The `reason_data` field will be an object containing a `message`
+     string detailing why the supplied argument was bad.
 * `ContractAlreadyExists`
+   * The `reason_data` field will be an object containing a `contract_identifier`
+     string representing the contract identifier that would be duplicated.
 * `PoisonMicroblocksDoNotConflict`
 * `PoisonMicroblockHasUnknownPubKeyHash`
 * `PoisonMicroblockIsInvalid`
@@ -39,7 +64,14 @@ Possible values for the "reason" field are:
 * `NoCoinbaseViaMempool`
 * `ServerFailureNoSuchChainTip`
 * `ServerFailureDatabase`
+   * The `reason_data` field will be an object containing a `message`
+     string detailing why the server had a database error
 * `ServerFailureOther`
+   * The `reason_data` field will be an object containing a `message`
+     string providing more detail on the server failure
+
+Reason types without additional information will not have a
+`reason_data` field.
 
 ### GET /v2/accounts/[Principal]
 
