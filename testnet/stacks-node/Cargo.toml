@@ -1,5 +1,5 @@
 [package]
-name = "stacks-testnet"
+name = "stacks-node"
 version = "0.1.0"
 authors = ["Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2018"
