@@ -39,7 +39,7 @@ harness = false
 
 [dependencies]
 byteorder = "1.1"
-rust-ini = "0.13"
+tini = "0.2"
 rand = "=0.7.2"
 serde = "1"
 serde_derive = "1"
@@ -88,4 +88,7 @@ default = ["developer-mode"]
 sha2-asm = "0.5.3"
 
 [workspace]
-members = [".", "testnet/"]
+members = [
+    ".", 
+    "testnet/stacks-node",
+    "testnet/bitcoin-neon-controller"]

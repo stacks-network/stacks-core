@@ -24,7 +24,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -207,10 +207,9 @@ impl BlockstackOperation for UserBurnSupportOp {
         UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
+    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), op_error> {
         // this will be the chain tip we're building on
-        let chain_tip = BurnDB::get_block_snapshot(tx, &block_header.parent_block_hash)
-            .expect("FATAL: failed to query parent block snapshot")
+        let chain_tip = BurnDB::get_block_snapshot(ic, &block_header.parent_block_hash)?
             .expect("FATAL: no parent snapshot in the DB");
 
         let leader_key_block_height = self.key_block_ptr as u64;
@@ -220,8 +219,7 @@ impl BlockstackOperation for UserBurnSupportOp {
         /////////////////////////////////////////////////////////////////
    
         // NOTE: we only care about the first 19 bytes
-        let fresh_chs = BurnDB::get_fresh_consensus_hashes(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &chain_tip.burn_header_hash)
-            .expect("Sqlite failure while verifying that a consensus hash is fresh");
+        let fresh_chs = BurnDB::get_fresh_consensus_hashes(ic, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &chain_tip.burn_header_hash)?;
 
         let mut is_fresh = false;
         for ch in fresh_chs.iter() {
@@ -250,8 +248,7 @@ impl BlockstackOperation for UserBurnSupportOp {
             return Err(op_error::ParseError);
         }
 
-        let register_key_opt = BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)
-            .expect("Sqlite failure while fetching a leader record by VRF key");
+        let register_key_opt = BurnDB::get_leader_key_at(ic, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)?;
 
         if register_key_opt.is_none() {
             warn!("Invalid user burn: no such leader VRF key {}", &self.public_key.to_hex());
@@ -468,7 +465,7 @@ mod tests {
             first_block_hash: first_burn_hash.clone()
         };
         
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
         let leader_key_1 = LeaderKeyRegisterOp { 
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
@@ -526,6 +523,12 @@ mod tests {
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
                     num_sortitions: i + 1,
+                    stacks_block_accepted: false,
+                    stacks_block_height: 0,
+                    arrival_index: 0,
+                    canonical_stacks_tip_height: 0,
+                    canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
+                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
                 };
                 let tip_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
                 snapshot_row.index_root = tip_index_root;
@@ -602,8 +605,8 @@ mod tests {
                 parent_index_root: tip_index_root.clone(),
                 timestamp: get_epoch_time_secs()
             };
-            let mut tx = db.tx_begin().unwrap();
-            assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));
+            let ic = db.index_conn();
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &header, &ic)));
         }
     }
 }

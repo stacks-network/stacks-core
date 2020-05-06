@@ -56,6 +56,11 @@ use chainstate::stacks::index::marf::{
 
 use chainstate::stacks::index::storage::TrieFileStorage;
 
+use chainstate::burn::db::burndb::{
+    BlockHeaderCache,
+    BurnDB
+};
+
 use std::path::{Path, PathBuf};
 
 use util::db::Error as db_error;
@@ -68,6 +73,7 @@ use util::db::{
     FromRow,
     FromColumn,
     db_mkdirs,
+    tx_begin_immediate
 };
 
 use util::hash::to_hex;
@@ -108,6 +114,7 @@ pub struct StacksChainState {
     pub blocks_path: String,
     pub clarity_state_index_path: String,
     pub root_path: String,
+    cached_header_hashes: BlockHeaderCache,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -493,7 +500,7 @@ pub const MINER_FEE_WINDOW : u64 = 24;                      // number of blocks 
 
 impl StacksChainState {
     fn instantiate_headers_db(conn: &mut DBConn, mainnet: bool, chain_id: u32, marf_path: &str) -> Result<(), Error> {
-        let tx = conn.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let tx = tx_begin_immediate(conn)?;
         
         for cmd in STACKS_CHAIN_STATE_SQL {
             tx.execute(cmd, NO_PARAMS).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -808,6 +815,7 @@ impl StacksChainState {
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
             root_path: path_str.to_string(),
+            cached_header_hashes: BlockHeaderCache::new(),
         };
 
         if !index_exists {
@@ -824,16 +832,26 @@ impl StacksChainState {
             version: CHAINSTATE_VERSION.to_string()
         }
     }
+
+    /// Get stacks header hashes cache reference
+    pub fn get_block_header_cache(&self) -> &BlockHeaderCache {
+        &self.cached_header_hashes
+    }
+
+    /// Get mutable stacks header hashes cache reference
+    pub fn borrow_block_header_cache(&mut self) -> &mut BlockHeaderCache {
+        &mut self.cached_header_hashes
+    }
     
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     pub fn headers_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        let tx = self.headers_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let tx = tx_begin_immediate(&mut self.headers_db)?;
         Ok(StacksDBTx::new(tx, &mut self.headers_state_index, ()))
     }
     
     /// Begin a transaction against our staging block index DB.
     pub fn blocks_tx_begin<'a>(&'a mut self) -> Result<BlocksDBTx<'a>, Error> {
-        let tx = self.blocks_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let tx = tx_begin_immediate(&mut self.blocks_db)?;
         Ok(BlocksDBTx::new(tx, self.blocks_path.clone()))
     }
 
@@ -841,8 +859,8 @@ impl StacksChainState {
     /// Used when considering a new block to append the chain state.
     pub fn chainstate_tx_begin<'a>(&'a mut self) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
         let config = self.config();
-        let headers_inner_tx = self.headers_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        let blocks_inner_tx = self.blocks_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let headers_inner_tx = tx_begin_immediate(&mut self.headers_db)?;
+        let blocks_inner_tx = tx_begin_immediate(&mut self.blocks_db)?;
 
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;

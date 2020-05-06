@@ -71,7 +71,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
         loop {
-            let mut burndb = match BurnDB::open(&burn_db_path, true) {
+            let burndb = match BurnDB::open(&burn_db_path, false) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Error while connecting burnchain db in peer loop: {}", e);
@@ -99,7 +99,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
+            this.run(&burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
                 .unwrap();
         }
     });
@@ -158,6 +158,7 @@ impl Node {
         }
 
         let chainstate_path = config.get_chainstate_path();
+        let burndb_path = config.get_burn_db_file_path();
 
         let chain_state = match StacksChainState::open(
             false, 
@@ -185,7 +186,8 @@ impl Node {
         node.spawn_peer_server();
 
         loop {
-            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip() {
+            let burndb = BurnDB::open(&burndb_path, false).expect("BUG: failed to open burn database");
+            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&burndb) {
                 if chain_tip.burn_header_hash == burnchain_tip.block_snapshot.burn_header_hash {
                     info!("Syncing Stacks blocks - completed");
                     break;
@@ -203,7 +205,7 @@ impl Node {
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
+        let burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
         let burnchain = Burnchain::new(
@@ -212,8 +214,8 @@ impl Node {
             "regtest").expect("Error while instantiating burnchain");
 
         let view = {
-            let mut tx = burndb.tx_begin().unwrap();
-            BurnDB::get_burnchain_view(&mut tx, &burnchain).unwrap()
+            let ic = burndb.index_conn();
+            BurnDB::get_burnchain_view(&ic, &burnchain).unwrap()
         };
 
         // create a new peerdb
@@ -458,11 +460,11 @@ impl Node {
 
         {
             // let mut db = burn_db.lock().unwrap();
-            let mut tx = db.tx_begin().unwrap();
+            let ic = db.index_conn();
 
             // Preprocess the anchored block
             self.chain_state.preprocess_anchored_block(
-                &mut tx,
+                &ic,
                 &burn_header_hash,
                 get_epoch_time_secs(),
                 &anchored_block, 
@@ -482,7 +484,7 @@ impl Node {
 
         let mut processed_blocks = vec![];
         loop {
-            match self.chain_state.process_blocks(1) {
+            match self.chain_state.process_blocks(db, 1) {
                 Err(e) => panic!("Error while processing block - {:?}", e),
                 Ok(ref mut blocks) => {
                     if blocks.len() == 0 {

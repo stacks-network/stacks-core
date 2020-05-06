@@ -136,7 +136,7 @@ impl BitcoinBlockDownloader {
         
         self.indexer = Some(indexer);
 
-        assert!(self.cur_block.is_some());
+        assert!(self.cur_block.is_some(), "BUG: should have received block on 'ok' condition");
         let ipc_block = self.cur_block.take().unwrap();
         Ok(ipc_block)
     }
@@ -148,7 +148,12 @@ impl BurnchainBlockDownloader for BitcoinBlockDownloader {
 
     fn download(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, burnchain_error> {
         self.run(header)
-            .map_err(burnchain_error::DownloadError)
+            .map_err(|e| {
+                match e {
+                    btc_error::TimedOut => burnchain_error::TrySyncAgain,
+                    x => burnchain_error::DownloadError(x)
+                }
+            })
     }
 }
 
@@ -176,29 +181,34 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
         }
 
         if self.cur_request.is_none() {
-            panic!("No block header set");
+            // weren't expecting this
+            warn!("Unexpected block message");
+            return Err(btc_error::InvalidReply);
         }
 
-        let ipc_header = self.cur_request.clone().unwrap();
+        let ipc_header = self.cur_request.as_ref().unwrap();
 
         let height;
         let header;
         let block_hash;
 
-        match msg.deref() {
-            btc_message::NetworkMessage::Block(block) => {
+        match msg {
+            btc_message::NetworkMessage::Block(ref block) => {
                 // make sure this block matches
-                if !BitcoinBlockParser::check_block(&block, &ipc_header.block_header) {
+                if !BitcoinBlockParser::check_block(block, &ipc_header.block_header) {
                     debug!("Requested block {}, got block {}", &to_hex(ipc_header.block_header.header.bitcoin_hash().as_bytes()), &to_hex(block.bitcoin_hash().as_bytes()));
                     
                     // try again 
                     indexer.send_getdata(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
                     return Ok(true);
                 }
+                
+                // clear timeout
+                indexer.runtime.last_getdata_send_time = 0;
 
                 // got valid data!
                 height = ipc_header.block_height;
-                header = ipc_header.clone();
+                header = self.cur_request.clone().unwrap();
                 block_hash = ipc_header.block_header.header.bitcoin_hash();
             },
             _ => { 
@@ -429,7 +439,7 @@ impl BurnchainBlockParser for BitcoinBlockParser {
     type D = BitcoinBlockDownloader;
 
     fn parse(&mut self, ipc_block: &BitcoinBlockIPC) -> Result<BurnchainBlock, burnchain_error> {
-        match ipc_block.block_message.deref() {
+        match ipc_block.block_message {
             btc_message::NetworkMessage::Block(ref block) => { 
                 match self.process_block(&block, &ipc_block.header_data.block_header, ipc_block.header_data.block_height) {
                     None => Err(burnchain_error::ParseError),

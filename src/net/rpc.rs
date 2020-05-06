@@ -132,11 +132,11 @@ impl fmt::Debug for ConversationHttp {
 }
 
 impl PeerInfoData {
-    pub fn from_db(burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<PeerInfoData, net_error> {
+    pub fn from_db(burnchain: &Burnchain, burndb: &BurnDB, peerdb: &mut PeerDB) -> Result<PeerInfoData, net_error> {
         let burnchain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).map_err(net_error::DBError)?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn()).map_err(net_error::DBError)?;
         let stable_burnchain_tip = {
-            let mut tx = burndb.tx_begin().map_err(net_error::DBError)?;
+            let ic = burndb.index_conn();
             let stable_height = 
                 if burnchain_tip.block_height < burnchain.stable_confirmations as u64 {
                     0
@@ -145,7 +145,7 @@ impl PeerInfoData {
                     burnchain_tip.block_height - (burnchain.stable_confirmations as u64)
                 };
 
-            BurnDB::get_block_snapshot_in_fork(&mut tx, stable_height, &burnchain_tip.burn_header_hash)
+            BurnDB::get_block_snapshot_in_fork(&ic, stable_height, &burnchain_tip.burn_header_hash)
                 .map_err(net_error::DBError)?
                 .ok_or(net_error::DBError(db_error::NotFoundError))?
         };
@@ -204,7 +204,7 @@ impl ConversationHttp {
         &self.peer_addr
     }
 
-    /// Is a conversation in-progress?
+    /// Is a request in-progress?
     pub fn is_request_inflight(&self) -> bool {
         self.pending_request.is_some()
     }
@@ -262,7 +262,7 @@ impl ConversationHttp {
 
     /// Handle a GET peer info.
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
-    fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<(), net_error> {
+    fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain, burndb: &BurnDB, peerdb: &mut PeerDB) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         match PeerInfoData::from_db(burnchain, burndb, peerdb) {
@@ -592,8 +592,8 @@ impl ConversationHttp {
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block 
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
-    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
-        match chainstate.get_stacks_chain_tip()? {
+    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burndb: &BurnDB, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+        match chainstate.get_stacks_chain_tip(burndb)? {
             Some(tip) => Ok(Some((tip.burn_header_hash, tip.anchored_block_hash))),
             None => {
                 let response_metadata = HttpResponseMetadata::from(req);
@@ -634,7 +634,7 @@ impl ConversationHttp {
     /// those new streams into the `reply_streams` set.
     /// Returns a StacksMessageType option -- it's Some(...) if we need to forward a message to the
     /// peer network (like a transaction or a block or microblock)
-    pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+    pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &BurnDB, peerdb: &mut PeerDB,
                           chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Option<StacksMessageType>, net_error> {
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
@@ -663,14 +663,14 @@ impl ConversationHttp {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
             },
             HttpRequestType::GetAccount(ref _md, ref principal, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate,
                                                                &burn_block, &block, principal, *with_proof)?;
                 }
                 None
             },
             HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
                                                            contract_addr, contract_name, map_name, key, *with_proof)?;
                 }
@@ -681,14 +681,14 @@ impl ConversationHttp {
                 None
             },
             HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
                                                               contract_addr, contract_name)?;
                 }
                 None
             },
             HttpRequestType::CallReadOnlyFunction(ref _md, ref ctrct_addr, ref ctrct_name, ref as_sender, ref func_name, ref args) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_readonly_function_call(
                         &mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
                         ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
@@ -696,14 +696,14 @@ impl ConversationHttp {
                 None
             },
             HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
                                                               contract_addr, contract_name, *with_proof)?;
                 }
                 None
             },
             HttpRequestType::PostTransaction(ref _md, ref tx) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, chainstate)? {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
                     let accepted = ConversationHttp::handle_post_transaction(&mut self.connection.protocol, &mut reply, &req, burn_block, block, mempool, tx.clone())?;
                     if accepted {
                         // forward to peer network
@@ -926,7 +926,7 @@ impl ConversationHttp {
 
     /// Make progress on in-flight requests and replies.
     /// Returns the list of transactions we'll need to forward to the peer network
-    pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+    pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &BurnDB, peerdb: &mut PeerDB,
                 chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<StacksMessageType>, net_error> {
 
         // if we have an in-flight error, then don't take any more requests.

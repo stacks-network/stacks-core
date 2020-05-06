@@ -62,6 +62,10 @@ impl MocknetController {
 }
 
 impl BurnchainController for MocknetController {
+    
+    fn burndb_ref(&self) -> &BurnDB {
+        self.db.as_ref().expect("BUG: did not instantiate burn DB")
+    }
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
         match self.db {

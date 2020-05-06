@@ -31,6 +31,7 @@ use std::convert::TryFrom;
 use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_count};
 use util::db::Error as db_error;
 use util::db::DBConn;
+use util::db::tx_begin_immediate;
 
 use util;
 use util::log;
@@ -448,8 +449,7 @@ impl PeerDB {
             return Err(db_error::ReadOnly);
         }
 
-        let tx = self.conn.transaction()
-            .map_err(|e| db_error::SqliteError(e))?;
+        let tx = tx_begin_immediate(&mut self.conn)?;
         Ok(tx)
     }
 

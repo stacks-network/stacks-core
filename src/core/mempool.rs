@@ -53,6 +53,7 @@ use util::db::query_rows;
 use util::db::query_row;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
+use util::db::tx_begin_immediate;
 
 use core::FIRST_STACKS_BLOCK_HASH;
 use core::FIRST_BURNCHAIN_BLOCK_HASH;
@@ -225,7 +226,7 @@ impl<'a> MemPoolTx<'a> {
 
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
-        let tx = conn.transaction().map_err(db_error::SqliteError)?;
+        let tx = tx_begin_immediate(conn)?;
         
         for cmd in MEMPOOL_SQL {
             tx.execute(cmd, NO_PARAMS).map_err(db_error::SqliteError)?;
@@ -418,7 +419,7 @@ impl MemPoolDB {
     }
 
     pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
-        let tx = self.db.transaction().map_err(db_error::SqliteError)?;
+        let tx = tx_begin_immediate(&mut self.db)?;
         Ok(MemPoolTx::new(tx, &mut self.admitter))
     }
 

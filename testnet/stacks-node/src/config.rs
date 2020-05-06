@@ -154,9 +154,9 @@ lazy_static! {
     static ref HELIUM_DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
         inbox_maxlen: 100,
         outbox_maxlen: 100,
-        timeout: 5000,
+        timeout: 30,
         idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
-        heartbeat: 60000,
+        heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
         num_neighbors: 4,
@@ -168,7 +168,9 @@ lazy_static! {
         soft_max_neighbors_per_host: 10,
         soft_max_neighbors_per_org: 100,
         soft_max_clients_per_host: 1000,
-        walk_interval: 20,
+        walk_interval: 30,
+        inv_sync_interval: 45,
+        download_interval: 60,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         .. std::default::Default::default()
@@ -279,6 +281,8 @@ impl Config {
             None => vec![]
         };
 
+        let default_retry_count = 5;
+
         let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
                 let mut observers = vec![];
@@ -289,6 +293,7 @@ impl Config {
 
                     observers.push(EventObserverConfig {
                         endpoint: observer.endpoint,
+                        retry_count: observer.retry_count.unwrap_or(default_retry_count),
                         events_keys
                     });
                 }
@@ -302,6 +307,7 @@ impl Config {
             Ok(val) => {
                 events_observers.push(EventObserverConfig {
                     endpoint: val,
+                    retry_count: default_retry_count,
                     events_keys: vec![EventKeyType::AnyEvent],
                 })
             },
@@ -636,12 +642,14 @@ pub struct NodeConfigFile {
 #[derive(Clone, Deserialize, Default)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
+    pub retry_count: Option<u8>,
     pub events_keys: Vec<String>,
 }
 
 #[derive(Clone, Default)]
 pub struct EventObserverConfig {
     pub endpoint: String,
+    pub retry_count: u8,
     pub events_keys: Vec<EventKeyType>,
 }
 

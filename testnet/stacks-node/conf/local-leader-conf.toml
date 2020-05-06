@@ -1,10 +1,10 @@
 [node]
-rpc_bind = "127.0.0.1:30443"
-p2p_bind = "127.0.0.1:30444"
-bootstrap_node = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77@127.0.0.1:20444"
-seed = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-local_peer_seed = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+rpc_bind = "127.0.0.1:20443"
+p2p_bind = "127.0.0.1:20444"
+seed = "0000000000000000000000000000000000000000000000000000000000000000"
+local_peer_seed = "0000000000000000000000000000000000000000000000000000000000000000"
 miner = true
+mine_microblocks = true
 
 [burnchain]
 chain = "bitcoin"
@@ -12,6 +12,7 @@ mode = "neon"
 peer_host = "127.0.0.1"
 rpc_port = 28443
 peer_port = 18444
+commit_anchor_block_within = 20_000
 
 [[mstx_balance]]
 # Private key: b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001
@@ -31,5 +32,6 @@ address = "ST31HHVBKYCYQQJ5AQ25ZHA6W2A548ZADDQ6S16GP"
 amount = 10000000000000000
 
 # [[events_observer]]
-# endpoint = "127.0.0.1:8080"
+# endpoint = "http://127.0.0.1:8080"
+# retry_count = 5
 # events_keys = ["*"]

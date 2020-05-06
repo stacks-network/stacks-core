@@ -1,0 +1,17 @@
+[neon]
+rpc_bind = "0.0.0.0:28443"
+block_time = 7000
+miner_address = "mtFzK54XtpktHj7fKonFExEPEGkUMsiXdy"
+faucet_address = "n3k15aVS4rEWhVYn4YfAFjD8Em5mmsducg"
+bitcoind_rpc_host = "127.0.0.1:18443"
+bitcoind_rpc_user = "helium-node"
+bitcoind_rpc_pass = "secret"
+genesis_timestamp = 1588615296
+
+# Faucet:
+# Private Key          cTYqAVPS7uJTAcxyzkXWjmRGoCjkPcb38wZVRjyXov1RiRDWPQj3
+# Public Key           02327e09dc18fee1d51fe2b19b487e01eba4e6adcb325bf102213fce7bbdcde6bd
+# Address              n3k15aVS4rEWhVYn4YfAFjD8Em5mmsducg
+# Format               p2pkh
+# Network              testnet
+# Compressed           true

@@ -1,5 +1,4 @@
 extern crate rand;
-extern crate mio;
 extern crate serde;
 
 #[macro_use] extern crate lazy_static;
