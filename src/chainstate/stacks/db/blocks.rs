@@ -52,7 +52,8 @@ use util::db::{
     query_rows,
     query_row_columns,
     query_count,
-    query_int
+    query_int,
+    tx_busy_handler,
 };
 
 use util::strings::StacksString;
@@ -469,6 +470,7 @@ impl StacksChainState {
             };
 
         let mut conn = DBConn::open_with_flags(db_path, open_flags).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        conn.busy_handler(Some(tx_busy_handler)).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         if create_flag {
             // instantiate!
@@ -2530,6 +2532,15 @@ impl StacksChainState {
         Ok(true)
     }
 
+    /// Is there at least one staging block that can be attached?
+    pub fn has_attacheable_staging_blocks(blocks_conn: &DBConn) -> Result<bool, Error> {
+        // go through staging blocks and see if any of them match headers and are attacheable.
+        // pick randomly -- don't allow the network sender to choose the processing order!
+        let sql = "SELECT 1 FROM staging_blocks WHERE processed = 0 AND attacheable = 1 AND orphaned = 0".to_string();
+        let available = blocks_conn.query_row(&sql, NO_PARAMS, |_row| ()).optional().map_err(|e| Error::DBError(db_error::SqliteError(e)))?.is_some();
+        Ok(available)
+    }
+
     /// Given access to the chain state (headers) and the staging blocks, find a staging block we
     /// can process, as well as its parent microblocks that it confirms
     /// Returns Some(microblocks, staging block) if we found a sequence of blocks to process.
@@ -3084,6 +3095,8 @@ impl StacksChainState {
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.
     pub fn process_blocks(&mut self, burndb: &mut BurnDB, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
+        debug!("Process up to {} blocks", max_blocks);
+
         let mut ret = vec![];
 
         if max_blocks == 0 {
