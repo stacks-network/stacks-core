@@ -57,14 +57,6 @@ impl SqliteConnection {
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    pub fn move_metadata_to(&mut self, from: &BlockHeaderHash, to: &str) {
-        let params: [&dyn ToSql; 2] = [&to.to_string(), from];
-        self.conn.execute(
-            "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
-            &params)
-            .expect(SQL_FAIL_MESSAGE);
-    }
-
     pub fn get_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str) -> Option<String> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
