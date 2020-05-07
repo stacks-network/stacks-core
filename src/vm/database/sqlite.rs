@@ -3,6 +3,8 @@ use rusqlite::types::{ToSql, FromSql};
 
 use chainstate::burn::BlockHeaderHash;
 
+use util::db::tx_busy_handler;
+
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, InterpreterResult as Result, IncomparableError};
 
@@ -145,6 +147,9 @@ impl SqliteConnection {
 
     pub fn inner_open(filename: &str) -> Result<Self> {
         let conn = Connection::open(filename)
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
+        
+        conn.busy_handler(Some(tx_busy_handler))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
 
         Ok(SqliteConnection { conn })
