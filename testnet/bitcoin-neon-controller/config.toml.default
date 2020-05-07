@@ -7,10 +7,3 @@ bitcoind_rpc_host = "127.0.0.1:18443"
 bitcoind_rpc_user = "helium-node"
 bitcoind_rpc_pass = "secret"
 genesis_timestamp = 1588615296
-whitelisted_rpc_calls = [
-    "listunspent",
-    "importaddress",
-    "sendrawtransaction",
-    "getrawtransaction",
-    "scantxoutset"
-]

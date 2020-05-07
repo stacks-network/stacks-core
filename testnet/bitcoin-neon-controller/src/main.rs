@@ -132,10 +132,13 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
 
                 println!("{:?}", rpc_req);
 
-                let authorized_methods = &config.neon.whitelisted_rpc_calls;
+                let authorized_methods = vec![
+                    "listunspent",
+                    "importaddress",
+                    "sendrawtransaction"];
                 
                 // Guard: unauthorized method
-                if !authorized_methods.contains(&rpc_req.method) {
+                if !authorized_methods.contains(&rpc_req.method.as_str()) {
                     return Ok(Response::new(StatusCode::MethodNotAllowed))
                 }
 
@@ -300,8 +303,6 @@ pub struct RegtestConfig {
     bitcoind_rpc_pass: String,
     /// Used for deducting the right amount of blocks
     genesis_timestamp: u64,
-    /// List of whitelisted RPC calls
-    whitelisted_rpc_calls: Vec<String>, 
 }
 
 impl RegtestConfig {
