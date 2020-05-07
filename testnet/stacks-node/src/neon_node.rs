@@ -41,7 +41,7 @@ use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
-pub const RELAYER_MAX_BUFFER: usize = 100;
+pub const RELAYER_MAX_BUFFER: usize = 1024;
 
 #[derive(Clone)]
 struct RegisteredKey {
@@ -216,7 +216,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     let block_limit = config.block_limit;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
-    let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
+    let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
     let burndb = BurnDB::open(&burn_db_path, false)
         .map_err(NetError::DBError)?;
 
@@ -230,17 +230,36 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
 
     let server_thread = thread::spawn(move || {
         loop {
-            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), poll_timeout)
-                .unwrap();
+            let poll_ms = 
+                if StacksChainState::has_attacheable_staging_blocks(&chainstate.blocks_db).expect("BUG: failed to query available staging blocks") {
+                    // pass control to the relayer ASAP so it can work on processing blocks
+                    10
+                }
+                else {
+                    poll_timeout
+                };
 
-            if let Err(e) = relay_channel.try_send(RelayerDirective::HandleNetResult(network_result)) {
-                match e {
-                    TrySendError::Full(_) => {
-                        warn!("Relayer buffer is full, dropping NetworkHandle");
-                    }
-                    TrySendError::Disconnected(_) => {
-                        info!("Relayer hang up with p2p channel");
-                        break;
+            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), poll_ms)
+                .unwrap();
+           
+            if network_result.has_data_to_store() {
+                // do a blocking send -- don't lose this data
+                if let Err(_e) = relay_channel.send(RelayerDirective::HandleNetResult(network_result)) {
+                    info!("Relayer hang up with p2p channel");
+                    break;
+                }
+            }
+            else {
+                // non-blocking send -- nothing really valuable here
+                if let Err(e) = relay_channel.try_send(RelayerDirective::HandleNetResult(network_result)) {
+                    match e {
+                        TrySendError::Full(_) => {
+                            warn!("Relayer buffer is full, dropping NetworkHandle");
+                        }
+                        TrySendError::Disconnected(_) => {
+                            info!("Relayer hang up with p2p channel");
+                            break;
+                        }
                     }
                 }
             }
@@ -443,7 +462,7 @@ impl InitializedNeonNode {
             .expect("Failed to initialize mine/relay thread");
 
         spawn_peer(p2p_net, &p2p_sock, &rpc_sock,
-                   config.clone(), 1000, relay_send.clone())
+                   config.clone(), 5000, relay_send.clone())
             .expect("Failed to initialize mine/relay thread");
 
 
