@@ -73,7 +73,8 @@ use util::db::{
     FromRow,
     FromColumn,
     db_mkdirs,
-    tx_begin_immediate
+    tx_begin_immediate,
+    tx_busy_handler,
 };
 
 use util::hash::to_hex;
@@ -530,6 +531,7 @@ impl StacksChainState {
             };
 
         let mut conn = DBConn::open_with_flags(headers_path, open_flags).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        conn.busy_handler(Some(tx_busy_handler)).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         if create_flag {
             // instantiate!
