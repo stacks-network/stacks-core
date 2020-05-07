@@ -78,6 +78,7 @@ use util::vrf::*;
 use util::secp256k1::MessageSignature;
 use util::hash::{to_hex, hex_bytes, Hash160, Sha512Trunc256Sum};
 use util::strings::StacksString;
+use util::db::tx_busy_handler;
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
@@ -94,7 +95,7 @@ const BLOCK_HEIGHT_MAX : u64 = ((1 as u64) << 63) - 1;
 pub const REWARD_WINDOW_START : u64 = 144 * 15;
 pub const REWARD_WINDOW_END : u64 = 144 * 90 + REWARD_WINDOW_START;
 
-pub type BlockHeaderCache = HashMap<(BurnchainHeaderHash, ConsensusHash), Option<BlockHeaderHash>>;
+pub type BlockHeaderCache = HashMap<BurnchainHeaderHash, (Option<BlockHeaderHash>, BurnchainHeaderHash)>;
 
 // for using BurnchainHeaderHash values as block hashes in a MARF
 impl From<BurnchainHeaderHash> for BlockHeaderHash {
@@ -562,7 +563,9 @@ impl BurnDB {
         let (db_path, index_path) = db_mkdirs(path)?;
         debug!("Connect/Open burndb '{}' as '{}', with index as '{}'",
                db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
+
         let mut conn = Connection::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
+        conn.busy_handler(Some(tx_busy_handler)).map_err(db_error::SqliteError)?;
 
         if create_flag {
             // instantiate!
@@ -609,6 +612,8 @@ impl BurnDB {
 
         debug!("Open {}", &db_path);
         let mut conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE).map_err(db_error::SqliteError)?;
+        conn.busy_handler(Some(tx_busy_handler)).map_err(db_error::SqliteError)?;
+
         BurnDB::instantiate(&mut conn, &index_path, first_block_height, first_burn_hash, get_epoch_time_secs())?;
 
         let marf = BurnDB::open_index(&index_path)?;
@@ -639,7 +644,10 @@ impl BurnDB {
         let (db_path, index_path) = db_mkdirs(path)?;
         debug!("Open burndb '{}' as '{}', with index as '{}'",
                db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
+        
         let conn = Connection::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
+        conn.busy_handler(Some(tx_busy_handler)).map_err(db_error::SqliteError)?;
+
         let marf = BurnDB::open_index(&index_path)?;
         let first_snapshot = BurnDB::get_first_block_snapshot(&conn)?;
 
@@ -1669,7 +1677,8 @@ impl BurnDB {
     /// Returns up to num_headers prior block header hashes.
     /// The list of hashes will be in ascending order -- the lowest-height block is item 0.
     /// The last hash will be the hash for the given consensus hash.
-    pub fn get_stacks_header_hashes<'a>(ic: &BurnDBConn<'a>, num_headers: u64, tip_consensus_hash: &ConsensusHash, cache: Option<&BlockHeaderCache>) -> Result<Vec<(BurnchainHeaderHash, ConsensusHash, Option<BlockHeaderHash>)>, db_error> {
+    /// TODO: this is broken AF
+    pub fn get_stacks_header_hashes<'a>(ic: &BurnDBConn<'a>, num_headers: u64, tip_consensus_hash: &ConsensusHash, cache: Option<&BlockHeaderCache>) -> Result<Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)>, db_error> {
         let mut ret = vec![];
         let tip_snapshot = match BurnDB::get_block_snapshot_consensus(ic, tip_consensus_hash)? {
             Some(sn) => sn,
@@ -1688,27 +1697,20 @@ impl BurnDB {
                 num_headers
             };
         
-        let tip_block_hash = tip_snapshot.burn_header_hash;
-        if tip_snapshot.sortition {
-            ret.push((tip_block_hash.clone(), tip_snapshot.consensus_hash.clone(), Some(tip_snapshot.winning_stacks_block_hash)));
-        }
-        else {
-            ret.push((tip_block_hash.clone(), tip_snapshot.consensus_hash.clone(), None));
-        }
-
-        let mut last_snapshot = tip_snapshot;
-        for _i in 1..headers_count {
-            let ancestor_block_hash = last_snapshot.parent_burn_header_hash.clone();
+        let mut ancestor_header_hash = tip_snapshot.burn_header_hash;
+        for _i in 0..headers_count {
             if let Some(ref cached) = cache {
-                if let Some(header_hash_opt) = cached.get(&(ancestor_block_hash, last_snapshot.consensus_hash)) {
+                if let Some((header_hash_opt, prev_block_hash)) = cached.get(&ancestor_header_hash) {
                     // cache hit
-                    ret.push((ancestor_block_hash, last_snapshot.consensus_hash.clone(), header_hash_opt.clone()));
+                    ret.push((ancestor_header_hash, header_hash_opt.clone()));
+
+                    ancestor_header_hash = prev_block_hash.clone();
                     continue;
                 }
             }
 
             // cache miss
-            let ancestor_snapshot = BurnDB::get_block_snapshot(ic, &ancestor_block_hash)?.expect(&format!("Discontiguous index: missing block {}", ancestor_block_hash));
+            let ancestor_snapshot = BurnDB::get_block_snapshot(ic, &ancestor_header_hash)?.expect(&format!("Discontiguous index: missing block {}", ancestor_header_hash));
             let header_hash_opt = 
                 if ancestor_snapshot.sortition {
                     Some(ancestor_snapshot.winning_stacks_block_hash.clone())
@@ -1717,8 +1719,11 @@ impl BurnDB {
                     None
                 };
 
-            ret.push((ancestor_block_hash.clone(), ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
-            last_snapshot = ancestor_snapshot;
+            debug!("CACHE MISS {}", &ancestor_header_hash);
+
+            ret.push((ancestor_header_hash.clone(), header_hash_opt.clone()));
+
+            ancestor_header_hash = ancestor_snapshot.parent_burn_header_hash.clone();
         }
 
         ret.reverse();
@@ -1726,12 +1731,22 @@ impl BurnDB {
     }
 
     /// Merge the result of get_stacks_header_hashes() into a BlockHeaderCache
-    pub fn merge_block_header_cache(cache: &mut BlockHeaderCache, header_data: &Vec<(BurnchainHeaderHash, ConsensusHash, Option<BlockHeaderHash>)>) -> () {
-        for (bhh, ch, hh_opt) in header_data.iter() {
-            if !cache.contains_key(&(*bhh, *ch)) {
-                cache.insert(((*bhh).clone(), (*ch).clone()), (*hh_opt).clone());
+    pub fn merge_block_header_cache(cache: &mut BlockHeaderCache, header_data: &Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)>) -> () {
+        let mut i = header_data.len() - 1;
+        while i > 0 {
+
+            let cur_block_hash = &header_data[i].0;
+            let cur_block_opt = &header_data[i].1;
+
+            if !cache.contains_key(cur_block_hash) {
+                let prev_block_hash = header_data[i-1].0.clone();
+                cache.insert((*cur_block_hash).clone(), ((*cur_block_opt).clone(), prev_block_hash.clone()));
             }
+            
+            i -= 1;
         }
+        
+        debug!("Block header cache has {} items", cache.len());
     }
 
     /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
@@ -3069,7 +3084,7 @@ mod tests {
 
             assert_eq!(hashes.len(), 256);
             for i in 0..256 {
-                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
+                let (ref burn_hash, ref block_hash_opt) = &hashes[i];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3079,10 +3094,11 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
-                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
 
-                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
-                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
+                if i > 0 {
+                    assert!(cache.contains_key(burn_hash));
+                    assert_eq!(cache.get(burn_hash).unwrap().0, *block_hash_opt);
+                }
             }
         }
 
@@ -3097,7 +3113,7 @@ mod tests {
             assert_eq!(cached_hashes.len(), 256);
             for i in 0..256 {
                 assert_eq!(cached_hashes[i], hashes[i]);
-                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
+                let (ref burn_hash, ref block_hash_opt) = &hashes[i];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3107,10 +3123,11 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
-                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
                 
-                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
-                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
+                if i > 0 {
+                    assert!(cache.contains_key(burn_hash));
+                    assert_eq!(cache.get(burn_hash).unwrap().0, *block_hash_opt);
+                }
             }
         }
 
@@ -3125,7 +3142,7 @@ mod tests {
             assert_eq!(cached_hashes.len(), 192);
             for i in 64..256 {
                 assert_eq!(cached_hashes[i-64], hashes[i-64]);
-                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i - 64];
+                let (ref burn_hash, ref block_hash_opt) = &hashes[i - 64];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3135,10 +3152,9 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
-                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
                 
-                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
-                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
+                assert!(cache.contains_key(burn_hash));
+                assert_eq!(cache.get(burn_hash).unwrap().0, *block_hash_opt);
             }
         }
         
@@ -3153,7 +3169,7 @@ mod tests {
             assert_eq!(cached_hashes.len(), 256);
             for i in 0..256 {
                 assert_eq!(cached_hashes[i], hashes[i]);
-                let (ref burn_hash, ref consensus_hash, ref block_hash_opt) = &hashes[i];
+                let (ref burn_hash, ref block_hash_opt) = &hashes[i];
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 }
@@ -3163,10 +3179,11 @@ mod tests {
                     assert_eq!(block_hash, BlockHeaderHash([(i as u8); 32]));
                 }
                 assert_eq!(*burn_hash, BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
-                assert_eq!(*consensus_hash, ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap());
                 
-                assert!(cache.contains_key(&(*burn_hash, *consensus_hash)));
-                assert_eq!(cache.get(&(*burn_hash, *consensus_hash)).unwrap(), block_hash_opt);
+                if i > 0 {
+                    assert!(cache.contains_key(burn_hash));
+                    assert_eq!(cache.get(burn_hash).unwrap().0, *block_hash_opt);
+                }
             }
         }
         
