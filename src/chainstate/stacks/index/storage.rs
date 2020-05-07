@@ -99,6 +99,7 @@ use chainstate::stacks::index::Error as Error;
 
 use util::log;
 use util::db::tx_begin_immediate;
+use util::db::tx_busy_handler;
 use util::db::Error as db_error;
 
 pub fn ftell<F: Seek>(f: &mut F) -> Result<u64, Error> {
@@ -500,6 +501,8 @@ pub struct TrieFileStorage {
 impl TrieFileStorage {
     pub fn new(dir_path: &str) -> Result<TrieFileStorage, Error> {
         let mut db = Connection::open(dir_path)?;
+        db.busy_handler(Some(tx_busy_handler))?;
+
         let dir_path = dir_path.to_string();
 
         trie_sql::create_tables_if_needed(&mut db)?;
@@ -545,6 +548,8 @@ impl TrieFileStorage {
         }
 
         let db = Connection::open_with_flags(&self.dir_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        db.busy_handler(Some(tx_busy_handler))?;
+
         trace!("Make read-only view of TrieFileStorage: {}", &self.dir_path);
         
         let ret = TrieFileStorage {
@@ -651,6 +656,8 @@ impl TrieFileStorage {
     /// Doesn't get called automatically.
     pub fn recover(dir_path: &String) -> Result<(), Error> {
         let conn = Connection::open(dir_path)?;
+        conn.busy_handler(Some(tx_busy_handler))?;
+
         trie_sql::clear_lock_data(&conn)
     }
 
