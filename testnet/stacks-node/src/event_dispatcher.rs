@@ -19,6 +19,7 @@ use super::node::{ChainTip};
 #[derive(Debug)]
 struct EventObserver {
     endpoint: String,
+    retry_count: u8
 }
 
 impl EventObserver {
@@ -84,6 +85,7 @@ impl EventObserver {
         });
 
         // Send payload
+        let mut retry_count = 0;
         let mut backoff: f64 = 1.0;
         let mut rng = thread_rng();
         loop {
@@ -104,6 +106,12 @@ impl EventObserver {
                 }
             };
 
+            if retry_count >= self.retry_count {
+                error!("Event dispatcher: exponential backoff failed");
+                panic!();                   
+            }
+
+            retry_count += 1;
             backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
             let duration = Duration::from_millis((backoff * 1_000.0) as u64);
             info!("Event dispatcher will retry posting in {:?}", duration);
@@ -199,6 +207,7 @@ impl EventDispatcher {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver { 
             endpoint: conf.endpoint.clone(),
+            retry_count: conf.retry_count
         };
 
         let observer_index = self.registered_observers.len() as u16;
