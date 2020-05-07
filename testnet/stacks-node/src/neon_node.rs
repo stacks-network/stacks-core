@@ -54,7 +54,8 @@ struct AssembledAnchorBlock {
     parent_block_burn_hash: BurnchainHeaderHash,
     my_burn_hash: BurnchainHeaderHash,
     anchored_block: StacksBlock,
-    consumed_execution: ExecutionCost
+    consumed_execution: ExecutionCost,
+    bytes_so_far: u64
 }
 
 enum RelayerDirective {
@@ -298,7 +299,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             parent_block_burn_hash,
                             anchored_block: mined_block,
                             my_burn_hash: mined_burn_hh,
-                            consumed_execution } = my_mined;
+                            consumed_execution,
+                            bytes_so_far } = my_mined;
                         if mined_block.block_hash() == block_header_hash && parent_burn_header_hash == mined_burn_hh {
                             // we won!
                             info!("Won sortition! stacks_header={}, burn_header={}",
@@ -324,7 +326,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             // should we broadcast microblocks?
                             if mine_microblocks {
                                 let mint_result = InitializedNeonNode::relayer_mint_microblocks(
-                                    &burn_header_hash, &block_header_hash, &mut chainstate, &keychain, consumed_execution, &mem_pool);
+                                    &burn_header_hash, &block_header_hash, &mut chainstate, &keychain,
+                                    consumed_execution, bytes_so_far, &mem_pool);
                                 let mined_microblock = match mint_result {
                                     Ok(mined_microblock) => mined_microblock,
                                     Err(e) => {
@@ -561,11 +564,13 @@ impl InitializedNeonNode {
                                 chain_state: &mut StacksChainState,
                                 keychain: &Keychain,
                                 consumed_execution: ExecutionCost,
+                                bytes_so_far: u64,
                                 mem_pool: &MemPoolDB) -> Result<StacksMicroblock, ChainstateError> {
         let mut microblock_miner = StacksMicroblockBuilder::new(mined_block_shh.clone(),
                                                                 mined_block_bhh.clone(),
                                                                 chain_state,
-                                                                consumed_execution)?;
+                                                                consumed_execution,
+                                                                bytes_so_far)?;
         let mblock_key = keychain.get_microblock_key()
             .expect("Miner attempt to mine microblocks without a microblock key");
         let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&mblock_key).to_bytes());
@@ -661,7 +666,7 @@ impl InitializedNeonNode {
         
         let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
-        let (anchored_block, consumed_execution) = match StacksBlockBuilder::build_anchored_block(
+        let (anchored_block, consumed_execution, bytes_so_far) = match StacksBlockBuilder::build_anchored_block(
             chain_state, mem_pool, &stacks_parent_header, parent_block_total_burn,
             vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()) {
             Ok(block) => block,
@@ -694,7 +699,9 @@ impl InitializedNeonNode {
             parent_block_burn_hash: parent_burn_hash,
             my_burn_hash: burn_block.burn_header_hash,
             consumed_execution,
-            anchored_block })
+            anchored_block,
+            bytes_so_far
+        })
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp

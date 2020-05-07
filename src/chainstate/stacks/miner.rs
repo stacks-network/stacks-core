@@ -73,11 +73,12 @@ pub struct StacksMicroblockBuilder<'a> {
     header_reader: StacksChainState,
     clarity_tx: Option<ClarityTx<'a>>,
     considered: Option<HashSet<Txid>>,
+    bytes_so_far: u64,
 }
 
 impl <'a> StacksMicroblockBuilder <'a> {
     pub fn new(anchor_block: BlockHeaderHash, anchor_block_bhh: BurnchainHeaderHash,
-               chainstate: &'a mut StacksChainState, initial_cost: ExecutionCost) -> Result<StacksMicroblockBuilder<'a>, Error> {
+               chainstate: &'a mut StacksChainState, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let header_reader = chainstate.reopen()?;
         let mut clarity_tx = chainstate.block_begin(&anchor_block_bhh, &anchor_block,
                                                     &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
@@ -91,6 +92,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
             anchor_block,
             anchor_block_bhh,
             anchor_block_height,
+            bytes_so_far,
             clarity_tx: Some(clarity_tx),
             header_reader,
             prev_microblock_header: None,
@@ -110,6 +112,8 @@ impl <'a> StacksMicroblockBuilder <'a> {
         let mut considered = self.considered.take()
             .expect("Microblock already open and processing");
 
+        let mut bytes_so_far = self.bytes_so_far;
+
         let result = mem_pool.iterate_candidates(
             &self.anchor_block_bhh, &self.anchor_block, self.anchor_block_height, &mut self.header_reader,
             |micro_txs| {
@@ -122,8 +126,12 @@ impl <'a> StacksMicroblockBuilder <'a> {
                     if mempool_tx.tx.anchor_mode != TransactionAnchorMode::OffChainOnly && mempool_tx.tx.anchor_mode != TransactionAnchorMode::Any {
                         continue;
                     }
+                    if bytes_so_far + mempool_tx.metadata.len >= MAX_EPOCH_SIZE.into() {
+                        return Err(Error::BlockTooBigError);
+                    }
                     match StacksChainState::process_transaction(&mut clarity_tx, &mempool_tx.tx) {
                         Ok(_) => {
+                            bytes_so_far += mempool_tx.metadata.len;
                             txs_to_broadcast.push(mempool_tx.tx);
                         },
                         Err(e) => {
@@ -142,6 +150,10 @@ impl <'a> StacksMicroblockBuilder <'a> {
                 Ok(())
             });
 
+        self.bytes_so_far = bytes_so_far;
+        self.clarity_tx.replace(clarity_tx);
+        self.considered.replace(considered);
+
         match result {
             Ok(_) => {},
             Err(Error::BlockTooBigError) => {
@@ -152,9 +164,6 @@ impl <'a> StacksMicroblockBuilder <'a> {
                 return Err(e);
             }
         }
-
-        self.clarity_tx.replace(clarity_tx);
-        self.considered.replace(considered);
 
         if txs_to_broadcast.len() == 0 {
             return Err(Error::NoTransactionsToMine)
@@ -279,11 +288,14 @@ impl StacksBlockBuilder {
 
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Errors out if we exceed budget, or the transaction is invalid.
-    pub fn try_mine_tx<'a>(&mut self, clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
-        let mut tx_bytes = vec![];
-        tx.consensus_serialize(&mut tx_bytes).map_err(Error::NetError)?;
-        let tx_len = tx_bytes.len() as u64;
-        
+    pub fn try_mine_tx(&mut self, clarity_tx: &mut ClarityTx, tx: &StacksTransaction) -> Result<(), Error> {
+        let tx_len = tx.tx_len();
+        self.try_mine_tx_with_len(clarity_tx, tx, tx_len)
+    }
+
+    /// Append a transaction if doing so won't exceed the epoch data size.
+    /// Errors out if we exceed budget, or the transaction is invalid.
+    pub fn try_mine_tx_with_len(&mut self, clarity_tx: &mut ClarityTx, tx: &StacksTransaction, tx_len: u64) -> Result<(), Error> {        
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             return Err(Error::BlockTooBigError);
         }
@@ -584,7 +596,7 @@ impl StacksBlockBuilder {
                                 proof: VRFProof,                            // proof over the burnchain's last seed
                                 pubkey_hash: Hash160,
                                 coinbase_tx: &StacksTransaction,
-                                execution_budget: ExecutionCost) -> Result<(StacksBlock, ExecutionCost), Error> {
+                                execution_budget: ExecutionCost) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
 
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {} else {
             return Err(Error::MemPoolError("Not a coinbase transaction".to_string()));
@@ -623,7 +635,7 @@ impl StacksBlockBuilder {
 
                 considered.insert(txinfo.tx.txid());
 
-                match builder.try_mine_tx(&mut epoch_tx, &txinfo.tx) {
+                match builder.try_mine_tx_with_len(&mut epoch_tx, &txinfo.tx, txinfo.metadata.len) {
                     Ok(_) => {},
                     Err(Error::BlockTooBigError) => {
                         // done mining -- our execution budget is exceeded.
@@ -658,8 +670,9 @@ impl StacksBlockBuilder {
 
         // save the block so we can build microblocks off of it
         let block = builder.mine_anchored_block(&mut epoch_tx);
+        let size = builder.bytes_so_far;
         let consumed = builder.epoch_finish(epoch_tx);
-        Ok((block, consumed))
+        Ok((block, consumed, size))
     }
 }
 
