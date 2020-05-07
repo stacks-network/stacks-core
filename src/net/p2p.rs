@@ -1987,17 +1987,20 @@ impl PeerNetwork {
             return Err(net_error::NotConnected);
         }
 
-        // update burnchain snapshot
-        let new_chain_view = {
-            let ic = burndb.index_conn();
-            BurnDB::get_burnchain_view(&ic, &self.burnchain).map_err(net_error::DBError)?
-        };
-        if self.chain_view != new_chain_view {
-            // got more burn blocks.  wake up the inv-sync and downloader 
+        // update burnchain snapshot if we need to (careful -- it's expensive)
+        let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn())?;
+        if sn.block_height > self.chain_view.burn_block_height {
+            debug!("{:?}: load chain view for burn block {}", &self.local_peer, sn.block_height);
+            let new_chain_view = {
+                let ic = burndb.index_conn();
+                BurnDB::get_burnchain_view(&ic, &self.burnchain).map_err(net_error::DBError)?
+            };
+            
+            // wake up the inv-sync and downloader -- we have potentially more sortitions
             self.hint_sync_invs();
             self.hint_download_rescan();
+            self.chain_view = new_chain_view;
         }
-        self.chain_view = new_chain_view;
        
         // update local-peer state
         self.local_peer = PeerDB::get_local_peer(self.peerdb.conn())
@@ -2090,9 +2093,9 @@ impl PeerNetwork {
                 Err(net_error::NotConnected)
             },
             Some(ref mut network) => {
-                debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Poll >>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+                debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Poll {}ms >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
                 let poll_result = network.poll(poll_timeout);
-                debug!("<<<<<<<<<<<<<<<<<<<<<<<< End Poll <<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+                debug!("<<<<<<<<<<<<<<<<<<<<<<<<<< End Poll <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
                 poll_result
             }
         }?;
