@@ -280,8 +280,6 @@ impl Config {
             None => vec![]
         };
 
-        let default_retry_count = 5;
-
         let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
                 let mut observers = vec![];
@@ -292,7 +290,6 @@ impl Config {
 
                     observers.push(EventObserverConfig {
                         endpoint: observer.endpoint,
-                        retry_count: observer.retry_count.unwrap_or(default_retry_count),
                         events_keys
                     });
                 }
@@ -306,7 +303,6 @@ impl Config {
             Ok(val) => {
                 events_observers.push(EventObserverConfig {
                     endpoint: val,
-                    retry_count: default_retry_count,
                     events_keys: vec![EventKeyType::AnyEvent],
                 })
             },
@@ -638,14 +634,12 @@ pub struct NodeConfigFile {
 #[derive(Clone, Deserialize, Default)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
-    pub retry_count: Option<u8>,
     pub events_keys: Vec<String>,
 }
 
 #[derive(Clone, Default)]
 pub struct EventObserverConfig {
     pub endpoint: String,
-    pub retry_count: u8,
     pub events_keys: Vec<EventKeyType>,
 }
 
