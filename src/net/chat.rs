@@ -886,8 +886,7 @@ impl ConversationP2P {
         // update cache
         BurnDB::merge_block_header_cache(chainstate.borrow_block_header_cache(), &block_hashes);
 
-        let inv_query : Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)> = block_hashes.into_iter().map(|(bhh, _, hh_opt)| (bhh, hh_opt)).collect();
-        let blocks_inv_data : BlocksInvData = chainstate.get_blocks_inventory(&inv_query).map_err(|e| net_error::from(e))?;
+        let blocks_inv_data : BlocksInvData = chainstate.get_blocks_inventory(&block_hashes).map_err(|e| net_error::from(e))?;
 
         debug!("{:?}: Handle GetBlocksInv from {:?}. Reply {:?} to request {:?}", &local_peer, &self, &blocks_inv_data, get_blocks_inv);
 
