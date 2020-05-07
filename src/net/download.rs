@@ -159,7 +159,7 @@ pub struct BlockDownloader {
 
     /// When was the last time we did a full scan of the inv state?  when was the last time the inv
     /// state was updated?
-    finished_scan_at: u64,
+    pub finished_scan_at: u64,
     last_inv_update_at: u64,
 
     /// Maximum number of concurrent requests
@@ -528,7 +528,7 @@ impl BlockDownloader {
             debug!("Load {} headers off of {} ({})", sortition_height_end - sortition_height_start, last_ancestor.block_height, &last_ancestor.consensus_hash);
             let local_blocks = BurnDB::get_stacks_header_hashes(&ic, sortition_height_end - sortition_height_start, &last_ancestor.consensus_hash, Some(chainstate.get_block_header_cache())).map_err(net_error::DBError)?;
 
-            for (_i, (_burn_header, _, _block_hash_opt)) in local_blocks.iter().enumerate() {
+            for (_i, (_burn_header, _block_hash_opt)) in local_blocks.iter().enumerate() {
                 test_debug!("  Loaded {} ({}): {:?}/{:?}", (_i as u64) + sortition_height_start, (_i as u64) + sortition_height_start + first_block_height, _burn_header, _block_hash_opt);
             }
             debug!("End headers load");
@@ -539,7 +539,7 @@ impl BlockDownloader {
         };
 
         let mut ret = vec![];
-        for (i, (burn_header_hash, _consensus_hash, block_hash_opt)) in local_blocks.drain(..).enumerate() {
+        for (i, (burn_header_hash, block_hash_opt)) in local_blocks.drain(..).enumerate() {
             let sortition_height = sortition_height_start + (i as u64);
             match block_hash_opt {
                 Some(block_hash) => {
@@ -727,11 +727,11 @@ impl PeerNetwork {
                     // asking for a block
                     if StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash)? {
                         // we already have this block
-                        test_debug!("{:?}: Already have block {}/{}", &self.local_peer, &burn_header_hash, &block_hash);
+                        test_debug!("{:?}: Already have anchored block {}/{}", &self.local_peer, &burn_header_hash, &block_hash);
                         continue;
                     }
                     else {
-                        test_debug!("{:?}: Do not have block {}/{} ({})", &self.local_peer, &burn_header_hash, &block_hash, &index_block_hash);
+                        test_debug!("{:?}: Do not have anchored block {}/{} ({})", &self.local_peer, &burn_header_hash, &block_hash, &index_block_hash);
                     }
 
                     (burn_header_hash, block_hash)
@@ -770,7 +770,7 @@ impl PeerNetwork {
                             Ok(header_opt) => header_opt,
                             Err(chainstate_error::DBError(db_error::NotFoundError)) => {
                                 // we don't know about this parent block yet
-                                test_debug!("{:?}: Do not have parent of anchored block {}/{} yet, so cannot ask for the microblocks it produced", &self.local_peer, &burn_header_hash, &block_hash);
+                                debug!("{:?}: Do not have parent of anchored block {}/{} yet, so cannot ask for the microblocks it produced", &self.local_peer, &burn_header_hash, &block_hash);
                                 continue;
                             },
                             Err(e) => {
@@ -831,8 +831,8 @@ impl PeerNetwork {
                     continue;
                 }
 
-                test_debug!("{:?}: Add request for {} at sortition height {} to {:?}: {:?}/{:?}", 
-                            &self.local_peer, if microblocks { "microblock stream" } else { "anchored block" }, (i as u64) + start_sortition_height, &nk, &target_burn_hash, &target_block_hash);
+                test_debug!("{:?}: Make request for {} at sortition height {} to {:?}: {:?}/{:?}", 
+                             &self.local_peer, if microblocks { "microblock stream" } else { "anchored block" }, (i as u64) + start_sortition_height, &nk, &target_burn_hash, &target_block_hash);
 
                 let request = BlockRequestKey::new(nk, data_url, target_burn_hash.clone(), target_block_hash.clone(), target_index_block_hash.clone(), child_block_header.clone(), (i as u64) + start_sortition_height);
                 requests.push_back(request);
@@ -890,10 +890,10 @@ impl PeerNetwork {
                 // smaller).
                 while next_block_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height || next_microblock_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height {
 
-                    debug!("{:?}: Make block requests from {}", &network.local_peer, next_block_sortition_height);
+                    debug!("{:?}: Make block requests from sortition height {}", &network.local_peer, next_block_sortition_height);
                     let mut next_blocks_to_try = network.make_block_requests(burndb, chainstate, next_block_sortition_height)?;
                     
-                    debug!("{:?}: Make block requests from {}", &network.local_peer, next_microblock_sortition_height);
+                    debug!("{:?}: Make microblock requests from sortition height {}", &network.local_peer, next_microblock_sortition_height);
                     let mut next_microblocks_to_try = network.make_confirmed_microblock_requests(burndb, chainstate, next_microblock_sortition_height)?;
 
                     let mut height = next_block_sortition_height;
@@ -1608,19 +1608,17 @@ pub mod test {
             BurnDB::get_stacks_header_hashes(&ic, num_headers, &ancestor.consensus_hash, None).unwrap()
         };
 
-        let inv_query : Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)> = block_hashes.into_iter().map(|(bhh, _, hh_opt)| (bhh, hh_opt)).collect();
-
         let mut inv = BlocksInvData::empty();
         for i in 0..((end_height - start_height)/(BLOCKS_INV_DATA_MAX_BITLEN as u64)) {
             let end = 
-                if (i + 1) * (BLOCKS_INV_DATA_MAX_BITLEN as u64) > (inv_query.len() as u64) { 
-                    inv_query.len() 
+                if (i + 1) * (BLOCKS_INV_DATA_MAX_BITLEN as u64) > (block_hashes.len() as u64) { 
+                    block_hashes.len() 
                 }
                 else { 
                     ((i + 1) * (BLOCKS_INV_DATA_MAX_BITLEN as u64)) as usize
                 };
 
-            let block_slice = &inv_query[((i * (BLOCKS_INV_DATA_MAX_BITLEN as u64)) as usize)..(end as usize)];
+            let block_slice = &block_hashes[((i * (BLOCKS_INV_DATA_MAX_BITLEN as u64)) as usize)..(end as usize)];
             let mut next_inv = peer.chainstate().get_blocks_inventory(&block_slice).unwrap();
             
             inv.bitlen += next_inv.bitlen;
