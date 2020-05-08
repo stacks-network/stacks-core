@@ -2536,7 +2536,7 @@ impl StacksChainState {
     pub fn has_attacheable_staging_blocks(blocks_conn: &DBConn) -> Result<bool, Error> {
         // go through staging blocks and see if any of them match headers and are attacheable.
         // pick randomly -- don't allow the network sender to choose the processing order!
-        let sql = "SELECT 1 FROM staging_blocks WHERE processed = 0 AND attacheable = 1 AND orphaned = 0".to_string();
+        let sql = "SELECT 1 FROM staging_blocks WHERE processed = 0 AND attacheable = 1 AND orphaned = 0 LIMIT 1".to_string();
         let available = blocks_conn.query_row(&sql, NO_PARAMS, |_row| ()).optional().map_err(|e| Error::DBError(db_error::SqliteError(e)))?.is_some();
         Ok(available)
     }
