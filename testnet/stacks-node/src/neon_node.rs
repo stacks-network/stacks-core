@@ -72,13 +72,28 @@ pub struct InitializedNeonNode {
     last_burn_block: Option<BlockSnapshot>,
     active_keys: Vec<RegisteredKey>,
     sleep_before_tenure: u64,
-    is_miner: bool
+    is_miner: bool,
 }
 
 pub struct NeonGenesisNode {
     pub config: Config,
     keychain: Keychain,
     event_dispatcher: EventDispatcher,
+}
+
+#[cfg(test)]
+type BlocksProcessedCounter = std::sync::Arc<std::sync::atomic::AtomicU64>;
+
+#[cfg(not(test))]
+type BlocksProcessedCounter = ();
+
+#[cfg(test)]
+fn bump_processed_counter(blocks_processed: &BlocksProcessedCounter) {
+    blocks_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(not(test))]
+fn bump_processed_counter(_blocks_processed: &BlocksProcessedCounter) {
 }
 
 /// Process artifacts from the tenure.
@@ -255,7 +270,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                        config: Config, mut keychain: Keychain,
                        burn_db_path: String, stacks_chainstate_path: String, 
                        relay_channel: Receiver<RelayerDirective>,
-                       mut event_dispatcher: EventDispatcher) -> Result<(), NetError> {
+                       mut event_dispatcher: EventDispatcher,
+                       blocks_processed: BlocksProcessedCounter) -> Result<(), NetError> {
     // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
     //   no other codepaths should be writing once this is spawned.
     //
@@ -369,9 +385,11 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
                         registered_key, &mut chainstate, &burndb, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller);
+                    bump_processed_counter(&blocks_processed);
                 },
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
-                    rotate_vrf_and_register(&mut keychain, last_burn_block, &mut bitcoin_controller)
+                    rotate_vrf_and_register(&mut keychain, last_burn_block, &mut bitcoin_controller);
+                    bump_processed_counter(&blocks_processed);
                 },
             }
         }
@@ -401,8 +419,8 @@ fn dispatcher_announce(blocks_path: &str, event_dispatcher: &mut EventDispatcher
 
 impl InitializedNeonNode {
     fn new(config: Config, keychain: Keychain, event_dispatcher: EventDispatcher,
-           last_burn_block: Option<BurnchainTip>, registered_key: Option<RegisteredKey>,
-           miner: bool) -> InitializedNeonNode {
+           last_burn_block: Option<BurnchainTip>,
+           miner: bool, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let burndb = BurnDB::open(&config.get_burn_db_file_path(), false)
@@ -478,7 +496,8 @@ impl InitializedNeonNode {
                             config.clone(), keychain,
                             config.get_burn_db_file_path(),
                             config.get_chainstate_path(),
-                            relay_recv, event_dispatcher)
+                            relay_recv, event_dispatcher,
+                            blocks_processed.clone())
             .expect("Failed to initialize mine/relay thread");
 
         spawn_peer(p2p_net, &p2p_sock, &rpc_sock,
@@ -493,10 +512,7 @@ impl InitializedNeonNode {
 
         let is_miner = miner;
 
-        let mut active_keys = vec![];
-        if let Some(key) = registered_key {
-            active_keys.push(key);
-        }
+        let active_keys = vec![];
 
         InitializedNeonNode {
             relay_channel: relay_send,
@@ -504,7 +520,7 @@ impl InitializedNeonNode {
             burnchain_signer,
             is_miner,
             sleep_before_tenure,
-            active_keys
+            active_keys,
         }
     }
 
@@ -785,21 +801,21 @@ impl NeonGenesisNode {
         }
     }
 
-    pub fn into_initialized_leader_node(self, burnchain_tip: BurnchainTip) -> InitializedNeonNode {
+    pub fn into_initialized_leader_node(self, burnchain_tip: BurnchainTip, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
 
         InitializedNeonNode::new(config, keychain, event_dispatcher, Some(burnchain_tip),
-                                 None, true)
+                                 true, blocks_processed)
     }
 
-    pub fn into_initialized_node(self, burnchain_tip: BurnchainTip) -> InitializedNeonNode {
+    pub fn into_initialized_node(self, burnchain_tip: BurnchainTip, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
 
         InitializedNeonNode::new(config, keychain, event_dispatcher, Some(burnchain_tip),
-                                 None, false)
+                                 false, blocks_processed)
     }
 }

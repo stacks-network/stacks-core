@@ -86,6 +86,17 @@ pub fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u6
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
+pub fn make_contract_publish_microblock_only(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                             contract_name: &str, contract_content: &str) -> Vec<u8> {
+    let name = ContractName::from(contract_name);
+    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
+
+    let payload = TransactionSmartContract { name, code_body };
+
+    serialize_sign_standard_single_sig_tx_anchor_mode(payload.into(), sender, nonce, fee_rate,
+                                                      TransactionAnchorMode::OffChainOnly)
+}
+
 pub fn new_test_conf() -> Config {
     
     // secretKey: "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",

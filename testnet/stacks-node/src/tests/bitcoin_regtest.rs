@@ -36,7 +36,6 @@ impl BitcoinCoreController {
         let mut command = Command::new("bitcoind");
         command
             .stdout(Stdio::piped())
-            .arg("-conf=/dev/null") // todo(ludo): nix only
             .arg("-regtest")
             .arg("-nodebug")
             .arg("-nodebuglogfile")
