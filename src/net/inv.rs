@@ -227,6 +227,28 @@ impl PeerBlocksInv {
         let (_, new_mblocks) = self.merge_blocks_inv(block_height, 1, vec![0x00], vec![0x01]);
         new_mblocks != 0
     }
+
+    /// Count up the number of blocks represented
+    pub fn num_blocks(&self) -> u64 {
+        let mut total = 0;
+        for i in self.first_block_height..self.num_sortitions {
+            if self.has_ith_block(i) {
+                total += 1;
+            }
+        }
+        total
+    }
+    
+    /// Count up the number of microblock streams represented
+    pub fn num_microblock_streams(&self) -> u64 {
+        let mut total = 0;
+        for i in self.first_block_height..self.num_sortitions {
+            if self.has_ith_microblock_stream(i) {
+                total += 1;
+            }
+        }
+        total
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -395,11 +417,9 @@ impl InvState {
         // preserve rescan_height
     }
 
-    pub fn set_sync_peers(&mut self, mut peers: HashSet<NeighborKey>) -> () {
+    pub fn set_sync_peers(&mut self, peers: HashSet<NeighborKey>) -> () {
         self.sync_peers.clear();
-        for nk in peers.drain() {
-            self.sync_peers.insert(nk);
-        }
+        self.sync_peers = peers;
     }
 
     /// Can we rely on the inventory from this peer? i.e. is the peer in sync with our view of the
@@ -1029,10 +1049,10 @@ impl PeerNetwork {
         match self.inv_state {
             Some(ref inv_state) => {
                 // NOTE: inv_state.learned_data will be true if we called init_inv_sync()
-                if !inv_state.hint_do_full_rescan && !inv_state.learned_data && inv_state.last_change_at + inv_state.sync_interval >= get_epoch_time_secs() {
+                if !inv_state.hint_do_full_rescan && !inv_state.learned_data && inv_state.last_rescanned_at + inv_state.sync_interval >= get_epoch_time_secs() {
                     // we didn't learn anything on the last sync, and it hasn't been enough time
                     // since the last sync for us to do it again
-                    debug!("{:?}: Throttle inv sync until {}s", &self.local_peer, inv_state.last_change_at + inv_state.sync_interval);
+                    debug!("{:?}: Throttle inv sync until {}s", &self.local_peer, inv_state.last_rescanned_at + inv_state.sync_interval);
                     return Ok((true, vec![], vec![]));
                 }
             }
@@ -1098,7 +1118,8 @@ impl PeerNetwork {
 
                                 debug!("{:?}: got blocksinv at block height {} from {:?}: {:?}", &self.local_peer, target_height, &nk, &blocks_inv);
                                 let (new_blocks, new_microblocks) = nk_stats.inv.merge_blocks_inv(target_height, blocks_inv.bitlen, blocks_inv.block_bitvec, blocks_inv.microblocks_bitvec);
-                                test_debug!("{:?}: {:?} has {} new blocks and {} new microblocks: {:?}", &self.local_peer, &nk, new_blocks, new_microblocks, &nk_stats.inv);
+                                debug!("{:?}: {:?} has {} new blocks and {} new microblocks (total {} blocks, {} microblocks): {:?}", 
+                                       &self.local_peer, &nk, new_blocks, new_microblocks, nk_stats.inv.num_blocks(), nk_stats.inv.num_microblock_streams(), &nk_stats.inv);
 
                                 if new_blocks > 0 || new_microblocks > 0 {
                                     // learned something new
