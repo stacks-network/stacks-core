@@ -189,11 +189,18 @@ pub struct BlockDownloader {
     broken_neighbors: Vec<NeighborKey>,     // disconnect peers who report invalid block inventories too
 
     /// how often to download
-    download_interval: u64
+    download_interval: u64,
+
+    /// how often to re-try a download
+    download_retry_interval: u64,
+
+    /// Last time we tried to fetch a given block.
+    last_block_download_attempts: HashMap<BlockHeaderHash, u64>,
+    last_microblock_download_attempts: HashMap<BlockHeaderHash, u64>,
 }
 
 impl BlockDownloader {
-    pub fn new(dns_timeout: u128, download_interval: u64, max_inflight_requests: u64) -> BlockDownloader {
+    pub fn new(dns_timeout: u128, download_interval: u64, retry_interval: u64, max_inflight_requests: u64) -> BlockDownloader {
         BlockDownloader {
             state: BlockDownloaderState::DNSLookupBegin,
 
@@ -226,7 +233,11 @@ impl BlockDownloader {
             broken_peers: vec![],
             broken_neighbors: vec![],
 
-            download_interval: download_interval
+            download_interval: download_interval,
+            download_retry_interval: retry_interval,
+
+            last_block_download_attempts: HashMap::new(),
+            last_microblock_download_attempts: HashMap::new(),
         }
     }
 
@@ -646,6 +657,49 @@ impl BlockDownloader {
 
         debug!("Awaken downloader to restart scanning");
     }
+
+    // are we doing the initial block download?
+    pub fn is_initial_download(&self) -> bool {
+        self.finished_scan_at == 0 
+    }
+
+    // is the downloader idle? i.e. did we already do a scan?
+    pub fn is_download_idle(&self) -> bool {
+        self.empty_block_download_passes > 0 && self.empty_microblock_download_passes > 0
+    }
+
+    /// Is a given download target throttled?
+    pub fn is_download_target_throttled(&self, target_index_block_hash: &BlockHeaderHash, microblocks: bool) -> bool {
+        if !microblocks {
+            if let Some(ts) = self.last_block_download_attempts.get(&target_index_block_hash) {
+                if ts + self.download_retry_interval > get_epoch_time_secs() {
+                    return true;
+                }
+            }
+            return false;
+        }
+        else {
+            if let Some(ts) = self.last_microblock_download_attempts.get(&target_index_block_hash) {
+                if ts + self.download_retry_interval > get_epoch_time_secs() {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /// Check to see if we have waited long enough to fetch the target block or microblock.
+    /// If it's not throttled, throttle it.
+    /// return true if we're throttled on this block or microblock hash
+    /// return false if not
+    pub fn set_download_target_throttled(&mut self, target_index_block_hash: &BlockHeaderHash, microblocks: bool) {
+        if !microblocks {
+            self.last_block_download_attempts.insert(target_index_block_hash.clone(), self.download_retry_interval + get_epoch_time_secs());
+        }
+        else {
+            self.last_microblock_download_attempts.insert(target_index_block_hash.clone(), self.download_retry_interval + get_epoch_time_secs());
+        }
+    }
 }
 
 impl PeerNetwork {
@@ -656,7 +710,7 @@ impl PeerNetwork {
         let mut downloader = self.block_downloader.take();
         let res = match downloader {
             None => {
-                test_debug!("{:?}: downloader not connected", &self.local_peer);
+                debug!("{:?}: downloader not connected", &self.local_peer);
                 Err(net_error::NotConnected)
             },
             Some(ref mut dl) => handler(self, dl)
@@ -693,7 +747,7 @@ impl PeerNetwork {
 
     /// Create block request keys for a range of blocks that are available but that we don't have in a given range of
     /// sortitions.  The same keys can be used to fetch confirmed microblock streams.
-    fn make_requests(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, start_sortition_height: u64, microblocks: bool) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    fn make_requests(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, downloader: &BlockDownloader, start_sortition_height: u64, microblocks: bool) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
         let scan_batch_size = BLOCKS_INV_DATA_MAX_BITLEN as u64;
         let mut blocks_to_try : HashMap<u64, VecDeque<BlockRequestKey>> = HashMap::new();
 
@@ -730,9 +784,8 @@ impl PeerNetwork {
                         test_debug!("{:?}: Already have anchored block {}/{}", &self.local_peer, &burn_header_hash, &block_hash);
                         continue;
                     }
-                    else {
-                        test_debug!("{:?}: Do not have anchored block {}/{} ({})", &self.local_peer, &burn_header_hash, &block_hash, &index_block_hash);
-                    }
+                     
+                    test_debug!("{:?}: Do not have anchored block {}/{} ({})", &self.local_peer, &burn_header_hash, &block_hash, &index_block_hash);
 
                     (burn_header_hash, block_hash)
                 }
@@ -813,6 +866,9 @@ impl PeerNetwork {
                 };
 
             let target_index_block_hash = StacksBlockHeader::make_index_block_hash(&target_burn_hash, &target_block_hash);
+            if downloader.is_download_target_throttled(&target_index_block_hash, microblocks) {
+                continue;
+            }
 
             // don't request the same data from the same data url, in case multiple peers report the
             // same data url (e.g. two peers sharing a Gaia hub).
@@ -845,13 +901,13 @@ impl PeerNetwork {
     }
 
     /// Make requests for missing anchored blocks
-    fn make_block_requests(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, start_sortition_height: u64) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
-        self.make_requests(burndb, chainstate, start_sortition_height, false)
+    fn make_block_requests(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, downloader: &BlockDownloader, start_sortition_height: u64) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+        self.make_requests(burndb, chainstate, downloader, start_sortition_height, false)
     }
 
     /// Make requests for missing confirmed microblocks 
-    fn make_confirmed_microblock_requests(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, start_sortition_height: u64) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
-        self.make_requests(burndb, chainstate, start_sortition_height, true)
+    fn make_confirmed_microblock_requests(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, downloader: &BlockDownloader, start_sortition_height: u64) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+        self.make_requests(burndb, chainstate, downloader, start_sortition_height, true)
     }
 
     /// Prioritize block requests -- ask for the rarest blocks first
@@ -891,10 +947,10 @@ impl PeerNetwork {
                 while next_block_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height || next_microblock_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height {
 
                     debug!("{:?}: Make block requests from sortition height {}", &network.local_peer, next_block_sortition_height);
-                    let mut next_blocks_to_try = network.make_block_requests(burndb, chainstate, next_block_sortition_height)?;
+                    let mut next_blocks_to_try = network.make_block_requests(burndb, chainstate, downloader, next_block_sortition_height)?;
                     
                     debug!("{:?}: Make microblock requests from sortition height {}", &network.local_peer, next_microblock_sortition_height);
-                    let mut next_microblocks_to_try = network.make_confirmed_microblock_requests(burndb, chainstate, next_microblock_sortition_height)?;
+                    let mut next_microblocks_to_try = network.make_confirmed_microblock_requests(burndb, chainstate, downloader, next_microblock_sortition_height)?;
 
                     let mut height = next_block_sortition_height;
                     let mut mblock_height = next_microblock_sortition_height;
@@ -953,6 +1009,7 @@ impl PeerNetwork {
                         test_debug!("{:?}: request anchored block for sortition {}: {}/{} ({})", 
                                     &network.local_peer, height, &requests.front().as_ref().unwrap().burn_block_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &requests.front().as_ref().unwrap().index_block_hash);
 
+                        downloader.set_download_target_throttled(&requests.front().as_ref().unwrap().index_block_hash, false);
                         downloader.blocks_to_try.insert(height, requests);
 
                         height += 1;
@@ -985,6 +1042,7 @@ impl PeerNetwork {
                         test_debug!("{:?}: request microblock stream produced by sortition {}: {}/{} ({})", 
                                     &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().burn_block_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &requests.front().as_ref().unwrap().index_block_hash);
 
+                        downloader.set_download_target_throttled(&requests.front().as_ref().unwrap().index_block_hash, true);
                         downloader.microblocks_to_try.insert(mblock_height, requests);
 
                         mblock_height += 1;
@@ -1013,6 +1071,7 @@ impl PeerNetwork {
                     next_block_sortition_height = next_block_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64);
                     next_microblock_sortition_height = next_microblock_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64);
 
+                    /*
                     if next_block_sortition_height >= network.chain_view.burn_block_height {
                         // wrapped around
                         next_block_sortition_height = 0;
@@ -1021,6 +1080,7 @@ impl PeerNetwork {
                         // wrapped around
                         next_microblock_sortition_height = 0;
                     }
+                    */
 
                     test_debug!("{:?}: Pessimistically increase block and microblock sortition heights to ({},{})", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
                 }
@@ -1343,7 +1403,7 @@ impl PeerNetwork {
 
     /// Initialize the downloader 
     pub fn init_block_downloader(&mut self) -> () {
-        self.block_downloader = Some(BlockDownloader::new(self.connection_opts.dns_timeout, self.connection_opts.download_interval, self.connection_opts.max_inflight_blocks));
+        self.block_downloader = Some(BlockDownloader::new(self.connection_opts.dns_timeout, self.connection_opts.download_interval, self.connection_opts.download_retry_interval, self.connection_opts.max_inflight_blocks));
     }
 
     /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get
@@ -1365,20 +1425,13 @@ impl PeerNetwork {
         match self.block_downloader {
             Some(ref mut downloader) => {
                 if downloader.empty_block_download_passes > 0 && downloader.empty_microblock_download_passes > 0 {
-                    if downloader.last_inv_update_at == last_inv_update_at {
-                        // don't do work we don't have to do
-                        debug!("{:?}: No new blocks discovered since last download pass", &self.local_peer);
-                        return Ok((true, vec![], vec![], vec![], vec![]));
-                    }
-                    else if downloader.finished_scan_at + downloader.download_interval >= get_epoch_time_secs() {
+                    if downloader.last_inv_update_at == last_inv_update_at && downloader.finished_scan_at + downloader.download_interval >= get_epoch_time_secs() {
                         // throttle ourselves
                         debug!("{:?}: Throttle block downloads until {}", &self.local_peer, downloader.finished_scan_at + downloader.download_interval);
                         return Ok((true, vec![], vec![], vec![], vec![]));
                     }
                     else {
                         // start a rescan -- we've waited long enough
-                        // TODO: this is too eager -- only re-start a download scan if a peer announced
-                        // a block or microblock stream that we don't have yet.
                         debug!("{:?}: Noticed an inventory change; re-starting a download scan", &self.local_peer);
                         downloader.restart_scan();
                 
