@@ -2,7 +2,8 @@ use std::io::Cursor;
 use std::time::Instant;
 
 use reqwest::blocking::{Client, RequestBuilder};
-use serde::Serialize;
+use serde::{Serialize};
+use serde_json::value::RawValue;
 
 use secp256k1::{Secp256k1};
 
@@ -646,7 +647,7 @@ pub struct UTXO {
     txid: String,
     vout: u32,
     script_pub_key: String,
-    amount: serde_json::Number,
+    amount: Box<RawValue>,
     confirmations: u32,
     spendable: bool,
     solvable: bool,
@@ -670,7 +671,7 @@ impl UTXO {
     }
 
     pub fn get_sat_amount(&self) -> Option<u64> {
-        UTXO::serialized_btc_to_sat(&format!("{:.8}", self.amount))
+        UTXO::serialized_btc_to_sat(self.amount.get())
     }
 
     pub fn serialized_btc_to_sat(amount: &str) -> Option<u64> {
