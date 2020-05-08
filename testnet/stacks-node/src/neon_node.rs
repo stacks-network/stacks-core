@@ -4,6 +4,7 @@ use crate::config::HELIUM_BLOCK_LIMIT;
 use std::convert::TryFrom;
 use std::{thread, thread::JoinHandle};
 use std::net::SocketAddr;
+use std::collections::VecDeque;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, PublicKey};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
@@ -41,7 +42,7 @@ use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
-pub const RELAYER_MAX_BUFFER: usize = 1024;
+pub const RELAYER_MAX_BUFFER: usize = 100;
 
 #[derive(Clone)]
 struct RegisteredKey {
@@ -228,40 +229,72 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
         .map_err(NetError::DBError)?;
 
+    // buffer up blocks to store without stalling the p2p thread
+    let mut results_with_data = VecDeque::new();
+    let mut wokeup_relayer = false;
+
     let server_thread = thread::spawn(move || {
         loop {
+            let download_backpressure = results_with_data.len() > 0;
+            let has_attacheable_blocks = StacksChainState::has_attacheable_staging_blocks(&chainstate.blocks_db).expect("BUG: failed to query available staging blocks");
             let poll_ms = 
-                if StacksChainState::has_attacheable_staging_blocks(&chainstate.blocks_db).expect("BUG: failed to query available staging blocks") {
-                    // pass control to the relayer ASAP so it can work on processing blocks
-                    10
+                if !download_backpressure && !wokeup_relayer && (this.has_more_downloads() || has_attacheable_blocks) {
+                    // pass control to the relayer sooner rather than later so it can work on processing blocks and we
+                    // can get back to downloading them.  But only do so if we're not feeling
+                    // backpressure.
+                    debug!("backpressure: {}, more downloads: {}, attacheable: {}, wokeup relayer: {}", download_backpressure, this.has_more_downloads(), has_attacheable_blocks, wokeup_relayer);
+                    100
                 }
                 else {
                     poll_timeout
                 };
 
-            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), poll_ms)
+            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), download_backpressure, poll_ms)
                 .unwrap();
-           
-            if network_result.has_data_to_store() {
-                // do a blocking send -- don't lose this data
-                if let Err(_e) = relay_channel.send(RelayerDirective::HandleNetResult(network_result)) {
-                    info!("Relayer hang up with p2p channel");
-                    break;
-                }
+
+            let has_block_data = network_result.has_blocks() || network_result.has_microblocks();
+            if network_result.has_data_to_store() || (!download_backpressure && has_attacheable_blocks && !wokeup_relayer) {
+                // either this is new data, or we have an attacheable block to store and we need to
+                // wake up the relayer thread by sending it something on this channel (and, we have
+                // the capacity to do so).
+                results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
             }
-            else {
-                // non-blocking send -- nothing really valuable here
-                if let Err(e) = relay_channel.try_send(RelayerDirective::HandleNetResult(network_result)) {
-                    match e {
-                        TrySendError::Full(_) => {
-                            warn!("Relayer buffer is full, dropping NetworkHandle");
+
+            while let Some(next_result) = results_with_data.pop_front() {
+                if wokeup_relayer {
+                    if let RelayerDirective::HandleNetResult(ref res) = next_result {
+                        if !res.has_data_to_store() {
+                            // don't flood the channel with empty results
+                            continue;
                         }
+                    }
+                }
+                wokeup_relayer = true;
+
+                // have blocks, microblocks, and/or transactions (don't care about anything else),
+                // OR, we're backpressured, and will take any response to see if the channel is
+                // unblocked.
+                if let Err(e) = relay_channel.try_send(next_result) {
+                    // throttle back downloads, but don't drop these blocks!  (it's okay to drop
+                    // unhandled messsages and transactions, for now)
+                    debug!("{:?}: download backpressure detected", &this.local_peer);
+                    match e {
+                        TrySendError::Full(directive) => {
+                            // don't lose this data -- just try it again
+                            results_with_data.push_front(directive);
+                            break;
+                        },
                         TrySendError::Disconnected(_) => {
                             info!("Relayer hang up with p2p channel");
                             break;
                         }
                     }
                 }
+            }
+
+            if has_block_data {
+                // wake up the relayer early
+                wokeup_relayer = false;
             }
         }
     });
