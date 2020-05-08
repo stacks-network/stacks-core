@@ -275,7 +275,7 @@ impl BitcoinRegtestController {
                 utxos
             };
 
-        let total_unspent: u64 = utxos.iter().map(|o| o.get_sat_amount().unwrap()).sum();
+        let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
         if total_unspent < amount_required {
             debug!("Total unspent {} < {} for {:?}", total_unspent, amount_required, &public_key.to_hex());
             return None
@@ -382,7 +382,7 @@ impl BitcoinRegtestController {
 
         for utxo in utxos.iter() {
             let previous_output = OutPoint {
-                txid: utxo.get_txid().unwrap(),
+                txid: utxo.txid,
                 vout: utxo.vout,
             };
     
@@ -412,7 +412,7 @@ impl BitcoinRegtestController {
         let tx_fee = self.config.burnchain.burnchain_op_tx_fee;
 
         // Append the change output
-        let total_unspent: u64 = utxos.iter().map(|o| o.get_sat_amount().unwrap()).sum();
+        let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
         let public_key = signer.get_public_key();
         let change_address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
         let change_output = TxOut {
@@ -429,7 +429,7 @@ impl BitcoinRegtestController {
 
         // Sign the UTXOs
         for (i, utxo) in utxos.iter().enumerate() {
-            let script_pub_key = utxo.get_script_pub_key();
+            let script_pub_key = utxo.script_pub_key.clone();
             let sig_hash_all = 0x01;
             let sig_hash = tx.signature_hash(i, &script_pub_key, sig_hash_all);   
     
@@ -643,7 +643,7 @@ impl SerializedTx {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UTXO {
+pub struct ParsedUTXO {
     txid: String,
     vout: u32,
     script_pub_key: String,
@@ -655,7 +655,14 @@ pub struct UTXO {
     safe: bool,
 }
 
-impl UTXO {
+pub struct UTXO {
+    txid: Sha256dHash,
+    vout: u32,
+    script_pub_key: Script,
+    amount: u64,
+}
+
+impl ParsedUTXO {
 
     pub fn get_txid(&self) -> Option<Sha256dHash> {
         match hex_bytes(&self.txid) {
@@ -671,7 +678,7 @@ impl UTXO {
     }
 
     pub fn get_sat_amount(&self) -> Option<u64> {
-        UTXO::serialized_btc_to_sat(self.amount.get())
+        ParsedUTXO::serialized_btc_to_sat(self.amount.get())
     }
 
     pub fn serialized_btc_to_sat(amount: &str) -> Option<u64> {
@@ -710,9 +717,14 @@ impl UTXO {
         amount
     } 
 
-    pub fn get_script_pub_key(&self) -> Script {
-        let bytes = hex_bytes(&self.script_pub_key).expect("Invalid byte sequence");
-        bytes.into()
+    pub fn get_script_pub_key(&self) -> Option<Script> {
+        match hex_bytes(&self.script_pub_key) {
+            Ok(bytes) => Some(bytes.into()),
+            Err(_) => {
+                warn!("Unable to get script pub key");
+                None
+            }
+        }
     }
 }
 
@@ -754,7 +766,7 @@ impl BitcoinRPCRequest {
     pub fn list_unspent(request_builder: RequestBuilder, addresses: Vec<String>, include_unsafe: bool, minimum_sum_amount: u64) -> RPCResult<Vec<UTXO>> {
         let min_conf = 0;
         let max_conf = 9999999;
-        let minimum_amount = UTXO::sat_to_serialized_btc(minimum_sum_amount);
+        let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_sum_amount);
 
         let payload = BitcoinRPCRequest {
             method: "listunspent".to_string(),
@@ -777,24 +789,40 @@ impl BitcoinRPCRequest {
                 match object.get_mut("result") {
                     Some(serde_json::Value::Array(entries)) => {
                         while let Some(entry) = entries.pop() {
-                            let utxo: UTXO = match serde_json::from_value(entry) {
+                            let parsed_utxo: ParsedUTXO = match serde_json::from_value(entry) {
                                 Ok(utxo) => utxo,
-                                Err(e) => {
-                                    warn!("Failed to parse: {}", e);
-                                    continue;
+                                Err(err) => {
+                                    warn!("Failed parsing UTXO: {}", err);
+                                    continue
                                 }
                             };
-                            let amount = match utxo.get_sat_amount() {
+                            let amount = match parsed_utxo.get_sat_amount() {
                                 Some(amount) => amount,
-                                None => {
-                                    warn!("Failed to parse amount");
-                                    continue;
-                                }
+                                None => continue
                             };
                                     
-                            if amount >= minimum_sum_amount {
-                                return Ok(vec![utxo]);
+                            if amount < minimum_sum_amount {
+                                continue;
                             }
+
+                            let script_pub_key = match parsed_utxo.get_script_pub_key() {
+                                Some(script_pub_key) => script_pub_key,
+                                None => {
+                                    continue;
+                                }
+                            };
+ 
+                            let txid = match parsed_utxo.get_txid() {
+                                Some(amount) => amount,
+                                None => continue
+                            };
+                                    
+                            return Ok(vec![UTXO {
+                                txid,
+                                vout: parsed_utxo.vout,
+                                script_pub_key,
+                                amount,
+                            }]);
                         }
                     },
                     _ => { warn!("Failed to get UTXOs"); }
