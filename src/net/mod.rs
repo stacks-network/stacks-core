@@ -1857,7 +1857,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10);
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
@@ -1871,7 +1871,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10);
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
