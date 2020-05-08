@@ -763,8 +763,7 @@ impl BitcoinRPCRequest {
                 addresses.into(), 
                 include_unsafe.into(),
                 json!({
-                    "minimumAmount": minimum_amount,
-                    "maximumCount": 20,
+                    "minimumAmount": minimum_amount
                 })],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
