@@ -99,7 +99,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            this.run(&burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
+            this.run(&burndb, &mut chainstate, &mut mem_pool, None, false, poll_timeout)
                 .unwrap();
         }
     });
