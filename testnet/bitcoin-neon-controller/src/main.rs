@@ -143,7 +143,19 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
                 let stream = TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await?;
                 let body = serde_json::to_vec(&rpc_req).unwrap();
                 let req = build_request(&config, body);
-                client::connect(stream.clone(), req).await
+                let response = match client::connect(stream.clone(), req).await {
+                    Ok(ref mut res) => {
+                        let mut response = Response::new(res.status());
+                        let _ = response.append_header("Content-Type", "application/json");
+                        response.set_body(res.take_body());
+                        response
+                    },
+                    Err(err) => {
+                        println!("Unable to reach host: {:?}", err);
+                        return Ok(Response::new(StatusCode::MethodNotAllowed))
+                    }
+                };
+                Ok(response)
             },
             _ => {
                 Ok(Response::new(StatusCode::MethodNotAllowed))
@@ -229,11 +241,11 @@ pub struct RPCRequest {
     /// The name of the RPC call
     pub method: String,
     /// Parameters to the RPC call
-    pub params: Vec<serde_json::Value>,
+    pub params: serde_json::Value,
     /// Identifier for this Request, which should appear in the response
     pub id: serde_json::Value,
     /// jsonrpc field, MUST be "2.0"
-    pub jsonrpc: String,
+    pub jsonrpc: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -249,18 +261,18 @@ impl RPCRequest {
     pub fn generate_next_block_req(blocks_count: u64, address: String) -> RPCRequest {
         RPCRequest {
             method: "generatetoaddress".to_string(),
-            params: vec![blocks_count.into(), address.into()],
+            params: serde_json::Value::Array(vec![blocks_count.into(), address.into()]),
             id: 0.into(),
-            jsonrpc: "2.0".to_string()
+            jsonrpc: "2.0".to_string().into()
         }
     }
 
     pub fn is_chain_bootstrapped() -> RPCRequest {
         RPCRequest {
             method: "getblockhash".to_string(),
-            params: vec![200.into()],
+            params: serde_json::Value::Array(vec![200.into()]),
             id: 0.into(),
-            jsonrpc: "2.0".to_string()
+            jsonrpc: "2.0".to_string().into()
         }
     }
 }
