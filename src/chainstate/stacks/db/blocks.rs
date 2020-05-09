@@ -649,6 +649,8 @@ impl StacksChainState {
     pub fn store_block(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<(), Error> {
         let block_hash = block.block_hash();
         let block_path = StacksChainState::make_block_dir(blocks_dir, burn_header_hash, &block_hash)?;
+        
+        test_debug!("Store {}/{} to {}", burn_header_hash, &block_hash, &block_path);
         StacksChainState::atomic_file_store(&block_path, true, |ref mut fd| {
             block.consensus_serialize(fd).map_err(Error::NetError)
         })
@@ -1474,7 +1476,7 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Mark an anchored block as orphaned and both orphan and delete its parent microblock data.
+    /// Mark an anchored block as orphaned and both orphan and delete its descendent microblock data.
     /// The blocks database will eventually delete all orphaned data.
     fn delete_orphaned_epoch_data<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         // This block is orphaned
@@ -1486,7 +1488,7 @@ impl StacksChainState {
         let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attacheable = 0 WHERE parent_anchored_block_hash = ?1".to_string();
         let update_children_args = [&anchored_block_hash];
         
-        // find all orphaned microblocks hashes, and delete the block data
+        // find all orphaned microblocks, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE anchored_block_hash = ?1".to_string();
         let find_orphaned_microblocks_args = [&anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(tx, &find_orphaned_microblocks_sql, &find_orphaned_microblocks_args, "microblock_hash")
@@ -2321,6 +2323,7 @@ impl StacksChainState {
         };
      
         debug!("Storing staging block");
+
         // queue block up for processing
         StacksChainState::store_staging_block(&mut block_tx, burn_header_hash, burn_header_timestamp, &block, parent_burn_header_hash, commit_burn, sortition_burn)?;
 
@@ -2957,7 +2960,7 @@ impl StacksChainState {
         let block_hash = block.block_hash();
         if block_hash != next_staging_block.anchored_block_hash {
             // database corruption
-            error!("Staging DB corruption: expected block {}, got {}", block_hash, next_staging_block.anchored_block_hash);
+            error!("Staging DB corruption: expected block {}, got {} from disk", next_staging_block.anchored_block_hash, block_hash);
             return Err(Error::DBError(db_error::Corruption));
         }
 
@@ -2976,8 +2979,14 @@ impl StacksChainState {
         // validation check -- we can't have seen this block's microblock public key hash before in
         // this fork
         if StacksChainState::has_microblock_pubkey_hash(&mut chainstate_tx.headers_tx, &parent_block_header_info.burn_header_hash, &parent_block_header_info.anchored_header, &block.header.microblock_pubkey_hash)? {
-            let msg = format!("Invalid stacks block -- already used microblock pubkey hash {}", &block.header.microblock_pubkey_hash);
+            let msg = format!("Invalid stacks block {}/{} -- already used microblock pubkey hash {}", &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, &block.header.microblock_pubkey_hash);
             warn!("{}", &msg);
+
+            // clear out
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, false)?; 
+            chainstate_tx.commit()
+                .map_err(Error::DBError)?;
+
             return Err(Error::InvalidStacksBlock(msg));
         }
 
@@ -3045,9 +3054,7 @@ impl StacksChainState {
                 // anchored block was invalid.  Either way, the anchored block will _never be_
                 // valid, so we can drop it from the chunk store and orphan all of its descendents.
                 test_debug!("Failed to append {}/{}", &next_staging_block.burn_header_hash, &block.block_hash());
-                StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &block.header.block_hash(), false)
-                    .expect(&format!("FATAL: failed to clear invalid block {}/{}", next_staging_block.burn_header_hash, &block.header.block_hash()));
-                
+                StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &block.header.block_hash(), false)?;
                 StacksChainState::free_block_state(&blocks_path, &next_staging_block.burn_header_hash, &block.header);
 
                 match e {
