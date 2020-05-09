@@ -334,7 +334,6 @@ pub struct ConnectionOptions {
     pub walk_interval: u64,
     pub inv_sync_interval: u64,
     pub download_interval: u64,
-    pub download_retry_interval: u64,
     pub dns_timeout: u128,
     pub max_inflight_blocks: u64,
     pub read_only_call_limit: ExecutionCost,
@@ -374,7 +373,6 @@ impl std::default::Default for ConnectionOptions {
             walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk.  Note that this should be _smaller_ than inv_sync_interval
             inv_sync_interval: INV_SYNC_INTERVAL,               // how often to synchronize block inventories
             download_interval: BLOCK_DOWNLOAD_INTERVAL,         // how often to synchronize blocks
-            download_retry_interval: 60,                        // how often to retry blocks we already tried to download
             dns_timeout: 15_000,            // DNS timeout, in millis
             max_inflight_blocks: 6,         // number of parallel block downloads
             read_only_call_limit: ExecutionCost { write_length: 0, write_count: 0,
