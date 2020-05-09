@@ -209,8 +209,12 @@ impl MarfedKV {
     //   reprocess the same data as if it were already loaded
     pub fn commit_mined_block(&mut self, will_move_to: &BlockHeaderHash) {
         debug!("commit_mined_block: ({}->{})", &self.chain_tip, will_move_to); 
-        self.side_store.move_metadata_to(&self.chain_tip, &format!("{}.mined", will_move_to));
-        self.side_store.commit(&self.chain_tip);
+        // rollback the side_store
+        //    the side_store shouldn't commit data for blocks that won't be
+        //    included in the processed chainstate (like a block constructed during mining)
+        //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
+        //    we should probably commit the data to a different table which does not have uniqueness constraints.
+        self.side_store.rollback(&self.chain_tip);
         self.marf.commit_mined(will_move_to)
             .expect("ERROR: Failed to commit MARF block");
     }

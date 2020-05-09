@@ -31,5 +31,4 @@ amount = 10000000000000000
 
 # [[events_observer]]
 # endpoint = "http://127.0.0.1:8080"
-# retry_count = 5
 # events_keys = ["*"]
