@@ -2965,8 +2965,14 @@ impl StacksChainState {
         // validation check -- we can't have seen this block's microblock public key hash before in
         // this fork
         if StacksChainState::has_microblock_pubkey_hash(&mut chainstate_tx.headers_tx, &parent_block_header_info.burn_header_hash, &parent_block_header_info.anchored_header, &block.header.microblock_pubkey_hash)? {
-            let msg = format!("Invalid stacks block -- already used microblock pubkey hash {}", &block.header.microblock_pubkey_hash);
+            let msg = format!("Invalid stacks block {}/{} -- already used microblock pubkey hash {}", &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, &block.header.microblock_pubkey_hash);
             warn!("{}", &msg);
+
+            // clear out
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, false)?; 
+            chainstate_tx.commit()
+                .map_err(Error::DBError)?;
+
             return Err(Error::InvalidStacksBlock(msg));
         }
 

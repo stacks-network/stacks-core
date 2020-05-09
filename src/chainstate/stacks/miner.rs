@@ -1205,7 +1205,7 @@ pub mod test {
         };
 
         // "discover" this stacks block
-        test_debug!("\n\nPreprocess Stacks block {}/{}", &commit_snapshot.burn_header_hash, &block_hash);
+        test_debug!("\n\nPreprocess Stacks block {}/{} ({})", &commit_snapshot.burn_header_hash, &block_hash, StacksBlockHeader::make_index_block_hash(&commit_snapshot.burn_header_hash, &block_hash));
         let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.burn_header_hash, commit_snapshot.burn_header_timestamp, &stacks_block, &parent_block_burn_header_hash).unwrap();
 
         // "discover" this stacks microblock stream
@@ -1620,11 +1620,21 @@ pub mod test {
 
         TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
     }
-
+    
     /// two miners begin working on the same stacks chain, and then the stacks chain forks
     /// (resulting in two chainstates).  The burnchain is unaffected.  One miner continues on one
     /// chainstate, and the other continues on the other chainstate.  Fork happens on rounds/2
-    fn mine_stacks_blocks_2_forks_2_miners_1_burnchain<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> TestMinerTrace 
+    fn mine_stacks_blocks_2_forks_2_miners_1_burnchain<F>(test_name: &String, rounds: usize, miner_1_block_builder: F, miner_2_block_builder: F) -> TestMinerTrace 
+    where
+        F: FnMut(&mut ClarityTx, &mut StacksBlockBuilder, &mut TestMiner, usize, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>)
+    {
+        mine_stacks_blocks_2_forks_at_height_2_miners_1_burnchain(test_name, rounds, rounds/2, miner_1_block_builder, miner_2_block_builder)
+    }
+
+    /// two miners begin working on the same stacks chain, and then the stacks chain forks
+    /// (resulting in two chainstates).  The burnchain is unaffected.  One miner continues on one
+    /// chainstate, and the other continues on the other chainstate.  Fork happens on fork_height
+    fn mine_stacks_blocks_2_forks_at_height_2_miners_1_burnchain<F>(test_name: &String, rounds: usize, fork_height: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> TestMinerTrace 
     where
         F: FnMut(&mut ClarityTx, &mut StacksBlockBuilder, &mut TestMiner, usize, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>)
     {
@@ -1655,7 +1665,7 @@ pub mod test {
         let mut miner_trace = vec![];
         
         // miner 1 and 2 cooperate to build a shared fork
-        for i in 0..rounds/2 {
+        for i in 0..fork_height {
             let mut burn_block = {
                 let ic = burn_node.burndb.index_conn();
                 fork.next_block(&ic)
@@ -1775,7 +1785,7 @@ pub mod test {
             tip
         };
         
-        assert_eq!(snapshot_at_fork.num_sortitions, (rounds/2) as u64);
+        assert_eq!(snapshot_at_fork.num_sortitions, fork_height as u64);
   
         // give miner 2 its own chain state directory
         let full_test_name_2 = format!("{}.2", &full_test_name);
@@ -1783,7 +1793,7 @@ pub mod test {
 
         // miner 1 begins working on its own fork.
         // miner 2 begins working on its own fork.
-        for i in rounds/2..rounds {
+        for i in fork_height..rounds {
             let mut burn_block = {
                 let ic = burn_node.burndb.index_conn();
                 fork.next_block(&ic)
@@ -2711,6 +2721,46 @@ pub mod test {
         (stacks_block, vec![])
     }
     
+    pub fn mine_empty_anchored_block_with_burn_height_pubkh<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+        let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
+        miner.set_nonce(miner_account.nonce);
+
+        // make a coinbase for this miner
+        let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
+
+        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
+
+        let mut stacks_block = builder.mine_anchored_block(clarity_tx);
+
+        let mut pubkh_bytes = [0u8; 20];
+        pubkh_bytes[0..8].copy_from_slice(&burnchain_height.to_be_bytes());
+
+        stacks_block.header.microblock_pubkey_hash = Hash160(pubkh_bytes);
+        
+        test_debug!("Produce anchored stacks block at burnchain height {} stacks height {} pubkeyhash {}", burnchain_height, stacks_block.header.total_work.work, &stacks_block.header.microblock_pubkey_hash);
+        (stacks_block, vec![])
+    }
+    
+    pub fn mine_empty_anchored_block_with_stacks_height_pubkh<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+        let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
+        miner.set_nonce(miner_account.nonce);
+
+        // make a coinbase for this miner
+        let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
+
+        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
+
+        let mut stacks_block = builder.mine_anchored_block(clarity_tx);
+
+        let mut pubkh_bytes = [0u8; 20];
+        pubkh_bytes[0..8].copy_from_slice(&stacks_block.header.total_work.work.to_be_bytes());
+
+        stacks_block.header.microblock_pubkey_hash = Hash160(pubkh_bytes);
+        
+        test_debug!("Produce anchored stacks block at burnchain height {} stacks height {} pubkeyhash {}", burnchain_height, stacks_block.header.total_work.work, &stacks_block.header.microblock_pubkey_hash);
+        (stacks_block, vec![])
+    }
+    
     pub fn make_smart_contract(miner: &mut TestMiner, burnchain_height: usize, stacks_block_height: usize) -> StacksTransaction {
         // make a smart contract
         let contract = "
@@ -3208,6 +3258,21 @@ pub mod test {
     fn mine_anchored_smart_contract_block_contract_call_microblock_exception_burnchain_fork_stacks_fork_random() {
         let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-exception-burnchain-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
         miner_trace_replay_randomized(&mut miner_trace);
+    }
+
+    #[test]
+    fn mine_empty_anchored_block_deterministic_pubkeyhash_burnchain_fork() {
+        mine_stacks_blocks_1_fork_2_miners_2_burnchains(&"mine_empty_anchored_block_deterministic_pubkeyhash_burnchain_fork".to_string(), 10, mine_empty_anchored_block_with_burn_height_pubkh, mine_empty_anchored_block_with_burn_height_pubkh);
+    }
+    
+    #[test]
+    fn mine_empty_anchored_block_deterministic_pubkeyhash_stacks_fork() {
+        mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"mine_empty_anchored_block_deterministic_pubkeyhash_stacks_fork".to_string(), 10, mine_empty_anchored_block_with_stacks_height_pubkh, mine_empty_anchored_block_with_stacks_height_pubkh);
+    }
+    
+    #[test]
+    fn mine_empty_anchored_block_deterministic_pubkeyhash_stacks_fork_at_genesis() {
+        mine_stacks_blocks_2_forks_at_height_2_miners_1_burnchain(&"mine_empty_anchored_block_deterministic_pubkeyhash_stacks_fork_at_genesis".to_string(), 10, 0, mine_empty_anchored_block_with_stacks_height_pubkh, mine_empty_anchored_block_with_stacks_height_pubkh);
     }
 
     #[test]
@@ -3797,12 +3862,12 @@ pub mod test {
         }
     }
 
+    // TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
+    // within the same fork)
     // TODO: (BLOCKED) build off of different points in the same microblock stream
     // TODO; skipped blocks
     // TODO: missing blocks
     // TODO: invalid blocks
-    // TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
-    // within the same fork)
     // TODO: no-sortition
     // TODO: burnchain forks, and we mine the same anchored stacks block in the beginnings of the two descendent
     // forks.  Verify all descendents are unique -- if A --> B and A --> C, and B --> D and C -->
