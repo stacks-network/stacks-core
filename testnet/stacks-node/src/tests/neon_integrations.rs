@@ -66,11 +66,6 @@ fn bitcoind_integration_test() {
         return
     }
 
-    // used to specify how long to wait in between blocks.
-    //   we could _probably_ add a hook to the neon node that
-    //   would remove some of the need for this
-    let gap_ms = 5_000;
-
     let (conf, miner_account) = neon_integration_test_conf();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -122,11 +117,6 @@ fn microblock_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return
     }
-
-    // used to specify how long to wait in between blocks.
-    //   we could _probably_ add a hook to the neon node that
-    //   would remove some of the need for this
-    let gap_ms = 5_000;
 
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
