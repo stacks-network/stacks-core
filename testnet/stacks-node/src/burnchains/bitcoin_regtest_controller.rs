@@ -685,13 +685,13 @@ impl ParsedUTXO {
         let comps: Vec<&str> = amount.split(".").collect();
         match comps[..] {
             [lhs, rhs] => {
+                if rhs.len() > 8 {
+                    warn!("Unexpected amount of decimals");
+                    return None;
+                }
+
                 match (lhs.parse::<u64>(), rhs.parse::<u64>()) {
-                    (Ok(btc), Ok(frac_part)) => {
-                        if rhs.len() > 8 {
-                            warn!("Unexpected amount of decimals");
-                            return None;
-                        }
-        
+                    (Ok(btc), Ok(frac_part)) => {        
                         let base: u64 = 10;
                         let btc_to_sat = base.pow(8);
                         let mut amount = btc * btc_to_sat;
