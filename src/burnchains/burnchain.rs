@@ -225,6 +225,10 @@ impl BurnchainSigner {
         }
     }
 
+    pub fn to_address(&self) -> String { 
+        to_hex(&self.to_address_bits()[..])
+    }
+
     pub fn to_address_bits(&self) -> Vec<u8> { 
         let h = public_keys_to_address_hash(&self.hash_mode, self.num_sigs, &self.public_keys);
         h.as_bytes().to_vec()

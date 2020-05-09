@@ -47,18 +47,19 @@ impl RunLoop {
                 BitcoinAddressType::PublicKeyHash,
                 &Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer()).to_bytes())
                 .unwrap();
-            info!("Configured as a miner: checking if we have UTXOs at address: {}", btc_addr);
+            info!("Miner node: checking UTXOs at address: {}", btc_addr);
 
             let utxos = burnchain.get_utxos(
                 &keychain.generate_op_signer().get_public_key(), 1);
             if utxos.is_none() {
-                error!("I have no UTXOs... spawning as a follower. Restart node when you get some UTXOs.");
+                error!("Miner node: UTXOs not found. Switching to Follower node. Restart node when you get some UTXOs.");
                 false
             } else {
-                info!("Have UTXOs, starting up as miner");
+                info!("Miner node: starting up, UTXOs found.");
                 true
             }
         } else {
+            info!("Follower node: starting up");
             false
         };
 

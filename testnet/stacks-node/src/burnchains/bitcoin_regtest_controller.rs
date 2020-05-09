@@ -314,7 +314,9 @@ impl BitcoinRegtestController {
             utxos,
             signer);
 
-        Some(tx)   
+        info!("Miner node: submitting leader_key_register op - {}", public_key.to_hex());
+
+        Some(tx)
     }
 
     fn build_leader_block_commit_tx(&mut self, payload: LeaderBlockCommitOp, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
@@ -360,7 +362,9 @@ impl BitcoinRegtestController {
             utxos,
             signer);
 
-        Some(tx)    
+        info!("Miner node: submitting leader_block_commit op - {}", public_key.to_hex());
+
+        Some(tx)
     }
 
     fn prepare_tx(&self, public_key: &Secp256k1PublicKey, ops_fee: u64) -> Option<(Transaction, Vec<UTXO>)> {
