@@ -981,7 +981,7 @@ impl StacksChainState {
         match headers_tx.get_indexed(&parent_hash, &format!("chainstate::pubkey_hash::{}", pubkey_hash)).map_err(Error::DBError)? {
             Some(_) => {
                 // pubkey hash was seen before
-                debug!("Public key hash {} already used", pubkey_hash);
+                debug!("Public key hash {} already used (index hash {})", pubkey_hash, &parent_hash);
                 return Ok(true);
             },
             None => {
@@ -1020,12 +1020,14 @@ impl StacksChainState {
         ];
 
         // store each indexed field
+        test_debug!("Headers index_put_begin {}-{}", &parent_hash, &new_tip.index_block_hash(new_burn_block));
         headers_tx.put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_burn_block))
             .map_err(Error::DBError)?;
         let root_hash = headers_tx.put_indexed_all(&indexed_keys, &indexed_values)
             .map_err(Error::DBError)?;
         headers_tx.indexed_commit()
             .map_err(Error::DBError)?;
+        test_debug!("Headers index_commit {}-{}", &parent_hash, &new_tip.index_block_hash(new_burn_block));
         
         let new_tip_info = StacksHeaderInfo {
             anchored_header: new_tip.clone(),
