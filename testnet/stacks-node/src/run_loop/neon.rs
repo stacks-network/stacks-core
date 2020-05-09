@@ -36,10 +36,6 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::new(self.config.clone());
 
-        // self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
-
-        let mut burnchain_tip = burnchain.start();
-
         let is_miner = if self.config.node.miner {
             let mut keychain = Keychain::default(self.config.node.seed.clone());
             let btc_addr = BitcoinAddress::from_bytes(
@@ -62,6 +58,10 @@ impl RunLoop {
             info!("Follower node: starting up");
             false
         };
+
+        // self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
+
+        let mut burnchain_tip = burnchain.start();
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
