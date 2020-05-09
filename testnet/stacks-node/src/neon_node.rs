@@ -33,7 +33,7 @@ use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::net::NetworkResult;
 use stacks::net::PeerAddress;
-use std::sync::mpsc::{sync_channel, TrySendError, SyncSender, Receiver};
+use std::sync::mpsc::{sync_channel, TrySendError, TryRecvError, SyncSender, Receiver};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
 use std::convert::TryInto;
@@ -231,18 +231,14 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
 
     // buffer up blocks to store without stalling the p2p thread
     let mut results_with_data = VecDeque::new();
-    let mut wokeup_relayer = false;
 
     let server_thread = thread::spawn(move || {
         loop {
             let download_backpressure = results_with_data.len() > 0;
-            let has_attacheable_blocks = StacksChainState::has_attacheable_staging_blocks(&chainstate.blocks_db).expect("BUG: failed to query available staging blocks");
             let poll_ms = 
-                if !download_backpressure && !wokeup_relayer && (this.has_more_downloads() || has_attacheable_blocks) {
-                    // pass control to the relayer sooner rather than later so it can work on processing blocks and we
-                    // can get back to downloading them.  But only do so if we're not feeling
-                    // backpressure.
-                    debug!("backpressure: {}, more downloads: {}, attacheable: {}, wokeup relayer: {}", download_backpressure, this.has_more_downloads(), has_attacheable_blocks, wokeup_relayer);
+                if !download_backpressure && this.has_more_downloads() {
+                    // keep getting those blocks -- drive the downloader state-machine
+                    debug!("backpressure: {}, more downloads: {}", download_backpressure, this.has_more_downloads());
                     100
                 }
                 else {
@@ -252,31 +248,13 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), download_backpressure, poll_ms)
                 .unwrap();
 
-            let has_block_data = network_result.has_blocks() || network_result.has_microblocks();
-            if network_result.has_data_to_store() || (!download_backpressure && has_attacheable_blocks && !wokeup_relayer) {
-                // either this is new data, or we have an attacheable block to store and we need to
-                // wake up the relayer thread by sending it something on this channel (and, we have
-                // the capacity to do so).
+            if network_result.has_data_to_store() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
             }
 
             while let Some(next_result) = results_with_data.pop_front() {
-                if wokeup_relayer {
-                    if let RelayerDirective::HandleNetResult(ref res) = next_result {
-                        if !res.has_data_to_store() {
-                            // don't flood the channel with empty results
-                            continue;
-                        }
-                    }
-                }
-                wokeup_relayer = true;
-
                 // have blocks, microblocks, and/or transactions (don't care about anything else),
-                // OR, we're backpressured, and will take any response to see if the channel is
-                // unblocked.
                 if let Err(e) = relay_channel.try_send(next_result) {
-                    // throttle back downloads, but don't drop these blocks!  (it's okay to drop
-                    // unhandled messsages and transactions, for now)
                     debug!("{:?}: download backpressure detected", &this.local_peer);
                     match e {
                         TrySendError::Full(directive) => {
@@ -290,11 +268,6 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                         }
                     }
                 }
-            }
-
-            if has_block_data {
-                // wake up the relayer early
-                wokeup_relayer = false;
             }
         }
     });
@@ -335,17 +308,60 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     let burn_fee_cap = config.burnchain.burn_fee_cap;
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config);
 
-
     let blocks_path = chainstate.blocks_path.clone();
+    let mut block_on_recv = false;
 
     let _relayer_handle = thread::spawn(move || {
-        while let Ok(mut directive) = relay_channel.recv() {
+        loop {
+            let mut directive = 
+                if block_on_recv {
+                    match relay_channel.recv() {
+                        Ok(directive) => {
+                            block_on_recv = false;
+                            directive
+                        },
+                        Err(_) => {
+                            warn!("P2P thread hung up");
+                            break;
+                        }
+                    }
+                }
+                else {
+                    match relay_channel.try_recv() {
+                        Ok(directive) => directive,
+                        Err(TryRecvError::Empty) => {
+                            // process any attacheable blocks
+                            let block_receipts = chainstate.process_blocks(&mut burndb, 1).expect("BUG: failure processing chainstate");
+                            let mut num_processed = 0;
+                            for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
+                                // TODO: pass the poison microblock transaction off to the miner!
+                                if let Some((header_info, receipts)) = headers_and_receipts_opt {
+                                    dispatcher_announce(&blocks_path, &mut event_dispatcher, header_info, receipts);
+                                    num_processed += 1;
+                                }
+                            }
+                            if num_processed == 0 {
+                                // out of blocks to process.
+                                block_on_recv = true;
+                            }
+                            continue;
+                        },
+                        Err(TryRecvError::Disconnected) => {
+                            // p2p thread died
+                            warn!("P2P thread hung up");
+                            break;
+                        }
+                    }
+                };
+
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
                     let block_receipts = relayer.process_network_result(&local_peer, net_result,
                                                                         &mut burndb, &mut chainstate, &mut mem_pool)
                         .expect("BUG: failure processing network results");
 
+                    // TODO: extricate the poison block transaction(s) from the relayer and feed
+                    // them to the miner
                     for (stacks_header, tx_receipts) in block_receipts {
                         dispatcher_announce(&blocks_path, &mut event_dispatcher, stacks_header, tx_receipts);
                     }
@@ -387,7 +403,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                 },
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
                     rotate_vrf_and_register(&mut keychain, last_burn_block, &mut bitcoin_controller)
-                },
+                }
             }
         }
     });
