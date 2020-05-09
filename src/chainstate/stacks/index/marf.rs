@@ -759,12 +759,12 @@ impl MARF {
         let is_parent_sentinel = chain_tip == &TrieFileStorage::block_sentinel();
         if !is_parent_sentinel {
             trace!("Extending off of existing node {}", chain_tip);
-            self.storage.open_block(chain_tip)?;
         }
         else {
             info!("First-ever block {}", next_chain_tip);
             self.storage.open_block(chain_tip)?;
         }
+        self.storage.open_block(chain_tip)?;
 
         let block_height = 
             if !is_parent_sentinel {
