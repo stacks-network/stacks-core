@@ -191,16 +191,14 @@ pub struct BlockDownloader {
     /// how often to download
     download_interval: u64,
 
-    /// how often to re-try a download
-    download_retry_interval: u64,
-
-    /// Last time we tried to fetch a given block.
-    last_block_download_attempts: HashMap<BlockHeaderHash, u64>,
-    last_microblock_download_attempts: HashMap<BlockHeaderHash, u64>,
+    /// set of blocks and microblocks we have successfully downloaded (even if they haven't been
+    /// stored yet)
+    blocks_downloaded: HashSet<BlockHeaderHash>,
+    microblocks_downloaded: HashSet<BlockHeaderHash>
 }
 
 impl BlockDownloader {
-    pub fn new(dns_timeout: u128, download_interval: u64, retry_interval: u64, max_inflight_requests: u64) -> BlockDownloader {
+    pub fn new(dns_timeout: u128, download_interval: u64, max_inflight_requests: u64) -> BlockDownloader {
         BlockDownloader {
             state: BlockDownloaderState::DNSLookupBegin,
 
@@ -234,10 +232,9 @@ impl BlockDownloader {
             broken_neighbors: vec![],
 
             download_interval: download_interval,
-            download_retry_interval: retry_interval,
 
-            last_block_download_attempts: HashMap::new(),
-            last_microblock_download_attempts: HashMap::new(),
+            blocks_downloaded: HashSet::new(),
+            microblocks_downloaded: HashSet::new(),
         }
     }
 
@@ -667,39 +664,6 @@ impl BlockDownloader {
     pub fn is_download_idle(&self) -> bool {
         self.empty_block_download_passes > 0 && self.empty_microblock_download_passes > 0
     }
-
-    /// Is a given download target throttled?
-    pub fn is_download_target_throttled(&self, target_index_block_hash: &BlockHeaderHash, microblocks: bool) -> bool {
-        if !microblocks {
-            if let Some(ts) = self.last_block_download_attempts.get(&target_index_block_hash) {
-                if ts + self.download_retry_interval > get_epoch_time_secs() {
-                    return true;
-                }
-            }
-            return false;
-        }
-        else {
-            if let Some(ts) = self.last_microblock_download_attempts.get(&target_index_block_hash) {
-                if ts + self.download_retry_interval > get_epoch_time_secs() {
-                    return true;
-                }
-            }
-            return false;
-        }
-    }
-
-    /// Check to see if we have waited long enough to fetch the target block or microblock.
-    /// If it's not throttled, throttle it.
-    /// return true if we're throttled on this block or microblock hash
-    /// return false if not
-    pub fn set_download_target_throttled(&mut self, target_index_block_hash: &BlockHeaderHash, microblocks: bool) {
-        if !microblocks {
-            self.last_block_download_attempts.insert(target_index_block_hash.clone(), self.download_retry_interval + get_epoch_time_secs());
-        }
-        else {
-            self.last_microblock_download_attempts.insert(target_index_block_hash.clone(), self.download_retry_interval + get_epoch_time_secs());
-        }
-    }
 }
 
 impl PeerNetwork {
@@ -866,7 +830,12 @@ impl PeerNetwork {
                 };
 
             let target_index_block_hash = StacksBlockHeader::make_index_block_hash(&target_burn_hash, &target_block_hash);
-            if downloader.is_download_target_throttled(&target_index_block_hash, microblocks) {
+            if !microblocks && downloader.blocks_downloaded.contains(&target_index_block_hash) {
+                // already downloaded this
+                continue;
+            }
+            if microblocks && downloader.microblocks_downloaded.contains(&target_index_block_hash) {
+                // already downloaded this stream
                 continue;
             }
 
@@ -1009,7 +978,6 @@ impl PeerNetwork {
                         test_debug!("{:?}: request anchored block for sortition {}: {}/{} ({})", 
                                     &network.local_peer, height, &requests.front().as_ref().unwrap().burn_block_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &requests.front().as_ref().unwrap().index_block_hash);
 
-                        downloader.set_download_target_throttled(&requests.front().as_ref().unwrap().index_block_hash, false);
                         downloader.blocks_to_try.insert(height, requests);
 
                         height += 1;
@@ -1042,7 +1010,6 @@ impl PeerNetwork {
                         test_debug!("{:?}: request microblock stream produced by sortition {}: {}/{} ({})", 
                                     &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().burn_block_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &requests.front().as_ref().unwrap().index_block_hash);
 
-                        downloader.set_download_target_throttled(&requests.front().as_ref().unwrap().index_block_hash, true);
                         downloader.microblocks_to_try.insert(mblock_height, requests);
 
                         mblock_height += 1;
@@ -1070,17 +1037,6 @@ impl PeerNetwork {
                     // nothing in this range, so advance sortition range to try for next time 
                     next_block_sortition_height = next_block_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64);
                     next_microblock_sortition_height = next_microblock_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64);
-
-                    /*
-                    if next_block_sortition_height >= network.chain_view.burn_block_height {
-                        // wrapped around
-                        next_block_sortition_height = 0;
-                    }
-                    if next_microblock_sortition_height >= network.chain_view.burn_block_height {
-                        // wrapped around
-                        next_microblock_sortition_height = 0;
-                    }
-                    */
 
                     test_debug!("{:?}: Pessimistically increase block and microblock sortition heights to ({},{})", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
                 }
@@ -1290,6 +1246,7 @@ impl PeerNetwork {
 
                 // don't try this again
                 downloader.blocks_to_try.remove(&request_key.sortition_height);
+                downloader.blocks_downloaded.insert(request_key.index_block_hash.clone());
             }
             for (request_key, microblock_stream) in downloader.microblocks.drain() {
                 let block_header = StacksChainState::load_block_header(&chainstate.blocks_path, &request_key.burn_block_hash, &request_key.anchor_block_hash)? 
@@ -1311,6 +1268,7 @@ impl PeerNetwork {
 
                 // don't try again
                 downloader.microblocks_to_try.remove(&request_key.sortition_height);
+                downloader.microblocks_downloaded.insert(request_key.index_block_hash.clone());
             }
 
             // clear empties
@@ -1403,7 +1361,7 @@ impl PeerNetwork {
 
     /// Initialize the downloader 
     pub fn init_block_downloader(&mut self) -> () {
-        self.block_downloader = Some(BlockDownloader::new(self.connection_opts.dns_timeout, self.connection_opts.download_interval, self.connection_opts.download_retry_interval, self.connection_opts.max_inflight_blocks));
+        self.block_downloader = Some(BlockDownloader::new(self.connection_opts.dns_timeout, self.connection_opts.download_interval, self.connection_opts.max_inflight_blocks));
     }
 
     /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get
