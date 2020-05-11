@@ -658,14 +658,18 @@ impl InitializedNeonNode {
                     won_sortition = true;
                 }    
             } else {
-                info!("Received burnchain block #{} including block_commit_op - {}", block_height, op.input.to_testnet_address());
+                if self.is_miner {
+                    info!("Received burnchain block #{} including block_commit_op - {}", block_height, op.input.to_testnet_address());
+                }
             }
         }
 
         let key_registers = BurnDB::get_leader_keys_by_block(&ic, block_height, burn_hash)
             .expect("Unexpected BurnDB error fetching key registers");
         for op in key_registers.into_iter() {
-            info!("Received burnchain block #{} including key_register_op - {}", block_height, op.address);
+            if self.is_miner {
+                info!("Received burnchain block #{} including key_register_op - {}", block_height, op.address);
+            }
             if op.address == Keychain::address_from_burnchain_signer(&self.burnchain_signer) {
                 // Registered key has been mined
                 self.active_keys.push(
