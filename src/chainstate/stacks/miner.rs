@@ -451,11 +451,7 @@ impl StacksBlockBuilder {
         
         let ancestor_tip = {
             let mut headers_tx = chainstate.headers_tx_begin()?;
-            // `next_height` is 1-indexed, since stacks blocks start at height 1.
-            // The headers DB, however, is 0-indexed, since it includes the genesis
-            // block header hash.  Account for this.
-            let next_header_height = next_height.saturating_sub(1);
-            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash), next_header_height)? {
+            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash), next_height)? {
                 Some(tip_info) => tip_info,
                 None => {
                     // no such ancestor.  We're done
@@ -471,6 +467,7 @@ impl StacksBlockBuilder {
         let mut next_tip_block_hash = tip_block_hash.clone();
 
         for (burn_bhh, block_bhh) in next_tips.drain(..) {
+            test_debug!("mempool tip: {}/{}", &burn_bhh, &block_bhh);
             if ancestor_tip.burn_header_hash == burn_bhh && ancestor_tip.anchored_header.block_hash() == block_bhh {
                 found = true;
                 next_tip_burn_header_hash = burn_bhh;
@@ -3852,7 +3849,8 @@ pub mod test {
             peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
            
-            test_debug!("\n\ncheck tenure {}\n", tenure_id);
+            test_debug!("\n\ncheck tenure {}: {} transactions\n", tenure_id, stacks_block.txs.len());
+            
             if tenure_id > 1 {
                 // two transactions after the first two tenures
                 assert_eq!(stacks_block.txs.len(), 2);
