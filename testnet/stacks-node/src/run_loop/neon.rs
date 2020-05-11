@@ -59,8 +59,6 @@ impl RunLoop {
             false
         };
 
-        // self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
-
         let mut burnchain_tip = burnchain.start();
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;

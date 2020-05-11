@@ -650,7 +650,7 @@ impl InitializedNeonNode {
             .expect("Unexpected BurnDB error fetching block commits");
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
-                info!("Received burnchain block #{} including block_commit_op (winning) - {}", block_height, op.input.to_address());
+                info!("Received burnchain block #{} including block_commit_op (winning) - {}", block_height, op.input.to_testnet_address());
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
                 // Release current registered key if leader won the sortition
                 // This will trigger a new registration
@@ -658,7 +658,7 @@ impl InitializedNeonNode {
                     won_sortition = true;
                 }    
             } else {
-                info!("Received burnchain block #{} including block_commit_op - {}", block_height, op.input.to_address());
+                info!("Received burnchain block #{} including block_commit_op - {}", block_height, op.input.to_testnet_address());
             }
         }
 
