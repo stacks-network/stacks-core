@@ -51,6 +51,9 @@ use burnchains::BurnchainStateTransition;
 use burnchains::bitcoin::{BitcoinTxInput, BitcoinTxOutput, BitcoinInputType};
 use burnchains::bitcoin::address::to_c32_version_byte;
 use burnchains::bitcoin::address::address_type_to_version_byte;
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::address::BitcoinAddressType;
+use burnchains::bitcoin::BitcoinNetworkType;
 
 use chainstate::burn::Opcodes;
 
@@ -223,6 +226,16 @@ impl BurnchainSigner {
                 }
             }
         }
+    }
+
+    pub fn to_testnet_address(&self) -> String { 
+        let addr_type = match &self.hash_mode {
+            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => BitcoinAddressType::PublicKeyHash,
+            _ => BitcoinAddressType::ScriptHash,
+        };
+        BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet,
+                                   addr_type, 
+                                   &self.to_address_bits()).unwrap().to_string()
     }
 
     pub fn to_address_bits(&self) -> Vec<u8> { 
