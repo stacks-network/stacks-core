@@ -93,7 +93,7 @@ impl StacksBlockBuilder {
 
     fn first_pubkey_hash(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis(),
+            anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
             block_height: 0,
             index_root: TrieHash([0u8; 32]),
@@ -323,7 +323,7 @@ impl StacksBlockBuilder {
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
             let mut tx = chainstate.headers_tx_begin()?;
-            StacksChainState::find_mature_miner_rewards(&mut tx, &self.chain_tip)?
+            StacksChainState::find_mature_miner_rewards(&mut tx, &self.chain_tip, None)?
         };
 
         self.miner_payouts = matured_miner_rewards_opt;
@@ -1190,7 +1190,7 @@ pub mod test {
                 // only allowed if this is the first-ever block in the stacks fork
                 assert_eq!(block_commit_op.parent_block_ptr, 0);
                 assert_eq!(block_commit_op.parent_vtxindex, 0);
-                assert!(stacks_block.header.is_genesis());
+                assert!(stacks_block.header.is_first_mined());
 
                 FIRST_BURNCHAIN_BLOCK_HASH.clone()
             }
@@ -3851,7 +3851,8 @@ pub mod test {
 
             peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-            
+           
+            test_debug!("\n\ncheck tenure {}\n", tenure_id);
             if tenure_id > 1 {
                 // two transactions after the first two tenures
                 assert_eq!(stacks_block.txs.len(), 2);
