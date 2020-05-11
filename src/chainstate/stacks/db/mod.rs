@@ -495,7 +495,7 @@ pub const MINER_REWARD_MATURITY : u64 = 100;
 pub const MINER_REWARD_WINDOW : u64 = 5;       // small for testing purposes
 
 #[cfg(not(test))]
-pub const MINER_REWARD_WINDOW : u64 = 1008;
+pub const MINER_REWARD_WINDOW : u64 = 16;
 
 pub const MINER_FEE_MINIMUM_BLOCK_USAGE : u64 = 80;         // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
 
