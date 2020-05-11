@@ -33,6 +33,7 @@ use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::net::NetworkResult;
 use stacks::net::PeerAddress;
+use std::sync::mpsc;
 use std::sync::mpsc::{sync_channel, TrySendError, TryRecvError, SyncSender, Receiver};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
@@ -56,6 +57,7 @@ enum RelayerDirective {
     ProcessTenure(BurnchainHeaderHash, BurnchainHeaderHash, BlockHeaderHash),
     RunTenure(RegisteredKey, BlockSnapshot),
     RegisterKey(BlockSnapshot),
+    TryProcessAttachable
 }
 
 
@@ -312,49 +314,36 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     let mut block_on_recv = false;
 
     let _relayer_handle = thread::spawn(move || {
-        loop {
-            let mut directive = 
-                if block_on_recv {
-                    match relay_channel.recv() {
-                        Ok(directive) => {
-                            block_on_recv = false;
-                            directive
-                        },
-                        Err(_) => {
-                            warn!("P2P thread hung up");
-                            break;
+        while let Ok(mut directive) =
+            if block_on_recv {
+                relay_channel.recv()
+            }
+            else {
+                relay_channel.try_recv().or_else(|e| {
+                    match e {
+                        TryRecvError::Empty => Ok(RelayerDirective::TryProcessAttachable),
+                        _ => Err(mpsc::RecvError)
+                    }
+                })
+            } {
+            block_on_recv = false;
+            match directive {
+                RelayerDirective::TryProcessAttachable => {
+                    // process any attachable blocks
+                    let block_receipts = chainstate.process_blocks(&mut burndb, 1).expect("BUG: failure processing chainstate");
+                    let mut num_processed = 0;
+                    for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
+                        // TODO: pass the poison microblock transaction off to the miner!
+                        if let Some((header_info, receipts)) = headers_and_receipts_opt {
+                            dispatcher_announce(&blocks_path, &mut event_dispatcher, header_info, receipts);
+                            num_processed += 1;
                         }
+                    }
+                    if num_processed == 0 {
+                        // out of blocks to process.
+                        block_on_recv = true;
                     }
                 }
-                else {
-                    match relay_channel.try_recv() {
-                        Ok(directive) => directive,
-                        Err(TryRecvError::Empty) => {
-                            // process any attacheable blocks
-                            let block_receipts = chainstate.process_blocks(&mut burndb, 1).expect("BUG: failure processing chainstate");
-                            let mut num_processed = 0;
-                            for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
-                                // TODO: pass the poison microblock transaction off to the miner!
-                                if let Some((header_info, receipts)) = headers_and_receipts_opt {
-                                    dispatcher_announce(&blocks_path, &mut event_dispatcher, header_info, receipts);
-                                    num_processed += 1;
-                                }
-                            }
-                            if num_processed == 0 {
-                                // out of blocks to process.
-                                block_on_recv = true;
-                            }
-                            continue;
-                        },
-                        Err(TryRecvError::Disconnected) => {
-                            // p2p thread died
-                            warn!("P2P thread hung up");
-                            break;
-                        }
-                    }
-                };
-
-            match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
                     let block_receipts = relayer.process_network_result(&local_peer, net_result,
                                                                         &mut burndb, &mut chainstate, &mut mem_pool)
