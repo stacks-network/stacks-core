@@ -39,6 +39,10 @@ use blockstack_lib::net::StacksMessageCodec;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::retry::LogReader;
+use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::StacksBlockHeader;
+use blockstack_lib::chainstate::burn::BlockHeaderHash;
+use blockstack_lib::burnchains::BurnchainHeaderHash;
 
 use blockstack_lib::burnchains::bitcoin::spv;
 use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
@@ -182,6 +186,51 @@ fn main() {
             Err(error) => { 
                 panic!("Program Execution Error: \n{}", error);
             }
+        }
+        return
+    }
+
+    if argv[1] == "marf-get" {
+        let path = &argv[2];
+        let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
+        let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
+        let itip = StacksBlockHeader::make_index_block_hash(&burntip, &tip);
+        let key = &argv[5];
+        let mut marf = MARF::from_path(path, Some(&itip)).unwrap();
+        let res = marf.get(&itip, key).expect("MARF error.");
+        match res {
+            Some(x) => println!("{}", x),
+            None => println!("None"),
+        };
+        return
+    }
+
+    if argv[1] == "get-ancestors" {
+        let path = &argv[2];
+        let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
+        let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
+
+        let conn = rusqlite::Connection::open(path).unwrap();
+        let mut cur_burn = burntip.clone();
+        let mut cur_tip = tip.clone();
+        loop {
+            println!("{}, {}", cur_burn, cur_tip);
+            let (next_burn, next_tip) = match
+                conn.query_row("SELECT parent_burn_header_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? and burn_header_hash = ?",
+                               &[&cur_tip as &dyn rusqlite::types::ToSql, &cur_burn], |row| (row.get(0), row.get(1))) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        match e {
+                            rusqlite::Error::QueryReturnedNoRows => {},
+                            e => {
+                                eprintln!("SQL Error: {}", e);
+                            },
+                        }
+                        break
+                    }
+                };
+            cur_burn = next_burn;
+            cur_tip = next_tip;
         }
         return
     }
