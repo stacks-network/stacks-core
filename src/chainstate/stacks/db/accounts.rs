@@ -749,7 +749,7 @@ mod test {
 
     #[test]
     fn find_mature_miner_rewards() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "find_mature_miner_rewards");
         let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
         let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
 
