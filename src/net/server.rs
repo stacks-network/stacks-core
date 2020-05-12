@@ -244,7 +244,7 @@ impl HttpPeer {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
         for (event_id, (socket, _, _, ts)) in self.connecting.iter() {
-            if ts + self.connection_opts.timeout < now {
+            if ts + self.connection_opts.connect_timeout < now {
                 debug!("Disconnect connecting HTTP peer {:?}", &socket);
                 to_remove.push(*event_id);
             }
