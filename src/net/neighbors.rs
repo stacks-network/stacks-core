@@ -1331,6 +1331,7 @@ impl PeerNetwork {
                 // is the peer network still working?
                 if !self.is_connecting(*event_id) {
                     debug!("{:?}: Failed to connect to {:?} (no longer connecting; assumed timed out)", &self.local_peer, nk);
+                    walk.connecting.remove(&nk);
                     return Err(net_error::PeerNotConnected);
                 }
 

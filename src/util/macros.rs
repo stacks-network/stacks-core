@@ -406,7 +406,6 @@ pub fn is_trace() -> bool {
 #[allow(unused_macros)]
 macro_rules! trace {
     ($($arg:tt)*) => (
-        #[cfg(test)]
         {
             if ::util::macros::is_trace() {
                 debug!($($arg)*);

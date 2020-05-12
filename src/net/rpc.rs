@@ -106,8 +106,8 @@ pub struct ConversationHttp {
     keep_alive: bool,
     total_request_count: u64,       // number of messages taken from the inbox
     total_reply_count: u64,         // number of messages responsed to
-    last_request_timestamp: u64,    // absolute timestamp of last inbound request, in seconds
-    last_response_timestamp: u64,   // absolute timestamp of the last time we sent at least 1 byte in response
+    last_request_timestamp: u64,    // absolute timestamp of the last time we received at least 1 byte in a request
+    last_response_timestamp: u64,   // absolute timestamp of the last time we sent at least 1 byte in a response
     connection_time: u64,           // when this converation was instantiated
 
     // ongoing block streams
@@ -994,7 +994,10 @@ impl ConversationHttp {
             };
 
             total_recv += nrecv;
-            if nrecv == 0 {
+            if nrecv > 0 {
+                self.last_request_timestamp = get_epoch_time_secs();
+            }
+            else {
                 break;
             }
         }

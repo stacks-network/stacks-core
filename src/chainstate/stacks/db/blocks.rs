@@ -52,7 +52,8 @@ use util::db::{
     query_rows,
     query_row_columns,
     query_count,
-    query_int
+    query_int,
+    tx_busy_handler,
 };
 
 use util::strings::StacksString;
@@ -129,7 +130,7 @@ pub struct StagingBlock {
     pub microblock_pubkey_hash: Hash160,
     pub height: u64,
     pub processed: bool,
-    pub attacheable: bool,
+    pub attachable: bool,
     pub orphaned: bool,
     pub commit_burn: u64,
     pub sortition_burn: u64,
@@ -239,7 +240,7 @@ pub const MINIMUM_TX_FEE: u64 = 1;
 pub const MINIMUM_TX_FEE_RATE_PER_BYTE: u64 = 1;
 
 impl StagingBlock {
-    pub fn is_genesis(&self) -> bool {
+    pub fn is_first_mined(&self) -> bool {
         self.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH
     }
 }
@@ -280,7 +281,7 @@ impl FromRow<StagingBlock> for StagingBlock {
         let parent_microblock_seq : u16 = row.get("parent_microblock_seq");
         let microblock_pubkey_hash : Hash160 = Hash160::from_column(row, "microblock_pubkey_hash")?;
         let height = u64::from_column(row, "height")?;
-        let attacheable_i64 : i64 = row.get("attacheable");
+        let attachable_i64 : i64 = row.get("attachable");
         let processed_i64 : i64 = row.get("processed");
         let orphaned_i64 : i64 = row.get("orphaned");
         let commit_burn = u64::from_column(row, "commit_burn")?;
@@ -288,7 +289,7 @@ impl FromRow<StagingBlock> for StagingBlock {
         let block_data : Vec<u8> = vec![];
 
         let processed = processed_i64 != 0;
-        let attacheable = attacheable_i64 != 0;
+        let attachable = attachable_i64 != 0;
         let orphaned = orphaned_i64 == 0;
 
         Ok(StagingBlock {
@@ -302,7 +303,7 @@ impl FromRow<StagingBlock> for StagingBlock {
             microblock_pubkey_hash,
             height,
             processed,
-            attacheable,
+            attachable,
             orphaned,
             commit_burn,
             sortition_burn,
@@ -420,7 +421,7 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
                                 parent_microblock_seq INT NOT NULL,
                                 microblock_pubkey_hash TEXT NOT NULL,
                                 height INT NOT NULL,
-                                attacheable INT NOT NULL,           -- set to 1 if this block's parent is processed; 0 if not
+                                attachable INT NOT NULL,           -- set to 1 if this block's parent is processed; 0 if not
                                 orphaned INT NOT NULL,              -- set to 1 if this block can never be attached
                                 processed INT NOT NULL,
                                 commit_burn INT NOT NULL,
@@ -469,6 +470,7 @@ impl StacksChainState {
             };
 
         let mut conn = DBConn::open_with_flags(db_path, open_flags).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        conn.busy_handler(Some(tx_busy_handler)).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         if create_flag {
             // instantiate!
@@ -647,6 +649,8 @@ impl StacksChainState {
     pub fn store_block(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<(), Error> {
         let block_hash = block.block_hash();
         let block_path = StacksChainState::make_block_dir(blocks_dir, burn_header_hash, &block_hash)?;
+        
+        test_debug!("Store {}/{} to {}", burn_header_hash, &block_hash, &block_path);
         StacksChainState::atomic_file_store(&block_path, true, |ref mut fd| {
             block.consensus_serialize(fd).map_err(Error::NetError)
         })
@@ -1135,18 +1139,18 @@ impl StacksChainState {
         let block_hash = block.block_hash();
         let index_block_hash = StacksBlockHeader::make_index_block_hash(&burn_hash, &block_hash);
 
-        let attacheable = {
-            // if this block has an unprocessed staging parent, then it's not attacheable until its parent is.
+        let attachable = {
+            // if this block has an unprocessed staging parent, then it's not attachable until its parent is.
             let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1".to_string();
             let has_parent_args: &[&dyn ToSql] = &[&block.header.parent_block, &parent_burn_header_hash];
             let rows = query_row_columns::<BlockHeaderHash, _>(&tx, &has_parent_sql, has_parent_args, "anchored_block_hash").map_err(Error::DBError)?;
             if rows.len() > 0 {
-                // still have unprocessed parent -- this block is not attacheable 
-                debug!("Store non-attacheable anchored block {}/{}", burn_hash, block.block_hash());
+                // still have unprocessed parent -- this block is not attachable 
+                debug!("Store non-attachable anchored block {}/{}", burn_hash, block.block_hash());
                 0
             }
             else {
-                // no unprocessed parents -- this block is potentially attacheable
+                // no unprocessed parents -- this block is potentially attachable
                 1
             }
         };
@@ -1162,7 +1166,7 @@ impl StacksChainState {
                    parent_microblock_seq, \
                    microblock_pubkey_hash, \
                    height, \
-                   attacheable, \
+                   attachable, \
                    processed, \
                    orphaned, \
                    commit_burn, \
@@ -1179,7 +1183,7 @@ impl StacksChainState {
             &block.header.parent_microblock_sequence,
             &block.header.microblock_pubkey_hash,
             &u64_to_sql(block.header.total_work.work)?,
-            &attacheable,
+            &attachable,
             &0,
             &0,
             &u64_to_sql(commit_burn)?,
@@ -1191,9 +1195,9 @@ impl StacksChainState {
 
         StacksChainState::store_block(tx.get_blocks_path(), burn_hash, block)?;
 
-        // mark all children of this new block as unattacheable -- need to attach this block first!
+        // mark all children of this new block as unattachable -- need to attach this block first!
         // this should be done across all burnchains.
-        let children_sql = "UPDATE staging_blocks SET attacheable = 0 WHERE parent_anchored_block_hash = ?1";
+        let children_sql = "UPDATE staging_blocks SET attachable = 0 WHERE parent_anchored_block_hash = ?1";
         let children_args = [&block_hash];
 
         tx.execute(&children_sql, &children_args)
@@ -1472,19 +1476,19 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Mark an anchored block as orphaned and both orphan and delete its parent microblock data.
+    /// Mark an anchored block as orphaned and both orphan and delete its descendent microblock data.
     /// The blocks database will eventually delete all orphaned data.
     fn delete_orphaned_epoch_data<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         // This block is orphaned
-        let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attacheable = 0 WHERE anchored_block_hash = ?1".to_string();
+        let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE anchored_block_hash = ?1".to_string();
         let update_block_args = [&anchored_block_hash];
 
-        // All descendents of this processed block are never attacheable.
+        // All descendents of this processed block are never attachable.
         // Indicate this by marking all children as orphaned (but not procesed), across all burnchain forks.
-        let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attacheable = 0 WHERE parent_anchored_block_hash = ?1".to_string();
+        let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_anchored_block_hash = ?1".to_string();
         let update_children_args = [&anchored_block_hash];
         
-        // find all orphaned microblocks hashes, and delete the block data
+        // find all orphaned microblocks, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE anchored_block_hash = ?1".to_string();
         let find_orphaned_microblocks_args = [&anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(tx, &find_orphaned_microblocks_sql, &find_orphaned_microblocks_args, "microblock_hash")
@@ -1515,7 +1519,7 @@ impl StacksChainState {
     }
 
     /// Clear out a staging block -- mark it as processed.
-    /// Mark its children as attacheable.
+    /// Mark its children as attachable.
     /// Idempotent.
     fn set_block_processed<'a, 'b>(tx: &mut BlocksDBTx<'a>, mut burn_tx_opt: Option<&mut BurnDBTx<'b>>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
         let sql = "SELECT * FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 0".to_string();
@@ -1572,9 +1576,9 @@ impl StacksChainState {
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
        
         if accept {
-            // if we accepted this block, then children of this processed block are now attacheable.
+            // if we accepted this block, then children of this processed block are now attachable.
             // Applies across all burnchain forks
-            let update_children_sql = "UPDATE staging_blocks SET attacheable = 1 WHERE parent_anchored_block_hash = ?1".to_string();
+            let update_children_sql = "UPDATE staging_blocks SET attachable = 1 WHERE parent_anchored_block_hash = ?1".to_string();
             let update_children_args = [&anchored_block_hash];
 
             tx.execute(&update_children_sql, &update_children_args)
@@ -1595,7 +1599,7 @@ impl StacksChainState {
             }
         }
         else {
-            // Otherwise, all descendents of this processed block are never attacheable.
+            // Otherwise, all descendents of this processed block are never attachable.
             // Mark this block's children as orphans, blow away its data, and blow away its descendent microblocks.
             test_debug!("Orphan block {}/{}", burn_hash, anchored_block_hash);
             StacksChainState::delete_orphaned_epoch_data(tx, burn_hash, anchored_block_hash)?;
@@ -1644,7 +1648,7 @@ impl StacksChainState {
 
         for mblock_hash in orphaned_microblock_hashes.iter() {
             // orphan any staging blocks that build on the now-invalid microblocks
-            let update_block_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attacheable = 0 WHERE parent_microblock_hash = ?1".to_string();
+            let update_block_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_microblock_hash = ?1".to_string();
             let update_block_children_args = [&mblock_hash];
             
             tx.execute(&update_block_children_sql, &update_block_children_args)
@@ -2022,7 +2026,7 @@ impl StacksChainState {
     /// transaction for the two headers with the lowest duplicate sequence number.
     /// Return None if the stream does not connect to this block (e.g. it's incomplete or the like)
     pub fn validate_parent_microblock_stream(parent_anchored_block_header: &StacksBlockHeader, anchored_block_header: &StacksBlockHeader, microblocks: &Vec<StacksMicroblock>, verify_signatures: bool) -> Option<(usize, Option<TransactionPayload>)> {
-        if anchored_block_header.is_genesis() {
+        if anchored_block_header.is_first_mined() {
             // there had better be zero microblocks
             if anchored_block_header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH && anchored_block_header.parent_microblock_sequence == 0 {
                 return Some((0, None));
@@ -2319,6 +2323,7 @@ impl StacksChainState {
         };
      
         debug!("Storing staging block");
+
         // queue block up for processing
         StacksChainState::store_staging_block(&mut block_tx, burn_header_hash, burn_header_timestamp, &block, parent_burn_header_hash, commit_burn, sortition_burn)?;
 
@@ -2530,6 +2535,15 @@ impl StacksChainState {
         Ok(true)
     }
 
+    /// Is there at least one staging block that can be attached?
+    pub fn has_attachable_staging_blocks(blocks_conn: &DBConn) -> Result<bool, Error> {
+        // go through staging blocks and see if any of them match headers and are attachable.
+        // pick randomly -- don't allow the network sender to choose the processing order!
+        let sql = "SELECT 1 FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 LIMIT 1".to_string();
+        let available = blocks_conn.query_row(&sql, NO_PARAMS, |_row| ()).optional().map_err(|e| Error::DBError(db_error::SqliteError(e)))?.is_some();
+        Ok(available)
+    }
+
     /// Given access to the chain state (headers) and the staging blocks, find a staging block we
     /// can process, as well as its parent microblocks that it confirms
     /// Returns Some(microblocks, staging block) if we found a sequence of blocks to process.
@@ -2537,9 +2551,9 @@ impl StacksChainState {
     fn find_next_staging_block(blocks_conn: &DBConn, blocks_path: &String, headers_conn: &DBConn) -> Result<Option<(Vec<StacksMicroblock>, StagingBlock)>, Error> {
         test_debug!("Find next staging block");
 
-        // go through staging blocks and see if any of them match headers and are attacheable.
+        // go through staging blocks and see if any of them match headers and are attachable.
         // pick randomly -- don't allow the network sender to choose the processing order!
-        let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND attacheable = 1 AND orphaned = 0 ORDER BY RANDOM()".to_string();
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 ORDER BY RANDOM()".to_string();
         
         let mut stmt = blocks_conn.prepare(&sql)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -2766,12 +2780,12 @@ impl StacksChainState {
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
-            StacksChainState::find_mature_miner_rewards(&mut chainstate_tx.headers_tx, parent_chain_tip)?
+            StacksChainState::find_mature_miner_rewards(&mut chainstate_tx.headers_tx, parent_chain_tip, Some(chainstate_tx.miner_payment_cache))?
         };
 
         let (scheduled_miner_reward, txs_receipts) = {
             let (parent_burn_header_hash, parent_block_hash) = 
-                if block.header.is_genesis() {
+                if block.is_first_mined() {
                     // has to be the sentinal hashes if this block has no parent
                     (FIRST_BURNCHAIN_BLOCK_HASH.clone(), FIRST_STACKS_BLOCK_HASH.clone())
                 }
@@ -2891,6 +2905,23 @@ impl StacksChainState {
         Ok((new_tip, txs_receipts))
     }
 
+    /// Verify that a Stacks anchored block attaches to its parent anchored block.
+    /// * checks .header.total_work.work
+    /// * checks .header.parent_block
+    fn check_block_attachment(parent_block_header: &StacksBlockHeader, block_header: &StacksBlockHeader) -> bool {
+        // must have the right height
+        if parent_block_header.total_work.work.checked_add(1).expect("Blockchain height overflow") != block_header.total_work.work {
+            return false;
+        }
+
+        // must have right hash linkage
+        if parent_block_header.block_hash() != block_header.parent_block {
+            return false;
+        }
+        
+        return true;
+    }
+
     /// Find and process the next staging block.
     /// Return the next chain tip if we processed this block, or None if we couldn't.
     /// Return a poison microblock transaction payload if the microblock stream contains a
@@ -2922,10 +2953,10 @@ impl StacksChainState {
                     parent_info
                 },
                 None => {
-                    if next_staging_block.is_genesis() {
-                        // this is the first-ever block
+                    if next_staging_block.is_first_mined() {
+                        // this is the first-ever mined block
                         debug!("This is the first-ever block in this fork.  Parent is 00000000..00000000/00000000..00000000");
-                        StacksHeaderInfo::genesis()
+                        StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]))        // NOTE: we don't use or care about the index_root_hash field here
                     }
                     else {
                         // no parent stored
@@ -2946,7 +2977,7 @@ impl StacksChainState {
         let block_hash = block.block_hash();
         if block_hash != next_staging_block.anchored_block_hash {
             // database corruption
-            error!("Staging DB corruption: expected block {}, got {}", block_hash, next_staging_block.anchored_block_hash);
+            error!("Staging DB corruption: expected block {}, got {} from disk", next_staging_block.anchored_block_hash, block_hash);
             return Err(Error::DBError(db_error::Corruption));
         }
 
@@ -2965,8 +2996,27 @@ impl StacksChainState {
         // validation check -- we can't have seen this block's microblock public key hash before in
         // this fork
         if StacksChainState::has_microblock_pubkey_hash(&mut chainstate_tx.headers_tx, &parent_block_header_info.burn_header_hash, &parent_block_header_info.anchored_header, &block.header.microblock_pubkey_hash)? {
-            let msg = format!("Invalid stacks block -- already used microblock pubkey hash {}", &block.header.microblock_pubkey_hash);
+            let msg = format!("Invalid stacks block {}/{} -- already used microblock pubkey hash {}", &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, &block.header.microblock_pubkey_hash);
             warn!("{}", &msg);
+
+            // clear out
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, false)?; 
+            chainstate_tx.commit()
+                .map_err(Error::DBError)?;
+
+            return Err(Error::InvalidStacksBlock(msg));
+        }
+
+        // validation check -- the block must attach to its accepted parent
+        if !StacksChainState::check_block_attachment(&parent_block_header_info.anchored_header, &block.header) {
+            let msg = format!("Invalid stacks block {}/{} -- does not attach to parent {}/{}", &next_staging_block.burn_header_hash, block.block_hash(), parent_block_header_info.anchored_header.block_hash(), &parent_block_header_info.burn_header_hash);
+            warn!("{}", &msg);
+            
+            // clear out
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, false)?; 
+            chainstate_tx.commit()
+                .map_err(Error::DBError)?;
+
             return Err(Error::InvalidStacksBlock(msg));
         }
 
@@ -3019,24 +3069,22 @@ impl StacksChainState {
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
         let (next_chain_tip, receipts) = match StacksChainState::append_block(&mut chainstate_tx, 
-                                                                  clarity_instance, 
-                                                                  &parent_block_header_info, 
-                                                                  &next_staging_block.burn_header_hash, 
-                                                                  next_staging_block.burn_header_timestamp,
-                                                                  &block,
-                                                                  &next_microblocks,
-                                                                  next_staging_block.commit_burn,
-                                                                  next_staging_block.sortition_burn,
-                                                                  &user_supports) {
+                                                                              clarity_instance, 
+                                                                              &parent_block_header_info, 
+                                                                              &next_staging_block.burn_header_hash, 
+                                                                              next_staging_block.burn_header_timestamp,
+                                                                              &block,
+                                                                              &next_microblocks,
+                                                                              next_staging_block.commit_burn,
+                                                                              next_staging_block.sortition_burn,
+                                                                              &user_supports) {
             Ok(next_chain_tip) => next_chain_tip,
             Err(e) => {
                 // something's wrong with this epoch -- either a microblock was invalid, or the
                 // anchored block was invalid.  Either way, the anchored block will _never be_
                 // valid, so we can drop it from the chunk store and orphan all of its descendents.
                 test_debug!("Failed to append {}/{}", &next_staging_block.burn_header_hash, &block.block_hash());
-                StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &block.header.block_hash(), false)
-                    .expect(&format!("FATAL: failed to clear invalid block {}/{}", next_staging_block.burn_header_hash, &block.header.block_hash()));
-                
+                StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &block.header.block_hash(), false)?;
                 StacksChainState::free_block_state(&blocks_path, &next_staging_block.burn_header_hash, &block.header);
 
                 match e {
@@ -3084,6 +3132,8 @@ impl StacksChainState {
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.
     pub fn process_blocks(&mut self, burndb: &mut BurnDB, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
+        debug!("Process up to {} blocks", max_blocks);
+
         let mut ret = vec![];
 
         if max_blocks == 0 {
@@ -4062,8 +4112,8 @@ pub mod test {
     }
 
     #[test]
-    fn stacks_db_staging_block_load_store_accept_attacheable() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_block_load_store_accept_attacheable");
+    fn stacks_db_staging_block_load_store_accept_attachable() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_block_load_store_accept_attachable");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
 
         let block_1 = make_empty_coinbase_block(&privk);
@@ -4098,20 +4148,20 @@ pub mod test {
             assert_block_staging_not_processed(&mut chainstate, burn_header, block);
         }
 
-        // first block is attacheable, but all the rest are not
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attacheable, true);
+        // first block is attachable, but all the rest are not
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
 
         for (block, burn_header) in blocks[1..].iter().zip(&burn_headers[1..]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attacheable, false);
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, false);
         }
 
-        // process all blocks, and check that processing a parent makes the child attacheable
+        // process all blocks, and check that processing a parent makes the child attachable
         for (i, (block, burn_header)) in blocks.iter().zip(&burn_headers).enumerate() {
-            // child block is not attacheable
+            // child block is not attachable
             if i + 1 < burn_headers.len() {
                 let child_burn_header = &burn_headers[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attacheable, false);
+                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attachable, false);
             }
 
             // block not stored yet
@@ -4122,18 +4172,18 @@ pub mod test {
             // block is now stored
             assert_block_stored_not_staging(&mut chainstate, burn_header, block);
 
-            // child block is attacheable
+            // child block is attachable
             if i + 1 < burn_headers.len() {
                 let child_burn_header = &burn_headers[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attacheable, true);
+                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attachable, true);
             }
         }
     }
 
     #[test]
-    fn stacks_db_staging_block_load_store_accept_attacheable_reversed() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stx_db_staging_block_load_store_accept_attacheable_r");
+    fn stacks_db_staging_block_load_store_accept_attachable_reversed() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stx_db_staging_block_load_store_accept_attachable_r");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
       
         let block_1 = make_empty_coinbase_block(&privk);
@@ -4169,19 +4219,19 @@ pub mod test {
         }
 
         // first block is accepted, but all the rest are not
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attacheable, true);
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
 
         for (block, burn_header) in blocks[1..].iter().zip(&burn_headers[1..]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attacheable, false);
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, false);
         }
 
-        // process all blocks, and check that processing a parent makes the child attacheable
+        // process all blocks, and check that processing a parent makes the child attachable
         for (i, (block, burn_header)) in blocks.iter().zip(&burn_headers).enumerate() {
-            // child block is not attacheable
+            // child block is not attachable
             if i + 1 < burn_headers.len() {
                 let child_burn_header = &burn_headers[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attacheable, false);
+                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attachable, false);
             }
 
             // block not stored yet
@@ -4192,18 +4242,18 @@ pub mod test {
             // block is now stored
             assert_block_stored_not_staging(&mut chainstate, burn_header, block);
 
-            // child block is attacheable
+            // child block is attachable
             if i + 1 < burn_headers.len() {
                 let child_burn_header = &burn_headers[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attacheable, true);
+                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attachable, true);
             }
         }
     }
     
     #[test]
-    fn stacks_db_staging_block_load_store_accept_attacheable_fork() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stx_db_staging_block_load_store_accept_attacheable_f");
+    fn stacks_db_staging_block_load_store_accept_attachable_fork() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stx_db_staging_block_load_store_accept_attachable_f");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
       
         let block_1 = make_empty_coinbase_block(&privk);
@@ -4216,8 +4266,8 @@ pub mod test {
         //           \
         //            block_2
         //
-        // storing block_1 to staging renders block_2 and block_3 unattacheable
-        // processing and accepting block_1 renders both block_2 and block_3 attacheable again
+        // storing block_1 to staging renders block_2 and block_3 unattachable
+        // processing and accepting block_1 renders both block_2 and block_3 attachable again
 
         block_2.header.parent_block = block_1.block_hash();
         block_3.header.parent_block = block_1.block_hash();
@@ -4246,12 +4296,12 @@ pub mod test {
             assert_block_staging_not_processed(&mut chainstate, burn_header, block);
         }
 
-        // block 4 is not attacheable
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[3], &block_4.block_hash()).unwrap().unwrap().attacheable, false);
+        // block 4 is not attachable
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[3], &block_4.block_hash()).unwrap().unwrap().attachable, false);
 
-        // blocks 2 and 3 are attacheable
+        // blocks 2 and 3 are attachable
         for (block, burn_header) in [&block_2, &block_3].iter().zip(&[&burn_headers[1], &burn_headers[2]]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attacheable, true);
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, true);
         }
 
         // store block 1
@@ -4259,26 +4309,26 @@ pub mod test {
         store_staging_block(&mut chainstate, &burn_headers[0], get_epoch_time_secs(), &block_1, &parent_burn_headers[0], 1, 2);
         assert_block_staging_not_processed(&mut chainstate, &burn_headers[0], &block_1);
         
-        // first block is attacheable
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attacheable, true);
+        // first block is attachable
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
 
-        // blocks 2 and 3 are no longer attacheable
+        // blocks 2 and 3 are no longer attachable
         for (block, burn_header) in [&block_2, &block_3].iter().zip(&[&burn_headers[1], &burn_headers[2]]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attacheable, false);
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, false);
         }
 
-        // process block 1, and confirm that it makes block 2 and 3 attacheable
+        // process block 1, and confirm that it makes block 2 and 3 attachable
         assert_block_not_stored(&mut chainstate, &burn_headers[0], &block_1);
         set_block_processed(&mut chainstate, &burn_headers[0], &block_1.block_hash(), true);
         assert_block_stored_not_staging(&mut chainstate, &burn_headers[0], &block_1);
         
-        // now block 2 and 3 are attacheable
+        // now block 2 and 3 are attachable
         for (block, burn_header) in blocks[1..3].iter().zip(&burn_headers[1..3]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attacheable, true);
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, true);
         }
 
         // and block 4 is still not
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[3], &block_4.block_hash()).unwrap().unwrap().attacheable, false);
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[3], &block_4.block_hash()).unwrap().unwrap().attachable, false);
     }
 
     #[test]

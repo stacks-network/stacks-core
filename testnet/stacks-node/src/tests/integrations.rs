@@ -713,6 +713,53 @@ fn contract_stx_transfer() {
     run_loop.start(num_rounds);
 }
 
+/// Test mining a smart contract twice (in non-sequential blocks)
+///   this can happen in the testnet leader if they get "behind"
+///   the burnchain and a previously mined block doesn't get included
+///   in the block it was processed for. Tests issue #1540
+#[test]
+fn mine_contract_twice() {
+    let mut conf = super::new_test_conf();
+
+    conf.burnchain.commit_anchor_block_within = 1000;
+
+    let num_rounds = 3;
+
+    let mut run_loop = RunLoop::new(conf);
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+        if round == 1 { // block-height = 2
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.metadata.burn_header_hash, &tenure.parent_block.metadata.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+
+            // throw an extra "run" in.
+            tenure.run().unwrap();
+        }
+    });
+
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state| {
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(&format!("{}.{}",
+                                                        to_addr(
+                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                                                        "faucet")).unwrap();
+
+        if round == 2 {
+            let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
+            // check that the contract published!
+            assert_eq!(
+                &chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    conn.with_clarity_db_readonly(|db| {
+                        db.get_contract_src(&contract_identifier).unwrap()
+                    })
+                }), FAUCET_CONTRACT);
+        }
+    });
+
+    run_loop.start(num_rounds);
+}
+
 #[test]
 fn bad_contract_tx_rollback() {
     let mut conf = super::new_test_conf();

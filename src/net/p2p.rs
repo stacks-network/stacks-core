@@ -1642,7 +1642,8 @@ impl PeerNetwork {
     fn do_network_work(&mut self, 
                        burndb: &BurnDB, 
                        chainstate: &mut StacksChainState, 
-                       mut dns_client_opt: Option<&mut DNSClient>, 
+                       mut dns_client_opt: Option<&mut DNSClient>,
+                       download_backpressure: bool,
                        network_result: &mut NetworkResult) -> Result<bool, net_error> {
 
         // do some Actual Work(tm)
@@ -1656,8 +1657,14 @@ impl PeerNetwork {
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories 
                     if self.do_network_inv_sync(burndb)? {
-                        // proceed to get blocks
-                        self.work_state = PeerNetworkWorkState::BlockDownload;
+                        if !download_backpressure {
+                            // proceed to get blocks, if we're not backpressured
+                            self.work_state = PeerNetworkWorkState::BlockDownload;
+                        }
+                        else {
+                            // skip downloads for now
+                            self.work_state = PeerNetworkWorkState::Prune;
+                        }
 
                         // pass along hints
                         if let Some(ref inv_sync) = self.inv_state {
@@ -2066,6 +2073,16 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Are we in the process of downloading blocks?
+    pub fn has_more_downloads(&self) -> bool {
+        if let Some(ref dl) = self.block_downloader {
+            !dl.is_download_idle() || dl.is_initial_download()
+        }
+        else {
+            false
+        }
+    }
+    
     /// Update p2p networking state.
     /// -- accept new connections
     /// -- send data on ready sockets
@@ -2075,7 +2092,8 @@ impl PeerNetwork {
                         network_result: &mut NetworkResult,
                         burndb: &BurnDB, 
                         chainstate: &mut StacksChainState, 
-                        dns_client_opt: Option<&mut DNSClient>, 
+                        dns_client_opt: Option<&mut DNSClient>,
+                        download_backpressure: bool,
                         mut poll_state: NetworkPollState) -> Result<(), net_error> {
 
         if self.network.is_none() {
@@ -2086,6 +2104,7 @@ impl PeerNetwork {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn())?;
         if sn.block_height > self.chain_view.burn_block_height {
+            debug!("{:?}: load chain view for burn block {}", &self.local_peer, sn.block_height);
             let new_chain_view = {
                 let ic = burndb.index_conn();
                 BurnDB::get_burnchain_view(&ic, &self.burnchain).map_err(net_error::DBError)?
@@ -2125,7 +2144,7 @@ impl PeerNetwork {
         // do some Actual Work(tm)
         // do this _after_ processing new sockets, so the act of opening a socket doesn't trample
         // an already-used network ID.
-        let do_prune = self.do_network_work(burndb, chainstate, dns_client_opt, network_result)?;
+        let do_prune = self.do_network_work(burndb, chainstate, dns_client_opt, download_backpressure, network_result)?;
         if do_prune {
             // prune back our connections if it's been a while
             // (only do this if we're done with all other tasks).
@@ -2187,16 +2206,16 @@ impl PeerNetwork {
     /// -- runs the p2p and http peer main loop
     /// Returns the table of unhandled network messages to be acted upon, keyed by the neighbors
     /// that sent them (i.e. keyed by their event IDs)
-    pub fn run(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, dns_client_opt: Option<&mut DNSClient>, poll_timeout: u64) -> Result<NetworkResult, net_error> {
+    pub fn run(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, dns_client_opt: Option<&mut DNSClient>, download_backpressure: bool, poll_timeout: u64) -> Result<NetworkResult, net_error> {
         let mut poll_states = match self.network {
             None => {
                 test_debug!("{:?}: network not connected", &self.local_peer);
                 Err(net_error::NotConnected)
             },
             Some(ref mut network) => {
-                debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Poll >>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+                debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Poll {}ms >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
                 let poll_result = network.poll(poll_timeout);
-                debug!("<<<<<<<<<<<<<<<<<<<<<<<< End Poll <<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+                debug!("<<<<<<<<<<<<<<<<<<<<<<<<<< End Poll <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
                 poll_result
             }
         }?;
@@ -2212,7 +2231,7 @@ impl PeerNetwork {
             Ok(())
         })?;
         
-        self.dispatch_network(&mut result, burndb, chainstate, dns_client_opt, p2p_poll_state)?;
+        self.dispatch_network(&mut result, burndb, chainstate, dns_client_opt, download_backpressure, p2p_poll_state)?;
 
         Ok(result)
     }

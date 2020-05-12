@@ -18,6 +18,8 @@ use stacks::vm::costs::ExecutionCost;
 use super::node::TESTNET_CHAIN_ID;
 use super::neon_node::TESTNET_PEER_VERSION;
 
+const MINIMUM_DUST_FEE: u64 = 5500;
+
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
@@ -47,7 +49,6 @@ impl ConfigFile {
             rpc_port: Some(18443),
             peer_port: Some(18444),
             peer_host: Some("neon.blockstack.org".to_string()),
-            burnchain_op_tx_fee: Some(1000),
             ..BurnchainConfigFile::default()
         };
 
@@ -103,7 +104,6 @@ impl ConfigFile {
             peer_host: Some("0.0.0.0".to_string()),
             username: Some("helium".to_string()),
             password: Some("helium".to_string()),
-            burnchain_op_tx_fee: Some(1000),
             local_mining_public_key: Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string()),
             ..BurnchainConfigFile::default()
         };
@@ -454,12 +454,12 @@ impl BurnchainConfig {
             rpc_ssl: false,
             username: None,
             password: None,
-            timeout: 30,
+            timeout: 300,
             spv_headers_path: "./spv-headers.dat".to_string(),
             first_block: FIRST_BLOCK_MAINNET,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
-            burnchain_op_tx_fee: 1000,
+            burnchain_op_tx_fee: MINIMUM_DUST_FEE,
         }
     }
 

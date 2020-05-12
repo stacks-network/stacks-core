@@ -43,6 +43,7 @@ use burnchains::Address;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use chainstate::stacks::events::*;
+use chainstate::stacks::db::accounts::*;
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::index::{
     TrieHash,
@@ -73,7 +74,8 @@ use util::db::{
     FromRow,
     FromColumn,
     db_mkdirs,
-    tx_begin_immediate
+    tx_begin_immediate,
+    tx_busy_handler,
 };
 
 use util::hash::to_hex;
@@ -115,6 +117,7 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String,
     pub root_path: String,
     cached_header_hashes: BlockHeaderCache,
+    cached_miner_payments: MinerPaymentCache,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -164,18 +167,18 @@ impl StacksHeaderInfo {
     pub fn index_block_hash(&self) -> BlockHeaderHash {
         self.anchored_header.index_block_hash(&self.burn_header_hash)
     }
-    pub fn genesis() -> StacksHeaderInfo {
+    pub fn genesis_block_header_info(root_hash: TrieHash) -> StacksHeaderInfo {
         StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis(),
+            anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
-            block_height: StacksBlockHeader::genesis().total_work.work,
-            index_root: TrieHash([0u8; 32]),
+            block_height: 0,
+            index_root: root_hash,
             burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP
         }
     }
-    pub fn is_genesis(&self) -> bool {
-        self.anchored_header.is_genesis()
+    pub fn is_first_mined(&self) -> bool {
+        self.anchored_header.is_first_mined()
     }
 }
 
@@ -309,6 +312,7 @@ pub struct ChainstateTx<'a> {
     pub config: DBConfig,
     pub headers_tx: StacksDBTx<'a>,
     pub blocks_tx: BlocksDBTx<'a>,
+    pub miner_payment_cache: &'a mut MinerPaymentCache,
 }
 
 impl<'a> ChainstateTx<'a> {
@@ -491,7 +495,7 @@ pub const MINER_REWARD_MATURITY : u64 = 100;
 pub const MINER_REWARD_WINDOW : u64 = 5;       // small for testing purposes
 
 #[cfg(not(test))]
-pub const MINER_REWARD_WINDOW : u64 = 1008;
+pub const MINER_REWARD_WINDOW : u64 = 16;
 
 pub const MINER_FEE_MINIMUM_BLOCK_USAGE : u64 = 80;         // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
 
@@ -530,6 +534,7 @@ impl StacksChainState {
             };
 
         let mut conn = DBConn::open_with_flags(headers_path, open_flags).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        conn.busy_handler(Some(tx_busy_handler)).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         if create_flag {
             // instantiate!
@@ -596,6 +601,7 @@ impl StacksChainState {
                          additional_boot_code: &Vec<String>, 
                          initial_balances: Option<Vec<(PrincipalData, u64)>>, f: F) -> Result<(), Error> where F: FnOnce(&mut ClarityTx) -> () {
 
+        debug!("Begin install boot code");
         assert_eq!(STACKS_BOOT_CODE.len(), STACKS_BOOT_CODE_CONTRACT_NAMES.len());
         assert_eq!(additional_boot_code_contract_names.len(), additional_boot_code.len());
         
@@ -673,45 +679,28 @@ impl StacksChainState {
         }
         
         {
-            // add a block header entry for the boot code (TODO)
+            // add a block header entry for the boot code
             let mut headers_tx = chainstate.headers_tx_begin()?;
             let parent_hash = TrieFileStorage::block_sentinel();
             let first_index_hash = StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
             
+            test_debug!("Boot code headers index_put_begin {}-{}", &parent_hash, &first_index_hash);
             headers_tx.put_indexed_begin(&parent_hash, &first_index_hash)
                 .map_err(Error::DBError)?;
             let first_root_hash = headers_tx.put_indexed_all(&vec![], &vec![])
                 .map_err(Error::DBError)?;
             headers_tx.indexed_commit()
                 .map_err(Error::DBError)?;
+            test_debug!("Boot code headers index_commit {}-{}", &parent_hash, &first_index_hash);
 
-            let first_tip_info = StacksHeaderInfo {
-                anchored_header: StacksBlockHeader {
-                    version: STACKS_BLOCK_VERSION,
-                    total_work: StacksWorkScore {
-                        burn: 0,
-                        work: 0
-                    },
-                    proof: VRFProof::empty(),
-                    parent_block: BOOT_BLOCK_HASH.clone(),
-                    parent_microblock: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
-                    parent_microblock_sequence: 0,
-                    tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
-                    state_index_root: TrieHash([0u8; 32]),
-                    microblock_pubkey_hash: Hash160([0u8; 20]),
-                },
-                microblock_tail: None,
-                index_root: first_root_hash,
-                block_height: 0,
-                burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
-                burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP
-            };
+            let first_tip_info = StacksHeaderInfo::genesis_block_header_info(first_root_hash);
 
             StacksChainState::insert_stacks_block_header(&mut headers_tx, &first_tip_info)?;
             headers_tx.commit()
                 .map_err(Error::DBError)?;
         }
 
+        debug!("Finish install boot code");
         Ok(())
     }
 
@@ -815,6 +804,7 @@ impl StacksChainState {
             clarity_state_index_path: clarity_state_index_marf,
             root_path: path_str.to_string(),
             cached_header_hashes: BlockHeaderCache::new(),
+            cached_miner_payments: MinerPaymentCache::new(),
         };
 
         if !index_exists {
@@ -869,7 +859,8 @@ impl StacksChainState {
         let chainstate_tx = ChainstateTx {
             config: config,
             headers_tx: headers_tx,
-            blocks_tx,
+            blocks_tx: blocks_tx,
+            miner_payment_cache: &mut self.cached_miner_payments
         };
 
         Ok((chainstate_tx, clarity_instance))
@@ -923,7 +914,6 @@ impl StacksChainState {
         }
         else if *parent_block == FIRST_STACKS_BLOCK_HASH {
             // begin first-ever block
-            test_debug!("Begin processing first-ever block");
             StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)
         }
         else {
@@ -960,11 +950,11 @@ impl StacksChainState {
         }
     }
 
-    /// Get the appropriate MARF index hash to use to identify a chain tip, given a parent block
-    /// header
+    /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(burn_hash: &BurnchainHeaderHash, header: &StacksBlockHeader) -> BlockHeaderHash {
         if burn_hash == &FIRST_BURNCHAIN_BLOCK_HASH {
-            TrieFileStorage::block_sentinel()
+            // TrieFileStorage::block_sentinel()
+            StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)
         } else {
             header.index_block_hash(burn_hash)
         }
@@ -979,7 +969,7 @@ impl StacksChainState {
         match headers_tx.get_indexed(&parent_hash, &format!("chainstate::pubkey_hash::{}", pubkey_hash)).map_err(Error::DBError)? {
             Some(_) => {
                 // pubkey hash was seen before
-                debug!("Public key hash {} already used", pubkey_hash);
+                debug!("Public key hash {} already used (index hash {})", pubkey_hash, &parent_hash);
                 return Ok(true);
             },
             None => {
@@ -1004,9 +994,10 @@ impl StacksChainState {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
             assert_eq!(new_tip.parent_block, parent_tip.block_hash());
-            assert_eq!(parent_tip.total_work.work.checked_add(1).expect("Block height overflow"),
-                       new_tip.total_work.work);
         }
+
+        assert_eq!(parent_tip.total_work.work.checked_add(1).expect("Block height overflow"),
+                   new_tip.total_work.work);
         
         let parent_hash = StacksChainState::get_index_hash(parent_burn_block, parent_tip); 
         let indexed_keys = vec![
@@ -1018,12 +1009,14 @@ impl StacksChainState {
         ];
 
         // store each indexed field
+        test_debug!("Headers index_put_begin {}-{}", &parent_hash, &new_tip.index_block_hash(new_burn_block));
         headers_tx.put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_burn_block))
             .map_err(Error::DBError)?;
         let root_hash = headers_tx.put_indexed_all(&indexed_keys, &indexed_values)
             .map_err(Error::DBError)?;
         headers_tx.indexed_commit()
             .map_err(Error::DBError)?;
+        test_debug!("Headers index_commit {}-{}", &parent_hash, &new_tip.index_block_hash(new_burn_block));
         
         let new_tip_info = StacksHeaderInfo {
             anchored_header: new_tip.clone(),

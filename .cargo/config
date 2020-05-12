@@ -1,2 +1,3 @@
 [alias]
-testnet = "run --package stacks-testnet --"
+testnet = "run --package stacks-node --"
+bitcoin-neon-controller = "run --package bitcoin-neon-controller --"

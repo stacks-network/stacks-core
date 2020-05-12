@@ -227,6 +227,28 @@ impl PeerBlocksInv {
         let (_, new_mblocks) = self.merge_blocks_inv(block_height, 1, vec![0x00], vec![0x01]);
         new_mblocks != 0
     }
+
+    /// Count up the number of blocks represented
+    pub fn num_blocks(&self) -> u64 {
+        let mut total = 0;
+        for i in self.first_block_height..self.num_sortitions {
+            if self.has_ith_block(i) {
+                total += 1;
+            }
+        }
+        total
+    }
+    
+    /// Count up the number of microblock streams represented
+    pub fn num_microblock_streams(&self) -> u64 {
+        let mut total = 0;
+        for i in self.first_block_height..self.num_sortitions {
+            if self.has_ith_microblock_stream(i) {
+                total += 1;
+            }
+        }
+        total
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -395,11 +417,9 @@ impl InvState {
         // preserve rescan_height
     }
 
-    pub fn set_sync_peers(&mut self, mut peers: HashSet<NeighborKey>) -> () {
+    pub fn set_sync_peers(&mut self, peers: HashSet<NeighborKey>) -> () {
         self.sync_peers.clear();
-        for nk in peers.drain() {
-            self.sync_peers.insert(nk);
-        }
+        self.sync_peers = peers;
     }
 
     /// Can we rely on the inventory from this peer? i.e. is the peer in sync with our view of the
@@ -780,11 +800,11 @@ impl PeerNetwork {
                 match BurnDB::get_block_snapshot_consensus(burndb.conn(), &tip_consensus_hash).map_err(net_error::DBError)? {
                     // we know about this peer's latest consensus hash's snapshot.  Ask for blocks
                     // no higher than its highest known block.
-                    Some(sn) => {
-                        if sn.block_height < highest_block_height {
-                            debug!("{:?}: neighbor {:?} has processed only up to burn block {} (we are targeting {} and higher)", &self.local_peer, nk, sn.block_height, target_block_height);
+                    Some(_sn) => {
+                        if tip_height < highest_block_height {
+                            debug!("{:?}: neighbor {:?} has processed only up to burn block {} (we are targeting {} and higher)", &self.local_peer, nk, tip_height, target_block_height);
 
-                            highest_block_height = sn.block_height;
+                            highest_block_height = tip_height;
                             num_blocks = if highest_block_height >= target_block_height { highest_block_height - target_block_height } else { 0 };
                         }
                     },
@@ -793,11 +813,11 @@ impl PeerNetwork {
                     // agree with its stable consensus hash.  Ask only for blocks no higher than
                     // its stable consensus hash.
                     None => match BurnDB::get_block_snapshot_consensus(burndb.conn(), &stable_tip_consensus_hash).map_err(net_error::DBError)? {
-                        Some(sn) => {
-                            if sn.block_height < highest_block_height {
-                                test_debug!("{:?}: neighbor {:?} is unstable, and has processed only up to stable burn block {} (we are targeting {})", &self.local_peer, nk, sn.block_height, target_block_height);
+                        Some(_sn) => {
+                            if stable_tip_height < highest_block_height {
+                                test_debug!("{:?}: neighbor {:?} is unstable, and has processed only up to stable burn block {} (we are targeting {})", &self.local_peer, nk, tip_height, target_block_height);
 
-                                highest_block_height = sn.block_height;
+                                highest_block_height = stable_tip_height;
                                 num_blocks = if highest_block_height >= target_block_height { highest_block_height - target_block_height } else { 0 };
                             }
                         },
@@ -1029,10 +1049,10 @@ impl PeerNetwork {
         match self.inv_state {
             Some(ref inv_state) => {
                 // NOTE: inv_state.learned_data will be true if we called init_inv_sync()
-                if !inv_state.hint_do_full_rescan && !inv_state.learned_data && inv_state.last_change_at + inv_state.sync_interval >= get_epoch_time_secs() {
+                if !inv_state.hint_do_full_rescan && !inv_state.learned_data && inv_state.last_rescanned_at + inv_state.sync_interval >= get_epoch_time_secs() {
                     // we didn't learn anything on the last sync, and it hasn't been enough time
                     // since the last sync for us to do it again
-                    debug!("{:?}: Throttle inv sync until {}s", &self.local_peer, inv_state.last_change_at + inv_state.sync_interval);
+                    debug!("{:?}: Throttle inv sync until {}s", &self.local_peer, inv_state.last_rescanned_at + inv_state.sync_interval);
                     return Ok((true, vec![], vec![]));
                 }
             }
@@ -1098,7 +1118,8 @@ impl PeerNetwork {
 
                                 debug!("{:?}: got blocksinv at block height {} from {:?}: {:?}", &self.local_peer, target_height, &nk, &blocks_inv);
                                 let (new_blocks, new_microblocks) = nk_stats.inv.merge_blocks_inv(target_height, blocks_inv.bitlen, blocks_inv.block_bitvec, blocks_inv.microblocks_bitvec);
-                                test_debug!("{:?}: {:?} has {} new blocks and {} new microblocks: {},{:?}", &self.local_peer, &nk, new_blocks, new_microblocks, nk_stats.inv.num_sortitions, &nk_stats.inv);
+                                debug!("{:?}: {:?} has {} new blocks and {} new microblocks (total {} blocks, {} microblocks): {:?}", 
+                                       &self.local_peer, &nk, new_blocks, new_microblocks, nk_stats.inv.num_blocks(), nk_stats.inv.num_microblock_streams(), &nk_stats.inv);
 
                                 if new_blocks > 0 || new_microblocks > 0 {
                                     // learned something new
@@ -1551,24 +1572,30 @@ mod test {
 
         let num_burn_blocks = {
             let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
-            sn.block_height - peer_1.config.burnchain.first_block_height
+            sn.block_height - 1
         };
         
         let mut round = 0;
         let mut inv_1_count = 0;
         let mut inv_2_count = 0;
 
-        while inv_1_count < num_burn_blocks && inv_2_count < num_burn_blocks {
+        while inv_1_count < num_burn_blocks || inv_2_count < num_burn_blocks {
             let _ = peer_1.step();
             let _ = peer_2.step();
 
             inv_1_count = match peer_1.network.inv_state {
-                Some(ref inv) => inv.get_inv_sortitions(&peer_2.to_neighbor().addr),
+                Some(ref inv) => {
+                    info!("Peer 1 stats: {:?}", &inv.block_stats);
+                    inv.get_inv_sortitions(&peer_2.to_neighbor().addr)
+                },
                 None => 0
             };
 
             inv_2_count = match peer_2.network.inv_state {
-                Some(ref inv) => inv.get_inv_sortitions(&peer_1.to_neighbor().addr),
+                Some(ref inv) => {
+                    info!("Peer 2 stats: {:?}", &inv.block_stats);
+                    inv.get_inv_sortitions(&peer_1.to_neighbor().addr)
+                },
                 None => 0
             };
 
@@ -1591,6 +1618,9 @@ mod test {
                 None => {}
             }
 
+            info!("Peer 1 stats: {:?}", &peer_1.network.inv_state.as_ref().unwrap().block_stats);
+            info!("Peer 2 stats: {:?}", &peer_2.network.inv_state.as_ref().unwrap().block_stats);
+
             round += 1;
         }
 
@@ -1598,9 +1628,17 @@ mod test {
 
         peer_1.dump_frontier();
         peer_2.dump_frontier();
+        
+        info!("Peer 1 stats: {:?}", &peer_1.network.inv_state.as_ref().unwrap().block_stats);
+        info!("Peer 2 stats: {:?}", &peer_2.network.inv_state.as_ref().unwrap().block_stats);
 
+        let peer_1_inv = peer_2.network.inv_state.as_ref().unwrap().block_stats.get(&peer_1.to_neighbor().addr).unwrap().inv.clone();
         let peer_2_inv = peer_1.network.inv_state.as_ref().unwrap().block_stats.get(&peer_2.to_neighbor().addr).unwrap().inv.clone();
-        test_debug!("peer 1's view of peer 2: {:?}", &peer_2_inv);
+
+        info!("Peer 1 inv: {:?}", &peer_1_inv);
+        info!("Peer 2 inv: {:?}", &peer_2_inv);
+
+        info!("peer 1's view of peer 2: {:?}", &peer_2_inv);
 
         assert_eq!(peer_2_inv.num_sortitions, num_burn_blocks);
         
@@ -1655,7 +1693,7 @@ mod test {
 
         let num_burn_blocks = {
             let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
-            sn.block_height - peer_1.config.burnchain.first_block_height
+            sn.block_height - 1
         };
         
         let mut round = 0;
@@ -1768,7 +1806,7 @@ mod test {
 
         let num_burn_blocks = {
             let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
-            sn.block_height - peer_1.config.burnchain.first_block_height
+            sn.block_height - 1
         };
         
         let mut round = 0;

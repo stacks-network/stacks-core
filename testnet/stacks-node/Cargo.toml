@@ -1,20 +1,19 @@
 [package]
-name = "stacks-testnet"
+name = "stacks-node"
 version = "0.1.0"
 authors = ["Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2018"
 
 [dependencies]
 lazy_static = "1.4.0"
-mio = "0.6"
 pico-args = "0.3.1"
 rand = "=0.7.2"
 reqwest = { version = "0.10", features = ["blocking", "json", "native-tls-vendored"] }
 secp256k1 = { version = "0.11.5" }
 serde = "1"
 serde_derive = "1"
-serde_json = { version = "1.0", features = ["arbitrary_precision"] }
-stacks = { package = "blockstack-core", path = "../." }
+serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
+stacks = { package = "blockstack-core", path = "../../." }
 toml = "0.5.6"
 
 [[bin]]

@@ -18,7 +18,7 @@ use rand::RngCore;
 use super::{Config};
 use crate::helium::RunLoop;
 use super::node::{TESTNET_CHAIN_ID};
-use super::burnchains::bitcoin_regtest_controller::UTXO;
+use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 
 // $ cat /tmp/out.clar 
 pub const STORE_CONTRACT: &str =  r#"(define-map store ((key (buff 32))) ((value (buff 32))))
@@ -91,9 +91,9 @@ pub fn new_test_conf() -> Config {
     rng.fill_bytes(&mut buf);
 
     let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap())
-        .saturating_add(1024); // use a non-privileged port
+        .saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
-        .saturating_add(1024); // use a non-privileged port 
+        .saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     
     let localhost = "127.0.0.1";
     conf.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
@@ -535,30 +535,30 @@ fn test_btc_to_sat() {
         "0.00000001",
         "1.00000001",
         "0.1",
+        "0.00000000",
+        "0.00001192",
     ];
-    let expected_outputs: [u64; 5] = [
+    let expected_outputs: [u64; 7] = [
         10000000,
         10,
         1,
         100000001,
         10000000,
+        0,
+        1192
     ];
 
     for (input, expected_output) in inputs.iter().zip(expected_outputs.iter()) {
-        let output = UTXO::serialized_btc_to_sat(input); 
+        let output = ParsedUTXO::serialized_btc_to_sat(input).unwrap(); 
         assert_eq!(*expected_output, output);
     }
 }
 
 #[test]
-#[should_panic]
-fn test_btc_to_sat_panic_1() {
-    UTXO::serialized_btc_to_sat("0.000000001");
+fn test_btc_to_sat_errors() {
+    assert!(ParsedUTXO::serialized_btc_to_sat("0.000000001").is_none());
+    assert!(ParsedUTXO::serialized_btc_to_sat("1").is_none());
+    assert!(ParsedUTXO::serialized_btc_to_sat("1e-8").is_none());
+    assert!(ParsedUTXO::serialized_btc_to_sat("7.4e-7").is_none());
+    assert!(ParsedUTXO::serialized_btc_to_sat("5.96e-6").is_none());
 }
-
-#[test]
-#[should_panic]
-fn test_btc_to_sat_panic_2() {
-    UTXO::serialized_btc_to_sat("1");
-}
-

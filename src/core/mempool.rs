@@ -52,6 +52,7 @@ use util::db::query_row;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::db::tx_begin_immediate;
+use util::db::tx_busy_handler;
 
 use core::FIRST_STACKS_BLOCK_HASH;
 use core::FIRST_BURNCHAIN_BLOCK_HASH;
@@ -271,6 +272,7 @@ impl MemPoolDB {
             };
 
         let mut conn = DBConn::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
+        conn.busy_handler(Some(tx_busy_handler)).map_err(db_error::SqliteError)?;
 
         if create_flag {
             // instantiate!
