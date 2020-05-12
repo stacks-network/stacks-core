@@ -196,7 +196,6 @@ impl StacksBlockHeader {
         let mut b = [0u8; 32];
         b.copy_from_slice(h.as_bytes());
 
-        test_debug!("{} = {} + {}", BlockHeaderHash(b), block_hash, burn_block_hash);
         BlockHeaderHash(b)
     }
 
@@ -393,6 +392,13 @@ impl StacksBlock {
         StacksBlock {
             header, 
             txs
+        }
+    }
+
+    pub fn genesis_block() -> StacksBlock {
+        StacksBlock {
+            header: StacksBlockHeader::genesis_block_header(),
+            txs: vec![]
         }
     }
     
