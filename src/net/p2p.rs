@@ -601,11 +601,11 @@ impl PeerNetwork {
             },
             Some(ref mut network) => {
                 let sock = NetworkState::connect(&neighbor.addrbytes.to_socketaddr(neighbor.port))?;
-                let next_event_id = network.next_event_id();
-                network.register(self.p2p_network_handle, next_event_id, &sock)?;
+                let hint_event_id = network.next_event_id();
+                let registered_event_id = network.register(self.p2p_network_handle, hint_event_id, &sock)?;
 
-                self.connecting.insert(next_event_id, (sock, true, get_epoch_time_secs()));
-                next_event_id
+                self.connecting.insert(registered_event_id, (sock, true, get_epoch_time_secs()));
+                registered_event_id
             }
         };
 
@@ -1135,23 +1135,27 @@ impl PeerNetwork {
 
         let mut registered = vec![];
 
-        for (event_id, client_sock) in poll_state.new.drain() {
-            // event ID already used?
-            if self.peers.contains_key(&event_id) {
-                continue;
-            }
-
-            match self.network {
+        for (hint_event_id, client_sock) in poll_state.new.drain() {
+            let event_id = match self.network {
                 Some(ref mut network) => {
                     // add to poller
-                    if let Err(_e) = network.register(self.p2p_network_handle, event_id, &client_sock) {
-                        continue;
+                    match network.register(self.p2p_network_handle, hint_event_id, &client_sock) {
+                        Ok(event_id) => event_id,
+                        Err(e) => {
+                            warn!("Failed to register {:?}: {:?}", &client_sock, &e);
+                            continue;
+                        }
                     }
                 },
                 None => {
                     test_debug!("{:?}: network not connected", &self.local_peer);
                     return Err(net_error::NotConnected);
                 }
+            };
+            
+            // event ID already used?
+            if self.peers.contains_key(&event_id) {
+                continue;
             }
 
             // start tracking it
