@@ -307,12 +307,7 @@ impl MemPoolDB {
         
         let ancestor_tip = {
             let mut headers_tx = chainstate.headers_tx_begin()?;
-            // `next_height` is 1-indexed, since stacks blocks start at height 1.
-            // The headers DB, however, is 0-indexed, since it includes the genesis
-            // block header hash.  Account for this.
-            let next_header_height = next_height.saturating_sub(1);
-            let cur_index_hash = StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash);
-            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &cur_index_hash, next_header_height)? {
+            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash), next_height)? {
                 Some(tip_info) => tip_info,
                 None => {
                     // no such ancestor.  We're done
