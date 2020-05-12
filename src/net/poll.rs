@@ -332,11 +332,11 @@ impl NetworkState {
                         poll_state.ready.push(event_id);
                     }
                     else {
-                        panic!("Unknown server event ID {}", server_event_id);
+                        warn!("Unknown server event ID {}", server_event_id);
                     }
                 },
                 None => {
-                    panic!("Surreptitious readiness event {}", event_id);
+                    warn!("Surreptitious readiness event {}", event_id);
                 }
             }
         }
