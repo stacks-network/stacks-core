@@ -124,8 +124,8 @@ impl HttpPeer {
         }
 
         let sock = NetworkState::connect(&addr)?;
-        let next_event_id = network_state.next_event_id();
-        network_state.register(self.http_server_handle, next_event_id, &sock)?;
+        let hint_event_id = network_state.next_event_id();
+        let next_event_id = network_state.register(self.http_server_handle, hint_event_id, &sock)?;
 
         self.connecting.insert(next_event_id, (sock, Some(data_url), request, get_epoch_time_secs()));
         Ok(next_event_id)
@@ -302,13 +302,17 @@ impl HttpPeer {
     fn process_new_sockets(&mut self, network_state: &mut NetworkState, chainstate: &mut StacksChainState, poll_state: &mut NetworkPollState) -> Result<Vec<usize>, net_error> {
         let mut registered = vec![];
 
-        for (event_id, client_sock) in poll_state.new.drain() {
+        for (hint_event_id, client_sock) in poll_state.new.drain() {
+            let event_id = match network_state.register(self.http_server_handle, hint_event_id, &client_sock) {
+                Ok(event_id) => event_id,
+                Err(e) => {
+                    warn!("Failed to register HTTP connection {:?}: {:?}", &client_sock, &e);
+                    continue;
+                }
+            };
+            
             // event ID already used?
             if self.peers.contains_key(&event_id) {
-                continue;
-            }
-
-            if let Err(_e) = network_state.register(self.http_server_handle, event_id, &client_sock) {
                 continue;
             }
 
