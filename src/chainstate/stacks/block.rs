@@ -90,10 +90,19 @@ impl StacksMessageCodec for StacksWorkScore {
 }
 
 impl StacksWorkScore {
+    /// Stacks work score for the first-mined block
     pub fn initial() -> StacksWorkScore {
         StacksWorkScore {
             burn: 0,
             work: 1     // block 0 is the boot code
+        }
+    }
+    
+    /// Stacks work score for the boot code block
+    pub fn genesis() -> StacksWorkScore {
+        StacksWorkScore {
+            burn: 0,
+            work: 0
         }
     }
 }
@@ -145,14 +154,12 @@ impl StacksBlockHeader {
         Hash160::from_data(&bytes[..])
     }
    
-    // TODO: Rename to "first_block_header" or something -- the genesis block ought to be the boot
-    // block
-    pub fn genesis() -> StacksBlockHeader {
+    pub fn genesis_block_header() -> StacksBlockHeader {
         StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
-            total_work: StacksWorkScore::initial(),
+            total_work: StacksWorkScore::genesis(),
             proof: VRFProof::empty(),
-            parent_block: FIRST_STACKS_BLOCK_HASH.clone(),
+            parent_block: BOOT_BLOCK_HASH.clone(),
             parent_microblock: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             parent_microblock_sequence: 0,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
@@ -161,13 +168,16 @@ impl StacksBlockHeader {
         }
     }
 
-    pub fn is_genesis(&self) -> bool {
-        // Note: this is true if this block is the child of the first stacks block -- which
-        //   means it is the first mined block
+    /// Is this a first-mined block header?  i.e. builds off of the boot code?
+    pub fn is_first_mined(&self) -> bool {
         self.parent_block == FIRST_STACKS_BLOCK_HASH.clone()
     }
 
     pub fn block_hash(&self) -> BlockHeaderHash {
+        if self.total_work.work == 0 {
+            // this is the boot block
+            return FIRST_STACKS_BLOCK_HASH.clone();
+        }
         let mut buf = vec![];
         self.consensus_serialize(&mut buf).expect("BUG: failed to serialize to a vec");
         BlockHeaderHash::from_serialized_header(&buf[..])
@@ -178,12 +188,14 @@ impl StacksBlockHeader {
     /// block header can show up multiple times on different burn chain forks).
     pub fn make_index_block_hash(burn_block_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> BlockHeaderHash {
         let mut hash_bytes = vec![];
+        
         hash_bytes.extend_from_slice(&mut block_hash.as_bytes().clone());
         hash_bytes.extend_from_slice(&mut burn_block_hash.as_bytes().clone());
         
         let h = Sha512Trunc256Sum::from_data(&hash_bytes);
         let mut b = [0u8; 32];
         b.copy_from_slice(h.as_bytes());
+
         BlockHeaderHash(b)
     }
 
@@ -287,7 +299,7 @@ impl StacksBlockHeader {
         }
 
         // not verified by this method:
-        // * parent_microblock and parent_microblock_sequence
+        // * parent_microblock and parent_microblock_sequence (checked in process_block())
         // * total_work.work (need the parent block header for that)
         // * tx_merkle_root     (already verified; validated on deserialization)
         // * state_index_root   (validated on process_block())
@@ -372,15 +384,6 @@ impl StacksMessageCodec for StacksBlock {
 }
 
 impl StacksBlock {
-    // TODO: rename to "first_block" or something, since the genesis block is the boot block
-    pub fn genesis() -> StacksBlock {
-        let header = StacksBlockHeader::genesis();
-        StacksBlock {
-            header,
-            txs: vec![]
-        }
-    }
-
     pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: &StacksMicroblockHeader, txs: Vec<StacksTransaction>, work_delta: &StacksWorkScore, proof: &VRFProof, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlock {
         let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
@@ -390,6 +393,18 @@ impl StacksBlock {
             header, 
             txs
         }
+    }
+
+    pub fn genesis_block() -> StacksBlock {
+        StacksBlock {
+            header: StacksBlockHeader::genesis_block_header(),
+            txs: vec![]
+        }
+    }
+    
+    /// Is this a first-mined block?  i.e. builds off of the boot code?
+    pub fn is_first_mined(&self) -> bool {
+        self.header.is_first_mined()
     }
     
     pub fn block_hash(&self) -> BlockHeaderHash {
@@ -637,17 +652,6 @@ impl StacksMicroblockHeader {
         BlockHeaderHash::from_serialized_header(&bytes[..])
     }
     
-    /// Create the genesis block microblock header
-    pub fn genesis() -> StacksMicroblockHeader {
-        StacksMicroblockHeader {
-            version: 0,
-            sequence: 0,
-            prev_block: FIRST_STACKS_BLOCK_HASH.clone(),
-            tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
-            signature: MessageSignature::empty()
-        }
-    }
-
     /// Create the first microblock header in a microblock stream.
     /// The header will not be signed
     pub fn first_unsigned(parent_block_hash: &BlockHeaderHash, tx_merkle_root: &Sha512Trunc256Sum) -> StacksMicroblockHeader {

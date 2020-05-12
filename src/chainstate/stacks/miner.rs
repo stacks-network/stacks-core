@@ -93,7 +93,7 @@ impl StacksBlockBuilder {
 
     fn first_pubkey_hash(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis(),
+            anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
             block_height: 0,
             index_root: TrieHash([0u8; 32]),
@@ -323,7 +323,7 @@ impl StacksBlockBuilder {
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
             let mut tx = chainstate.headers_tx_begin()?;
-            StacksChainState::find_mature_miner_rewards(&mut tx, &self.chain_tip)?
+            StacksChainState::find_mature_miner_rewards(&mut tx, &self.chain_tip, None)?
         };
 
         self.miner_payouts = matured_miner_rewards_opt;
@@ -451,11 +451,7 @@ impl StacksBlockBuilder {
         
         let ancestor_tip = {
             let mut headers_tx = chainstate.headers_tx_begin()?;
-            // `next_height` is 1-indexed, since stacks blocks start at height 1.
-            // The headers DB, however, is 0-indexed, since it includes the genesis
-            // block header hash.  Account for this.
-            let next_header_height = next_height.saturating_sub(1);
-            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash), next_header_height)? {
+            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash), next_height)? {
                 Some(tip_info) => tip_info,
                 None => {
                     // no such ancestor.  We're done
@@ -471,6 +467,7 @@ impl StacksBlockBuilder {
         let mut next_tip_block_hash = tip_block_hash.clone();
 
         for (burn_bhh, block_bhh) in next_tips.drain(..) {
+            test_debug!("mempool tip: {}/{}", &burn_bhh, &block_bhh);
             if ancestor_tip.burn_header_hash == burn_bhh && ancestor_tip.anchored_header.block_hash() == block_bhh {
                 found = true;
                 next_tip_burn_header_hash = burn_bhh;
@@ -1190,7 +1187,7 @@ pub mod test {
                 // only allowed if this is the first-ever block in the stacks fork
                 assert_eq!(block_commit_op.parent_block_ptr, 0);
                 assert_eq!(block_commit_op.parent_vtxindex, 0);
-                assert!(stacks_block.header.is_genesis());
+                assert!(stacks_block.header.is_first_mined());
 
                 FIRST_BURNCHAIN_BLOCK_HASH.clone()
             }
@@ -3851,6 +3848,8 @@ pub mod test {
 
             peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+           
+            test_debug!("\n\ncheck tenure {}: {} transactions\n", tenure_id, stacks_block.txs.len());
             
             if tenure_id > 1 {
                 // two transactions after the first two tenures

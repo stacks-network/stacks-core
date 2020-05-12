@@ -91,9 +91,9 @@ pub fn new_test_conf() -> Config {
     rng.fill_bytes(&mut buf);
 
     let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap())
-        .saturating_add(1024); // use a non-privileged port
+        .saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
-        .saturating_add(1024); // use a non-privileged port 
+        .saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     
     let localhost = "127.0.0.1";
     conf.node.rpc_bind = format!("{}:{}", localhost, rpc_port);

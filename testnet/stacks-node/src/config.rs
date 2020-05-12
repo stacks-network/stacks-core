@@ -454,7 +454,7 @@ impl BurnchainConfig {
             rpc_ssl: false,
             username: None,
             password: None,
-            timeout: 30,
+            timeout: 300,
             spv_headers_path: "./spv-headers.dat".to_string(),
             first_block: FIRST_BLOCK_MAINNET,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),

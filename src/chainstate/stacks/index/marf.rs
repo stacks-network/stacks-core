@@ -758,10 +758,10 @@ impl MARF {
         // current chain tip must exist if it's not the "sentinel"
         let is_parent_sentinel = chain_tip == &TrieFileStorage::block_sentinel();
         if !is_parent_sentinel {
-            trace!("Extending off of existing node {}", chain_tip);
+            debug!("Extending off of existing node {} in {}", chain_tip, self.storage.dir_path);
         }
         else {
-            info!("First-ever block {}", next_chain_tip);
+            info!("First-ever block {} in {}", next_chain_tip, self.storage.dir_path);
         }
         self.storage.open_block(chain_tip)?;
 
@@ -784,7 +784,7 @@ impl MARF {
                 e
             })?;
 
-        test_debug!("Opened {:?}", chain_tip);
+        test_debug!("Opened {} in {}", chain_tip, self.storage.dir_path);
         Ok(())
     }
     
