@@ -318,6 +318,8 @@ struct ConnectionOutbox<P: ProtocolFamily> {
 pub struct ConnectionOptions {
     pub inbox_maxlen: usize,
     pub outbox_maxlen: usize,
+    pub connect_timeout: u64,
+    pub handshake_timeout: u64,
     pub timeout: u64,
     pub idle_timeout: u64,
     pub heartbeat: u32,
@@ -334,6 +336,7 @@ pub struct ConnectionOptions {
     pub walk_interval: u64,
     pub inv_sync_interval: u64,
     pub download_interval: u64,
+    pub pingback_timeout: u64,
     pub dns_timeout: u128,
     pub max_inflight_blocks: u64,
     pub read_only_call_limit: ExecutionCost,
@@ -349,7 +352,9 @@ pub struct ConnectionOptions {
     pub disable_block_download: bool,
     pub disable_network_prune: bool,
     pub disable_network_bans: bool,
-    pub disable_block_advertisement: bool
+    pub disable_block_advertisement: bool,
+    pub disable_pingbacks: bool,
+    pub disable_inbound_walks: bool,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -357,7 +362,9 @@ impl std::default::Default for ConnectionOptions {
         ConnectionOptions {
             inbox_maxlen: 5,
             outbox_maxlen: 5,
-            timeout: 30,                    // how long to wait for a reply
+            connect_timeout: 10,            // how long a socket can be in a connecting state
+            handshake_timeout: 10,          // how long before a peer must send a handshake, after connecting
+            timeout: 30,                    // how long to wait for a reply to a request
             idle_timeout: 15,               // how long a non-request HTTP connection can be idle before it's closed
             heartbeat: 3600,                // send a heartbeat once an hour by default
             private_key_lifetime: 4302,     // key expires after ~1 month
@@ -373,6 +380,7 @@ impl std::default::Default for ConnectionOptions {
             walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk.  Note that this should be _smaller_ than inv_sync_interval
             inv_sync_interval: INV_SYNC_INTERVAL,               // how often to synchronize block inventories
             download_interval: BLOCK_DOWNLOAD_INTERVAL,         // how often to synchronize blocks
+            pingback_timeout: 60,
             dns_timeout: 15_000,            // DNS timeout, in millis
             max_inflight_blocks: 6,         // number of parallel block downloads
             read_only_call_limit: ExecutionCost { write_length: 0, write_count: 0,
@@ -390,7 +398,9 @@ impl std::default::Default for ConnectionOptions {
             disable_block_download: false,
             disable_network_prune: false,
             disable_network_bans: false,
-            disable_block_advertisement: false
+            disable_block_advertisement: false,
+            disable_pingbacks: false,
+            disable_inbound_walks: false,
         }
     }
 }
