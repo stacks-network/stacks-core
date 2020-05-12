@@ -432,19 +432,17 @@ impl<'a, C: Clone> DerefMut for IndexDBTx<'a, C> {
     }
 }
 
-fn tx_busy_handler(run_count: i32) -> bool {
+pub fn tx_busy_handler(run_count: i32) -> bool {
     let mut sleep_count = 10;
     if run_count > 0 {
-        sleep_count = sleep_count << ((run_count - 1) as u64);
-        if sleep_count == 0 {
-            sleep_count = u64::max_value();
-        }
+        sleep_count = 2u64.saturating_pow(run_count as u32);
     }
-    sleep_count += thread_rng().gen::<u64>() % sleep_count;
+    sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
 
     if sleep_count > 5000 {
         sleep_count = 5000;
     }
+
     debug!("Database is locked; sleeping {}ms and trying again", &sleep_count);
     sleep_ms(sleep_count);
     true

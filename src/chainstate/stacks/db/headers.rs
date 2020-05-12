@@ -128,12 +128,14 @@ impl StacksChainState {
         let total_burn_str = format!("{}", header.total_work.burn);
         let block_hash = header.block_hash();
 
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &block_hash);
+
         assert!(block_height < (i64::max_value() as u64));
 
         let args: &[&dyn ToSql] = &[
             &header.version, &total_burn_str, &total_work_str, &header.proof, &header.parent_block, &header.parent_microblock, &header.parent_microblock_sequence,
             &header.tx_merkle_root, &header.state_index_root, &header.microblock_pubkey_hash,
-            &block_hash, &tip_info.index_block_hash(), &burn_header_hash, &(burn_header_timestamp as i64), &(block_height as i64), &index_root];
+            &block_hash, &index_block_hash, &burn_header_hash, &(burn_header_timestamp as i64), &(block_height as i64), &index_root];
 
         tx.execute("INSERT INTO block_headers \
                     (version, total_burn, total_work, proof, parent_block, parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey_hash, block_hash, index_block_hash, burn_header_hash, burn_header_timestamp, block_height, index_root) \

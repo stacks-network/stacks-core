@@ -758,12 +758,12 @@ impl MARF {
         // current chain tip must exist if it's not the "sentinel"
         let is_parent_sentinel = chain_tip == &TrieFileStorage::block_sentinel();
         if !is_parent_sentinel {
-            trace!("Extending off of existing node {}", chain_tip);
-            self.storage.open_block(chain_tip)?;
+            debug!("Extending off of existing node {} in {}", chain_tip, self.storage.dir_path);
         }
         else {
-            info!("First-ever block {}", next_chain_tip);
+            info!("First-ever block {} in {}", next_chain_tip, self.storage.dir_path);
         }
+        self.storage.open_block(chain_tip)?;
 
         let block_height = 
             if !is_parent_sentinel {
@@ -784,7 +784,7 @@ impl MARF {
                 e
             })?;
 
-        test_debug!("Opened {:?}", chain_tip);
+        test_debug!("Opened {} in {}", chain_tip, self.storage.dir_path);
         Ok(())
     }
     
@@ -2199,6 +2199,41 @@ mod test {
         if let Err(Error::ReadOnlyError) = ro_marf.commit_mined(&BlockHeaderHash([0x22; 32])) {} else { assert!(false); }
         if let Err(Error::ReadOnlyError) = ro_marf.commit_to(&BlockHeaderHash([0x33; 32])) {} else { assert!(false); }
         if let Err(Error::ReadOnlyError) = ro_marf.begin(&BlockHeaderHash([0x22; 32]), &BlockHeaderHash([0x33; 32])) {} else { assert!(false); }
+    }
+
+    #[test]
+    fn test_marf_begin_from_sentinel_twice() {
+        let f = TrieFileStorage::new_memory().unwrap();
+        let block_header_1 = BlockHeaderHash::from_bytes(&[1u8; 32]).unwrap();
+        let block_header_2 = BlockHeaderHash::from_bytes(&[2u8; 32]).unwrap();
+        let mut marf = MARF::from_storage(f);
+        
+        let path_1 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
+        let triepath_1 = TriePath::from_bytes(&path_1[..]).unwrap(); 
+        
+        let path_2 = [1,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
+        let triepath_2 = TriePath::from_bytes(&path_2[..]).unwrap(); 
+
+        let value_1 = TrieLeaf::new(&vec![], &vec![1u8; 40]);
+        let value_2 = TrieLeaf::new(&vec![], &vec![2u8; 40]);
+
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header_1).unwrap();
+        marf.insert_raw(triepath_1, value_1.clone()).unwrap();
+        marf.commit_to(&block_header_1).unwrap();
+
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header_2).unwrap();
+        marf.insert_raw(triepath_2, value_2.clone()).unwrap();
+        marf.commit_to(&block_header_2).unwrap();
+            
+        let read_value_1 = MARF::get_path(marf.borrow_storage_backend(), &block_header_1, &triepath_1).unwrap().unwrap();
+        eprintln!("read_value_1 from {:?} is {:?}", &block_header_1, &read_value_1);
+
+        let read_value_2 = MARF::get_path(marf.borrow_storage_backend(), &block_header_2, &triepath_2).unwrap().unwrap();
+        eprintln!("read_value_2 from {:?} is {:?}", &block_header_2, &read_value_2);
+       
+        // should fail
+        let read_value_1 = MARF::get_path(marf.borrow_storage_backend(), &block_header_2, &triepath_1).unwrap_err();
+        if let Error::NotFoundError = read_value_1 {} else { assert!(false); }
     }
 }
 

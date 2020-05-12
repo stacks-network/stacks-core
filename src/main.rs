@@ -25,6 +25,8 @@
 
 #[macro_use]
 extern crate blockstack_lib;
+extern crate rusqlite;
+
 use blockstack_lib::*;
 
 use std::fs;
@@ -39,9 +41,17 @@ use blockstack_lib::net::StacksMessageCodec;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::retry::LogReader;
+use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::StacksBlockHeader;
+use blockstack_lib::chainstate::burn::BlockHeaderHash;
+use blockstack_lib::burnchains::BurnchainHeaderHash;
 
 use blockstack_lib::burnchains::bitcoin::spv;
 use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
+
+use rusqlite::Connection;
+use rusqlite::types::ToSql;
+use rusqlite::OpenFlags;
 
 fn main() {
 
@@ -169,6 +179,47 @@ fn main() {
         process::exit(0);
     }
 
+    if argv[1] == "header-indexed-get" {
+        if argv.len() < 5 {
+            eprintln!("Usage: {} header-indexed-get CHAINSTATE_DIR BLOCK_ID_HASH KEY", argv[0]);
+            process::exit(1);
+        }
+        let headers_dir = &argv[2];
+        let marf_path = format!("{}/vm/index", &headers_dir);
+        let db_path = format!("{}/vm/headers.db", &headers_dir);
+        let marf_tip = &argv[3];
+        let marf_key = &argv[4];
+
+        if fs::metadata(&marf_path).is_err() {
+            eprintln!("No such file or directory: {}", &marf_path);
+            process::exit(1);
+        }
+
+        if fs::metadata(&db_path).is_err() {
+            eprintln!("No such file or directory: {}", &db_path);
+            process::exit(1);
+        }
+        
+        let marf_bhh = BlockHeaderHash::from_hex(marf_tip).expect("Bad MARF block hash");
+        let mut marf = MARF::from_path(&marf_path, None).expect("Failed to open MARF");
+        let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
+
+        if let Some(value) = value_opt {
+            let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).expect("Failed to open DB");
+            let args : &[&dyn ToSql] = &[&value.to_hex()];
+            let res : Result<String, rusqlite::Error> = conn.query_row_and_then("SELECT value FROM __fork_storage WHERE value_hash = ?1", args,
+                                                                                |row| { let s : String = row.get(0); Ok(s) });
+
+            let row = res.expect(&format!("Failed to query DB for MARF value hash {}", &value));
+            println!("{}", row);
+        }
+        else {
+            println!("(undefined)");
+        }
+
+        process::exit(0);
+    }
+
     if argv[1] == "exec_program" {
         if argv.len() < 3 {
             eprintln!("Usage: {} exec_program [program-file.clar]", argv[0]);
@@ -182,6 +233,51 @@ fn main() {
             Err(error) => { 
                 panic!("Program Execution Error: \n{}", error);
             }
+        }
+        return
+    }
+
+    if argv[1] == "marf-get" {
+        let path = &argv[2];
+        let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
+        let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
+        let itip = StacksBlockHeader::make_index_block_hash(&burntip, &tip);
+        let key = &argv[5];
+        let mut marf = MARF::from_path(path, Some(&itip)).unwrap();
+        let res = marf.get(&itip, key).expect("MARF error.");
+        match res {
+            Some(x) => println!("{}", x),
+            None => println!("None"),
+        };
+        return
+    }
+
+    if argv[1] == "get-ancestors" {
+        let path = &argv[2];
+        let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
+        let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
+
+        let conn = rusqlite::Connection::open(path).unwrap();
+        let mut cur_burn = burntip.clone();
+        let mut cur_tip = tip.clone();
+        loop {
+            println!("{}, {}", cur_burn, cur_tip);
+            let (next_burn, next_tip) = match
+                conn.query_row("SELECT parent_burn_header_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? and burn_header_hash = ?",
+                               &[&cur_tip as &dyn rusqlite::types::ToSql, &cur_burn], |row| (row.get(0), row.get(1))) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        match e {
+                            rusqlite::Error::QueryReturnedNoRows => {},
+                            e => {
+                                eprintln!("SQL Error: {}", e);
+                            },
+                        }
+                        break
+                    }
+                };
+            cur_burn = next_burn;
+            cur_tip = next_tip;
         }
         return
     }

@@ -1317,6 +1317,22 @@ impl NetworkResult {
         }
     }
 
+    pub fn has_blocks(&self) -> bool {
+        self.blocks.len() > 0 || self.pushed_blocks.len() > 0
+    }
+
+    pub fn has_microblocks(&self) -> bool {
+        self.confirmed_microblocks.len() > 0 || self.pushed_microblocks.len() > 0
+    }
+
+    pub fn has_transactions(&self) -> bool {
+        self.pushed_transactions.len() > 0 || self.uploaded_transactions.len() > 0
+    }
+
+    pub fn has_data_to_store(&self) -> bool {
+        self.has_blocks() || self.has_microblocks() || self.has_transactions()
+    }
+
     pub fn consume_unsolicited(&mut self, mut unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>) -> () {
         for (neighbor_key, mut messages) in unhandled_messages.drain() {
             for message in messages.drain(..) {
@@ -1841,7 +1857,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10);
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
@@ -1855,7 +1871,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10);
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);

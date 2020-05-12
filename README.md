@@ -140,7 +140,7 @@ cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d
 You can observe the state machine in action locally by running:
 
 ```bash
-cargo testnet start --config=./testnet/Stacks.toml
+cargo testnet start --config=./testnet/stacks-node/Stacks.toml
 ```
 
 `Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:

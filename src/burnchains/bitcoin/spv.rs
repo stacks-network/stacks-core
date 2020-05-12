@@ -55,7 +55,8 @@ use util::db::{
     Error as db_error,
     FromColumn,
     FromRow,
-    tx_begin_immediate
+    tx_begin_immediate,
+    tx_busy_handler,
 };
 
 const BLOCK_HEADER_SIZE: u64 = 81;
@@ -206,6 +207,8 @@ impl SpvClient {
 
         let mut conn = Connection::open_with_flags(headers_path, open_flags)
             .map_err(db_error::SqliteError)?;
+        
+        conn.busy_handler(Some(tx_busy_handler)).map_err(db_error::SqliteError)?;
 
         if create_flag {
             SpvClient::db_instantiate(&mut conn)?;

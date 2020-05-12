@@ -272,7 +272,7 @@ impl BitcoinIndexerRuntime {
             block_height: 0,
             last_getdata_send_time: 0,
             last_getheaders_send_time: 0,
-            timeout: 30,
+            timeout: 300,
         }
     }
 }

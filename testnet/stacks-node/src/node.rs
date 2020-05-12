@@ -23,6 +23,8 @@ use stacks::util::strings::UrlString;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 
+use stacks::chainstate::stacks::index::TrieHash;
+
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 
@@ -37,8 +39,8 @@ impl ChainTip {
 
     pub fn genesis() -> ChainTip {
         ChainTip {
-            metadata: StacksHeaderInfo::genesis(),
-            block: StacksBlock::genesis(),
+            metadata: StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])),
+            block: StacksBlock::genesis_block(),
             receipts: vec![]
         }
     }
@@ -99,7 +101,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            this.run(&burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
+            this.run(&burndb, &mut chainstate, &mut mem_pool, None, false, poll_timeout)
                 .unwrap();
         }
     });

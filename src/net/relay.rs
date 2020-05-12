@@ -750,9 +750,9 @@ impl Relayer {
         if new_blocks.len() > 0 {
             info!("Processing newly received blocks: {}", new_blocks.len());
         }
+        
         // process as many epochs as we can.
-        // Try to process at least a few epochs
-        let max_epochs = if new_blocks.len() < 3 { 3 } else { new_blocks.len() };
+        let max_epochs = if new_blocks.len() < 1024 { 1024 } else { new_blocks.len() };
         let receipts: Vec<_> = chainstate.process_blocks(burndb, max_epochs)?.into_iter()
             .filter_map(|block_result| block_result.0).collect();
 

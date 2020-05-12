@@ -1241,7 +1241,7 @@ impl PeerNetwork {
         // pick a random neighbor as a walking point 
         let next_neighbors = self.get_random_neighbors(1, self.chain_view.burn_block_height)
             .map_err(|e| {
-                warn!("Failed to load initial walk neighbors: {:?}", &e);
+                debug!("Failed to load initial walk neighbors: {:?}", &e);
                 e
             })?;
 

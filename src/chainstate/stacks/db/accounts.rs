@@ -17,6 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::collections::HashMap;
+
 use rusqlite::Row;
 use rusqlite::types::ToSql;
 
@@ -33,6 +35,8 @@ use vm::types::*;
 
 use util::db::*;
 use util::db::Error as db_error;
+
+pub type MinerPaymentCache = HashMap<BlockHeaderHash, Vec<MinerPaymentSchedule>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -296,6 +300,15 @@ impl StacksChainState {
         let qry = "SELECT * FROM payments WHERE block_hash = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC".to_string();
         let args: &[&dyn ToSql] = &[&ancestor_info.anchored_header.block_hash(), &ancestor_info.burn_header_hash];
         let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, args).map_err(Error::DBError)?;
+        test_debug!("{} rewards in {}/{}", rows.len(), &ancestor_info.burn_header_hash, &ancestor_info.anchored_header.block_hash());
+        Ok(rows)
+    }
+
+    /// Get all scheduled miner rewards for a given index hash
+    pub fn get_scheduled_block_rewards(conn: &DBConn, index_block_hash: &BlockHeaderHash) -> Result<Vec<MinerPaymentSchedule>, Error> {
+        let qry = "SELECT * FROM payments WHERE index_block_hash = ?1 ORDER BY vtxindex ASC".to_string();
+        let args : &[&dyn ToSql] = &[index_block_hash];
+        let rows = query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;
         Ok(rows)
     }
 
@@ -329,7 +342,6 @@ impl StacksChainState {
     /// TODO: this is incomplete -- it does not calculate transaction fees.  This is just stubbed
     /// out for now -- it only grants miners and user burn supports their coinbases.
     fn calculate_miner_reward(miner: &MinerPaymentSchedule, sample: &Vec<(MinerPaymentSchedule, Vec<MinerPaymentSchedule>)>) -> MinerReward {
-        // assert!(miner.burnchain_sortition_burn > 0);        // don't call this method if there was no sortition for this block!
         for i in 0..sample.len() {
             assert!(sample[i].0.miner);
             for u in sample[i].1.iter() {
@@ -417,28 +429,47 @@ impl StacksChainState {
     }
 
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
-    /// Returns a list of payments to make to each address -- miners and user-support burners
-    pub fn find_mature_miner_rewards<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo) -> Result<Option<Vec<MinerReward>>, Error> {
-        if tip.block_height < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
+    /// Returns a list of payments to make to each address -- miners and user-support burners.
+    /// If cache is Some(..), look there for miner payments there before hitting the DB.  Add newly-found
+    /// scheduled miner payments to the cache.  Miner payments are immutable once written, and are
+    /// keyed to the index block hash (which is globally unique), so once cached, no invalidation
+    /// should be necessary.
+    pub fn find_mature_miner_rewards<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo, mut cache: Option<&mut MinerPaymentCache>) -> Result<Option<Vec<MinerReward>>, Error> {
+        if tip.block_height <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
             // no mature rewards exist
             return Ok(None);
         }
+        
+        let latest_matured_miners = StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, tip.block_height - MINER_REWARD_MATURITY)?;
+        assert!(latest_matured_miners.len() > 0);
+        assert!(latest_matured_miners[0].vtxindex == 0);
+        assert!(latest_matured_miners[0].miner);
 
-        let matured_miners = StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW)?;
-        assert!(matured_miners.len() > 0);
+        let mut index_block_hash = StacksBlockHeader::make_index_block_hash(&latest_matured_miners[0].parent_burn_header_hash, &latest_matured_miners[0].parent_block_hash);
+        let mut scheduled_payments = vec![(latest_matured_miners[0].clone(), latest_matured_miners[1..].to_vec())];
 
-        let mut scheduled_payments = vec![];
-        for i in 0..MINER_REWARD_WINDOW {
-            let height = tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW + i;      // safe due to the above check
-            let scheduled_rewards = 
-                if i == 0 {
-                    matured_miners.clone()
+        // load all miner rewards from tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW
+        // up to tip.block_height - MINER_REWARD_MATURITY, in that order.
+        for _i in 0..MINER_REWARD_WINDOW {
+            let scheduled_rewards =
+                if let Some(ref mut cache) = cache {
+                    if let Some(miner_rewards) = cache.get(&index_block_hash) {
+                        miner_rewards.clone()
+                    }
+                    else {
+                        debug!("CACHE MISS MINER REWARDS {}", &index_block_hash);
+                        let rewards = StacksChainState::get_scheduled_block_rewards(tx, &index_block_hash)?;
+                        cache.insert(index_block_hash.clone(), rewards.clone());
+                        rewards
+                    }
                 }
                 else {
-                    StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, height)?
+                    StacksChainState::get_scheduled_block_rewards(tx, &index_block_hash)?
                 };
 
-            assert!(scheduled_rewards.len() > 0);
+            assert!(scheduled_rewards.len() > 0, format!("BUG: no rewards in {} ({})", &index_block_hash, _i));
+            assert!(scheduled_rewards[0].vtxindex == 0);
+            assert!(scheduled_rewards[0].miner);
 
             let mut miner_reward_opt = None;
             for reward in scheduled_rewards.iter() {
@@ -448,7 +479,7 @@ impl StacksChainState {
                 }
             }
             
-            let miner_reward = miner_reward_opt.expect(&format!("FATAL: missing miner reward for block {}", height));
+            let miner_reward = miner_reward_opt.expect(&format!("FATAL: missing miner reward for block {}", index_block_hash));
             let mut user_burns = vec![];
             for reward in scheduled_rewards.iter() {
                 if !reward.miner {
@@ -458,11 +489,35 @@ impl StacksChainState {
 
             assert_eq!(user_burns.len(), scheduled_rewards.len() - 1);
             scheduled_payments.push((miner_reward, user_burns));
+            
+            index_block_hash = StacksChainState::get_parent_index_block(&scheduled_rewards[0].parent_burn_header_hash, &scheduled_rewards[0].parent_block_hash);
+            test_debug!("Reward index hash: {} = {} + {}", &index_block_hash, &scheduled_rewards[0].parent_burn_header_hash, &scheduled_rewards[0].parent_block_hash);
+        }
+
+        // scheduled_payments[0] should be the oldest rewards
+        scheduled_payments.reverse();
+        let matured_miners = scheduled_payments[0].clone();
+
+        if cfg!(test) {
+            let rs_before = StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW)?;
+            assert!(rs_before.len() > 0);
+
+            let mut matured_miners_list = vec![matured_miners.0.clone()];
+            matured_miners_list.append(&mut matured_miners.1.clone());
+            assert_eq!(matured_miners_list, rs_before);
+
+            let rs_after = StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, tip.block_height - MINER_REWARD_MATURITY)?;
+            assert!(rs_after.len() > 0);
+            let rs_miners_after = (rs_after[0].clone(), rs_after[1..].to_vec());
+            assert_eq!(*scheduled_payments.last().unwrap(), rs_miners_after);
         }
 
         let mut rewards = vec![];
-        for matured_miner in matured_miners {
-            let reward = StacksChainState::calculate_miner_reward(&matured_miner, &scheduled_payments);
+        let miner_reward = StacksChainState::calculate_miner_reward(&matured_miners.0, &scheduled_payments);
+        rewards.push(miner_reward);
+
+        for user_reward in matured_miners.1.iter() {
+            let reward = StacksChainState::calculate_miner_reward(user_reward, &scheduled_payments);
             rewards.push(reward);
         }
         Ok(Some(rewards))
@@ -473,10 +528,12 @@ impl StacksChainState {
 mod test {
     use super::*;
     use burnchains::*;
+    use chainstate::stacks::Error;
     use chainstate::burn::*;
     use chainstate::stacks::*;
     use chainstate::stacks::db::test::*;
     use util::hash::*;
+    use chainstate::stacks::index::*;
 
     fn make_dummy_miner_payment_schedule(addr: &StacksAddress, coinbase: u128, tx_fees_anchored: u128, tx_fees_streamed: u128, commit_burn: u64, sortition_burn: u64) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
@@ -567,20 +624,21 @@ mod test {
 
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
-            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis(), 0).unwrap();
-            assert!(ancestor_0.is_none());
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), 0).unwrap();
+            assert!(ancestor_0.is_some());
         }
 
-        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis(), &mut miner_reward, &mut user_supports);
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
 
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
             
-            assert!(ancestor_1.is_none());
+            assert!(ancestor_1.is_some());
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 2);    // block 1 is the boot block
+            assert_eq!(ancestor_0.unwrap().block_height, 0);    // block 0 is the boot block
+            assert_eq!(ancestor_1.unwrap().block_height, 1);
         }
 
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
@@ -591,11 +649,12 @@ mod test {
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
             
-            assert!(ancestor_2.is_none());
+            assert!(ancestor_2.is_some());
+            assert_eq!(ancestor_2.unwrap().block_height, 2);
             assert!(ancestor_1.is_some());
-            assert_eq!(ancestor_1.unwrap().block_height, 3);    // block 1 is the boot block
+            assert_eq!(ancestor_1.unwrap().block_height, 1);
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 2);    // block 1 is the boot block
+            assert_eq!(ancestor_0.unwrap().block_height, 0);    // block 0 is the boot block
         }
     }
 
@@ -608,12 +667,12 @@ mod test {
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
-        let initial_tip = StacksHeaderInfo::genesis();
+        let initial_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
         
         let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
         let mut user_supports = vec![user_support];
 
-        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis(), &mut miner_reward, &mut user_supports);
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(&StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 0, 0, 0, 0, 0);
@@ -631,10 +690,132 @@ mod test {
             expected_user_support.block_hash = miner_reward.block_hash.clone();
             expected_user_support.parent_block_hash = miner_reward.parent_block_hash.clone();
 
-            assert_eq!(payments_0, vec![miner_reward, expected_user_support]);
-            assert_eq!(payments_1, vec![tip_reward]);
-            assert_eq!(payments_2, vec![]);
+            assert_eq!(payments_0, vec![]);
+            assert_eq!(payments_1, vec![miner_reward, expected_user_support]);
+            assert_eq!(payments_2, vec![tip_reward]);
         };
+    }
+
+    // this is the older version of find_mature_miner_rewards, without caching.
+    fn old_find_mature_miner_rewards<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo) -> Result<Option<Vec<MinerReward>>, Error> {
+        if tip.block_height < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
+            // no mature rewards exist
+            return Ok(None);
+        }
+
+        let matured_miners = StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW)?;
+        assert!(matured_miners.len() > 0);
+
+        let mut scheduled_payments = vec![];
+        for i in 0..MINER_REWARD_WINDOW {
+            let height = tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW + i;      // safe due to the above check
+            let scheduled_rewards = 
+                if i == 0 {
+                    matured_miners.clone()
+                }
+                else {
+                    StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, height)?
+                };
+
+            assert!(scheduled_rewards.len() > 0);
+
+            let mut miner_reward_opt = None;
+            for reward in scheduled_rewards.iter() {
+                if reward.miner {
+                    miner_reward_opt = Some(reward.clone());
+                    break;
+                }
+            }
+            
+            let miner_reward = miner_reward_opt.expect(&format!("FATAL: missing miner reward for block {}", height));
+            let mut user_burns = vec![];
+            for reward in scheduled_rewards.iter() {
+                if !reward.miner {
+                    user_burns.push(reward.clone());
+                }
+            }
+
+            assert_eq!(user_burns.len(), scheduled_rewards.len() - 1);
+            scheduled_payments.push((miner_reward, user_burns));
+        }
+
+        let mut rewards = vec![];
+        for matured_miner in matured_miners {
+            let reward = StacksChainState::calculate_miner_reward(&matured_miner, &scheduled_payments);
+            rewards.push(reward);
+        }
+        Ok(Some(rewards))
+    }
+
+    #[test]
+    fn find_mature_miner_rewards() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "find_mature_miner_rewards");
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+
+        let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+
+        let mut cache = MinerPaymentCache::new();
+        let mut matured_miners = vec![];
+        let mut expected_scheduled_payments = vec![];
+
+        for i in 0..(MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) + 1 {
+            let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, (2*i) as u128, (2*i) as u128, 1000, 1000);
+            let user_reward = make_dummy_user_payment_schedule(&user_1, 500, (2*i) as u128, (2*i) as u128, 100, 100, 1);
+            let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
+
+            if i == 0 {
+                matured_miners = vec![miner_reward.clone(), user_reward.clone()];
+            }
+
+            expected_scheduled_payments.push((miner_reward.clone(), vec![user_reward.clone()]));
+
+            let mut user_supports = vec![user_support];
+
+            let next_tip = advance_tip(&mut chainstate, &parent_tip, &mut miner_reward, &mut user_supports);
+
+            if i < (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) {
+                let mut tx = chainstate.headers_tx_begin().unwrap();
+                let rewards_opt = StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, None).unwrap();
+                assert!(rewards_opt.is_none());     // not mature yet
+                
+                let rewards_opt = StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, Some(&mut cache)).unwrap();
+                assert!(rewards_opt.is_none());     // not mature yet
+            }
+            test_debug!("next tip = {:?}", &next_tip);
+            parent_tip = next_tip;
+        }
+
+        let mut tx = chainstate.headers_tx_begin().unwrap();
+
+        test_debug!("parent tip = {:?}", &parent_tip);
+        let expected_rewards = {
+            let mut rewards = vec![];
+            for matured_miner in matured_miners {
+                let reward = StacksChainState::calculate_miner_reward(&matured_miner, &expected_scheduled_payments);
+                rewards.push(reward);
+            }
+            rewards
+        };
+
+        let legacy_rewards = old_find_mature_miner_rewards(&mut tx, &parent_tip).unwrap().unwrap();
+        assert_eq!(legacy_rewards, expected_rewards);
+
+        let rewards_opt = StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, None).unwrap();
+        assert!(rewards_opt.is_some());
+
+        let rewards = rewards_opt.unwrap();
+        assert_eq!(rewards.len(), 2);
+        assert_eq!(rewards, expected_rewards);
+        
+        let rewards_cached = StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, Some(&mut cache)).unwrap().unwrap();
+        assert_eq!(rewards_cached, rewards);
+        assert_eq!(rewards_cached, expected_rewards);
+
+        let mut empty_cache = MinerPaymentCache::new();
+        let rewards_cached = StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, Some(&mut empty_cache)).unwrap().unwrap();
+        assert_eq!(rewards_cached, rewards);
+        assert_eq!(rewards_cached, expected_rewards);
     }
 
     #[test]
