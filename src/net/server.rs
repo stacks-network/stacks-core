@@ -313,10 +313,13 @@ impl HttpPeer {
             
             // event ID already used?
             if self.peers.contains_key(&event_id) {
+                warn!("Already have an event {}: {:?}", event_id, self.peers.get(&event_id));
+                let _ = network_state.deregister(event_id, &client_sock);
                 continue;
             }
 
             if let Err(_e) = self.register_http(network_state, chainstate, event_id, client_sock, None, None) {
+                // NOTE: register_http will deregister the socket for us
                 continue;
             }
             registered.push(event_id);
