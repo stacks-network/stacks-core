@@ -625,7 +625,7 @@ mod test {
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), 0).unwrap();
-            assert!(ancestor_0.is_none());
+            assert!(ancestor_0.is_some());
         }
 
         let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
@@ -635,9 +635,10 @@ mod test {
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
             
-            assert!(ancestor_1.is_none());
+            assert!(ancestor_1.is_some());
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 2);    // block 1 is the boot block
+            assert_eq!(ancestor_0.unwrap().block_height, 0);    // block 0 is the boot block
+            assert_eq!(ancestor_1.unwrap().block_height, 1);
         }
 
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
@@ -648,11 +649,12 @@ mod test {
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
             
-            assert!(ancestor_2.is_none());
+            assert!(ancestor_2.is_some());
+            assert_eq!(ancestor_2.unwrap().block_height, 2);
             assert!(ancestor_1.is_some());
-            assert_eq!(ancestor_1.unwrap().block_height, 3);    // block 1 is the boot block
+            assert_eq!(ancestor_1.unwrap().block_height, 1);
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 2);    // block 1 is the boot block
+            assert_eq!(ancestor_0.unwrap().block_height, 0);    // block 0 is the boot block
         }
     }
 
@@ -688,9 +690,9 @@ mod test {
             expected_user_support.block_hash = miner_reward.block_hash.clone();
             expected_user_support.parent_block_hash = miner_reward.parent_block_hash.clone();
 
-            assert_eq!(payments_0, vec![miner_reward, expected_user_support]);
-            assert_eq!(payments_1, vec![tip_reward]);
-            assert_eq!(payments_2, vec![]);
+            assert_eq!(payments_0, vec![]);
+            assert_eq!(payments_1, vec![miner_reward, expected_user_support]);
+            assert_eq!(payments_2, vec![tip_reward]);
         };
     }
 
