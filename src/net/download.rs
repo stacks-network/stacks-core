@@ -890,10 +890,10 @@ impl PeerNetwork {
                 // smaller).
                 while next_block_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height || next_microblock_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height {
 
-                    debug!("{:?}: Make block requests from {}", &network.local_peer, next_block_sortition_height);
+                    debug!("{:?}: Make block requests from sortition height {}", &network.local_peer, next_block_sortition_height);
                     let mut next_blocks_to_try = network.make_block_requests(burndb, chainstate, next_block_sortition_height)?;
                     
-                    debug!("{:?}: Make block requests from {}", &network.local_peer, next_microblock_sortition_height);
+                    debug!("{:?}: Make microblock requests from sortition height {}", &network.local_peer, next_microblock_sortition_height);
                     let mut next_microblocks_to_try = network.make_confirmed_microblock_requests(burndb, chainstate, next_microblock_sortition_height)?;
 
                     let mut height = next_block_sortition_height;
