@@ -49,6 +49,7 @@ impl ConfigFile {
             rpc_port: Some(18443),
             peer_port: Some(18444),
             peer_host: Some("neon.blockstack.org".to_string()),
+            process_exit_at_block_height: Some(2880),
             ..BurnchainConfigFile::default()
         };
 
@@ -254,7 +255,8 @@ impl Config {
                     first_block: burnchain.first_block.unwrap_or(default_burnchain_config.first_block),
                     magic_bytes: default_burnchain_config.magic_bytes,
                     local_mining_public_key: burnchain.local_mining_public_key,
-                    burnchain_op_tx_fee: burnchain.burnchain_op_tx_fee.unwrap_or(default_burnchain_config.burnchain_op_tx_fee)
+                    burnchain_op_tx_fee: burnchain.burnchain_op_tx_fee.unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
+                    process_exit_at_block_height: burnchain.process_exit_at_block_height
                 }
             },
             None => default_burnchain_config
@@ -439,6 +441,7 @@ pub struct BurnchainConfig {
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: u64,
+    pub process_exit_at_block_height: Option<u64>
 }
 
 impl BurnchainConfig {
@@ -460,6 +463,7 @@ impl BurnchainConfig {
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
+            process_exit_at_block_height: None,
         }
     }
 
@@ -489,7 +493,8 @@ pub struct BurnchainConfigFile {
     pub first_block: Option<u64>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
-    pub burnchain_op_tx_fee: Option<u64>
+    pub burnchain_op_tx_fee: Option<u64>,
+    pub process_exit_at_block_height: Option<u64>,
 }
 
 #[derive(Clone, Default)]

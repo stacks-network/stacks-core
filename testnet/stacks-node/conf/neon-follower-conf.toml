@@ -9,6 +9,7 @@ mode = "neon"
 peer_host = "neon.blockstack.org"
 rpc_port = 18443
 peer_port = 18444
+process_exit_at_block_height = 2880
 
 [[mstx_balance]]
 address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"

@@ -551,7 +551,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn sync(&mut self) -> BurnchainTip {        
-        if self.config.burnchain.mode == "helium" {
+        let burnchain_tip = if self.config.burnchain.mode == "helium" {
             // Helium: this node is responsible for mining new burnchain blocks
             self.build_next_block(1);
             self.receive_blocks()
@@ -565,7 +565,18 @@ impl BurnchainController for BitcoinRegtestController {
                 }
                 sleep_ms(5000);
             }
+        };
+
+        // Evaluate process_exit_at_block_height setting
+        if let Some(cap) = self.config.burnchain.process_exit_at_block_height {
+            if burnchain_tip.block_snapshot.block_height >= cap {
+                info!("Node succesfully reached the end of the ongoing {} blocks epoch!", cap);
+                info!("This process will automatically terminate in 30s, restart your node for participating in the next epoch.");
+                sleep_ms(30000);
+                std::process::exit(0);
+            }    
         }
+        burnchain_tip
     }
 
     // returns true if the operation was submitted successfully, false otherwise 
