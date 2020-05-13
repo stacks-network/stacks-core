@@ -182,8 +182,7 @@ impl NetworkState {
         }
         else {
             // not a server event
-            error!("Not a server event ID: {}", &server_event_id);
-            return Err(net_error::RegisterError);
+            panic!("Not a server event ID: {}", &server_event_id);
         }
 
         // if the event ID is in use, then find another one
@@ -436,9 +435,6 @@ mod test {
 
             // can't use non-server events
             assert_eq!(Err(net_error::RegisterError), ns.register(client_events[port - 49010], port - 49010 + 1, &sock));
-            
-            // can'te use non-registered events
-            assert_eq!(Err(net_error::RegisterError), ns.register(99, port - 49010 + 1, &sock));
         }
     }
 }

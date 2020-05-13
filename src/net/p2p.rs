@@ -1139,27 +1139,32 @@ impl PeerNetwork {
             let event_id = match self.network {
                 Some(ref mut network) => {
                     // add to poller
-                    match network.register(self.p2p_network_handle, hint_event_id, &client_sock) {
+                    let event_id = match network.register(self.p2p_network_handle, hint_event_id, &client_sock) {
                         Ok(event_id) => event_id,
                         Err(e) => {
                             warn!("Failed to register {:?}: {:?}", &client_sock, &e);
                             continue;
                         }
+                    };
+            
+                    // event ID already used?
+                    if self.peers.contains_key(&event_id) {
+                        warn!("Already have an event {}: {:?}", event_id, self.peers.get(&event_id));
+                        let _ = network.deregister(event_id, &client_sock);
+                        continue;
                     }
+
+                    event_id
                 },
                 None => {
                     test_debug!("{:?}: network not connected", &self.local_peer);
                     return Err(net_error::NotConnected);
                 }
             };
-            
-            // event ID already used?
-            if self.peers.contains_key(&event_id) {
-                continue;
-            }
 
             // start tracking it
             if let Err(_e) = self.register_peer(event_id, client_sock, false) {
+                // NOTE: register_peer will deregister the socket for us
                 continue;
             }
             registered.push(event_id);
