@@ -112,7 +112,7 @@ pub struct StacksChainState {
     clarity_state: ClarityInstance,
     pub headers_db: DBConn,
     pub blocks_db: DBConn,
-    pub headers_state_index: MARF,
+    pub headers_state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String,
     pub root_path: String,
@@ -164,7 +164,7 @@ pub struct DBConfig {
 }
 
 impl StacksHeaderInfo {
-    pub fn index_block_hash(&self) -> BlockHeaderHash {
+    pub fn index_block_hash(&self) -> StacksBlockId {
         self.anchored_header.index_block_hash(&self.burn_header_hash)
     }
     pub fn genesis_block_header_info(root_hash: TrieHash) -> StacksHeaderInfo {
@@ -222,7 +222,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     }
 }
 
-pub type StacksDBTx<'a> = IndexDBTx<'a, ()>;
+pub type StacksDBTx<'a> = IndexDBTx<'a, (), StacksBlockId>;
 
 pub struct BlocksDBTx<'a> {
     pub tx: DBTx<'a>,
@@ -286,7 +286,7 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_block();
     }
 
-    pub fn commit_mined_block(self, block_hash: &BlockHeaderHash) -> () {
+    pub fn commit_mined_block(self, block_hash: &StacksBlockId) -> () {
         self.block.commit_mined_block(block_hash);
     }
 
@@ -566,12 +566,12 @@ impl StacksChainState {
         Ok(conn)
     }
     
-    pub fn open_index(marf_path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF, Error> {
+    pub fn open_index(marf_path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF<StacksBlockId>, Error> {
         test_debug!("Open MARF index at {}, set miner tip = {:?}", marf_path, miner_tip);
         let marf = MARF::from_path(marf_path, miner_tip).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
         Ok(marf)
     }
-   
+
     /// Idempotent `mkdir -p`
     fn mkdirs(path: &PathBuf) -> Result<String, Error> {
         match fs::metadata(path) {

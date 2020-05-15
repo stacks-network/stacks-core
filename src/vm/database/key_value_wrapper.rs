@@ -1,7 +1,7 @@
 use super::{MarfedKV, ClarityBackingStore, ClarityDeserializable};
 use vm::Value;
 use vm::errors::{ InterpreterResult as Result };
-use chainstate::{ burn::BlockHeaderHash, stacks::index::proofs::TrieMerkleProof };
+use chainstate::{ stacks::StacksBlockId, burn::BlockHeaderHash, stacks::index::proofs::TrieMerkleProof };
 use std::collections::{HashMap};
 use util::hash::{Sha512Trunc256Sum};
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
@@ -233,7 +233,7 @@ impl <'a> RollbackWrapper <'a> {
         inner_put(&mut self.lookup_map, &mut current.edits, key.to_string(), value.to_string())
     }
 
-    pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+    pub fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
         self.store.set_block_hash(bhh)
     }
 
@@ -272,7 +272,7 @@ impl <'a> RollbackWrapper <'a> {
         self.store.get_current_block_height()
     }
 
-    pub fn get_block_header_hash(&mut self, block_height: u32) -> Option<BlockHeaderHash> {
+    pub fn get_block_header_hash(&mut self, block_height: u32) -> Option<StacksBlockId> {
         self.store.get_block_at_height(block_height)
     }
 

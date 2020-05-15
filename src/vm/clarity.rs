@@ -11,6 +11,7 @@ use vm::analysis;
 use vm::costs::{LimitedCostTracker, ExecutionCost, CostTracker};
 
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::events::StacksTransactionEvent;
@@ -160,7 +161,7 @@ impl ClarityInstance {
         ClarityInstance { datastore: Some(datastore), block_limit }
     }
 
-    pub fn begin_block<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
+    pub fn begin_block<'a> (&'a mut self, current: &StacksBlockId, next: &StacksBlockId,
                             header_db: &'a dyn HeadersDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
@@ -179,7 +180,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn read_only_connection<'a>(&'a mut self, at_block: &BlockHeaderHash, header_db: &'a dyn HeadersDB) -> ClarityReadOnlyConnection<'a> {
+    pub fn read_only_connection<'a>(&'a mut self, at_block: &StacksBlockId, header_db: &'a dyn HeadersDB) -> ClarityReadOnlyConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -195,7 +196,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
+    pub fn eval_read_only(&mut self, at_block: &StacksBlockId, header_db: &dyn HeadersDB,
                           contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
         self.datastore.as_mut().unwrap()
             .set_chain_tip(at_block);
@@ -322,7 +323,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// block hash than the one opened (i.e. since the caller
     /// may not have known the "real" block hash at the 
     /// time of opening).
-    pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) -> LimitedCostTracker {
+    pub fn commit_to_block(mut self, final_bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore.commit_to(final_bhh);
 
@@ -337,7 +338,7 @@ impl <'a> ClarityBlockConnection <'a> {
     ///    before this saves, it updates the metadata headers in
     ///    the sidestore so that they don't get stepped on after
     ///    a miner re-executes a constructed block.
-    pub fn commit_mined_block(mut self, bhh: &BlockHeaderHash) -> LimitedCostTracker {
+    pub fn commit_mined_block(mut self, bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit mined Clarity datastore to {}", bhh);
         self.datastore.commit_mined_block(bhh);
 
@@ -371,7 +372,7 @@ impl <'a> ClarityBlockConnection <'a> {
     }
 
     /// Get the inner MARF
-    pub fn get_marf(&mut self) -> &mut MARF {
+    pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
         self.datastore.get_marf()
     }
 }

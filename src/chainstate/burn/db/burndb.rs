@@ -423,7 +423,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
 pub struct BurnDB {
     pub conn: Connection,
     pub readwrite: bool,
-    pub marf: MARF,
+    pub marf: MARF<BlockHeaderHash>,
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
 }
@@ -433,8 +433,8 @@ pub struct BurnDBTxContext {
     pub first_block_height: u64,
 }
 
-pub type BurnDBTx<'a> = IndexDBTx<'a, BurnDBTxContext>;
-pub type BurnDBConn<'a> = IndexDBConn<'a, BurnDBTxContext>;
+pub type BurnDBTx<'a> = IndexDBTx<'a, BurnDBTxContext, BlockHeaderHash>;
+pub type BurnDBConn<'a> = IndexDBConn<'a, BurnDBTxContext, BlockHeaderHash>;
 
 fn burndb_get_ancestor_block_hash<'a>(iconn: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BurnchainHeaderHash>, db_error> {
     if block_height < iconn.context.first_block_height {
@@ -665,7 +665,7 @@ impl BurnDB {
         &self.conn
     }
 
-    pub fn open_index(index_path: &str) -> Result<MARF, db_error> {
+    pub fn open_index(index_path: &str) -> Result<MARF<BlockHeaderHash>, db_error> {
         test_debug!("Open index at {}", index_path);
         let marf = MARF::from_path(index_path, None).map_err(|_e| db_error::Corruption)?;
         Ok(marf)

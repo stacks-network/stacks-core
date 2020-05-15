@@ -92,6 +92,12 @@ pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_MESSAGE_LEN;       // TODO: shrink
 pub const MAX_BLOCK_LEN: u32 = MAX_MESSAGE_LEN;             // TODO: shrink
 
+pub struct StacksBlockId(pub [u8; 32]);
+impl_array_newtype!(StacksBlockId, u8, 32);
+impl_array_hexstring_fmt!(StacksBlockId);
+impl_byte_array_newtype!(StacksBlockId, u8, 32);
+impl_byte_array_from_column!(StacksBlockId);
+
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
         StandardPrincipalData(addr.version, addr.bytes.0)

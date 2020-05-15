@@ -51,11 +51,11 @@ pub struct ClarityDatabase<'a> {
 }
 
 pub trait HeadersDB {
-    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash>;
-    fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash>;
-    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed>;
-    fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64>;
-    fn get_miner_address(&self, id_bhh: &BlockHeaderHash) -> Option<StacksAddress>;
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BlockHeaderHash>;
+    fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash>;
+    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
+    fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<StacksHeaderInfo> {
@@ -168,7 +168,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.rollback();
     }
 
-    pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+    pub fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
         self.store.set_block_hash(bhh)
     }
 
@@ -284,7 +284,7 @@ impl <'a> ClarityDatabase <'a> {
 // Get block information
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn get_index_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
+    pub fn get_index_block_header_hash(&mut self, block_height: u32) -> StacksBlockId {
         self.store.get_block_header_hash(block_height)
         // the caller is responsible for ensuring that the block_height given
         //  is < current_block_height, so this should _always_ return a value.

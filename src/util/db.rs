@@ -42,6 +42,7 @@ use rusqlite::types::{ToSql, ToSqlOutput, FromSql, FromSqlResult, FromSqlError, 
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::index::MARFValue;
+use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::Error as MARFError;
 
 use rand::Rng;
@@ -196,7 +197,7 @@ macro_rules! impl_byte_array_from_column {
             }
         }
 
-        impl FromColumn<$thing> for $thing {
+        impl ::util::db::FromColumn<$thing> for $thing {
             fn from_column(row: &rusqlite::Row, column_name: &str) -> Result<Self, ::util::db::Error> {
                 Ok(row.get::<_, Self>(column_name))
             }
@@ -367,14 +368,14 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
 }
 
 /// Read-only connection to a MARF-indexed DB
-pub struct IndexDBConn<'a, C> {
+pub struct IndexDBConn<'a, C, T: MarfTrieId> {
     conn: &'a Connection,
-    pub index: &'a MARF,
+    pub index: &'a MARF<T>,
     pub context: C
 }
 
-impl<'a, C> IndexDBConn<'a, C> {
-    pub fn new(conn: &'a Connection, index: &'a MARF, context: C) -> IndexDBConn<'a, C> {
+impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
+    pub fn new(conn: &'a Connection, index: &'a MARF<T>, context: C) -> IndexDBConn<'a, C, T> {
         IndexDBConn {
             conn: conn,
             index: index,
@@ -398,14 +399,14 @@ impl<'a, C> IndexDBConn<'a, C> {
     }
 }
 
-impl<'a, C> Deref for IndexDBConn<'a, C> {
+impl <'a, C, T: MarfTrieId> Deref for IndexDBConn<'a, C, T> {
     type Target = DBConn;
     fn deref(&self) -> &DBConn {
         self.conn
     }
 }
 
-pub struct IndexDBTx<'a, C: Clone> {
+pub struct IndexDBTx<'a, C: Clone, T: MarfTrieId> {
     _tx: Option<DBTx<'a>>,      // the reason this is Option<..> is because we
                                 // need to implement Drop for this struct, and
                                 // Drop is already implemented for DBTx<'a>.
@@ -414,19 +415,19 @@ pub struct IndexDBTx<'a, C: Clone> {
                                 // Drop() method safely.  However, by design,
                                 // _tx is always Some(..) over this struct's 
                                 // lifetime, so .unwrap() is safe.
-    pub index: &'a mut MARF,
+    pub index: &'a mut MARF<T>,
     pub context: C,
     block_linkage: Option<(BlockHeaderHash, BlockHeaderHash)>
 }
 
-impl<'a, C: Clone> Deref for IndexDBTx<'a, C> {
+impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
     type Target = DBTx<'a>;
     fn deref(&self) -> &DBTx<'a> {
         self.tx()
     }
 }
 
-impl<'a, C: Clone> DerefMut for IndexDBTx<'a, C> {
+impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
     fn deref_mut(&mut self) -> &mut DBTx<'a> {
         self.tx_mut()
     }
@@ -458,13 +459,13 @@ pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Erro
 }
 
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
-pub fn get_ancestor_block_hash(index: &MARF, block_height: u64, tip_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+pub fn get_ancestor_block_hash<T: MarfTrieId>(index: &MARF<T>, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
     assert!(block_height < u32::max_value() as u64);
     MARF::get_block_at_height(&mut index.reopen_storage_readonly().map_err(Error::IndexError)?, block_height as u32, tip_block_hash).map_err(Error::IndexError)
 }
 
 /// Get the height of an ancestor block, if it is indeed the ancestor.
-pub fn get_ancestor_block_height(index: &MARF, ancestor_block_hash: &BlockHeaderHash, tip_block_hash: &BlockHeaderHash) -> Result<Option<u64>, Error> {
+pub fn get_ancestor_block_height<T: MarfTrieId>(index: &MARF<T>, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
     match MARF::get_block_height(&mut index.reopen_storage_readonly().map_err(Error::IndexError)?, ancestor_block_hash, tip_block_hash).map_err(Error::IndexError)? {
         Some(height_u32) => {
             Ok(Some(height_u32 as u64))
@@ -500,7 +501,7 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
 }
 
 /// Get a value from the fork index
-pub fn get_indexed(conn: &DBConn, index: &MARF, header_hash: &BlockHeaderHash, key: &String) -> Result<Option<String>, Error> {
+pub fn get_indexed<T: MarfTrieId>(conn: &DBConn, index: &MARF<T>, header_hash: &T, key: &String) -> Result<Option<String>, Error> {
     let mut ro_index = index.reopen_readonly().map_err(Error::IndexError)?;
     let parent_index_root = match ro_index.get_root_hash_at(header_hash) {
         Ok(root) => {
@@ -548,11 +549,8 @@ pub fn get_indexed(conn: &DBConn, index: &MARF, header_hash: &BlockHeaderHash, k
     }
 }
 
-impl<'a, C> IndexDBTx<'a, C>
-where
-    C: Clone
-{
-    pub fn new(tx: DBTx<'a>, index: &'a mut MARF, context: C) -> IndexDBTx<'a, C> {
+impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
+    pub fn new(tx: DBTx<'a>, index: &'a mut MARF<T>, context: C) -> IndexDBTx<'a, C, T> {
         IndexDBTx {
             _tx: Some(tx),
             index: index,
@@ -583,7 +581,7 @@ where
         Ok(())
     }
 
-    pub fn as_conn<'b> (&'b self) -> IndexDBConn<'b, C> {
+    pub fn as_conn<'b> (&'b self) -> IndexDBConn<'b, C, T> {
         IndexDBConn {
             conn: self.tx(),
             index: self.index,
@@ -592,12 +590,12 @@ where
     }
 
     /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
-    pub fn get_ancestor_block_hash(&mut self, block_height: u64, tip_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_ancestor_block_hash(&mut self, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
         get_ancestor_block_hash(self.index, block_height, tip_block_hash)
     }
 
     /// Get the height of an ancestor block, if it is indeed the ancestor.
-    pub fn get_ancestor_block_height(&mut self, ancestor_block_hash: &BlockHeaderHash, tip_block_hash: &BlockHeaderHash) -> Result<Option<u64>, Error> {
+    pub fn get_ancestor_block_height(&mut self, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
         get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
     }
 
@@ -670,7 +668,7 @@ where
     }
 }
 
-impl<'a, C: Clone> Drop for IndexDBTx<'a, C> {
+impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
     fn drop(&mut self) {
         if let Some((ref parent, ref child)) = self.block_linkage {
             debug!("Dropping MARF linkage ({},{})", parent, child);

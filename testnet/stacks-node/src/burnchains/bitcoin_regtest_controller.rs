@@ -747,7 +747,7 @@ struct BitcoinRPCRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 enum RPCError {
     Network(String),
-    Parsing(String)
+    Parsing(String),
 }
 
 type RPCResult<T> = Result<T, RPCError>;

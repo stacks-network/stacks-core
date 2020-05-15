@@ -200,7 +200,7 @@ impl StacksChainState {
     }
 
     /// Get an ancestor block header given an index hash
-    pub fn get_index_tip_ancestor<'a>(tx: &mut StacksDBTx<'a>, tip_index_hash: &BlockHeaderHash, height: u64) -> Result<Option<StacksHeaderInfo>, Error> {
+    pub fn get_index_tip_ancestor<'a>(tx: &mut StacksDBTx<'a>, tip_index_hash: &StacksBlockId, height: u64) -> Result<Option<StacksHeaderInfo>, Error> {
         match tx.get_ancestor_block_hash(height, tip_index_hash).map_err(Error::DBError)? {
             Some(bhh) => {
                 StacksChainState::get_stacks_block_header_info_by_index_block_hash(tx, &bhh)

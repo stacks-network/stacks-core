@@ -52,7 +52,8 @@ use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
     BlockMap,
-    trie_sql
+    trie_sql,
+    MarfTrieId
 };
 
 use chainstate::stacks::index::storage::{
@@ -135,7 +136,7 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     tx.commit().map_err(|e| e.into())
 }
 
-pub fn get_block_identifier(conn: &Connection, bhh: &BlockHeaderHash) -> Result<u32, Error> {
+pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
     conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?", &[bhh],
                    |row| row.get("block_id"))
         .map_err(|e| e.into())
@@ -151,7 +152,7 @@ pub fn get_block_hash(conn: &Connection, local_id: u32) -> Result<BlockHeaderHas
     })
 }
 
-pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
+pub fn write_trie_blob<T: MarfTrieId>(conn: &Connection, block_hash: &T, data: &[u8]) -> Result<u32, Error> {
     let args: &[&dyn ToSql] = &[block_hash, &data];
     let mut s = conn.prepare("INSERT INTO marf_data (block_hash, data) VALUES (?, ?)")?;
     let block_id = s.insert(args)?
@@ -160,7 +161,7 @@ pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[
     Ok(block_id)
 }
 
-pub fn write_trie_blob_to_mined(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
+pub fn write_trie_blob_to_mined<T: MarfTrieId>(conn: &Connection, block_hash: &T, data: &[u8]) -> Result<u32, Error> {
     let args: &[&dyn ToSql] = &[block_hash, &data];
     let mut s = conn.prepare("INSERT OR REPLACE INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
     let block_id = s.insert(args)?

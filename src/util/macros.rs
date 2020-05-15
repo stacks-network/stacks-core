@@ -358,6 +358,11 @@ macro_rules! impl_byte_array_newtype {
                 write!(f, "{}", self.to_hex())
             }
         }
+        impl std::convert::AsRef<[u8]> for $thing {
+            fn as_ref(&self) -> &[u8] {
+                &self.0
+            }
+        }
     }
 }
 

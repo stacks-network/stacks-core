@@ -1,7 +1,7 @@
 use rusqlite::{ErrorCode as SqliteErrorCode, Error as SqliteError, Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
 use rusqlite::types::{ToSql, FromSql};
 
-use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::StacksBlockId;
 
 use util::db::tx_busy_handler;
 
@@ -43,7 +43,7 @@ impl SqliteConnection {
         sqlite_get(&self.conn, key)
     }
 
-    pub fn insert_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str, value: &str) {
+    pub fn insert_metadata(&mut self, bhh: &StacksBlockId, contract_hash: &str, key: &str, value: &str) {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&bhh, &key, &value.to_string()];
 
@@ -51,7 +51,7 @@ impl SqliteConnection {
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    pub fn commit_metadata_to(&mut self, from: &BlockHeaderHash, to: &BlockHeaderHash) {
+    pub fn commit_metadata_to(&mut self, from: &StacksBlockId, to: &StacksBlockId) {
         let params = [to, from];
         self.conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
@@ -59,7 +59,7 @@ impl SqliteConnection {
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    pub fn get_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str) -> Option<String> {
+    pub fn get_metadata(&mut self, bhh: &StacksBlockId, contract_hash: &str, key: &str) -> Option<String> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
 
@@ -84,17 +84,17 @@ impl SqliteConnection {
     /// this is a "lower-level" rollback than the roll backs performed in
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
-    pub fn begin(&mut self, key: &BlockHeaderHash) {
+    pub fn begin(&mut self, key: &StacksBlockId) {
         self.conn.execute(&format!("SAVEPOINT SP{}", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    pub fn rollback(&mut self, key: &BlockHeaderHash) {
+    pub fn rollback(&mut self, key: &StacksBlockId) {
         self.conn.execute_batch(&format!("ROLLBACK TO SAVEPOINT SP{}; RELEASE SAVEPOINT SP{}", key, key))
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    pub fn commit(&mut self, key: &BlockHeaderHash) {
+    pub fn commit(&mut self, key: &StacksBlockId) {
         self.conn.execute(&format!("RELEASE SAVEPOINT SP{}", key), NO_PARAMS)
             .expect("PANIC: Failed to SQL commit in Smart Contract VM.");
     }

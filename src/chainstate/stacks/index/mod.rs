@@ -39,6 +39,7 @@ use sha2::Digest;
 
 use std::hash::Hash;
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::StacksBlockId;
 
 use util::log;
 use util::hash::to_hex;
@@ -60,6 +61,40 @@ impl_array_hexstring_fmt!(MARFValue);
 impl_byte_array_newtype!(MARFValue, u8, 40);
 impl_byte_array_message_codec!(MARFValue, 40);
 pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
+
+pub trait MarfTrieId: Clone + std::fmt::Display + rusqlite::types::ToSql {
+    fn as_bytes(&self) -> &[u8];
+    fn to_bytes(self) -> [u8; 32];
+    fn sentinel() -> Self;
+}
+
+impl MarfTrieId for StacksBlockId {
+    fn as_bytes(&self) -> &[u8] {
+        self.as_ref()
+    }
+
+    fn to_bytes(self) -> [u8; 32] {
+        self.0
+    }
+
+    fn sentinel() -> StacksBlockId {
+        StacksBlockId(TrieFileStorage::block_sentinel().0)
+    }
+}
+
+impl MarfTrieId for BlockHeaderHash {
+    fn as_bytes(&self) -> &[u8] {
+        self.as_ref()
+    }
+
+    fn to_bytes(self) -> [u8; 32] {
+        self.0
+    }
+
+    fn sentinel() -> BlockHeaderHash {
+        TrieFileStorage::block_sentinel()
+    }
+}
 
 impl TrieHash {
     /// TrieHash of zero bytes
@@ -112,12 +147,6 @@ impl TrieHash {
                           self.0[24],    self.0[25],      self.0[26],      self.0[27],
                           self.0[28],    self.0[29],      self.0[30],      self.0[31]);
         s
-    }
-}
-
-impl AsRef<[u8]> for TrieHash {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
     }
 }
 

@@ -52,7 +52,8 @@ use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
     BlockMap,
-    trie_sql
+    trie_sql,
+    MarfTrieId,
 };
 
 use chainstate::stacks::index::bits::{
@@ -147,13 +148,13 @@ impl BlockMap for TrieSqlHashMapCursor<'_> {
     }
 }
 
-enum FlushOptions<'a> {
+enum FlushOptions<'a, T: MarfTrieId> {
     CurrentHeader,
-    NewHeader(&'a BlockHeaderHash),
-    MinedTable(&'a BlockHeaderHash),
+    NewHeader(&'a T),
+    MinedTable(&'a T),
 }
 
-impl fmt::Display for FlushOptions <'_> {
+impl <T: MarfTrieId> fmt::Display for FlushOptions <'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             FlushOptions::CurrentHeader => write!(f, "self"),
@@ -1020,7 +1021,7 @@ impl TrieFileStorage {
         self.write_nodetype(ptr, &node_type, hash)
     }
     
-    fn inner_flush(&mut self, flush_options: FlushOptions) -> Result<(), Error> {
+    fn inner_flush<T: MarfTrieId>(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
         // save the currently-bufferred Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.

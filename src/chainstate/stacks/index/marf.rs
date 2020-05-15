@@ -32,7 +32,6 @@ use std::path::{
     PathBuf
 };
 
-use std::marker::PhantomData;
 use std::fs;
 
 use sha2::Digest;
@@ -72,7 +71,8 @@ use chainstate::stacks::index::{
     proofs::TrieMerkleProof,
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
-    MARFValue
+    MARFValue,
+    MarfTrieId,
 };
 
 use chainstate::stacks::index::trie::{
@@ -88,22 +88,22 @@ pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH"
 pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
-pub struct MARF {
+pub struct MARF<T: MarfTrieId> {
     storage: TrieFileStorage,
-    open_chain_tip: Option<WriteChainTip>,
-    readonly: bool
+    open_chain_tip: Option<WriteChainTip<T>>,
+    readonly: bool,
 }
 
 #[derive(Clone)]
-struct WriteChainTip {
-    block_hash: BlockHeaderHash,
+struct WriteChainTip<T> {
+    block_hash: T,
     height: u32
 }
 
-impl MARF {
+impl <T: MarfTrieId> MARF <T> {
 
     #[cfg(test)]
-    pub fn from_storage_opened(storage: TrieFileStorage, opened_to: &BlockHeaderHash) -> MARF {
+    pub fn from_storage_opened(storage: TrieFileStorage, opened_to: &BlockHeaderHash) -> MARF<T> {
         MARF {
             storage,
             open_chain_tip: Some(WriteChainTip { block_hash: opened_to.clone(),
@@ -493,7 +493,7 @@ impl MARF {
     }
 
     /// Instantiate the MARF from a TrieFileStorage instance 
-    pub fn from_storage(storage: TrieFileStorage) -> MARF {
+    pub fn from_storage(storage: TrieFileStorage) -> MARF<T> {
         MARF {
             storage: storage,
             open_chain_tip: None,
@@ -504,7 +504,7 @@ impl MARF {
     /// Instantiate the MARF using a TrieFileStorage instance, from the given path on disk.
     /// This will have the side-effect of instantiating a new fork table from the tries encoded on
     /// disk. Performant code should call this method sparingly.
-    pub fn from_path(path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF, Error> {
+    pub fn from_path(path: &str, miner_tip: Option<&T>) -> Result<MARF<T>, Error> {
         let mut file_storage = TrieFileStorage::new(path)?;
         match fs::metadata(path) {
             Ok(_) => {},
@@ -525,11 +525,11 @@ impl MARF {
     }
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
-    pub fn get(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
+    pub fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         MARF::get_by_key(&mut self.storage, block_hash, key)
     }
 
-    pub fn get_with_proof(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<(MARFValue, TrieMerkleProof)>, Error> {
+    pub fn get_with_proof(&mut self, block_hash: &T, key: &str) -> Result<Option<(MARFValue, TrieMerkleProof)>, Error> {
         let marf_value = match MARF::get_by_key(&mut self.storage, block_hash, key)? {
             None => return Ok(None),
             Some(x) => x
@@ -538,11 +538,11 @@ impl MARF {
         Ok(Some((marf_value, proof)))
     }
 
-    pub fn get_bhh_at_height(&mut self, block_hash: &BlockHeaderHash, height: u32) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_bhh_at_height(&mut self, block_hash: &T, height: u32) -> Result<Option<BlockHeaderHash>, Error> {
         MARF::get_block_at_height(&mut self.storage, height, block_hash)
     }
 
-    pub fn get_by_key(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
+    pub fn get_by_key(storage: &mut TrieFileStorage, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
@@ -561,7 +561,7 @@ impl MARF {
         }))
     }
 
-    pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+    pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage, block_hash: &T, current_block_hash: &T) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
         #[cfg(test)] {
             // used in testing in order to short-circuit block-height lookups
@@ -581,11 +581,11 @@ impl MARF {
         Ok(marf_value.map(u32::from))
     }
     
-    pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+    pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &T, current_block_hash: &T) -> Result<Option<u32>, Error> {
         MARF::get_block_height_miner_tip(storage, block_hash, current_block_hash)
     }
 
-    pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &T) -> Result<Option<BlockHeaderHash>, Error> {
         #[cfg(test)] {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -741,7 +741,7 @@ impl MARF {
     /// associated block's new state.  Call commit() or commit_to() to persist the changes.
     /// Fails if the block already exists.
     /// Storage will point to new chain tip on success.
-    pub fn begin(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -815,7 +815,7 @@ impl MARF {
     ///   to commit the mined block, but write it to the mined_block table,
     ///   rather than out to the marf_data table (this prevents the
     ///   miner's block from getting stepped on after the sortition).
-    pub fn commit_mined(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn commit_mined(&mut self, bhh: &T) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -830,7 +830,7 @@ impl MARF {
     
     /// Finish writing the next trie in the MARF, but change the hash of the current Trie's 
     /// block hash to something other than what we opened it as.  This persists all changes.
-    pub fn commit_to(&mut self, real_bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn commit_to(&mut self, real_bhh: &T) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -843,7 +843,7 @@ impl MARF {
         Ok(())
     }
 
-    pub fn get_block_height_of(&mut self, bhh: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+    pub fn get_block_height_of(&mut self, bhh: &StacksBlockId, current_block_hash: &StacksBlockId) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
             return Ok(self.get_open_chain_tip_height())
         } else {
@@ -852,7 +852,7 @@ impl MARF {
     }
 
     /// Get open chain tip
-    pub fn get_open_chain_tip(&self) -> Option<&BlockHeaderHash> {
+    pub fn get_open_chain_tip(&self) -> Option<&T> {
         self.open_chain_tip.as_ref()
             .map(|x| &x.block_hash)
     }
@@ -867,7 +867,7 @@ impl MARF {
     ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
     ///   as the current block
     /// The MARF _must_ be open to a valid block for this check to be evaluated.
-    pub fn check_ancestor_block_hash(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn check_ancestor_block_hash(&mut self, bhh: &T) -> Result<(), Error> {
         let cur_block_hash = self.storage.get_cur_block();
         if cur_block_hash == *bhh {
             // a block is in its own fork
@@ -906,7 +906,7 @@ impl MARF {
     }
 
     /// Reopen this MARF with readonly storage.
-    pub fn reopen_readonly(&self) -> Result<MARF, Error> {
+    pub fn reopen_readonly(&self) -> Result<MARF<T>, Error> {
         if self.open_chain_tip.is_some() {
             error!("MARF at {} is already in the process of writing", &self.storage.dir_path);
             return Err(Error::InProgressError);
@@ -926,7 +926,7 @@ impl MARF {
     }
     
     /// Get the root trie hash at a particular block
-    pub fn get_root_hash_at(&mut self, block_hash: &BlockHeaderHash) -> Result<TrieHash, Error> {
+    pub fn get_root_hash_at(&mut self, block_hash: &T) -> Result<TrieHash, Error> {
         let cur_block_hash = self.storage.get_cur_block();
 
         self.storage.open_block(block_hash)?;
