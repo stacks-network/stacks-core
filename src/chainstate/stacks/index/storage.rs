@@ -122,7 +122,7 @@ trait NodeHashReader {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
 }
 
-impl BlockMap for TrieFileStorage {
+impl <T: MarfTrieId> BlockMap for TrieFileStorage<T> {
     fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error> {
         trie_sql::get_block_hash(&self.db, id)
     }
@@ -467,13 +467,13 @@ impl NodeHashReader for TrieSqlCursor<'_> {
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
 // to extend_to_block() with a different block header hash.
-pub struct TrieFileStorage {
+pub struct TrieFileStorage <T: MarfTrieId> {
     pub dir_path: String,
 
-    last_extended: Option<(BlockHeaderHash, TrieRAM)>,
+    last_extended: Option<(T, TrieRAM)>,
 
     db: Connection,
-    cur_block: BlockHeaderHash,
+    cur_block: T,
     cur_block_id: Option<u32>,
 
     read_count: u64,
@@ -485,11 +485,11 @@ pub struct TrieFileStorage {
     write_node_count: u64,
     write_leaf_count: u64,
 
-    pub trie_ancestor_hash_bytes_cache: Option<(BlockHeaderHash, Vec<TrieHash>)>,
+    pub trie_ancestor_hash_bytes_cache: Option<(T, Vec<TrieHash>)>,
 
-    miner_tip: Option<BlockHeaderHash>,
+    miner_tip: Option<T>,
 
-    block_hash_cache: HashMap<u32, BlockHeaderHash>,
+    block_hash_cache: HashMap<u32, T>,
 
     pub readonly: bool,
 
@@ -499,8 +499,8 @@ pub struct TrieFileStorage {
     pub test_genesis_block: Option<BlockHeaderHash>,
 }
 
-impl TrieFileStorage {
-    pub fn new(dir_path: &str) -> Result<TrieFileStorage, Error> {
+impl <T: MarfTrieId> TrieFileStorage <T> {
+    pub fn new(dir_path: &str) -> Result<TrieFileStorage<T>, Error> {
         let mut db = Connection::open(dir_path)?;
         db.busy_handler(Some(tx_busy_handler))?;
 
@@ -542,7 +542,7 @@ impl TrieFileStorage {
         Ok(ret)
     }
 
-    pub fn reopen_readonly(&self) -> Result<TrieFileStorage, Error> {
+    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         if let Some((ref block_bhh, _)) = self.last_extended {
             error!("MARF storage already opened to in-progress block {}", block_bhh);
             return Err(Error::InProgressError);
@@ -616,8 +616,8 @@ impl TrieFileStorage {
 
     /// Get the block hash of the "parent of the root".  This does not correspond to a real block,
     /// but instead is a sentinel value that is all 1's
-    pub fn block_sentinel() -> BlockHeaderHash {
-        BlockHeaderHash([255u8; BLOCK_HEADER_HASH_ENCODED_SIZE as usize])
+    pub fn block_sentinel() -> T {
+        T::sentinel()
     }
 
     #[cfg(test)]
@@ -1012,7 +1012,7 @@ impl TrieFileStorage {
         panic!("Tried to write to another Trie besides the currently-bufferred one.  This should never happen -- only flush() can write to disk!");
     }
 
-    pub fn write_node<T: TrieNode + std::fmt::Debug>(&mut self, ptr: u32, node: &T, hash: TrieHash) -> Result<(), Error> {
+    pub fn write_node<N: TrieNode + std::fmt::Debug>(&mut self, ptr: u32, node: &N, hash: TrieHash) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -1021,7 +1021,7 @@ impl TrieFileStorage {
         self.write_nodetype(ptr, &node_type, hash)
     }
     
-    fn inner_flush<T: MarfTrieId>(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
+    fn inner_flush(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
         // save the currently-bufferred Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.
@@ -1083,11 +1083,11 @@ impl TrieFileStorage {
         self.inner_flush(FlushOptions::CurrentHeader)
     }
 
-    pub fn flush_to(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn flush_to(&mut self, bhh: &T) -> Result<(), Error> {
         self.inner_flush(FlushOptions::NewHeader(bhh))
     }
 
-    pub fn flush_mined(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn flush_mined(&mut self, bhh: &T) -> Result<(), Error> {
         self.inner_flush(FlushOptions::MinedTable(bhh))
     }
 

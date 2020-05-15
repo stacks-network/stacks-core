@@ -80,7 +80,8 @@ use chainstate::stacks::index::{
     MARFValue,
     TRIEHASH_ENCODED_SIZE,
     slice_partialeq,
-    BlockMap
+    BlockMap,
+    MarfTrieId
 };
 
 use chainstate::stacks::index::storage::{
@@ -382,7 +383,7 @@ impl TrieMerkleProof {
     /// Given a TriePtr to the _currently-visited_ node and the chr of the _previous_ node, calculate a
     /// Merkle proof node.  Include all the children hashes _except_ for the one that corresponds
     /// to the previous node.
-    fn ptr_to_segment_proof_node(storage: &mut TrieFileStorage, ptr: &TriePtr, prev_chr: u8) -> Result<TrieMerkleProofType, Error> {
+    fn ptr_to_segment_proof_node<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, ptr: &TriePtr, prev_chr: u8) -> Result<TrieMerkleProofType, Error> {
         trace!("ptr_to_proof_node: ptr={:?}, prev_chr=0x{:02x}", ptr, prev_chr);
         let (node, _) = storage.read_nodetype(ptr)?;
         let all_hashes = Trie::get_children_hashes(storage, &node)?;
@@ -434,7 +435,7 @@ impl TrieMerkleProof {
     /// Make the initial shunt proof in a MARF merkle proof, for a node that isn't a backptr.
     /// This is a one-item list of a TrieMerkleProofType::Shunt proof entry.
     /// The storage handle must be opened to the block we care about.
-    fn make_initial_shunt_proof(storage: &mut TrieFileStorage) -> Result<Vec<TrieMerkleProofType>, Error> {
+    fn make_initial_shunt_proof<T: MarfTrieId>(storage: &mut TrieFileStorage<T>) -> Result<Vec<TrieMerkleProofType>, Error> {
         let backptr_ancestor_hashes = Trie::get_trie_ancestor_hashes_bytes(storage)?;
         
         trace!("First shunt proof node: (0, {:?})", &backptr_ancestor_hashes);
@@ -459,7 +460,7 @@ impl TrieMerkleProof {
     ///
     /// All intermediate shunt proofs will contain all ancestor hashes for each node in-between the
     /// backptr and the non-backptr node.  The intermediate root hashes will be calculated by the verifier.
-    fn make_backptr_shunt_proof(storage: &mut TrieFileStorage, backptr: &TriePtr) -> Result<Vec<TrieMerkleProofType>, Error> {
+    fn make_backptr_shunt_proof<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, backptr: &TriePtr) -> Result<Vec<TrieMerkleProofType>, Error> {
         // the proof is built "backwards" -- starting from the current block all the way back to backptr.
         assert!(is_backptr(backptr.id()));
 
@@ -714,7 +715,7 @@ impl TrieMerkleProof {
     }
 
     /// Given a list of non-backptr ptrs and a root block header hash, calculate a Merkle proof.
-    fn make_segment_proof(storage: &mut TrieFileStorage, ptrs: &Vec<TriePtr>, starting_chr: u8) -> Result<Vec<TrieMerkleProofType>, Error> {
+    fn make_segment_proof<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, ptrs: &Vec<TriePtr>, starting_chr: u8) -> Result<Vec<TrieMerkleProofType>, Error> {
         trace!("make_segment_proof: ptrs = {:?}", &ptrs);
 
         assert!(ptrs.len() > 0);
@@ -1184,7 +1185,7 @@ impl TrieMerkleProof {
     }
 
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf
-    fn walk_to_leaf_or_backptr(storage: &mut TrieFileStorage, path: &TriePath) -> Result<(TrieCursor, TrieNodeType, TriePtr), Error> {
+    fn walk_to_leaf_or_backptr<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, path: &TriePath) -> Result<(TrieCursor, TrieNodeType, TriePtr), Error> {
         trace!("Walk path {:?} from {:?} to the first backptr", path, &storage.get_cur_block());
         
         let mut node_ptr = storage.root_trieptr();
@@ -1250,7 +1251,7 @@ impl TrieMerkleProof {
 
     /// Make a merkle proof of inclusion from a path.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_path(storage: &mut TrieFileStorage, path: &TriePath, expected_value: &MARFValue, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+    pub fn from_path<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, path: &TriePath, expected_value: &MARFValue, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
         // accumulate proofs in reverse order -- each proof will be from an earlier and earlier
         // trie, so we'll reverse them in the end so the proof starts with the latest trie.
         let mut segment_proofs = vec![];
@@ -1333,13 +1334,13 @@ impl TrieMerkleProof {
     
     /// Make a merkle proof of inclusion from a key/value pair.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_entry(storage: &mut TrieFileStorage, key: &String, value: &String, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+    pub fn from_entry<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, key: &String, value: &String, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
         let marf_value = MARFValue::from_value(value);
         let path = TriePath::from_key(key);
         TrieMerkleProof::from_path(storage, &path, &marf_value, root_block_header)
     }
 
-    pub fn from_raw_entry(storage: &mut TrieFileStorage, key: &str, value: &MARFValue, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+    pub fn from_raw_entry<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, key: &str, value: &MARFValue, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
         let path = TriePath::from_key(key);
         TrieMerkleProof::from_path(storage, &path, value, root_block_header)
     }

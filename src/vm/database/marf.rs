@@ -146,7 +146,7 @@ impl MarfedKV {
 
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
-            None => StacksBlockId(TrieFileStorage::block_sentinel().0)
+            None => StacksBlockId::sentinel()
         };
 
         Ok( MarfedKV { marf, chain_tip, side_store } )
@@ -165,7 +165,7 @@ impl MarfedKV {
             .unwrap();
         let side_store = SqliteConnection::memory().unwrap();
 
-        let chain_tip = StacksBlockId(TrieFileStorage::block_sentinel().0);
+        let chain_tip =  StacksBlockId::sentinel();
 
         MarfedKV { marf, chain_tip, side_store }
     }
@@ -198,7 +198,7 @@ impl MarfedKV {
     pub fn rollback(&mut self) {
         self.marf.drop_current();
         self.side_store.rollback(&self.chain_tip);
-        self.chain_tip = StacksBlockId(TrieFileStorage::block_sentinel().0);
+        self.chain_tip = StacksBlockId::sentinel();
     }
     #[cfg(test)]
     pub fn test_commit(&mut self) {
@@ -393,7 +393,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         &mut self.side_store
     }
 
-    fn get_block_at_height(&mut self, height: u32) -> Option<BlockHeaderHash> {
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         if height == 0 {
             Some(TrieFileStorage::block_sentinel())
         } else {
@@ -401,8 +401,8 @@ impl ClarityBackingStore for MemoryBackingStore {
         }
     }
 
-    fn get_open_chain_tip(&mut self) -> BlockHeaderHash {
-        TrieFileStorage::block_sentinel()
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        StacksBlockId::sentinel()
     }
 
     fn get_open_chain_tip_height(&mut self) -> u32 {

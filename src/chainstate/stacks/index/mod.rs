@@ -68,6 +68,8 @@ pub trait MarfTrieId: Clone + std::fmt::Display + rusqlite::types::ToSql {
     fn sentinel() -> Self;
 }
 
+pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
+
 impl MarfTrieId for StacksBlockId {
     fn as_bytes(&self) -> &[u8] {
         self.as_ref()
@@ -78,7 +80,7 @@ impl MarfTrieId for StacksBlockId {
     }
 
     fn sentinel() -> StacksBlockId {
-        StacksBlockId(TrieFileStorage::block_sentinel().0)
+        StacksBlockId(SENTINEL_ARRAY.clone())
     }
 }
 
@@ -92,7 +94,7 @@ impl MarfTrieId for BlockHeaderHash {
     }
 
     fn sentinel() -> BlockHeaderHash {
-        TrieFileStorage::block_sentinel()
+        BlockHeaderHash(SENTINEL_ARRAY.clone())
     }
 }
 

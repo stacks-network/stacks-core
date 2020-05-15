@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use util::log;
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::index::storage::{TrieFileStorage};
+use chainstate::stacks::index::{MarfTrieId, storage::{TrieFileStorage}};
 use chainstate::stacks::StacksBlockId;
 
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
@@ -141,7 +141,7 @@ fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
     }
     match hash_opt {
         Some(bhh) => bhh,
-        None => StacksBlockId(TrieFileStorage::block_sentinel().0)
+        None => StacksBlockId::sentinel()
     }
 }
 
