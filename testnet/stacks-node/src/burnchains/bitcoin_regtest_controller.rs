@@ -747,7 +747,8 @@ struct BitcoinRPCRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 enum RPCError {
     Network(String),
-    Parsing(String)
+    Parsing(String),
+    Bitcoind(String),
 }
 
 type RPCResult<T> = Result<T, RPCError>;
@@ -846,7 +847,14 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        BitcoinRPCRequest::send(request_builder, payload)?;
+        let json_resp = BitcoinRPCRequest::send(request_builder, payload)?;
+
+        if let Some(e) = json_resp.get("error") {
+            if !e.is_null() {
+                error!("Error submitting transaction: {}", json_resp);
+                return Err(RPCError::Bitcoind(json_resp.to_string()))
+            }
+        }
         Ok(())
     }
 
@@ -877,10 +885,13 @@ impl BitcoinRPCRequest {
         let result = request_builder.json(&body).send();
         let response = result
             .map_err(|e| RPCError::Network(format!("RPC Error: {}", e)))?;
+        if !response.status().is_success() {
+            return Err(RPCError::Network(
+                format!("RPC response status bad: {}, {:?}",
+                        response.status(), response.text())))
+        }
         let payload = response.json::<serde_json::Value>()
             .map_err(|e| RPCError::Parsing(format!("RPC Error: {}", e)))?;
         Ok(payload)
     }
 }
-
-
