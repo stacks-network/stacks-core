@@ -478,7 +478,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn build_next_block(&self, num_blocks: u64) {
+    pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
@@ -840,7 +840,7 @@ impl BitcoinRPCRequest {
     }
 
     /// Returns the TXID encoded as a hex string on success
-    pub fn send_raw_transaction(request_builder: RequestBuilder, tx: String) -> RPCResult<String> {
+    pub fn send_raw_transaction(request_builder: RequestBuilder, tx: String) -> RPCResult<()> {
         let payload = BitcoinRPCRequest {
             method: "sendrawtransaction".to_string(),
             params: vec![tx.into()],
@@ -850,12 +850,13 @@ impl BitcoinRPCRequest {
 
         let json_resp = BitcoinRPCRequest::send(request_builder, payload)?;
 
-        if let Some(txid_str) = json_resp.as_str() {
-            Ok(txid_str.to_string())
-        } else {
-            error!("Error submitting transaction: {}", json_resp);
-            Err(RPCError::Bitcoind(json_resp.to_string()))
+        if let Some(e) = json_resp.get("error") {
+            if !e.is_null() {
+                error!("Error submitting transaction: {}", json_resp);
+                return Err(RPCError::Bitcoind(json_resp.to_string()))
+            }
         }
+        Ok(())
     }
 
     pub fn import_public_key(request_builder: RequestBuilder, public_key: &Secp256k1PublicKey) -> RPCResult<()> {
@@ -885,6 +886,11 @@ impl BitcoinRPCRequest {
         let result = request_builder.json(&body).send();
         let response = result
             .map_err(|e| RPCError::Network(format!("RPC Error: {}", e)))?;
+        if !response.status().is_success() {
+            return Err(RPCError::Network(
+                format!("RPC response status bad: {}, {:?}",
+                        response.status(), response.text())))
+        }
         let payload = response.json::<serde_json::Value>()
             .map_err(|e| RPCError::Parsing(format!("RPC Error: {}", e)))?;
         Ok(payload)
