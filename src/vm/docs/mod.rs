@@ -404,11 +404,11 @@ or a buffer and another buffer of length 1 and outputs a buffer or a list of the
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list, uint",
     output_type: "(optional buff|list)",
-    signature: "(as-max-len? buffer 10)",
+    signature: "(as-max-len? buffer u10)",
     description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
 or buffer of length M and outputs that same list or buffer, but typed with max length N.
 At runtime, a check is performed, which if it fails, returns a (none) option.",
-    example: "(as-max-len? (list 2 2 2) 3) ;; Returns (some (list 2 2 2))"
+    example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (list 2 2 2))"
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
