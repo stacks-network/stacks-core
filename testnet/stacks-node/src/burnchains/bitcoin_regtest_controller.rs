@@ -851,9 +851,9 @@ impl BitcoinRPCRequest {
         let json_resp = BitcoinRPCRequest::send(request_builder, payload)?;
 
         if let Some(txid_str) = json_resp.as_str() {
-            Ok(txid_str.clone())
+            Ok(txid_str.to_string())
         } else {
-            error!("Error submitting transaction: {}", json_resp)
+            error!("Error submitting transaction: {}", json_resp);
             Err(RPCError::Bitcoind(json_resp.to_string()))
         }
     }
