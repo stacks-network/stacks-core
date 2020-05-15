@@ -747,7 +747,8 @@ struct BitcoinRPCRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 enum RPCError {
     Network(String),
-    Parsing(String)
+    Parsing(String),
+    Bitcoind(String),
 }
 
 type RPCResult<T> = Result<T, RPCError>;
@@ -838,7 +839,8 @@ impl BitcoinRPCRequest {
         Ok(vec![])
     }
 
-    pub fn send_raw_transaction(request_builder: RequestBuilder, tx: String) -> RPCResult<()> {
+    /// Returns the TXID encoded as a hex string on success
+    pub fn send_raw_transaction(request_builder: RequestBuilder, tx: String) -> RPCResult<String> {
         let payload = BitcoinRPCRequest {
             method: "sendrawtransaction".to_string(),
             params: vec![tx.into()],
@@ -846,8 +848,14 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        BitcoinRPCRequest::send(request_builder, payload)?;
-        Ok(())
+        let json_resp = BitcoinRPCRequest::send(request_builder, payload)?;
+
+        if let Some(txid_str) = json_resp.as_str() {
+            Ok(txid_str.clone())
+        } else {
+            error!("Error submitting transaction: {}", json_resp)
+            Err(RPCError::Bitcoind(json_resp.to_string()))
+        }
     }
 
     pub fn import_public_key(request_builder: RequestBuilder, public_key: &Secp256k1PublicKey) -> RPCResult<()> {
@@ -882,5 +890,3 @@ impl BitcoinRPCRequest {
         Ok(payload)
     }
 }
-
-
