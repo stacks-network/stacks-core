@@ -1180,6 +1180,19 @@ one of the following error codes:
 "
 };
 
+const STX_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(stx-balance? owner)",
+    description: "`stx-balance?` is used to query the STX balance for the `owner` principal.
+
+This function returns the owner's STX balance as (ok uint) if the owner principal exists. In the event of an
+that it doesn't exist, it returns (err u1).
+",
+    example: "
+(stx-balance? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns (ok 100)
+"
+};
+
 const STX_TRANSFER: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-transfer? amount sender recipient)",
@@ -1290,6 +1303,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
+        StxBalance => make_for_simple_native(&STX_BALANCE, &StxBalance, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }

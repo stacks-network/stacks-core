@@ -190,7 +190,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 };
                 res
             },
-            StxTransfer | StxBurn |
+            StxBalance | StxTransfer | StxBurn |
             SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset | TransferToken => {
                 Ok(false)
             },
