@@ -221,12 +221,12 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
 
     // test 7: check balance is 0 for nonexistent principal
 
-    let standard_data = PrincipalData::parse_standard_principal("SPZG6BAY4JVR9RNAB1HY92B7Q208ZYY4HZEA9PX5").unwrap();
-    let p4 = Value::Principal(PrincipalData::Standard(standard_data));
+    let sp_data = PrincipalData::parse_standard_principal("SPZG6BAY4JVR9RNAB1HY92B7Q208ZYY4HZEA9PX5").unwrap();
+    let nonexistent_principal = Value::Principal(PrincipalData::Standard(sp_data));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env, p4.clone(), &token_contract_id, "balance-stx",
-        &symbols_from_values(vec![p4.clone()])).unwrap();
+        owned_env, p2.clone(), &token_contract_id, "balance-stx",
+        &symbols_from_values(vec![nonexistent_principal.clone()])).unwrap();
 
     assert_eq!(result, Value::UInt(0));
 
@@ -276,12 +276,12 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
 
     // now check contract balance with stx-get-balance
 
-    let contract_data = PrincipalData::parse_qualified_contract_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens").unwrap();
-    let p5 = Value::Principal(contract_data);
+    let cp_data = PrincipalData::parse_qualified_contract_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens").unwrap();
+    let contract_principal = Value::Principal(cp_data);
 
     let (result, _asset_map, _events) = execute_transaction(
         owned_env, p2.clone(), &token_contract_id, "balance-stx",
-        &symbols_from_values(vec![p5.clone()])).unwrap();
+        &symbols_from_values(vec![contract_principal.clone()])).unwrap();
 
     assert_eq!(result, Value::UInt(10));
 
