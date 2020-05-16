@@ -357,7 +357,7 @@ impl TypedNativeFunction {
                                          ClarityName::try_from("owner".to_owned())
                                          .expect("FAIL: ClarityName failed to accept default arg name")),
                     ],
-                    returns: TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType).unwrap() }))),
+                    returns: TypeSignature::UIntType }))),
             StxTransfer =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![

@@ -31,7 +31,7 @@ pub fn special_stx_balance(args: &[SymbolicExpression],
 
     if let Value::Principal(ref principal) = owner {
         let balance = env.global_context.database.get_account_stx_balance(&principal);
-        Value::okay(Value::UInt(balance))
+        Ok(Value::UInt(balance))
     } else {
         Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
     }

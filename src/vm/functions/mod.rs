@@ -84,7 +84,7 @@ define_named_enum!(NativeFunctions {
     TransferAsset("nft-transfer?"),
     MintAsset("nft-mint?"),
     MintToken("ft-mint?"),
-    GetStxBalance("stx-get-balance?"),
+    GetStxBalance("stx-get-balance"),
     StxTransfer("stx-transfer?"),
     StxBurn("stx-burn?"),
 });

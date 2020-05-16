@@ -106,7 +106,7 @@ fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_ident
 fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     let contract = "(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
                     (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))
-                    (define-public (balance-stx (p principal)) (stx-get-balance? p))
+                    (define-read-only (balance-stx (p principal)) (stx-get-balance p))
                     (define-public (to-contract (amount uint) (p principal))
                       (let ((contract-principal (as-contract tx-sender)))
                         (stx-transfer? amount p contract-principal)))
@@ -217,13 +217,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         owned_env, p2.clone(), &token_contract_id, "balance-stx",
         &symbols_from_values(vec![p2.clone()])).unwrap();
 
-    let balance = match result {
-        Value::Response(ref data) => data.data.clone(),
-        // Set value equal to 0 if result isn't a Response. This should be impossible...
-        _ => Box::new(Value::UInt(0)),
-    };
-
-    assert_eq!(*balance, Value::UInt(1000));
+    assert_eq!(result, Value::UInt(1000));
 
     // test 7: check balance is 0 for nonexistent principal
 
@@ -234,13 +228,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         owned_env, p4.clone(), &token_contract_id, "balance-stx",
         &symbols_from_values(vec![p4.clone()])).unwrap();
 
-    let balance = match result {
-        Value::Response(ref data) => data.data.clone(),
-        // Set value equal to 0 if result isn't a Response. This should be impossible...
-        _ => Box::new(Value::UInt(0)),
-    };
-
-    assert_eq!(*balance, Value::UInt(0));
+    assert_eq!(result, Value::UInt(0));
 
     // now, let's actually do a couple transfers/burns and check the asset maps.
 
