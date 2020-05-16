@@ -106,7 +106,7 @@ fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_ident
 fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     let contract = "(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
                     (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))
-                    (define-public (balance-stx (p principal)) (stx-balance? p))
+                    (define-public (balance-stx (p principal)) (stx-get-balance? p))
                     (define-public (to-contract (amount uint) (p principal))
                       (let ((contract-principal (as-contract tx-sender)))
                         (stx-transfer? amount p contract-principal)))

@@ -350,7 +350,7 @@ impl TypedNativeFunction {
                          TypeSignature::UIntType,
                          TypeSignature::IntType],
                     BUFF_32.clone()))),
-            StxBalance => 
+            GetStxBalance => 
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![
                         FunctionArg::new(TypeSignature::PrincipalType,
