@@ -274,6 +274,18 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
                .get(&AssetIdentifier::STX()).unwrap(),
                &AssetMapEntry::STX(10));
 
+    // now check contract balance with stx-get-balance
+
+    let contract_data = PrincipalData::parse_qualified_contract_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens").unwrap();
+    let p5 = Value::Principal(contract_data);
+
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "balance-stx",
+        &symbols_from_values(vec![p5.clone()])).unwrap();
+
+    assert_eq!(result, Value::UInt(10));
+
+
     // now let's do a contract -> user transfer
 
     let (result, asset_map, _events) = execute_transaction(
