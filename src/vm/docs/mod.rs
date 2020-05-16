@@ -1183,9 +1183,9 @@ one of the following error codes:
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-get-balance owner)",
-    description: "`stx-get-balance` is used to query the STX balance for the `owner` principal.
+    description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
 
-This function returns the STX balance at the `owner` principal. In the event
+This function returns the STX balance of the `owner` principal. In the event
 that the `owner` principal doesn't exist, it returns 0.
 ",
     example: "
