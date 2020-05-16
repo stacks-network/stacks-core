@@ -136,8 +136,9 @@ fn test_impl_trait(){
 #[test]
 fn test_stx_ops(){
     let good = ["(stx-burn? u10 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
-                "(stx-transfer? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"];
-    let expected = [ "(response bool uint)", "(response bool uint)" ];
+                "(stx-transfer? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
+                "(stx-get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"];
+    let expected = [ "(response bool uint)", "(response bool uint)", "uint" ];
 
     let bad = [
         "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
@@ -148,6 +149,8 @@ fn test_stx_ops(){
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-burn? u4 true)",
         "(stx-burn? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-get-balance true)",
+        "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
     ];
     let bad_expected = [ CheckErrors::IncorrectArgumentCount(3,2),
                          CheckErrors::TypeError(UIntType, IntType),
@@ -156,7 +159,9 @@ fn test_stx_ops(){
                          CheckErrors::IncorrectArgumentCount(2,1),
                          CheckErrors::TypeError(UIntType, IntType),
                          CheckErrors::TypeError(PrincipalType, BoolType),
-                         CheckErrors::IncorrectArgumentCount(2,3) ];
+                         CheckErrors::IncorrectArgumentCount(2,3),
+                         CheckErrors::TypeError(PrincipalType, BoolType),
+                         CheckErrors::IncorrectArgumentCount(1,2) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
