@@ -1180,16 +1180,16 @@ one of the following error codes:
 "
 };
 
-const STX_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
+const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(stx-balance? owner)",
-    description: "`stx-balance?` is used to query the STX balance for the `owner` principal.
+    signature: "(stx-get-balance owner)",
+    description: "`stx-get-balance` is used to query the STX balance for the `owner` principal.
 
-This function returns the owner's STX balance as (ok uint) if the owner principal exists. In the event of an
-that it doesn't exist, it returns (err u1).
+This function returns the STX balance at the `owner` principal. In the event
+that the `owner` principal doesn't exist, it returns 0.
 ",
     example: "
-(stx-balance? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns (ok 100)
+(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns 100
 "
 };
 
@@ -1303,7 +1303,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
-        StxBalance => make_for_simple_native(&STX_BALANCE, &StxBalance, name),
+        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
