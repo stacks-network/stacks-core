@@ -334,6 +334,7 @@ pub struct ConnectionOptions {
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
     pub walk_interval: u64,
+    pub walk_inbound_ratio: u64,
     pub inv_sync_interval: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,
@@ -363,7 +364,7 @@ impl std::default::Default for ConnectionOptions {
             inbox_maxlen: 5,
             outbox_maxlen: 5,
             connect_timeout: 10,            // how long a socket can be in a connecting state
-            handshake_timeout: 10,          // how long before a peer must send a handshake, after connecting
+            handshake_timeout: 30,          // how long before a peer must send a handshake, after connecting
             timeout: 30,                    // how long to wait for a reply to a request
             idle_timeout: 15,               // how long a non-request HTTP connection can be idle before it's closed
             heartbeat: 3600,                // send a heartbeat once an hour by default
@@ -377,9 +378,10 @@ impl std::default::Default for ConnectionOptions {
             soft_max_neighbors_per_host: 10,     // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them,
-            walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk.  Note that this should be _smaller_ than inv_sync_interval
+            walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk.
+            walk_inbound_ratio: 2,                              // walk inbound neighbors twice as often as outbound by default
             inv_sync_interval: INV_SYNC_INTERVAL,               // how often to synchronize block inventories
-            download_interval: BLOCK_DOWNLOAD_INTERVAL,         // how often to synchronize blocks
+            download_interval: BLOCK_DOWNLOAD_INTERVAL,         // how often to scan for blocks to download
             pingback_timeout: 60,
             dns_timeout: 15_000,            // DNS timeout, in millis
             max_inflight_blocks: 6,         // number of parallel block downloads
