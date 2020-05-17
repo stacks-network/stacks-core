@@ -1185,8 +1185,8 @@ const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(stx-get-balance owner)",
     description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
 
-This function returns the STX balance of the `owner` principal. In the event
-that the `owner` principal doesn't exist, it returns 0.
+This function returns the STX balance of the `owner` principal. In the event that the `owner`
+principal isn't materialized, it returns 0.
 ",
     example: "
 (stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns 100
