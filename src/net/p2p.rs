@@ -1384,18 +1384,18 @@ impl PeerNetwork {
         }
         
         for (event_id, convo) in self.peers.iter() {
-            if convo.stats.last_handshake_time > 0 {
+            if convo.is_authenticated() {
                 // have handshaked with this remote peer
                 if convo.stats.last_contact_time + (convo.peer_heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
                     // we haven't heard from this peer in too long a time 
-                    debug!("{:?}: Disconnect unresponsive authenticated peer {:?}", &self.local_peer, &convo);
+                    debug!("{:?}: Disconnect unresponsive authenticated peer {:?}: {} + {} + {} < {}", &self.local_peer, &convo, convo.stats.last_contact_time, convo.peer_heartbeat, NEIGHBOR_REQUEST_TIMEOUT, now);
                     to_remove.push(*event_id);
                 }
             }
             else {
                 // have not handshaked with this remote peer
                 if convo.instantiated + self.connection_opts.handshake_timeout < now {
-                    debug!("{:?}: Disconnect unresponsive unauthenticated peer {:?}", &self.local_peer, &convo);
+                    debug!("{:?}: Disconnect unresponsive unauthenticated peer {:?}: {} + {} < {}", &self.local_peer, &convo, convo.instantiated, self.connection_opts.handshake_timeout, now);
                     to_remove.push(*event_id);
                 }
             }
@@ -2053,7 +2053,7 @@ impl PeerNetwork {
                         continue;
                     }
 
-                    debug!("{:?}: will ping back {:?} to see if it's routable from us", &self.local_peer, &nk);
+                    debug!("{:?}: will ping back {:?} ({:?}) to see if it's routable from us", &self.local_peer, &nk, convo);
                     self.walk_pingbacks.insert(addr, NeighborPingback { 
                         peer_version: nk.peer_version,
                         network_id: nk.network_id,
