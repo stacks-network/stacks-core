@@ -124,7 +124,7 @@ impl HttpPeer {
         }
 
         let sock = NetworkState::connect(&addr)?;
-        let hint_event_id = network_state.next_event_id();
+        let hint_event_id = network_state.next_event_id()?;
         let next_event_id = network_state.register(self.http_server_handle, hint_event_id, &sock)?;
 
         self.connecting.insert(next_event_id, (sock, Some(data_url), request, get_epoch_time_secs()));

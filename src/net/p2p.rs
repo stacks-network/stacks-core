@@ -601,7 +601,7 @@ impl PeerNetwork {
             },
             Some(ref mut network) => {
                 let sock = NetworkState::connect(&neighbor.addrbytes.to_socketaddr(neighbor.port))?;
-                let hint_event_id = network.next_event_id();
+                let hint_event_id = network.next_event_id()?;
                 let registered_event_id = network.register(self.p2p_network_handle, hint_event_id, &sock)?;
 
                 self.connecting.insert(registered_event_id, (sock, true, get_epoch_time_secs()));
