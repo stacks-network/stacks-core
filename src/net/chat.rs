@@ -840,7 +840,7 @@ impl ConversationP2P {
         if updated {
             // save the new key
             let mut tx = peerdb.tx_begin().map_err(net_error::DBError)?;
-            let neighbor = Neighbor::from_handshake(&mut tx, message.preamble.peer_version, message.preamble.network_id, &handshake_data)?;
+            let mut neighbor = Neighbor::from_handshake(&mut tx, message.preamble.peer_version, message.preamble.network_id, &handshake_data)?;
             neighbor.save_update(&mut tx)?;
             tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
             
@@ -849,6 +849,10 @@ impl ConversationP2P {
 
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
         let accept = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, StacksMessageType::HandshakeAccept(accept_data));
+
+        // update stats
+        self.stats.last_contact_time = get_epoch_time_secs();
+        self.peer_heartbeat = self.heartbeat;       // use our own heartbeat to determine how often we expect this peer to ping us, since that's what we've told the peer
 
         // always pass back handshakes, even though we "handled" them (since other processes --
         // in particular, the neighbor-walk logic -- need to receive them)
