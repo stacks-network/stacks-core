@@ -1242,6 +1242,15 @@ impl fmt::Debug for NeighborKey {
 }
 
 impl NeighborKey {
+    pub fn empty() -> NeighborKey {
+        NeighborKey {
+            peer_version: 0,
+            network_id: 0,
+            addrbytes: PeerAddress([0u8; 16]),
+            port: 0
+        }
+    }
+
     pub fn from_neighbor_address(peer_version: u32, network_id: u32, na: &NeighborAddress) -> NeighborKey {
         NeighborKey {
             peer_version: peer_version,
@@ -1260,7 +1269,7 @@ pub struct Neighbor {
     // fields below this can change at runtime
     pub public_key: Secp256k1PublicKey,
     pub expire_block: u64,
-    pub last_contact_time: u64,
+    pub last_contact_time: u64,     // time when we last authenticated with this peer via a Handshake
     
     pub whitelisted: i64,       // whitelist deadline (negative == "forever")
     pub blacklisted: i64,       // blacklist deadline (negative == "forever")
