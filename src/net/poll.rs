@@ -332,7 +332,16 @@ impl NetworkState {
 
                         // this does the same thing as next_event_id(), but we can't borrow self
                         // mutably here (so we'll just do the increment-mod directly).
-                        let next_event_id = self.make_next_event_id(self.count, &new_events)?;
+                        let next_event_id = match self.make_next_event_id(self.count, &new_events) {
+                            Ok(eid) => eid,
+                            Err(_e) => {
+                                // no poll slots available. Close the socket and carry on.
+                                info!("Too many peers, closing {:?}", &_client_addr);
+                                let _ = client_sock.shutdown(Shutdown::Both);
+                                continue;
+                            }
+                        };
+
                         self.count = (next_event_id + 1) % self.event_capacity;
 
                         new_events.insert(next_event_id);
