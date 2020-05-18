@@ -408,7 +408,7 @@ const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
 or buffer of length M and outputs that same list or buffer, but typed with max length N.
 
-This function returns an optional type with the resulting iterable. If the inputt iterable is less than
+This function returns an optional type with the resulting iterable. If the input iterable is less than
 or equal to the supplied max-len, it returns `(some <iterable>)`, otherwise it returns `none`.",
     example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (list 2 2 2))
 (as-max-len? (list 1 2 3) u2) ;; Returns none"
