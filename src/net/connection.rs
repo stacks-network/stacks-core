@@ -341,6 +341,7 @@ pub struct ConnectionOptions {
     pub max_block_push_bandwidth: u64,
     pub max_microblocks_push_bandwidth: u64,
     pub max_transaction_push_bandwidth: u64,
+    pub max_sockets: usize,
     
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -382,6 +383,7 @@ impl std::default::Default for ConnectionOptions {
             max_block_push_bandwidth: 0,    // infinite upload bandwidth allowed
             max_microblocks_push_bandwidth: 0,     // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0,      // infinite upload bandwidth allowed
+            max_sockets: 800,               // maximum number of client sockets we'll ever register
 
             // no faults on by default
             disable_neighbor_walk: false,

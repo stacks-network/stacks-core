@@ -372,7 +372,7 @@ impl PeerNetwork {
 
     /// start serving.
     pub fn bind(&mut self, my_addr: &SocketAddr, http_addr: &SocketAddr) -> Result<(), net_error> {
-        let mut net = NetworkState::new(800)?;
+        let mut net = NetworkState::new(self.connection_opts.max_sockets)?;
 
         let p2p_handle = net.bind(my_addr)?;
         let http_handle = net.bind(http_addr)?;
@@ -597,7 +597,7 @@ impl PeerNetwork {
             },
             Some(ref mut network) => {
                 let sock = NetworkState::connect(&neighbor.addrbytes.to_socketaddr(neighbor.port))?;
-                let hint_event_id = network.next_event_id();
+                let hint_event_id = network.next_event_id()?;
                 let registered_event_id = network.register(self.p2p_network_handle, hint_event_id, &sock)?;
 
                 self.connecting.insert(registered_event_id, (sock, true, get_epoch_time_secs()));
