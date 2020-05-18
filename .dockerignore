@@ -4,7 +4,6 @@ integration_tests/blockstack-consensus-data/
 integration_tests/test-out/
 api/data
 .venv
-.git
 .dockerignore
 testnet/index.html
 testnet.log

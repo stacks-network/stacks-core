@@ -53,6 +53,10 @@ use rusqlite::Connection;
 use rusqlite::types::ToSql;
 use rusqlite::OpenFlags;
 
+
+// set via _compile-time_ envar
+const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
+
 fn main() {
 
     log::set_loglevel(log::LOG_INFO).unwrap();
@@ -61,6 +65,15 @@ fn main() {
     if argv.len() < 2 {
         eprintln!("Usage: {} command [args...]", argv[0]);
         process::exit(1);
+    }
+
+    if argv[1] == "--version" {
+        if let Some(commit) = GIT_COMMIT {
+            println!("Compiled with git hash: {}", commit);
+        } else {
+            println!("Compiled without version information")
+        }
+        process::exit(0);
     }
 
     if argv[1] == "decode-bitcoin-header" {

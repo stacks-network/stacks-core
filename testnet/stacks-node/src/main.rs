@@ -29,6 +29,9 @@ pub use self::run_loop::{neon, helium};
 
 use pico_args::Arguments;
 use std::env;
+
+// set via _compile-time_ envar
+const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
     
 fn main() {
 
@@ -120,6 +123,11 @@ help\t\tDisplay this help.
 
 fn print_version() {
     println!("2020-04-23");
+    if let Some(commit) = GIT_COMMIT {
+        println!("Compiled with git hash: {}", commit);
+    } else {
+        println!("Compiled without version information")
+    }
 }
 
 #[cfg(test)]
