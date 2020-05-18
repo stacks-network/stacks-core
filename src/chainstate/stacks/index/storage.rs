@@ -123,11 +123,13 @@ trait NodeHashReader {
 }
 
 impl <T: MarfTrieId> BlockMap for TrieFileStorage<T> {
-    fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error> {
+    type TrieId = T;
+
+    fn get_block_hash(&self, id: u32) -> Result<T, Error> {
         trie_sql::get_block_hash(&self.db, id)
     }
 
-    fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error> {
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         if !self.block_hash_cache.contains_key(&id) {
             self.block_hash_cache.insert(id, self.get_block_hash(id)?);
         }
@@ -135,12 +137,14 @@ impl <T: MarfTrieId> BlockMap for TrieFileStorage<T> {
     }
 }
 
-impl BlockMap for TrieSqlHashMapCursor<'_> {
-    fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error> {
+impl <T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
+    type TrieId = T;
+
+    fn get_block_hash(&self, id: u32) -> Result<T, Error> {
         trie_sql::get_block_hash(&self.db, id)
     }
 
-    fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error> {
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         if !self.cache.contains_key(&id) {
             self.cache.insert(id, self.get_block_hash(id)?);
         }
@@ -166,9 +170,9 @@ impl <T: MarfTrieId> fmt::Display for FlushOptions <'_, T> {
 
 /// In-RAM trie storage.
 /// Used by TrieFileStorage to buffer the next trie being built.
-pub struct TrieRAM {
+pub struct TrieRAM <T: MarfTrieId> {
     data: Vec<(TrieNodeType, TrieHash)>,
-    block_header: BlockHeaderHash,
+    block_header: T,
     readonly: bool,
 
     read_count: u64,
@@ -182,12 +186,12 @@ pub struct TrieRAM {
 
     total_bytes: usize,
 
-    parent: BlockHeaderHash
+    parent: T
 }
 
 // Trie in RAM without the serialization overhead
-impl TrieRAM {
-    pub fn new(block_header: &BlockHeaderHash, capacity_hint: usize, parent: &BlockHeaderHash) -> TrieRAM {
+impl <T: MarfTrieId> TrieRAM <T> {
+    pub fn new(block_header: &T, capacity_hint: usize, parent: &T) -> TrieRAM<T> {
         TrieRAM {
             data: Vec::with_capacity(capacity_hint),
             block_header: block_header.clone(),
@@ -337,7 +341,7 @@ impl TrieRAM {
     }
 
     /// Dump ourself to f
-    pub fn dump<F: Write + Seek>(&mut self, f: &mut F, bhh: &BlockHeaderHash) -> Result<u64, Error> {
+    pub fn dump<F: Write + Seek>(&mut self, f: &mut F, bhh: &T) -> Result<u64, Error> {
         if self.block_header == *bhh {
             let (root, hash) = self.read_nodetype(&TriePtr::new(TrieNodeID::Node256 as u8, 0, 0))?;
             self.dump_traverse(f, &root, &hash)
@@ -436,7 +440,7 @@ impl TrieRAM {
     }
 }
 
-impl NodeHashReader for TrieRAM {
+impl <T: MarfTrieId> NodeHashReader for TrieRAM <T> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
         let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize)
             .ok_or_else(|| {
@@ -453,9 +457,9 @@ pub struct TrieSqlCursor <'a> {
     block_id: u32
 }
 
-pub struct TrieSqlHashMapCursor <'a> {
+pub struct TrieSqlHashMapCursor <'a, T: MarfTrieId> {
     db: &'a Connection,
-    cache: &'a mut HashMap<u32, BlockHeaderHash>
+    cache: &'a mut HashMap<u32, T>
 }
 
 impl NodeHashReader for TrieSqlCursor<'_> {
@@ -470,7 +474,7 @@ impl NodeHashReader for TrieSqlCursor<'_> {
 pub struct TrieFileStorage <T: MarfTrieId> {
     pub dir_path: String,
 
-    last_extended: Option<(T, TrieRAM)>,
+    last_extended: Option<(T, TrieRAM<T>)>,
 
     db: Connection,
     cur_block: T,
@@ -585,7 +589,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         Ok(ret)
     }
 
-    pub fn set_miner_tip(&mut self, miner_tip: BlockHeaderHash) {
+    pub fn set_miner_tip(&mut self, miner_tip: T) {
         if self.readonly {
             panic!("Tried to set miner tip on read-only storage");
         }
@@ -596,11 +600,11 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         self.miner_tip.clone()
     }
 
-    pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash, bytes: Vec<TrieHash>) {
+    pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &T, bytes: Vec<TrieHash>) {
         self.trie_ancestor_hash_bytes_cache = Some((bhh.clone(), bytes));
     }
 
-    pub fn check_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash) -> Option<Vec<TrieHash>> {
+    pub fn check_cached_ancestor_hashes_bytes(&mut self, bhh: &T) -> Option<Vec<TrieHash>> {
         if let Some((ref cached_bhh, ref cached_bytes)) = self.trie_ancestor_hash_bytes_cache {
             if cached_bhh == bhh {
                 return Some(cached_bytes.clone())
@@ -696,7 +700,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     }
 
     /// Extend the forest of Tries to include a new block.
-    pub fn extend_to_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn extend_to_block(&mut self, bhh: &T) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -730,7 +734,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     // used for providing a option<block identifier> when re-opening a block --
     //   because the previously open block may have been the last_extended block,
     //   id may have been None.
-    pub fn open_block_maybe_id(&mut self, bhh: &BlockHeaderHash, id: Option<u32>) -> Result<(), Error> {
+    pub fn open_block_maybe_id(&mut self, bhh: &T, id: Option<u32>) -> Result<(), Error> {
         match id {
             Some(id) => self.open_block_known_id(bhh, id),
             None => self.open_block(bhh)
@@ -739,7 +743,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
 
     // used for providing a block identifier when opening a block -- usually used
     //   when following a backptr, which stores the block identifier directly.
-    pub fn open_block_known_id(&mut self, bhh: &BlockHeaderHash, id: u32) -> Result<(), Error> {
+    pub fn open_block_known_id(&mut self, bhh: &T, id: u32) -> Result<(), Error> {
         if *bhh == self.cur_block && self.cur_block_id.is_some() {
             // no-op
             return Ok(())
@@ -758,7 +762,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         Ok(())
     }
 
-    pub fn open_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn open_block(&mut self, bhh: &T) -> Result<(), Error> {
         if *bhh == self.cur_block && self.cur_block_id.is_some() {
             // no-op
             return Ok(())
@@ -791,7 +795,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         Ok(())
     }
 
-    pub fn get_block_identifier(&self, bhh: &BlockHeaderHash) -> Option<u32> {
+    pub fn get_block_identifier(&self, bhh: &T) -> Option<u32> {
         trie_sql::get_block_identifier(&self.db, bhh).ok()
     }
 
@@ -807,15 +811,15 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         })
     }
     
-    pub fn get_cur_block(&self) -> BlockHeaderHash {
+    pub fn get_cur_block(&self) -> T {
         self.cur_block.clone()
     }
 
-    pub fn get_cur_block_and_id(&self) -> (BlockHeaderHash, Option<u32>) {
+    pub fn get_cur_block_and_id(&self) -> (T, Option<u32>) {
         (self.cur_block.clone(), self.cur_block_id.clone())
     }
 
-    pub fn get_block_from_local_id(&mut self, local_id: u32) -> Result<&BlockHeaderHash, Error> {
+    pub fn get_block_from_local_id(&mut self, local_id: u32) -> Result<&T, Error> {
         self.get_block_hash_caching(local_id)
     }
 
@@ -826,7 +830,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             }
         }
 
-        TrieFileStorage::root_ptr_disk()
+        TrieFileStorage::<T>::root_ptr_disk()
     }
 
     pub fn root_trieptr(&self) -> TriePtr {
@@ -893,7 +897,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         if let Some((ref last_extended, ref mut last_extended_trie)) = self.last_extended {
             if &self.cur_block == last_extended {
                 let hash_reader = last_extended_trie;
-                return TrieFileStorage::inner_write_children_hashes(hash_reader, &mut map, node, w)
+                return TrieFileStorage::<T>::inner_write_children_hashes(hash_reader, &mut map, node, w)
             }
         }
 
@@ -904,7 +908,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
                                              Error::NotFoundError
                                          })? };
 
-        TrieFileStorage::inner_write_children_hashes(&mut cursor, &mut map, node, w)
+        TrieFileStorage::<T>::inner_write_children_hashes(&mut cursor, &mut map, node, w)
     }
 
     fn inner_write_children_hashes<W: Write, H: NodeHashReader, M: BlockMap>(

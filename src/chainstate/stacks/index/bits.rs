@@ -232,7 +232,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
 }
 
 #[inline]
-pub fn get_nodetype_hash_bytes<M: BlockMap>(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &mut M) -> TrieHash {
+pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &mut M) -> TrieHash {
     match node {
         TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
         TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),

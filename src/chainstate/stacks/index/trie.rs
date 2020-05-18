@@ -126,7 +126,7 @@ impl Trie {
     /// Returns None if we either didn't find the node, or we're out of path, or we're at a leaf.
     /// NOTE: This only works if we're walking a Trie, not a MARF.  Returns Ok(None) if a
     /// back-pointer is found.
-    pub fn walk_from<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, node: &TrieNodeType, cursor: &mut TrieCursor) -> Result<Option<(TriePtr, TrieNodeType, TrieHash)>, Error> {
+    pub fn walk_from<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, node: &TrieNodeType, cursor: &mut TrieCursor<T>) -> Result<Option<(TriePtr, TrieNodeType, TrieHash)>, Error> {
         match cursor.walk(node, &storage.get_cur_block()) {
             Ok(ptr_opt) => {
                 match ptr_opt {
@@ -158,7 +158,7 @@ impl Trie {
     ///
     /// Either way, return the node, its hash, and the ptr to the node in the block in which it was
     /// found (it will _not_ be a back-pointer).
-    pub fn walk_backptr<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, ptr: &TriePtr, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr), Error> {
+    pub fn walk_backptr<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, ptr: &TriePtr, cursor: &mut TrieCursor<T>) -> Result<(TrieNodeType, TrieHash, TriePtr), Error> {
         if !is_backptr(ptr.id()) {
             // child is in this block
             if ptr.id() == (TrieNodeID::Empty as u8) {
@@ -200,7 +200,7 @@ impl Trie {
 
     /// Given an existing leaf, replace it with the new leaf.
     /// c must point to the node to replace.
-    fn replace_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
+    fn replace_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor<T>, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
         let (cur_leaf, _) = storage.read_nodetype(&cursor.ptr())?;
         if !cur_leaf.is_leaf() {
             return Err(Error::CorruptionError(format!("Not a leaf: {:?}", &cursor.ptr())));
@@ -220,7 +220,7 @@ impl Trie {
     /// Append a leaf to the trie, and return the TriePtr to it.
     /// Do lazy expansion -- have the leaf store the trailing path to it.
     /// Return the TriePtr to the newly-written leaf
-    fn append_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
+    fn append_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor<T>, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
         assert!(cursor.chr().is_some());
 
         let ptr = storage.last_ptr()?;
@@ -254,7 +254,7 @@ impl Trie {
     ///                         \
     ///                          [99]leaf[887766]=98765
     ///
-    fn promote_leaf_to_node4<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor, cur_leaf_data: &mut TrieLeaf, new_leaf_data: &mut TrieLeaf) -> Result<TriePtr, Error> {
+    fn promote_leaf_to_node4<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor<T>, cur_leaf_data: &mut TrieLeaf, new_leaf_data: &mut TrieLeaf) -> Result<TriePtr, Error> {
         // can only work if we're not at the end of the path, and the current node has a path
         assert!(!cursor.eop());
         assert!(cur_leaf_data.path.len() > 0);
@@ -353,7 +353,7 @@ impl Trie {
     ///                         \
     ///                          [99]leaf[path=887766]=123456
     /// ```
-    fn try_attach_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<Option<TriePtr>, Error> {
+    fn try_attach_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor<T>, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<Option<TriePtr>, Error> {
         // can only do this if we're at the end of the node's path
         if !cursor.eonp(node) {
             // nope
@@ -388,7 +388,7 @@ impl Trie {
     /// storage implementation, which will be garbage-collected and dumped to disk once we finish
     /// all the block's inserts and call the TrieRAM's containing TrieFileStorage instance's
     /// flush() method).
-    fn insert_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<TriePtr, Error> {
+    fn insert_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor<T>, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<TriePtr, Error> {
         // can only do this if we're at the end of the node's path
         assert!(cursor.eonp(node));
 
@@ -458,7 +458,7 @@ impl Trie {
     /// (if nodeX was the root, then there is no parent, and the resulting node will be a node256
     /// instead of a node4).
     ///
-    fn splice_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<TriePtr, Error> {
+    fn splice_leaf<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor<T>, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<TriePtr, Error> {
         assert!(!cursor.eop());
         assert!(!cursor.eonp(node));
         assert!(cursor.chr().is_some());
@@ -522,7 +522,7 @@ impl Trie {
 
     /// Add a new value to the Trie at the location pointed at by the cursor.
     /// Returns a ptr to be inserted into the last node visited by the cursor.
-    pub fn add_value<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
+    pub fn add_value<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &mut TrieCursor<T>, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
         let mut node = match cursor.node() {
             Some(n) => n,
             None => panic!("Cursor is uninitialized")
@@ -589,8 +589,8 @@ impl Trie {
 
             let ancestor_hash = storage.read_node_hash_bytes(&root_ptr)?;
 
-            trace!("Include root hash {:?} from block {:?} in ancestor #{}", 
-                   &to_hex(ancestor_hash.as_ref()), prev_block_header, 1u32 << log_depth);
+            trace!("Include root hash {} from block {} in ancestor #{}", 
+                   ancestor_hash, prev_block_header, 1u32 << log_depth);
 
             hash_buf.push(ancestor_hash);
 
@@ -645,7 +645,7 @@ impl Trie {
     /// The root hashes of each trie form a Merkle skip-list -- the hash of Trie i is calculated
     /// from the hash of its children, plus the hash Tries i-1, i-2, i-4, i-8, ..., i-2**j, ...
     /// This is required for Merkle proofs to work (specifically, the shunt proofs).
-    fn recalculate_root_hash<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &TrieCursor, update_skiplist: bool) -> Result<(), Error> {
+    fn recalculate_root_hash<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &TrieCursor<T>, update_skiplist: bool) -> Result<(), Error> {
         assert!(cursor.node_ptrs.len() > 0);
 
         let mut ptrs = cursor.node_ptrs.clone();
@@ -682,7 +682,7 @@ impl Trie {
                 let node_hash = my_hash.clone();
                 let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)
                     .and_then(|_hs| {
-                        trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs[1..].to_vec(), &h);
+                        trace!("update_root_hash: Updated {:?} with {:?} from {} to {} + {:?} = {} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs[1..].to_vec(), &h);
                         Ok(())
                     });
             }
@@ -763,11 +763,11 @@ impl Trie {
         Ok(())
     }
     
-    pub fn update_root_hash<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &TrieCursor) -> Result<(), Error> {
+    pub fn update_root_hash<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &TrieCursor<T>) -> Result<(), Error> {
         Trie::recalculate_root_hash(storage, cursor, true)
     }
     
-    pub fn update_root_node_hash<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &TrieCursor) -> Result<(), Error> {
+    pub fn update_root_node_hash<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, cursor: &TrieCursor<T>) -> Result<(), Error> {
         Trie::recalculate_root_hash(storage, cursor, false)
     }
 }

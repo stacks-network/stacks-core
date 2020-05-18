@@ -113,7 +113,7 @@ impl <T: MarfTrieId> MARF <T> {
     }
 
     // helper method for walking a node's backpr
-    fn walk_backptr(storage: &mut TrieFileStorage<T>, start_node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, u32), Error> {
+    fn walk_backptr(storage: &mut TrieFileStorage<T>, start_node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor<T>) -> Result<(TrieNodeType, TrieHash, TriePtr, u32), Error> {
         if start_node.is_leaf() {
             panic!("Did not get an intermediate node");
         }
@@ -163,7 +163,7 @@ impl <T: MarfTrieId> MARF <T> {
     /// Given a node, and the chr of one of its children, go find the last instance of that child in
     /// the MARF and copy it forward.  Update its ptrs to point to its descendents.
     /// s must point to the block hash in which this node lives, to which the child will be copied.
-    fn node_child_copy(storage: &mut TrieFileStorage<T>, node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, BlockHeaderHash), Error> {
+    fn node_child_copy(storage: &mut TrieFileStorage<T>, node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor<T>) -> Result<(TrieNodeType, TrieHash, TriePtr, BlockHeaderHash), Error> {
         trace!("Copy to {:?} child {:x} of {:?}", storage.get_cur_block(), chr, node);
 
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
@@ -253,7 +253,7 @@ impl <T: MarfTrieId> MARF <T> {
     /// Walk down this MARF at the given block hash, doing a copy-on-write for intermediate nodes in this block's Trie from any prior Tries.
     /// s must point to the last filled-in Trie -- i.e. block_hash points to the _new_ Trie that is
     /// being filled in.
-    fn walk_cow(storage: &mut TrieFileStorage<T>, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<TrieCursor, Error> {
+    fn walk_cow(storage: &mut TrieFileStorage<T>, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<TrieCursor<T>, Error> {
         let block_id = storage.get_block_identifier(block_hash);
         MARF::extend_trie(storage, block_hash)?;
 
@@ -338,7 +338,7 @@ impl <T: MarfTrieId> MARF <T> {
     /// Walk down this MARF at the given block hash, resolving backptrs to previous tries.
     /// Return the cursor and the last node visited.
     /// s will point to the block in which the leaf was found, or the last block visited.
-    fn walk(storage: &mut TrieFileStorage<T>, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<(TrieCursor, TrieNodeType), Error> {
+    fn walk(storage: &mut TrieFileStorage<T>, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<(TrieCursor<T>, TrieNodeType), Error> {
         storage.open_block(block_hash)?;
 
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
@@ -585,7 +585,7 @@ impl <T: MarfTrieId> MARF <T> {
         MARF::get_block_height_miner_tip(storage, block_hash, current_block_hash)
     }
 
-    pub fn get_block_at_height(storage: &mut TrieFileStorage<T>, height: u32, current_block_hash: &T) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_block_at_height(storage: &mut TrieFileStorage<T>, height: u32, current_block_hash: &T) -> Result<Option<T>, Error> {
         #[cfg(test)] {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -610,9 +610,8 @@ impl <T: MarfTrieId> MARF <T> {
 
         MARF::get_by_key(storage, current_block_hash, &height_key)
             .map(|option_result| {
-                option_result.map(|marf_value| { 
-                    let block_hash = BlockHeaderHash::from(marf_value);
-                    block_hash
+                option_result.map(|marf_value| {
+                    T::from(marf_value.0)
                 })
             })
     }

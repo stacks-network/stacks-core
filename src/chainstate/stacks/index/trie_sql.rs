@@ -244,7 +244,7 @@ pub fn count_blocks(conn: &Connection) -> Result<u32, Error> {
     Ok(result)
 }
 
-pub fn drop_lock(conn: &Connection, bhh: &BlockHeaderHash) -> Result<(), Error> {
+pub fn drop_lock<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<(), Error> {
     conn.execute("DELETE FROM block_extension_locks WHERE block_hash = ?", &[bhh])?;
     Ok(())
 }

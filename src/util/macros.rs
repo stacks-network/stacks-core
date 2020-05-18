@@ -363,6 +363,11 @@ macro_rules! impl_byte_array_newtype {
                 &self.0
             }
         }
+        impl std::convert::From<[u8; $len]> for $thing {
+            fn from(o: [u8; $len]) -> Self {
+                Self(o)
+            }
+        }
     }
 }
 

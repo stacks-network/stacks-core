@@ -62,7 +62,10 @@ impl_byte_array_newtype!(MARFValue, u8, 40);
 impl_byte_array_message_codec!(MARFValue, 40);
 pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
 
-pub trait MarfTrieId: Clone + std::fmt::Display + rusqlite::types::ToSql {
+pub trait MarfTrieId:
+Clone + std::fmt::Display + std::fmt::Debug + rusqlite::types::ToSql + std::convert::From<[u8; 32]> +
+PartialEq
+{
     fn as_bytes(&self) -> &[u8];
     fn to_bytes(self) -> [u8; 32];
     fn sentinel() -> Self;
@@ -74,11 +77,9 @@ impl MarfTrieId for StacksBlockId {
     fn as_bytes(&self) -> &[u8] {
         self.as_ref()
     }
-
     fn to_bytes(self) -> [u8; 32] {
         self.0
     }
-
     fn sentinel() -> StacksBlockId {
         StacksBlockId(SENTINEL_ARRAY.clone())
     }
@@ -88,11 +89,9 @@ impl MarfTrieId for BlockHeaderHash {
     fn as_bytes(&self) -> &[u8] {
         self.as_ref()
     }
-
     fn to_bytes(self) -> [u8; 32] {
         self.0
     }
-
     fn sentinel() -> BlockHeaderHash {
         BlockHeaderHash(SENTINEL_ARRAY.clone())
     }
@@ -346,16 +345,17 @@ impl error::Error for Error {
 }
 
 pub trait BlockMap {
-    fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error>;
-    fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error>;
+    type TrieId: MarfTrieId;
+    fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&Self::TrieId, Error>;
 }
 
 #[cfg(test)]
-impl BlockMap for () {
-    fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
+impl <T: MarfTrieId> BlockMap <T> for () {
+    fn get_block_hash(&self, _id: u32) -> Result<T, Error> {
         Err(Error::NotFoundError)
     }
-    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
+    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&T, Error> {
         Err(Error::NotFoundError)
     }
 }

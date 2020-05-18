@@ -1185,7 +1185,7 @@ impl TrieMerkleProof {
     }
 
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf
-    fn walk_to_leaf_or_backptr<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, path: &TriePath) -> Result<(TrieCursor, TrieNodeType, TriePtr), Error> {
+    fn walk_to_leaf_or_backptr<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, path: &TriePath) -> Result<(TrieCursor<T>, TrieNodeType, TriePtr), Error> {
         trace!("Walk path {:?} from {:?} to the first backptr", path, &storage.get_cur_block());
         
         let mut node_ptr = storage.root_trieptr();
