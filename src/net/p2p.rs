@@ -259,6 +259,8 @@ pub enum PeerNetworkWorkState {
     Prune
 }
 
+pub type PeerMap = HashMap<usize, ConversationP2P>;
+
 pub struct PeerNetwork {
     pub local_peer: LocalPeer,
     pub peer_version: u32,
@@ -267,7 +269,7 @@ pub struct PeerNetwork {
     pub peerdb: PeerDB,
 
     // ongoing p2p conversations (either they reached out to us, or we to them)
-    pub peers: HashMap<usize, ConversationP2P>,
+    pub peers: PeerMap,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
     pub events: HashMap<NeighborKey, usize>,
     pub connecting: HashMap<usize, (mio_net::TcpStream, bool, u64)>,   // (socket, outbound?, connection sent)
@@ -334,7 +336,7 @@ impl PeerNetwork {
 
             peerdb: peerdb,
 
-            peers: HashMap::new(),
+            peers: PeerMap::new(),
             sockets: HashMap::new(),
             events: HashMap::new(),
             connecting: HashMap::new(),
@@ -555,7 +557,7 @@ impl PeerNetwork {
     }
 
     /// Count how many outbound conversations are going on 
-    pub fn count_outbound_conversations(peers: &HashMap<usize, ConversationP2P>) -> u64 {
+    pub fn count_outbound_conversations(peers: &PeerMap) -> u64 {
         let mut ret = 0;
         for (_, convo) in peers.iter() {
             if convo.stats.outbound {
@@ -2235,7 +2237,7 @@ impl PeerNetwork {
         let mut result = NetworkResult::new();
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
-            let http_stacks_msgs = network.http.run(network_state, network.chain_view.clone(), burndb, &mut network.peerdb, chainstate, mempool, http_poll_state)?;
+            let http_stacks_msgs = network.http.run(network_state, network.chain_view.clone(), &network.peers, burndb, &network.peerdb, chainstate, mempool, http_poll_state)?;
             result.consume_http_uploads(http_stacks_msgs);
             Ok(())
         })?;
