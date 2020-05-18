@@ -215,6 +215,14 @@ impl ListTypeData {
         (*self.entry_type, self.max_len)
     }
 
+    // if checks like as-max-len pass, they may _reduce_
+    //   but should not increase the type signatures max length
+    pub fn reduce_max_len(&mut self, new_max_len: u32) {
+        if new_max_len <= self.max_len {
+            self.max_len = new_max_len;
+        }
+    }
+
     pub fn get_max_len(&self) -> u32 {
         self.max_len
     }
