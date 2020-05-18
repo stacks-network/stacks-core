@@ -173,7 +173,7 @@ impl RPCNeighborsInfo {
             .map_err(net_error::DBError)?;
 
         let sample : Vec<RPCNeighbor> = neighbor_sample
-            .iter()
+            .into_iter()
             .map(|n| RPCNeighbor::from_neighbor_key_and_pubkh(n.addr.clone(), Hash160::from_data(&n.public_key.to_bytes()), true))
             .collect();
 
