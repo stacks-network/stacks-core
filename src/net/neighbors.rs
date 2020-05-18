@@ -2875,9 +2875,9 @@ mod test {
         peer_2_config.connection_opts.disable_block_download = true;
         peer_3_config.connection_opts.disable_block_download = true;
 
-        // peer 1 is "NAT'ed", but peer 2 and peer 3 are public nodes that don't know about each
-        // other.  Goal is for peer 2 to learn about peer 3 (or vice versa) by crawling peer 1
-        // through an inbound neighbor walk.
+        // Peer 2 and peer 3 are public nodes that don't know about each other, but peer 1 lists
+        // both of them as outbound neighbors.  Goal is for peer 2 to learn about peer 3, and vice
+        // versa, by crawling peer 1 through an inbound neighbor walk.
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_1_config.add_neighbor(&peer_3_config.to_neighbor());
 
@@ -2892,7 +2892,7 @@ mod test {
         let mut peer_1_frontier_size = 0;
         let mut peer_2_frontier_size = 0;
         let mut peer_3_frontier_size = 0;
-        while peer_1_frontier_size != 2 || peer_2_frontier_size != 1 || peer_3_frontier_size != 1 {
+        while peer_2_frontier_size < 2 || peer_3_frontier_size < 2 {
             let _ = peer_1.step();
             let _ = peer_2.step();
             let _ = peer_3.step();
@@ -2901,7 +2901,10 @@ mod test {
             walk_2_count = peer_2.network.walk_total_step_count;
             walk_3_count = peer_3.network.walk_total_step_count;
 
+            test_debug!("========");
             test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps; peer 3 took {} steps", walk_1_count, walk_2_count, walk_3_count);
+            test_debug!("peer 1 frontier size: {}, peer 2 frontier size: {}, peer 3 frontier size: {}", peer_1_frontier_size, peer_2_frontier_size, peer_3_frontier_size);
+            test_debug!("========");
 
             match peer_1.network.walk {
                 Some(ref w) => {
@@ -2991,24 +2994,6 @@ mod test {
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_2.public_key);
                 assert_eq!(p.expire_block, neighbor_2.expire_block);
-            }
-        }
-
-        // peer 1 was not added to either peer 2 or peer 3, since it's inbound
-        match PeerDB::get_peer(peer_2_dbconn, neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap() {
-            None => {},
-            Some(p) => {
-                test_debug!("added inbound peer to DB");
-                assert!(false);
-            }
-        }
-        
-        // peer 1 was not added to either peer 2 or peer 3, since it's inbound
-        match PeerDB::get_peer(peer_3_dbconn, neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap() {
-            None => {},
-            Some(p) => {
-                test_debug!("added inbound peer to DB");
-                assert!(false);
             }
         }
     }
