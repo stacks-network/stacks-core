@@ -54,9 +54,6 @@ use rusqlite::types::ToSql;
 use rusqlite::OpenFlags;
 
 
-// set via _compile-time_ envar
-const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
-
 fn main() {
 
     log::set_loglevel(log::LOG_INFO).unwrap();
@@ -68,11 +65,9 @@ fn main() {
     }
 
     if argv[1] == "--version" {
-        if let Some(commit) = GIT_COMMIT {
-            println!("Compiled with git hash: {}", commit);
-        } else {
-            println!("Compiled without version information")
-        }
+        println!("{}", &blockstack_lib::version_string(
+            option_env!("CARGO_PKG_NAME").unwrap_or(&argv[0]),
+            option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")));
         process::exit(0);
     }
 
