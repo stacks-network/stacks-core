@@ -1345,7 +1345,7 @@ impl PeerNetwork {
         let now = get_epoch_time_secs();
         let mut relay_handles = HashMap::new();
         for (_, convo) in self.peers.iter_mut() {
-            if convo.is_outbound() && convo.is_authenticated() && convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
+            if convo.is_outbound() && convo.is_authenticated() && convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.heartbeat as u64) + self.connection_opts.neighbor_request_timeout < now {
                 // haven't talked to this neighbor in a while
                 let payload = StacksMessageType::Ping(PingData::new());
                 let ping_res = convo.sign_message(&self.chain_view, &self.local_peer.private_key, payload);
@@ -1388,9 +1388,9 @@ impl PeerNetwork {
         for (event_id, convo) in self.peers.iter() {
             if convo.is_authenticated() {
                 // have handshaked with this remote peer
-                if convo.stats.last_contact_time + (convo.peer_heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
+                if convo.stats.last_contact_time + (convo.peer_heartbeat as u64) + self.connection_opts.neighbor_request_timeout < now {
                     // we haven't heard from this peer in too long a time 
-                    debug!("{:?}: Disconnect unresponsive authenticated peer {:?}: {} + {} + {} < {}", &self.local_peer, &convo, convo.stats.last_contact_time, convo.peer_heartbeat, NEIGHBOR_REQUEST_TIMEOUT, now);
+                    debug!("{:?}: Disconnect unresponsive authenticated peer {:?}: {} + {} + {} < {}", &self.local_peer, &convo, convo.stats.last_contact_time, convo.peer_heartbeat, self.connection_opts.neighbor_request_timeout, now);
                     to_remove.push(*event_id);
                 }
             }
@@ -1476,7 +1476,7 @@ impl PeerNetwork {
         }
 
         for (nk, (event_id, msg)) in msgs.drain() {
-            match self.send_message(&nk, msg, NEIGHBOR_REQUEST_TIMEOUT) {
+            match self.send_message(&nk, msg, self.connection_opts.neighbor_request_timeout) {
                 Ok(handle) => {
                     self.add_relay_handle(event_id, handle);
                 },
