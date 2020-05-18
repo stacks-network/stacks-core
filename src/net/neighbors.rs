@@ -2312,15 +2312,15 @@ mod test {
         assert_eq!(peer_1.network.relay_handles.len(), 0);
         assert_eq!(peer_2.network.relay_handles.len(), 0);
 
-        info!("Wait {} seconds for ping timeout", peer_1.config.connection_opts.timeout);
-        sleep_ms(1000 * peer_1.config.connection_opts.timeout);
+        info!("Wait 60 seconds for ping timeout");
+        sleep_ms(60000);
 
         peer_1.network.queue_ping_heartbeats();
         peer_2.network.queue_ping_heartbeats();
 
         // pings queued
         assert_eq!(peer_1.network.relay_handles.len(), 1);
-        assert_eq!(peer_2.network.relay_handles.len(), 0);
+        assert_eq!(peer_2.network.relay_handles.len(), 1);
     }
     
     #[test]

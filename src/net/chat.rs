@@ -1710,7 +1710,7 @@ mod test {
         };
 
         // convo_2 got updated with convo_1's peer info, but no heartbeat info 
-        assert_eq!(convo_2.peer_heartbeat, 0);
+        assert_eq!(convo_2.peer_heartbeat, 3600);
         assert_eq!(convo_2.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_1.private_key));
         assert_eq!(convo_2.data_url, "http://peer1.com".into());
 

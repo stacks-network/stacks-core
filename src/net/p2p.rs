@@ -1345,7 +1345,7 @@ impl PeerNetwork {
         let now = get_epoch_time_secs();
         let mut relay_handles = HashMap::new();
         for (_, convo) in self.peers.iter_mut() {
-            if convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
+            if convo.is_outbound() && convo.is_authenticated() && convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
                 // haven't talked to this neighbor in a while
                 let payload = StacksMessageType::Ping(PingData::new());
                 let ping_res = convo.sign_message(&self.chain_view, &self.local_peer.private_key, payload);
