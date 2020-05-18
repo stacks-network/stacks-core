@@ -684,6 +684,19 @@ fn test_at_unknown_block() {
 }
 
 #[test]
+fn test_as_max_len() {
+    fn test(owned_env: &mut OwnedEnvironment) {
+        let contract = "(define-data-var token-ids (list 10 uint) (list))
+                        (var-set token-ids 
+                           (unwrap! (as-max-len? (append (var-get token-ids) u1) u10) (err 10)))";
+
+        owned_env.initialize_contract(QualifiedContractIdentifier::local("contract").unwrap(), &contract).unwrap();
+    }
+
+    with_marfed_environment(test, true);
+}
+
+#[test]
 fn test_ast_stack_depth() {
     let program = "(+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 

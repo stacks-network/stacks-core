@@ -230,6 +230,13 @@ pub const BLOCK_INFO: SimpleCostSpecification = SimpleCostSpecification {
     read_count: Constant(1),
     read_length: Constant(1) };
 
+pub const STX_BALANCE: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Constant(0),
+    write_count: Constant(0),
+    runtime: Constant(1),
+    read_count: Constant(1),
+    read_length: Constant(1) };
+
 pub const STX_TRANSFER: SimpleCostSpecification = SimpleCostSpecification {
     write_length: Constant(1),
     write_count: Constant(1),
