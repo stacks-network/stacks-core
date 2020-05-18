@@ -1189,7 +1189,7 @@ This function returns the STX balance of the `owner` principal. In the event tha
 principal isn't materialized, it returns 0.
 ",
     example: "
-(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns 100
+(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns u100
 "
 };
 
