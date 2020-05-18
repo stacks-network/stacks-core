@@ -338,7 +338,7 @@ impl StagingMicroblock {
 }
 
 impl BlockStreamData {
-    pub fn new_block(index_block_hash: BlockHeaderHash) -> BlockStreamData {
+    pub fn new_block(index_block_hash: StacksBlockId) -> BlockStreamData {
         BlockStreamData {
             block_hash: index_block_hash,
             rowid: None,
@@ -350,7 +350,7 @@ impl BlockStreamData {
         }
     }
 
-    pub fn new_microblock_confirmed(anchored_index_block_hash: BlockHeaderHash) -> BlockStreamData {
+    pub fn new_microblock_confirmed(anchored_index_block_hash: StacksBlockId) -> BlockStreamData {
         BlockStreamData {
             block_hash: anchored_index_block_hash,
             rowid: None,
@@ -362,7 +362,7 @@ impl BlockStreamData {
         }
     }
     
-    pub fn new_microblock_unconfirmed(anchored_index_block_hash: BlockHeaderHash, seq: u16) -> BlockStreamData {
+    pub fn new_microblock_unconfirmed(anchored_index_block_hash: StacksBlockId, seq: u16) -> BlockStreamData {
         BlockStreamData {
             block_hash: anchored_index_block_hash,
             rowid: None,
@@ -481,7 +481,7 @@ impl StacksChainState {
     }
     
     /// Get the path to a block in the chunk store
-    pub fn get_index_block_path(blocks_dir: &str, index_block_hash: &BlockHeaderHash) -> Result<String, Error> {
+    pub fn get_index_block_path(blocks_dir: &str, index_block_hash: &StacksBlockId) -> Result<String, Error> {
         let block_hash_bytes = index_block_hash.as_bytes();
         let mut block_path = PathBuf::from(blocks_dir);
 
@@ -599,7 +599,7 @@ impl StacksChainState {
     }
     
     /// Do we have a stored a block in the chunk store?
-    pub fn has_block_indexed(blocks_dir: &String, index_block_hash: &BlockHeaderHash) -> Result<bool, Error> {
+    pub fn has_block_indexed(blocks_dir: &String, index_block_hash: &StacksBlockId) -> Result<bool, Error> {
         let block_path = StacksChainState::get_index_block_path(blocks_dir, index_block_hash)?;
         match fs::metadata(block_path) {
             Ok(_) => {
@@ -1706,7 +1706,7 @@ impl StacksChainState {
     }
    
     /// Is a particular microblock in staging, given its _indexed anchored block hash_?
-    pub fn has_staging_microblock_indexed(&mut self, index_anchor_block_hash: &BlockHeaderHash, seq: u16) -> Result<bool, Error> {
+    pub fn has_staging_microblock_indexed(&mut self, index_anchor_block_hash: &StacksBlockId, seq: u16) -> Result<bool, Error> {
         StacksChainState::read_i64s(&self.blocks_db, "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = ?2", &[&index_anchor_block_hash, &seq])
             .and_then(|processed| {
                 if processed.len() == 0 {
@@ -1722,12 +1722,12 @@ impl StacksChainState {
     }
 
     /// Do we have a particular microblock stream given it _indexed head microblock hash_?
-    pub fn has_confirmed_microblocks_indexed(&mut self, index_microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
+    pub fn has_confirmed_microblocks_indexed(&mut self, index_microblock_hash: &StacksBlockId) -> Result<bool, Error> {
         StacksChainState::has_block_indexed(&self.blocks_path, index_microblock_hash)
     }
 
     /// How many microblocks are in a given stream?
-    pub fn get_microblock_stream_length(&self, index_anchor_block_hash: &BlockHeaderHash) -> Result<u64, Error> {
+    pub fn get_microblock_stream_length(&self, index_anchor_block_hash: &StacksBlockId) -> Result<u64, Error> {
         let sql = "SELECT COUNT(microblock_hash) FROM staging_microblocks WHERE index_block_hash = ?1 AND processed = 1".to_string();
         let args = [&index_anchor_block_hash as &dyn ToSql];
         let cnt = query_count(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
@@ -1735,7 +1735,7 @@ impl StacksChainState {
     }
 
     /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
-    pub fn get_confirmed_microblock_index_hash(&mut self, index_anchor_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_confirmed_microblock_index_hash(&mut self, index_anchor_block_hash: &StacksBlockId) -> Result<Option<StacksBlockId>, Error> {
         let sql = "SELECT microblock_hash,burn_header_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 LIMIT 1";
         let args = [&index_anchor_block_hash as &dyn ToSql];
 
@@ -1766,7 +1766,7 @@ impl StacksChainState {
     }
     
     /// Do we have any unconfirmed microblocks at or after the given sequence number?
-    pub fn has_any_staging_microblock_indexed(&mut self, index_block_hash: &BlockHeaderHash, min_seq: u16) -> Result<bool, Error> {
+    pub fn has_any_staging_microblock_indexed(&mut self, index_block_hash: &StacksBlockId, min_seq: u16) -> Result<bool, Error> {
         StacksChainState::read_i64s(&self.blocks_db, "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1", &[&index_block_hash, &min_seq])
             .and_then(|processed| {
                 if processed.len() == 0 {
@@ -1784,7 +1784,7 @@ impl StacksChainState {
     /// Do we have any microblock available to serve in any capacity, given its anchored block's
     /// index block hash?
     #[cfg(test)]
-    fn has_microblocks_indexed(&mut self, index_block_hash: &BlockHeaderHash) -> Result<bool, Error> {
+    fn has_microblocks_indexed(&mut self, index_block_hash: &StacksBlockId) -> Result<bool, Error> {
         StacksChainState::read_i64s(&self.blocks_db, "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1", &[&index_block_hash])
             .and_then(|processed| {
                 Ok(processed.len() > 0)
@@ -1792,7 +1792,7 @@ impl StacksChainState {
     }
 
     /// Given an index block hash, get the burn header hash and block hash
-    pub fn get_block_header_hashes(&self, index_block_hash: &BlockHeaderHash) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, Error> {
+    pub fn get_block_header_hashes(&self, index_block_hash: &StacksBlockId) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, Error> {
         let sql = "SELECT burn_header_hash,anchored_block_hash FROM staging_blocks WHERE index_block_hash = ?1";
         let args = [index_block_hash as &dyn ToSql];
         
@@ -1814,7 +1814,7 @@ impl StacksChainState {
 
     /// Get the sqlite rowid for a staging microblock.
     /// Returns None if no such microblock.
-    fn stream_microblock_get_rowid(blocks_conn: &DBConn, index_block_hash: &BlockHeaderHash, seq: u16) -> Result<Option<i64>, Error> {
+    fn stream_microblock_get_rowid(blocks_conn: &DBConn, index_block_hash: &StacksBlockId, seq: u16) -> Result<Option<i64>, Error> {
         let sql = "SELECT staging_microblocks_data.rowid FROM \
                    staging_microblocks JOIN staging_microblocks_data \
                    ON staging_microblocks.microblock_hash = staging_microblocks_data.block_hash \
@@ -1824,7 +1824,7 @@ impl StacksChainState {
     }
 
     /// Load up the metadata on a microblock stream (but don't get the data itself)
-    fn stream_microblock_get_info(blocks_conn: &DBConn, index_block_hash: &BlockHeaderHash) -> Result<Vec<StagingMicroblock>, Error> {
+    fn stream_microblock_get_info(blocks_conn: &DBConn, index_block_hash: &StacksBlockId) -> Result<Vec<StagingMicroblock>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 ORDER BY sequence".to_string();
         let args = [index_block_hash as &dyn ToSql];
         let microblock_info = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, &args).map_err(Error::DBError)?;
@@ -1846,7 +1846,7 @@ impl StacksChainState {
     }
 
     /// Find the next-smallest sequence in a set of unconfirmed microblocks for a particular index block hash and current sequence number
-    fn stream_microblocks_find_next_sequence(blocks_conn: &DBConn, index_block_hash: &BlockHeaderHash, cur_seq: u16) -> Result<Option<u16>, Error> {
+    fn stream_microblocks_find_next_sequence(blocks_conn: &DBConn, index_block_hash: &StacksBlockId, cur_seq: u16) -> Result<Option<u16>, Error> {
         let sql = "SELECT MIN(sequence) FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence > ?2";
         let args = [&index_block_hash as &dyn ToSql, &cur_seq as &dyn ToSql];
         let next_seqs = StacksChainState::read_i64s(blocks_conn, sql, &args)?;

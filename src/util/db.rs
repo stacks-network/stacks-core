@@ -384,17 +384,17 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     }
     
     /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
-    pub fn get_ancestor_block_hash(&self, block_height: u64, tip_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_ancestor_block_hash(&self, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
         get_ancestor_block_hash(self.index, block_height, tip_block_hash)
     }
 
     /// Get the height of an ancestor block, if it is indeed the ancestor.
-    pub fn get_ancestor_block_height(&self, ancestor_block_hash: &BlockHeaderHash, tip_block_hash: &BlockHeaderHash) -> Result<Option<u64>, Error> {
+    pub fn get_ancestor_block_height(&self, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
         get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
     }
     
     /// Get a value from the fork index
-    pub fn get_indexed(&self, header_hash: &BlockHeaderHash, key: &String) -> Result<Option<String>, Error> {
+    pub fn get_indexed(&self, header_hash: &T, key: &String) -> Result<Option<String>, Error> {
         get_indexed(self.conn, self.index, header_hash, key)
     }
 }
@@ -417,7 +417,7 @@ pub struct IndexDBTx<'a, C: Clone, T: MarfTrieId> {
                                 // lifetime, so .unwrap() is safe.
     pub index: &'a mut MARF<T>,
     pub context: C,
-    block_linkage: Option<(BlockHeaderHash, BlockHeaderHash)>
+    block_linkage: Option<(T, T)>
 }
 
 impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
@@ -607,11 +607,11 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Get a value from the fork index
-    pub fn get_indexed(&mut self, header_hash: &BlockHeaderHash, key: &String) -> Result<Option<String>, Error> {
+    pub fn get_indexed(&mut self, header_hash: &T, key: &String) -> Result<Option<String>, Error> {
         get_indexed(self.tx(), &self.index, header_hash, key)
     }
 
-    pub fn put_indexed_begin(&mut self, parent_header_hash: &BlockHeaderHash, header_hash: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn put_indexed_begin(&mut self, parent_header_hash: &T, header_hash: &T) -> Result<(), Error> {
         match self.block_linkage {
             None => {
                 self.index.begin(parent_header_hash, header_hash).map_err(Error::IndexError)?;
@@ -662,7 +662,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Get the root hash
-    pub fn get_root_hash_at(&mut self, bhh: &BlockHeaderHash) -> Result<TrieHash, Error> {
+    pub fn get_root_hash_at(&mut self, bhh: &T) -> Result<TrieHash, Error> {
         let root_hash = self.index.get_root_hash_at(bhh).map_err(Error::IndexError)?;
         Ok(root_hash)
     }

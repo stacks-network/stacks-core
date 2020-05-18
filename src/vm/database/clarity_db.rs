@@ -126,19 +126,19 @@ pub struct NullHeadersDB {}
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
 
 impl HeadersDB for NullHeadersDB {
-    fn get_burn_header_hash_for_block(&self, _bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+    fn get_burn_header_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         None
     }
-    fn get_vrf_seed_for_block(&self, _bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
     }
-    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
         None
     }
-    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+    fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
         None
     }
-    fn get_miner_address(&self, _id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+    fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
         None
     }
 }

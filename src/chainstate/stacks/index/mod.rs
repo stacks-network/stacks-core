@@ -39,6 +39,7 @@ use sha2::Digest;
 
 use std::hash::Hash;
 use chainstate::burn::BlockHeaderHash;
+use burnchains::BurnchainHeaderHash;
 use chainstate::stacks::StacksBlockId;
 
 use util::log;
@@ -63,8 +64,9 @@ impl_byte_array_message_codec!(MARFValue, 40);
 pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
 
 pub trait MarfTrieId:
-Clone + std::fmt::Display + std::fmt::Debug + rusqlite::types::ToSql + std::convert::From<[u8; 32]> +
-PartialEq
+PartialEq + Clone + std::fmt::Display + std::fmt::Debug +
+rusqlite::types::ToSql + rusqlite::types::FromSql + std::convert::From<[u8; 32]> +
+std::convert::From<MARFValue>
 {
     fn as_bytes(&self) -> &[u8];
     fn to_bytes(self) -> [u8; 32];
@@ -73,29 +75,41 @@ PartialEq
 
 pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
 
-impl MarfTrieId for StacksBlockId {
+macro_rules! impl_marf_trie_id {
+    ($thing:ident) => {
+impl MarfTrieId for $thing {
     fn as_bytes(&self) -> &[u8] {
         self.as_ref()
     }
     fn to_bytes(self) -> [u8; 32] {
         self.0
     }
-    fn sentinel() -> StacksBlockId {
-        StacksBlockId(SENTINEL_ARRAY.clone())
+    fn sentinel() -> Self {
+        Self(SENTINEL_ARRAY.clone())
     }
 }
 
-impl MarfTrieId for BlockHeaderHash {
-    fn as_bytes(&self) -> &[u8] {
-        self.as_ref()
-    }
-    fn to_bytes(self) -> [u8; 32] {
-        self.0
-    }
-    fn sentinel() -> BlockHeaderHash {
-        BlockHeaderHash(SENTINEL_ARRAY.clone())
+impl From<MARFValue> for $thing {
+    fn from(m: MARFValue) -> Self {
+        let h = m.0;
+        let mut d = [0u8; 32];
+        for i in 0..32 {
+            d[i] = h[i];
+        }
+        for i in 32..h.len() {
+            if h[i] != 0 {
+                panic!("Failed to convert MARF value into BHH: data stored after 32nd byte");
+            }
+        }
+        Self(d)
     }
 }
+    }
+}
+
+impl_marf_trie_id!(BlockHeaderHash);
+impl_marf_trie_id!(BurnchainHeaderHash);
+impl_marf_trie_id!(StacksBlockId);
 
 impl TrieHash {
     /// TrieHash of zero bytes
@@ -151,9 +165,9 @@ impl TrieHash {
     }
 }
 
-impl From<BlockHeaderHash> for MARFValue {
-    fn from(bhh: BlockHeaderHash) -> MARFValue {
-        let h = bhh.0;
+impl <T: MarfTrieId> From<T> for MARFValue {
+    fn from(bhh: T) -> MARFValue {
+        let h = bhh.to_bytes();
         let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a BHH into a MARF Value.");
@@ -176,22 +190,6 @@ impl From<u32> for MARFValue {
             d[i] = h[i];
         }
         MARFValue(d)
-    }
-}
-
-impl From<MARFValue> for BlockHeaderHash {
-    fn from(m: MARFValue) -> BlockHeaderHash {
-        let h = m.0;
-        let mut d = [0u8; 32];
-        for i in 0..32 {
-            d[i] = h[i];
-        }
-        for i in 32..h.len() {
-            if h[i] != 0 {
-                panic!("Failed to convert MARF value into BHH: data stored after 32nd byte");
-            }
-        }
-        BlockHeaderHash(d)
     }
 }
 
@@ -269,7 +267,7 @@ pub enum Error {
     WriteNotBegunError,
     CursorError(node::CursorError),
     RestoreMarfBlockError(Box<Error>),
-    NonMatchingForks(BlockHeaderHash, BlockHeaderHash)
+    NonMatchingForks([u8; 32], [u8; 32])
 }
 
 impl From<io::Error> for Error {

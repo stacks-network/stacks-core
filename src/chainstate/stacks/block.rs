@@ -407,7 +407,7 @@ impl StacksBlock {
         self.header.block_hash()
     }
     
-    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> BlockHeaderHash {
+    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> StacksBlockId {
         self.header.index_block_hash(burn_hash)
     }
 

@@ -374,8 +374,8 @@ impl MemoryBackingStore {
 }
 
 impl ClarityBackingStore for MemoryBackingStore {
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(bhh).into())
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
     fn get(&mut self, key: &str) -> Option<String> {

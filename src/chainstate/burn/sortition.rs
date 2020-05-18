@@ -47,7 +47,7 @@ use chainstate::burn::operations::{
     BlockstackOperationType,
 };
 
-use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::MarfTrieId;
 
 use burnchains::Address;
 use burnchains::PublicKey;
@@ -67,14 +67,11 @@ use util::log;
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one
     pub fn initial(first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> BlockSnapshot {
-        let mut parent_hash_bytes = [0u8; 32];
-        parent_hash_bytes.copy_from_slice(TrieFileStorage::block_sentinel().as_bytes());
-
         BlockSnapshot {
             block_height: first_block_height,
             burn_header_hash: first_burn_header_hash.clone(),
             burn_header_timestamp: first_burn_header_timestamp,
-            parent_burn_header_hash: BurnchainHeaderHash(parent_hash_bytes),
+            parent_burn_header_hash: BurnchainHeaderHash::sentinel(),
             consensus_hash: ConsensusHash([0u8; 20]),
             ops_hash: OpsHash([0u8; 32]),
             total_burn: 0,

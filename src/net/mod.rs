@@ -79,6 +79,7 @@ use chainstate::stacks::{
     StacksMicroblock,
     StacksTransaction,
     StacksPublicKey,
+    StacksBlockId,
     Error as chain_error
 };
 use chainstate::stacks::db::blocks::MemPoolRejection;
@@ -612,7 +613,7 @@ pub struct BlocksData {
 /// Microblocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksData {
-    pub index_anchor_block: BlockHeaderHash,
+    pub index_anchor_block: StacksBlockId,
     pub microblocks: Vec<StacksMicroblock>
 }
 
@@ -950,10 +951,10 @@ pub struct CallReadOnlyRequestBody {
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
     GetNeighbors(HttpRequestMetadata),
-    GetBlock(HttpRequestMetadata, BlockHeaderHash),
-    GetMicroblocksIndexed(HttpRequestMetadata, BlockHeaderHash),
-    GetMicroblocksConfirmed(HttpRequestMetadata, BlockHeaderHash),
-    GetMicroblocksUnconfirmed(HttpRequestMetadata, BlockHeaderHash, u16),
+    GetBlock(HttpRequestMetadata, StacksBlockId),
+    GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
+    GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
+    GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
     PostTransaction(HttpRequestMetadata, StacksTransaction),
     GetAccount(HttpRequestMetadata, PrincipalData, bool),
     GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, bool),
@@ -1194,6 +1195,7 @@ impl_byte_array_message_codec!(ConsensusHash, 20);
 impl_byte_array_message_codec!(Hash160, 20);
 impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
 impl_byte_array_message_codec!(BlockHeaderHash, 32);
+impl_byte_array_message_codec!(StacksBlockId, 32);
 impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);

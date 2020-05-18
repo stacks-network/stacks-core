@@ -249,7 +249,7 @@ impl <T: MarfTrieId> TrieRAM <T> {
     }
 
     pub fn write_trie<F: Write + Seek>(f: &mut F, node_data: &[(TrieNodeType, TrieHash)], offsets: &[u32],
-                                       parent_hash: &BlockHeaderHash) -> Result<(), Error> {
+                                       parent_hash: &T) -> Result<(), Error> {
         assert_eq!(node_data.len(), offsets.len());
 
         // write parent block ptr
@@ -596,7 +596,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         self.miner_tip = Some(miner_tip)
     }
 
-    pub fn get_miner_tip(&self) -> Option<BlockHeaderHash> {
+    pub fn get_miner_tip(&self) -> Option<T> {
         self.miner_tip.clone()
     }
 

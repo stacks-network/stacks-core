@@ -133,10 +133,9 @@ impl ProofTriePtr {
             block_map.get_block_hash_caching(other.back_block)?
                 .clone()
         } else {
-            BlockHeaderHash(
-                [0; BLOCK_HEADER_HASH_ENCODED_SIZE])
+            M::TrieId::sentinel()
         };
-        Ok(ProofTriePtr { id, chr, back_block })
+        Ok(ProofTriePtr { id, chr, back_block: BlockHeaderHash(back_block.to_bytes()) })
     }
 }
 
@@ -1251,7 +1250,7 @@ impl TrieMerkleProof {
 
     /// Make a merkle proof of inclusion from a path.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_path<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, path: &TriePath, expected_value: &MARFValue, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+    pub fn from_path<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, path: &TriePath, expected_value: &MARFValue, root_block_header: &T) -> Result<TrieMerkleProof, Error> {
         // accumulate proofs in reverse order -- each proof will be from an earlier and earlier
         // trie, so we'll reverse them in the end so the proof starts with the latest trie.
         let mut segment_proofs = vec![];
@@ -1334,13 +1333,13 @@ impl TrieMerkleProof {
     
     /// Make a merkle proof of inclusion from a key/value pair.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_entry<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, key: &String, value: &String, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+    pub fn from_entry<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, key: &String, value: &String, root_block_header: &T) -> Result<TrieMerkleProof, Error> {
         let marf_value = MARFValue::from_value(value);
         let path = TriePath::from_key(key);
         TrieMerkleProof::from_path(storage, &path, &marf_value, root_block_header)
     }
 
-    pub fn from_raw_entry<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, key: &str, value: &MARFValue, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+    pub fn from_raw_entry<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, key: &str, value: &MARFValue, root_block_header: &T) -> Result<TrieMerkleProof, Error> {
         let path = TriePath::from_key(key);
         TrieMerkleProof::from_path(storage, &path, value, root_block_header)
     }
