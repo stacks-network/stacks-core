@@ -1183,6 +1183,19 @@ one of the following error codes:
 "
 };
 
+const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(stx-get-balance owner)",
+    description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
+
+This function returns the STX balance of the `owner` principal. In the event that the `owner`
+principal isn't materialized, it returns 0.
+",
+    example: "
+(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns u100
+"
+};
+
 const STX_TRANSFER: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-transfer? amount sender recipient)",
@@ -1293,6 +1306,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
+        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
