@@ -517,7 +517,7 @@ impl <T: MarfTrieId> MARF <T> {
             }
         };
 
-        if let Some(ref miner_tip) = miner_tip {
+        if let Some(miner_tip) = miner_tip {
             file_storage.set_miner_tip(miner_tip.clone());
         }
 
@@ -879,7 +879,7 @@ impl <T: MarfTrieId> MARF <T> {
                 "ERROR: Could not find block for height {}, but it was returned by MARF::get_block_height()", bhh_height)))?;
 
         if bhh != &actual_block_at_height {
-            return Err(Error::NonMatchingForks(bhh.to_bytes(), cur_block_hash.to_bytes()))
+            return Err(Error::NonMatchingForks(bhh.clone().to_bytes(), cur_block_hash.to_bytes()))
         }
 
         // test open
