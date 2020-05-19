@@ -177,7 +177,7 @@ pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(conn: &Connection) -> Resu
         let block_hash: T = row.get("block_hash");
         let data = row.get_raw("data")
             .as_blob().expect("DB Corruption: MARF data is non-blob");
-        let start = TrieFileStorage::root_ptr_disk() as usize;
+        let start = TrieFileStorage::<T>::root_ptr_disk() as usize;
         let trie_hash = TrieHash(read_hash_bytes(&mut &data[start..])?);
         Ok((trie_hash, block_hash))
     })?;

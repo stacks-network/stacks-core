@@ -214,7 +214,7 @@ impl <T: MarfTrieId> MARF <T> {
         }
 
         let (cur_bhh, cur_block_id) = storage.get_cur_block_and_id();
-        if storage.num_blocks() == 0 || cur_bhh == TrieFileStorage::block_sentinel() {
+        if storage.num_blocks() == 0 || cur_bhh == T::sentinel() {
             // brand new storage
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
@@ -1271,7 +1271,7 @@ mod test {
 
     fn marf_walk_cow_test <F, G> (path_init: G, path_gen: F)
     where F: Fn(u32, [u8; 32]) -> [u8; 32],
-          G: FnOnce(&mut TrieFileStorage) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+          G: FnOnce(&mut TrieFileStorage<BlockHeaderHash>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         let mut f = TrieFileStorage::new_memory().unwrap();
         let mut last_block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &last_block_header).unwrap();
@@ -1432,7 +1432,7 @@ mod test {
         }
     }
 
-    fn marf_insert<F>(filename: &str, mut path_gen: F, count: u32, check_merkle_proof: bool) -> MARF
+    fn marf_insert<F>(filename: &str, mut path_gen: F, count: u32, check_merkle_proof: bool) -> MARF<BlockHeaderHash>
         where F: FnMut(u32) -> ([u8; 32], Option<BlockHeaderHash>) {
 
         let f = TrieFileStorage::new_memory().unwrap();
@@ -1551,7 +1551,7 @@ mod test {
         let mut marf = MARF::from_storage(f);
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
-        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &block_header).unwrap();
 
         let path = [0u8; 32];
         let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
@@ -1646,7 +1646,7 @@ mod test {
         let f = TrieFileStorage::new(&path).unwrap();
         let mut m = MARF::from_storage(f);
 
-        let mut block_header = TrieFileStorage::block_sentinel();
+        let mut block_header = BlockHeaderHash::sentinel();
         
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
         let mut start_time = get_epoch_time_ms();
@@ -1754,7 +1754,7 @@ mod test {
 
         let mut m = MARF::from_storage(f);
 
-        let mut block_header = TrieFileStorage::block_sentinel();
+        let mut block_header = BlockHeaderHash::sentinel();
         
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
         let mut prev_block_header = block_header.clone();
@@ -2002,7 +2002,7 @@ mod test {
             fork_headers.push(next_fork_row);
         }
        
-        m.begin(&TrieFileStorage::block_sentinel(), &BlockHeaderHash([0u8; 32])).unwrap();
+        m.begin(&BlockHeaderHash::sentinel(), &BlockHeaderHash([0u8; 32])).unwrap();
         m.commit().unwrap();
 
         for i in 1..8 {
@@ -2076,7 +2076,7 @@ mod test {
 
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
-        marf.begin(&TrieFileStorage::block_sentinel(), &target_block).unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &target_block).unwrap();
 
         let mut root_table_cache = None;
 
@@ -2214,11 +2214,11 @@ mod test {
         let value_1 = TrieLeaf::new(&vec![], &vec![1u8; 40]);
         let value_2 = TrieLeaf::new(&vec![], &vec![2u8; 40]);
 
-        marf.begin(&TrieFileStorage::block_sentinel(), &block_header_1).unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &block_header_1).unwrap();
         marf.insert_raw(triepath_1, value_1.clone()).unwrap();
         marf.commit_to(&block_header_1).unwrap();
 
-        marf.begin(&TrieFileStorage::block_sentinel(), &block_header_2).unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &block_header_2).unwrap();
         marf.insert_raw(triepath_2, value_2.clone()).unwrap();
         marf.commit_to(&block_header_2).unwrap();
             

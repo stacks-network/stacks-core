@@ -3118,8 +3118,8 @@ mod test {
 
         let tests = vec![
             HttpRequestType::GetNeighbors(http_request_metadata_ip.clone()),
-            HttpRequestType::GetBlock(http_request_metadata_dns.clone(), BlockHeaderHash([2u8; 32])),
-            HttpRequestType::GetMicroblocksIndexed(http_request_metadata_ip.clone(), BlockHeaderHash([3u8; 32])),
+            HttpRequestType::GetBlock(http_request_metadata_dns.clone(), StacksBlockId([2u8; 32])),
+            HttpRequestType::GetMicroblocksIndexed(http_request_metadata_ip.clone(), StacksBlockId([3u8; 32])),
             HttpRequestType::PostTransaction(http_request_metadata_dns.clone(), make_test_transaction()),
             HttpRequestType::OptionsPreflight(http_request_metadata_ip.clone(), "/".to_string()),
         ];

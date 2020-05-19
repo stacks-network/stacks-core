@@ -1,5 +1,6 @@
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use vm::execute as vm_execute;
+use chainstate::stacks::StacksBlockId;
 use chainstate::burn::BlockHeaderHash;
 use vm::errors::{Error, CheckErrors, RuntimeErrorType};
 use vm::types::{Value, OptionalData, StandardPrincipalData, ResponseData,
@@ -156,8 +157,8 @@ fn is_err_code(v: &Value, e: i128) -> bool {
     }
 }
 
-fn test_block_headers(n: u8) -> BlockHeaderHash {
-    BlockHeaderHash([n as u8; 32])
+fn test_block_headers(n: u8) -> StacksBlockId {
+    StacksBlockId([n as u8; 32])
 }
 
 #[test]

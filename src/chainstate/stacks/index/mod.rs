@@ -349,11 +349,12 @@ pub trait BlockMap {
 }
 
 #[cfg(test)]
-impl <T: MarfTrieId> BlockMap <T> for () {
-    fn get_block_hash(&self, _id: u32) -> Result<T, Error> {
+impl BlockMap for () {
+    type TrieId = BlockHeaderHash;
+    fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
         Err(Error::NotFoundError)
     }
-    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&T, Error> {
+    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
         Err(Error::NotFoundError)
     }
 }
@@ -390,7 +391,7 @@ mod test {
     };
 
     /// Print out a trie to stderr
-    pub fn dump_trie(s: &mut TrieFileStorage) -> () {
+    pub fn dump_trie(s: &mut TrieFileStorage<BlockHeaderHash>) -> () {
         test_debug!("\n----- BEGIN TRIE ------");
         
         fn space(cnt: usize) -> String {
@@ -444,7 +445,7 @@ mod test {
         test_debug!("----- END TRIE ------\n");
     }
 
-    pub fn merkle_test(s: &mut TrieFileStorage, path: &Vec<u8>, value: &Vec<u8>) -> () {
+    pub fn merkle_test(s: &mut TrieFileStorage<BlockHeaderHash>, path: &Vec<u8>, value: &Vec<u8>) -> () {
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
 
@@ -460,7 +461,7 @@ mod test {
         assert!(proof.verify(&triepath, &MARFValue(marf_value.clone()), &root_hash, &empty_root_to_block));
     }
     
-    pub fn merkle_test_marf(s: &mut TrieFileStorage, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
+    pub fn merkle_test_marf(s: &mut TrieFileStorage<BlockHeaderHash>, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
         test_debug!("---------");
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, path, value);
         test_debug!("---------");
@@ -489,7 +490,7 @@ mod test {
         root_to_block
     }
     
-    pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage, header: &BlockHeaderHash, key: &String, value: &String, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
+    pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage<BlockHeaderHash>, header: &BlockHeaderHash, key: &String, value: &String, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
         test_debug!("---------");
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, key, value);
         test_debug!("---------");
@@ -515,7 +516,7 @@ mod test {
         root_to_block
     }
     
-    pub fn make_node_path(s: &mut TrieFileStorage, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+    pub fn make_node_path(s: &mut TrieFileStorage<BlockHeaderHash>, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         // make a fully-fleshed-out path of node's to a leaf 
         let root_ptr = s.root_ptr();
         let root = TrieNode256::new(&path_segments[0].0);
@@ -592,7 +593,7 @@ mod test {
         (nodes, node_ptrs, hashes)
     }
 
-    pub fn make_node4_path(s: &mut TrieFileStorage, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+    pub fn make_node4_path(s: &mut TrieFileStorage<BlockHeaderHash>, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         make_node_path(s, TrieNodeID::Node4 as u8, path_segments, leaf_data)
     }    
 }

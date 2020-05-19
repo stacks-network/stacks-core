@@ -790,7 +790,7 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::trie::*;
 
-    fn walk_to_insertion_point(f: &mut TrieFileStorage, cursor: &mut TrieCursor) -> (TriePtr, TrieNodeType, TrieHash) {
+    fn walk_to_insertion_point(f: &mut TrieFileStorage<BlockHeaderHash>, cursor: &mut TrieCursor<BlockHeaderHash>) -> (TriePtr, TrieNodeType, TrieHash) {
         let (mut node, root_hash) = Trie::read_root(f).unwrap();
         let mut node_hash = TrieHash::from_empty_data();
         let mut node_ptr = f.root_trieptr();

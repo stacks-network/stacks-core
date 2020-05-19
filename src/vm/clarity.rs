@@ -13,7 +13,7 @@ use vm::costs::{LimitedCostTracker, ExecutionCost, CostTracker};
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::index::{TrieHash, MarfTrieId};
 use chainstate::stacks::events::StacksTransactionEvent;
 
 use std::error;
@@ -625,8 +625,8 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
@@ -653,8 +653,8 @@ mod tests {
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             {
@@ -710,8 +710,8 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
             
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -741,8 +741,8 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -776,8 +776,8 @@ mod tests {
         let sender = StandardPrincipalData::transient().into();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             let contract = "
@@ -839,8 +839,8 @@ mod tests {
         let sender = StandardPrincipalData::transient().into();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             let contract = "
@@ -869,8 +869,8 @@ mod tests {
                                                        runtime: 100 };
 
         {
-            let mut conn = clarity_instance.begin_block(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                                                        &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId([0 as u8; 32]),
+                                                        &StacksBlockId([1 as u8; 32]),
                                                         &NULL_HEADER_DB);
             assert!(
                 match conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "do-expand", &[],

@@ -159,7 +159,7 @@ impl SqliteConnection {
 #[should_panic(expected = "Failed to SQL commit")]
 fn test_rollback() {
     let mut conn = SqliteConnection::memory().unwrap();
-    let bhh = BlockHeaderHash([1; 32]);
+    let bhh = StacksBlockId([1; 32]);
     conn.begin(&bhh);
     conn.rollback(&bhh);
     conn.commit(&bhh); // shouldn't be on the stack!

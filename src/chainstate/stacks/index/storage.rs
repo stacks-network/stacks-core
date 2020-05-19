@@ -500,7 +500,7 @@ pub struct TrieFileStorage <T: MarfTrieId> {
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
     #[cfg(test)]
-    pub test_genesis_block: Option<BlockHeaderHash>,
+    pub test_genesis_block: Option<T>,
 }
 
 impl <T: MarfTrieId> TrieFileStorage <T> {
@@ -614,7 +614,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     }
 
     #[cfg(test)]
-    pub fn new_memory() -> Result<TrieFileStorage, Error> {
+    pub fn new_memory() -> Result<TrieFileStorage<T>, Error> {
         TrieFileStorage::new(":memory:")
     }
 
@@ -668,15 +668,15 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
 
     /// Read the Trie root node's hash from the block table.
     #[cfg(test)]
-    pub fn read_block_root_hash(&self, bhh: &BlockHeaderHash) -> Result<TrieHash, Error> {
+    pub fn read_block_root_hash(&self, bhh: &T) -> Result<TrieHash, Error> {
         let root_hash_ptr =
-            TriePtr::new(TrieNodeID::Node256 as u8, 0, TrieFileStorage::root_ptr_disk());
+            TriePtr::new(TrieNodeID::Node256 as u8, 0, TrieFileStorage::<T>::root_ptr_disk());
         trie_sql::get_node_hash_bytes_by_bhh(&self.db, bhh, &root_hash_ptr)
     }
 
     /// Generate a mapping between Trie root hashes and the blocks that contain them
     #[cfg(test)]
-    pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, BlockHeaderHash>, Error> {
+    pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
         let mut ret = HashMap::from_iter(trie_sql::read_all_block_hashes_and_roots(&self.db)?
                                          .into_iter());
 

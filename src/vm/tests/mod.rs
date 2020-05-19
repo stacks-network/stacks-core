@@ -9,7 +9,8 @@ use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
                    NULL_HEADER_DB};
 
 use chainstate::stacks::index::storage::{TrieFileStorage};
-use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::StacksBlockId;
 
 mod forking;
 mod assets;
@@ -41,16 +42,16 @@ pub fn with_marfed_environment<F>(f: F, top_level: bool)
 where F: FnOnce(&mut OwnedEnvironment) -> ()
 {
     let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(&TrieFileStorage::block_sentinel(),
-                  &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+    marf_kv.begin(&StacksBlockId::sentinel(),
+                  &StacksBlockId([0 as u8; 32]));
 
     {
         marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
     }
 
     marf_kv.test_commit();
-    marf_kv.begin(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                  &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap());
+    marf_kv.begin(&StacksBlockId([0 as u8; 32]),
+                  &StacksBlockId([1 as u8; 32]));
 
     {
         let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
