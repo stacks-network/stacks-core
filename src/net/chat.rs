@@ -99,6 +99,8 @@ pub const HEALTH_POINT_LIFETIME : u64 = 12 * 3600;  // 12 hours
 pub const NUM_BLOCK_POINTS : usize = 32;
 pub const BLOCK_POINT_LIFETIME : u64 = 600;
 
+pub const MAX_PEER_HEARTBEAT_INTERVAL : usize = 3600 * 6;       // 6 hours
+
 /// Statistics on relayer hints in Stacks messages.  Used to deduce network choke points.
 #[derive(Debug, Clone)]
 pub struct RelayStats {
@@ -293,6 +295,8 @@ impl NeighborStats {
 
 /// P2P ongoing conversation with another Stacks peer
 pub struct ConversationP2P {
+    pub instantiated: u64,
+
     pub network_id: u32,
     pub version: u32,
     pub connection: ConnectionP2P,
@@ -304,8 +308,10 @@ pub struct ConversationP2P {
     pub peer_network_id: u32,
     pub peer_version: u32,
     pub peer_services: u16,
-    pub peer_addrbytes: PeerAddress,
-    pub peer_port: u16,
+    pub peer_addrbytes: PeerAddress,            // from socketaddr
+    pub peer_port: u16,                         // from socketaddr
+    pub handshake_addrbytes: PeerAddress,       // from handshake
+    pub handshake_port: u16,                    // from handshake
     pub peer_heartbeat: u32,                    // how often do we need to ping the remote peer?
     pub peer_expire_block_height: u64,          // when does the peer's key expire?
 
@@ -451,6 +457,7 @@ impl ConversationP2P {
     /// Create an unconnected conversation
     pub fn new(network_id: u32, version: u32, burnchain: &Burnchain, peer_addr: &SocketAddr, conn_opts: &ConnectionOptions, outbound: bool, conn_id: usize) -> ConversationP2P {
         ConversationP2P {
+            instantiated: get_epoch_time_secs(),
             network_id: network_id,
             version: version,
             connection: ConnectionP2P::new(StacksP2P::new(), conn_opts, None),
@@ -462,6 +469,8 @@ impl ConversationP2P {
             peer_version: 0,
             peer_addrbytes: PeerAddress::from_socketaddr(peer_addr),
             peer_port: peer_addr.port(),
+            handshake_addrbytes: PeerAddress([0u8; 16]),
+            handshake_port: 0,
             peer_heartbeat: 0,
             peer_services: 0,
             peer_expire_block_height: 0,
@@ -488,6 +497,47 @@ impl ConversationP2P {
             network_id: self.peer_network_id,
             addrbytes: self.peer_addrbytes.clone(),
             port: self.peer_port
+        }
+    }
+    
+    pub fn to_handshake_neighbor_key(&self) -> NeighborKey {
+        NeighborKey {
+            peer_version: self.peer_version,
+            network_id: self.peer_network_id,
+            addrbytes: self.handshake_addrbytes.clone(),
+            port: self.handshake_port
+        }
+    }
+
+    pub fn to_neighbor_address(&self) -> NeighborAddress {
+        let pubkh = 
+            if let Some(ref pubk) = self.ref_public_key() {
+                Hash160::from_data(&pubk.to_bytes())
+            }
+            else {
+                Hash160([0u8; 20])
+            };
+
+        NeighborAddress {
+            addrbytes: self.peer_addrbytes.clone(),
+            port: self.peer_port,
+            public_key_hash: pubkh
+        }
+    }
+    
+    pub fn to_handshake_neighbor_address(&self) -> NeighborAddress {
+        let pubkh = 
+            if let Some(ref pubk) = self.ref_public_key() {
+                Hash160::from_data(&pubk.to_bytes())
+            }
+            else {
+                Hash160([0u8; 20])
+            };
+
+        NeighborAddress {
+            addrbytes: self.handshake_addrbytes.clone(),
+            port: self.handshake_port,
+            public_key_hash: pubkh
         }
     }
 
@@ -737,6 +787,8 @@ impl ConversationP2P {
         self.peer_network_id = preamble.network_id;
         self.peer_services = handshake_data.services;
         self.peer_expire_block_height = handshake_data.expire_block_height;
+        self.handshake_addrbytes = handshake_data.addrbytes.clone();
+        self.handshake_port = handshake_data.port;
         self.data_url = handshake_data.data_url.clone();
 
         let mut updated = false;
@@ -788,7 +840,7 @@ impl ConversationP2P {
         if updated {
             // save the new key
             let mut tx = peerdb.tx_begin().map_err(net_error::DBError)?;
-            let neighbor = Neighbor::from_handshake(&mut tx, message.preamble.peer_version, message.preamble.network_id, &handshake_data)?;
+            let mut neighbor = Neighbor::from_handshake(&mut tx, message.preamble.peer_version, message.preamble.network_id, &handshake_data)?;
             neighbor.save_update(&mut tx)?;
             tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
             
@@ -797,6 +849,10 @@ impl ConversationP2P {
 
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
         let accept = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, StacksMessageType::HandshakeAccept(accept_data));
+
+        // update stats
+        self.stats.last_contact_time = get_epoch_time_secs();
+        self.peer_heartbeat = self.heartbeat;       // use our own heartbeat to determine how often we expect this peer to ping us, since that's what we've told the peer
 
         // always pass back handshakes, even though we "handled" them (since other processes --
         // in particular, the neighbor-walk logic -- need to receive them)
@@ -808,7 +864,15 @@ impl ConversationP2P {
     /// Called from the p2p network thread.
     fn handle_handshake_accept(&mut self, preamble: &Preamble, handshake_accept: &HandshakeAcceptData) -> Result<(), net_error> {
         self.update_from_handshake_data(preamble, &handshake_accept.handshake)?;
-        self.peer_heartbeat = handshake_accept.heartbeat_interval;
+        self.peer_heartbeat = 
+            if handshake_accept.heartbeat_interval > (MAX_PEER_HEARTBEAT_INTERVAL as u32) {
+                debug!("{:?}: heartbeat interval is too long; forcing default maximum", self);
+                MAX_PEER_HEARTBEAT_INTERVAL as u32
+            }
+            else {
+                handshake_accept.heartbeat_interval
+            };
+
         self.stats.last_handshake_time = get_epoch_time_secs();
 
         debug!("HandshakeAccept from {:?}: set public key to {:?} expiring at {:?} heartbeat {}s", &self,
@@ -1646,7 +1710,7 @@ mod test {
         };
 
         // convo_2 got updated with convo_1's peer info, but no heartbeat info 
-        assert_eq!(convo_2.peer_heartbeat, 0);
+        assert_eq!(convo_2.peer_heartbeat, 3600);
         assert_eq!(convo_2.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_1.private_key));
         assert_eq!(convo_2.data_url, "http://peer1.com".into());
 
@@ -2093,8 +2157,8 @@ mod test {
                 }
             };
 
-            // convo_2 got updated with convo_1's peer info, but no heartbeat info 
-            assert_eq!(convo_2.peer_heartbeat, 0);
+            // convo_2 got updated with convo_1's peer info, and default heartbeat filled in 
+            assert_eq!(convo_2.peer_heartbeat, 3600);
             assert_eq!(convo_2.connection.get_public_key().unwrap().to_bytes_compressed(), Secp256k1PublicKey::from_private(&local_peer_1.private_key).to_bytes_compressed());
 
             // convo_1 got updated with convo_2's peer info, as well as heartbeat

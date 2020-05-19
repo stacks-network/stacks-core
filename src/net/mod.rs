@@ -841,7 +841,7 @@ impl PeerHost {
 
 /// The data we return on GET /v2/info
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PeerInfoData {
+pub struct RPCPeerInfoData {
     peer_version: u32,
     burn_consensus: ConsensusHash,
     burn_block_height: u64,
@@ -946,6 +946,39 @@ pub struct CallReadOnlyRequestBody {
     pub arguments: Vec<String>,
 }
 
+/// Items in the NeighborsInfo -- combines NeighborKey and NeighborAddress
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCNeighbor {
+    pub network_id: u32,
+    pub peer_version: u32,
+    #[serde(rename = "ip")]
+    pub addrbytes: PeerAddress,
+    pub port: u16,
+    pub public_key_hash: Hash160,
+    pub authenticated: bool
+}
+
+impl RPCNeighbor {
+    pub fn from_neighbor_key_and_pubkh(nk: NeighborKey, pkh: Hash160, auth: bool) -> RPCNeighbor {
+        RPCNeighbor {
+            network_id: nk.network_id,
+            peer_version: nk.peer_version,
+            addrbytes: nk.addrbytes,
+            port: nk.port,
+            public_key_hash: pkh,
+            authenticated: auth
+        }
+    }
+}
+
+/// Struct given back from a call to `/v2/neighbors`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCNeighborsInfo {
+    pub sample: Vec<RPCNeighbor>,
+    pub inbound: Vec<RPCNeighbor>,
+    pub outbound: Vec<RPCNeighbor>,
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
@@ -964,6 +997,7 @@ pub enum HttpRequestType {
     GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, bool),
     GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
     OptionsPreflight(HttpRequestMetadata, String),
+    Unmatched(HttpRequestMetadata, String),     // catch-all if we can't parse the request
 }
 
 /// The fields that Actually Matter to http responses
@@ -1023,8 +1057,8 @@ impl From<&HttpRequestType> for HttpResponseMetadata {
 /// All data-plane message types a peer can reply with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
-    PeerInfo(HttpResponseMetadata, PeerInfoData),
-    Neighbors(HttpResponseMetadata, NeighborsData),
+    PeerInfo(HttpResponseMetadata, RPCPeerInfoData),
+    Neighbors(HttpResponseMetadata, RPCNeighborsInfo),
     Block(HttpResponseMetadata, StacksBlock),
     BlockStream(HttpResponseMetadata),
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
@@ -1244,6 +1278,15 @@ impl fmt::Debug for NeighborKey {
 }
 
 impl NeighborKey {
+    pub fn empty() -> NeighborKey {
+        NeighborKey {
+            peer_version: 0,
+            network_id: 0,
+            addrbytes: PeerAddress([0u8; 16]),
+            port: 0
+        }
+    }
+
     pub fn from_neighbor_address(peer_version: u32, network_id: u32, na: &NeighborAddress) -> NeighborKey {
         NeighborKey {
             peer_version: peer_version,
@@ -1262,7 +1305,7 @@ pub struct Neighbor {
     // fields below this can change at runtime
     pub public_key: Secp256k1PublicKey,
     pub expire_block: u64,
-    pub last_contact_time: u64,
+    pub last_contact_time: u64,     // time when we last authenticated with this peer via a Handshake
     
     pub whitelisted: i64,       // whitelist deadline (negative == "forever")
     pub blacklisted: i64,       // blacklist deadline (negative == "forever")

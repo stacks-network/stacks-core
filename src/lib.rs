@@ -63,3 +63,28 @@ pub mod deps;
 pub mod vm;
 
 pub mod clarity;
+
+// set via _compile-time_ envars
+const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
+const GIT_TREE_CLEAN: Option<&'static str> = option_env!("GIT_TREE_CLEAN");
+
+#[cfg(debug_assertions)]
+const BUILD_TYPE: &'static str = "debug";
+#[cfg(not(debug_assertions))]
+const BUILD_TYPE: &'static str = "release";
+
+pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
+    let git_branch = GIT_BRANCH.map(|x| format!("{}:", x)).unwrap_or("".to_string());
+    let git_commit = GIT_COMMIT.unwrap_or("");
+    let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
+
+    format!("{} {} => {} ({}{}{}, {} build, {} [{}])",
+            pkg_name,
+            pkg_version,
+            core::CHAINSTATE_VERSION,
+            &git_branch, git_commit, git_tree_clean,
+            BUILD_TYPE,
+            std::env::consts::OS,
+            std::env::consts::ARCH)
+}

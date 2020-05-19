@@ -47,7 +47,6 @@ use net::MessageSequence;
 use net::ProtocolFamily;
 use net::HttpRequestMetadata;
 use net::HttpResponseMetadata;
-use net::NeighborsData;
 use net::NeighborAddress;
 use net::CallReadOnlyRequestBody;
 use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
@@ -1193,7 +1192,8 @@ impl HttpRequestType {
             }
         }
 
-        return Err(net_error::DeserializeError("Http request could not be parsed".to_string()));
+        let path = preamble.path.clone();
+        return Ok(HttpRequestType::Unmatched(HttpRequestMetadata::from_preamble(preamble), path));
     }
 
     fn parse_getinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1447,6 +1447,7 @@ impl HttpRequestType {
             HttpRequestType::GetContractSrc(ref md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
+            HttpRequestType::Unmatched(ref md, ..) => md,
         }
     }
     
@@ -1466,6 +1467,7 @@ impl HttpRequestType {
             HttpRequestType::GetContractSrc(ref mut md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
+            HttpRequestType::Unmatched(ref mut md, ..) => md,
         }
     }
 
@@ -1492,6 +1494,7 @@ impl HttpRequestType {
                 format!("/v2/contracts/call-read/{}/{}/{}", contract_addr, contract_name.as_str(), func_name.as_str())
             },
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
+            HttpRequestType::Unmatched(_md, path) => path.to_string(),
         }
     }
 
@@ -1994,6 +1997,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
+                HttpRequestType::Unmatched(..) => "HTTP(Unmatched)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -2431,6 +2435,8 @@ mod test {
     use std::error::Error;
     use net::test::*;
     use net::codec::test::check_codec_and_corruption;
+    use net::RPCNeighbor;
+    use net::RPCNeighborsInfo;
 
     use chainstate::burn::BlockHeaderHash;
     use burnchains::Txid;
@@ -3203,19 +3209,27 @@ mod test {
 
     #[test]
     fn test_http_response_type_codec() {
-        let test_neighbors_info = NeighborsData {
-            neighbors: vec![
-                NeighborAddress {
+        let test_neighbors_info = RPCNeighborsInfo {
+            sample: vec![
+                RPCNeighbor {
+                    network_id: 1,
+                    peer_version: 2,
                     addrbytes: PeerAddress([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]),
                     port: 12345,
                     public_key_hash: Hash160::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
+                    authenticated: true,
                 },
-                NeighborAddress {
+                RPCNeighbor {
+                    network_id: 3,
+                    peer_version: 4,
                     addrbytes: PeerAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x01, 0x02, 0x03, 0x04]),
                     port: 23456,
                     public_key_hash: Hash160::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+                    authenticated: false,
                 },
-            ]
+            ],
+            inbound: vec![],
+            outbound: vec![]
         };
 
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
@@ -3480,9 +3494,9 @@ mod test {
     #[test]
     fn test_http_duplicate_concurrent_streamed_response_fails() {
         // do not permit multiple in-flight chunk-encoded HTTP responses with the same request ID.
-        let valid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\n{\"neighbors\":[]}\r\n0\r\n\r\n";
+        let valid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n28\r\n{\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
         let invalid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nxxxxxxxxxxxxxxxx\r\n0\r\n\r\n";
-        let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n11\r\n{\"neighbors\":[]}\r\n0\r\n\r\n";
+        let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n29\r\n{\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
 
         let mut http = StacksHttp::new();
 
@@ -3497,7 +3511,7 @@ mod test {
         // finish reading the body
         let msg = http.stream_payload(&preamble, &mut &valid_neighbors_response.as_bytes()[offset..]).unwrap();
         match msg {
-            (Some((StacksHttpMessage::Response(HttpResponseType::Neighbors(_, neighbors_data)), _)), _) => assert_eq!(neighbors_data, NeighborsData { neighbors: vec![] }),
+            (Some((StacksHttpMessage::Response(HttpResponseType::Neighbors(_, neighbors_data)), _)), _) => assert_eq!(neighbors_data, RPCNeighborsInfo { sample: vec![], inbound: vec![], outbound: vec![] }),
             _ => {
                 error!("Got {:?}", &msg);
                 assert!(false);

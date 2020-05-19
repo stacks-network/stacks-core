@@ -29,7 +29,7 @@ pub use self::run_loop::{neon, helium};
 
 use pico_args::Arguments;
 use std::env;
-    
+
 fn main() {
 
     let mut args = Arguments::from_env();
@@ -55,7 +55,9 @@ fn main() {
             ConfigFile::from_path(&config_path)
         }
         "version" => {
-            print_version();
+            println!("{}", &stacks::version_string(
+                option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
+                option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")));
             return;
         }
         _ => {
@@ -116,10 +118,6 @@ version\t\tDisplay informations about the current version and our release cycle.
 help\t\tDisplay this help.
 
 ", argv[0]);
-}
-
-fn print_version() {
-    println!("2020-04-23");
 }
 
 #[cfg(test)]

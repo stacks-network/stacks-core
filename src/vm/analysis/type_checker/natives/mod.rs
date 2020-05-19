@@ -350,6 +350,14 @@ impl TypedNativeFunction {
                          TypeSignature::UIntType,
                          TypeSignature::IntType],
                     BUFF_32.clone()))),
+            GetStxBalance => 
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![
+                        FunctionArg::new(TypeSignature::PrincipalType,
+                                         ClarityName::try_from("owner".to_owned())
+                                         .expect("FAIL: ClarityName failed to accept default arg name")),
+                    ],
+                    returns: TypeSignature::UIntType }))),
             StxTransfer =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![

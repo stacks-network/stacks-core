@@ -20,6 +20,23 @@ macro_rules! clarity_ecode {
     }
 }
 
+pub fn special_stx_balance(args: &[SymbolicExpression],
+                            env: &mut Environment,
+                            context: &LocalContext) -> Result<Value> {
+    check_argument_count(1, args)?;
+
+    runtime_cost!(cost_functions::STX_BALANCE, env, 0)?;
+
+    let owner = eval(&args[0], env, context)?;
+
+    if let Value::Principal(ref principal) = owner {
+        let balance = env.global_context.database.get_account_stx_balance(&principal);
+        Ok(Value::UInt(balance))
+    } else {
+        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
+    }
+}
+
 pub fn special_stx_transfer(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
