@@ -133,7 +133,7 @@ impl ProofTriePtr {
             block_map.get_block_hash_caching(other.back_block)?
                 .clone()
         } else {
-            M::TrieId::sentinel()
+            [0u8; 32].into()
         };
         Ok(ProofTriePtr { id, chr, back_block: BlockHeaderHash(back_block.to_bytes()) })
     }
