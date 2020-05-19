@@ -98,23 +98,23 @@ use net::{StacksMessageCodec, codec::read_next};
 use util::{log, hash::to_hex};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProofTriePtr {
+pub struct ProofTriePtr <T: MarfTrieId> {
     pub id: u8,
     pub chr: u8,
-    pub back_block: BlockHeaderHash
+    pub back_block: T
 }
 
 /// Merkle Proof Trie Pointers have a different structure
 ///   than the runtime representation --- the proof includes
 ///   the block header hash for back pointers.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProofTrieNode {
+pub struct ProofTrieNode <T: MarfTrieId> {
     pub id: u8,
     pub path: Vec<u8>,
-    pub ptrs: Vec<ProofTriePtr>
+    pub ptrs: Vec<ProofTriePtr<T>>
 }
 
-impl ConsensusSerializable<()> for ProofTrieNode {
+impl <T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode <T> {
     fn write_consensus_bytes<W: Write>(&self, _additional_data: &mut (), w: &mut W) -> Result<(), Error> {
         w.write_all(&[self.id])?;
         for ptr in self.ptrs.iter() {
@@ -125,26 +125,26 @@ impl ConsensusSerializable<()> for ProofTrieNode {
     }
 }
 
-impl ProofTriePtr {
-    fn try_from_trie_ptr<M: BlockMap>(other: &TriePtr, block_map: &mut M) -> Result<ProofTriePtr, Error> {
+impl <T: MarfTrieId> ProofTriePtr <T> {
+    fn try_from_trie_ptr<M: BlockMap>(other: &TriePtr, block_map: &mut M) -> Result<ProofTriePtr<T>, Error> {
         let id = other.id;
         let chr = other.chr;
         let back_block = if is_backptr(id) {
             block_map.get_block_hash_caching(other.back_block)?
-                .clone()
+                .clone().to_bytes()
         } else {
-            [0u8; 32].into()
+            [0u8; 32]
         };
-        Ok(ProofTriePtr { id, chr, back_block: BlockHeaderHash(back_block.to_bytes()) })
+        Ok(ProofTriePtr { id, chr, back_block: back_block.into() })
     }
 }
 
-impl ProofTrieNode {
-    fn ptrs(&self) -> &[ProofTriePtr] {
+impl <T: MarfTrieId> ProofTrieNode <T> {
+    fn ptrs(&self) -> &[ProofTriePtr<T>] {
         &self.ptrs
     }
 
-    fn try_from_trie_node<T: TrieNode, M: BlockMap>(other: &T, block_map: &mut M) -> Result<ProofTrieNode, Error> {
+    fn try_from_trie_node<N: TrieNode, M: BlockMap>(other: &N, block_map: &mut M) -> Result<ProofTrieNode<T>, Error> {
         let id = other.id();
         let path = other.path().clone();
         let ptrs: Result<Vec<_>, Error> = other.ptrs().iter()
@@ -155,11 +155,11 @@ impl ProofTrieNode {
 }
 
 #[derive(Clone)]
-pub enum TrieMerkleProofType {
-    Node4((u8, ProofTrieNode, [TrieHash; 3])),
-    Node16((u8, ProofTrieNode, [TrieHash; 15])),
-    Node48((u8, ProofTrieNode, [TrieHash; 47])),
-    Node256((u8, ProofTrieNode, [TrieHash; 255])),
+pub enum TrieMerkleProofType <T: MarfTrieId> {
+    Node4((u8, ProofTrieNode<T>, [TrieHash; 3])),
+    Node16((u8, ProofTrieNode<T>, [TrieHash; 15])),
+    Node48((u8, ProofTrieNode<T>, [TrieHash; 47])),
+    Node256((u8, ProofTrieNode<T>, [TrieHash; 255])),
     Leaf((u8, TrieLeaf)),
     Shunt((i64, Vec<TrieHash>))
 }
@@ -185,7 +185,7 @@ pub fn hashes_fmt(hashes: &[TrieHash]) -> String {
     }
 }
 
-impl fmt::Debug for TrieMerkleProofType {
+impl <T: MarfTrieId> fmt::Debug for TrieMerkleProofType<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)) => write!(f, "TrieMerkleProofType::Node4(0x{:02x}, node={:?}, hashes={})", chr, node, hashes_fmt(hashes)),
@@ -198,8 +198,8 @@ impl fmt::Debug for TrieMerkleProofType {
     }
 }
 
-impl PartialEq for TrieMerkleProofType {
-    fn eq(&self, other: &TrieMerkleProofType) -> bool {
+impl <T: MarfTrieId> PartialEq for TrieMerkleProofType<T> {
+    fn eq(&self, other: &TrieMerkleProofType<T>) -> bool {
         match (self, other) {
             (TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)), TrieMerkleProofType::Node4((ref other_chr, ref other_node, ref other_hashes))) => {
                 chr == other_chr && node == other_node && slice_partialeq(hashes, other_hashes)
@@ -225,16 +225,16 @@ impl PartialEq for TrieMerkleProofType {
 }
 
 #[derive(Debug)]
-pub struct TrieMerkleProof(pub Vec<TrieMerkleProofType>);
+pub struct TrieMerkleProof <T: MarfTrieId> (pub Vec<TrieMerkleProofType<T>>);
 
-impl Deref for TrieMerkleProof {
-    type Target = Vec<TrieMerkleProofType>;
-    fn deref(&self) -> &Vec<TrieMerkleProofType> {
+impl <T: MarfTrieId> Deref for TrieMerkleProof <T> {
+    type Target = Vec<TrieMerkleProofType<T>>;
+    fn deref(&self) -> &Vec<TrieMerkleProofType<T>> {
         &self.0
     }
 }
 
-fn serialize_id_hash_node<W: Write>(fd: &mut W, id: &u8, node: &ProofTrieNode, hashes: &[TrieHash]) -> Result<(), ::net::Error> {
+fn serialize_id_hash_node<W: Write, T: MarfTrieId>(fd: &mut W, id: &u8, node: &ProofTrieNode<T>, hashes: &[TrieHash]) -> Result<(), ::net::Error> {
     id.consensus_serialize(fd)?;
     node.consensus_serialize(fd)?;
     for hash in hashes.iter() {
@@ -257,14 +257,14 @@ macro_rules! deserialize_id_hash_node {
     }
 }
 
-impl StacksMessageCodec for ProofTriePtr {
+impl <T: MarfTrieId> StacksMessageCodec for ProofTriePtr <T> {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
         self.id.consensus_serialize(fd)?;
         self.chr.consensus_serialize(fd)?;
         self.back_block.consensus_serialize(fd)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTriePtr, ::net::Error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTriePtr<T>, ::net::Error> {
         let id = read_next(fd)?;
         let chr = read_next(fd)?;
         let back_block = read_next(fd)?;
@@ -273,14 +273,14 @@ impl StacksMessageCodec for ProofTriePtr {
     }
 }
 
-impl StacksMessageCodec for ProofTrieNode {
+impl <T: MarfTrieId> StacksMessageCodec for ProofTrieNode <T> {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
         self.id.consensus_serialize(fd)?;
         self.path.consensus_serialize(fd)?;
         self.ptrs.consensus_serialize(fd)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTrieNode, ::net::Error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTrieNode<T>, ::net::Error> {
         let id = read_next(fd)?;
         let path = read_next(fd)?;
         let ptrs = read_next(fd)?;
@@ -289,7 +289,7 @@ impl StacksMessageCodec for ProofTrieNode {
     }
 }
 
-impl StacksMessageCodec for TrieMerkleProofType {
+impl <T: MarfTrieId> StacksMessageCodec for TrieMerkleProofType <T> {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
         let type_byte = match self {
             TrieMerkleProofType::Node4(_) => TrieMerkleProofTypeIndicator::Node4,
@@ -318,7 +318,7 @@ impl StacksMessageCodec for TrieMerkleProofType {
         }
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieMerkleProofType, ::net::Error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieMerkleProofType<T>, ::net::Error> {
         let type_byte = TrieMerkleProofTypeIndicator::from_u8(read_next(fd)?)
             .ok_or_else(|| ::net::Error::DeserializeError("Bad type byte in Trie Merkle Proof".into()))?;
 
@@ -351,7 +351,7 @@ impl StacksMessageCodec for TrieMerkleProofType {
     }
 }
 
-impl TrieMerkleProof {
+impl <T: MarfTrieId> TrieMerkleProof <T> {
     pub fn to_hex(&self) -> String {
         let mut marf_proof = vec![];
         self.consensus_serialize(&mut marf_proof).expect("Write error on memory buffer");
@@ -382,7 +382,7 @@ impl TrieMerkleProof {
     /// Given a TriePtr to the _currently-visited_ node and the chr of the _previous_ node, calculate a
     /// Merkle proof node.  Include all the children hashes _except_ for the one that corresponds
     /// to the previous node.
-    fn ptr_to_segment_proof_node<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, ptr: &TriePtr, prev_chr: u8) -> Result<TrieMerkleProofType, Error> {
+    fn ptr_to_segment_proof_node(storage: &mut TrieFileStorage<T>, ptr: &TriePtr, prev_chr: u8) -> Result<TrieMerkleProofType<T>, Error> {
         trace!("ptr_to_proof_node: ptr={:?}, prev_chr=0x{:02x}", ptr, prev_chr);
         let (node, _) = storage.read_nodetype(ptr)?;
         let all_hashes = Trie::get_children_hashes(storage, &node)?;
@@ -392,7 +392,7 @@ impl TrieMerkleProof {
                 vec![]
             }
             else {
-                TrieMerkleProof::make_proof_hashes(&node, &all_hashes, prev_chr)?
+                TrieMerkleProof::<T>::make_proof_hashes(&node, &all_hashes, prev_chr)?
             };
  
         let proof_node = match node {
@@ -434,7 +434,7 @@ impl TrieMerkleProof {
     /// Make the initial shunt proof in a MARF merkle proof, for a node that isn't a backptr.
     /// This is a one-item list of a TrieMerkleProofType::Shunt proof entry.
     /// The storage handle must be opened to the block we care about.
-    fn make_initial_shunt_proof<T: MarfTrieId>(storage: &mut TrieFileStorage<T>) -> Result<Vec<TrieMerkleProofType>, Error> {
+    fn make_initial_shunt_proof(storage: &mut TrieFileStorage<T>) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
         let backptr_ancestor_hashes = Trie::get_trie_ancestor_hashes_bytes(storage)?;
         
         trace!("First shunt proof node: (0, {:?})", &backptr_ancestor_hashes);
@@ -459,7 +459,7 @@ impl TrieMerkleProof {
     ///
     /// All intermediate shunt proofs will contain all ancestor hashes for each node in-between the
     /// backptr and the non-backptr node.  The intermediate root hashes will be calculated by the verifier.
-    fn make_backptr_shunt_proof<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, backptr: &TriePtr) -> Result<Vec<TrieMerkleProofType>, Error> {
+    fn make_backptr_shunt_proof(storage: &mut TrieFileStorage<T>, backptr: &TriePtr) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
         // the proof is built "backwards" -- starting from the current block all the way back to backptr.
         assert!(is_backptr(backptr.id()));
 
@@ -599,8 +599,8 @@ impl TrieMerkleProof {
     }
 
     /// Verify the head of a shunt proof
-    fn verify_shunt_proof_head(node_root_hash: &TrieHash, shunt_proof_head: &TrieMerkleProofType) -> Option<TrieHash> {
-        // ancestor hashes are always the first item 
+    fn verify_shunt_proof_head(node_root_hash: &TrieHash, shunt_proof_head: &TrieMerkleProofType<T>) -> Option<TrieHash> {
+        // ancestor hashes are always the first item
         let hash = match shunt_proof_head {
             TrieMerkleProofType::Shunt((ref idx, ref hashes)) => {
                 if *idx != 0 {
@@ -636,7 +636,7 @@ impl TrieMerkleProof {
 
     /// Verify the tail of a shunt proof, given the backptr root hash.
     /// Calculate the root hash of the next segment proof.
-    fn verify_shunt_proof_tail(initial_hash: &TrieHash, shunt_proof: &[TrieMerkleProofType]) -> Option<TrieHash> {
+    fn verify_shunt_proof_tail(initial_hash: &TrieHash, shunt_proof: &[TrieMerkleProofType<T>]) -> Option<TrieHash> {
         let mut hash = initial_hash.clone();
 
         // walk subsequent legs of a shunt proof, except for the last (since we need the next
@@ -650,7 +650,7 @@ impl TrieMerkleProof {
                         return None;
                     }
 
-                    match TrieMerkleProof::next_shunt_hash(&hash, *idx, hashes) {
+                    match TrieMerkleProof::<T>::next_shunt_hash(&hash, *idx, hashes) {
                         Some(h) => {
                             h
                         },
@@ -670,7 +670,7 @@ impl TrieMerkleProof {
     
     /// Verify a shunt juncture, where a shunt proof tail and a segment proof meet.
     /// Returns the hash of the root of the junction
-    fn verify_shunt_proof_junction(node_root_hash: &TrieHash, penultimate_trie_hash: &TrieHash, shunt_proof_junction: &TrieMerkleProofType) -> Option<TrieHash> {
+    fn verify_shunt_proof_junction(node_root_hash: &TrieHash, penultimate_trie_hash: &TrieHash, shunt_proof_junction: &TrieMerkleProofType<T>) -> Option<TrieHash> {
         // at the juncture, we include the node root hash (from the subsequent segment proof) as
         // the first hash, and include the penultimate trie hash in its idx
         let hash = match shunt_proof_junction {
@@ -714,7 +714,7 @@ impl TrieMerkleProof {
     }
 
     /// Given a list of non-backptr ptrs and a root block header hash, calculate a Merkle proof.
-    fn make_segment_proof<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, ptrs: &Vec<TriePtr>, starting_chr: u8) -> Result<Vec<TrieMerkleProofType>, Error> {
+    fn make_segment_proof(storage: &mut TrieFileStorage<T>, ptrs: &Vec<TriePtr>, starting_chr: u8) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
         trace!("make_segment_proof: ptrs = {:?}", &ptrs);
 
         assert!(ptrs.len() > 0);
@@ -748,42 +748,41 @@ impl TrieMerkleProof {
         Ok(proof_segment)
     }
 
+    /// Given a node in a segment proof, find the hash
+    fn get_segment_proof_hash(node: &ProofTrieNode<T>, hash: &TrieHash, chr: u8, hashes: &[TrieHash], count: usize) -> Option<TrieHash> {
+        let mut all_hashes = vec![];
+        let mut ih = 0;
+
+        assert!(node.ptrs().len() == count);
+        assert!(count > 0 && hashes.len() == count - 1);
+
+        for child_ptr in node.ptrs() {
+            if child_ptr.id != TrieNodeID::Empty as u8 && child_ptr.chr == chr {
+                all_hashes.push(hash.clone());
+            }
+            else {
+                if ih >= hashes.len() {
+                    trace!("verify_get_hash: {} >= {}", ih, hashes.len());
+                    return None;
+                }
+                else {
+                    all_hashes.push(hashes[ih].clone());
+                    ih += 1;
+                }
+            }
+        }
+        if all_hashes.len() != count {
+            trace!("verify_get_hash: {} != {}", all_hashes.len(), count);
+            return None
+        }
+
+        Some(get_node_hash(node, &all_hashes, &mut ()))
+    }
+
     /// Given a segment proof, the deepest node's hash, and the hash of the trie root, verify that
     /// the segment proof is well-formed.
     /// If so, calculate the root hash of the segment and return it.
-    fn verify_segment_proof(proof: &[TrieMerkleProofType], node_hash: &TrieHash) -> Option<TrieHash> {
-
-        /// Given a node in a segment proof, find the hash
-        fn get_segment_proof_hash(node: &ProofTrieNode, hash: &TrieHash, chr: u8, hashes: &[TrieHash], count: usize) -> Option<TrieHash> {
-            let mut all_hashes = vec![];
-            let mut ih = 0;
-
-            assert!(node.ptrs().len() == count);
-            assert!(count > 0 && hashes.len() == count - 1);
-
-            for child_ptr in node.ptrs() {
-                if child_ptr.id != TrieNodeID::Empty as u8 && child_ptr.chr == chr {
-                    all_hashes.push(hash.clone());
-                }
-                else {
-                    if ih >= hashes.len() {
-                        trace!("verify_get_hash: {} >= {}", ih, hashes.len());
-                        return None;
-                    }
-                    else {
-                        all_hashes.push(hashes[ih].clone());
-                        ih += 1;
-                    }
-                }
-            }
-            if all_hashes.len() != count {
-                trace!("verify_get_hash: {} != {}", all_hashes.len(), count);
-                return None
-            }
-
-            Some(get_node_hash(node, &all_hashes, &mut ()))
-        }
-
+    fn verify_segment_proof(proof: &[TrieMerkleProofType<T>], node_hash: &TrieHash) -> Option<TrieHash> {
         let mut hash = node_hash.clone();
         for i in 0..proof.len() {
             let hash_opt = match proof[i] {
@@ -793,16 +792,16 @@ impl TrieMerkleProof {
                     Some(get_leaf_hash(node))
                 },
                 TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 4)
+                    TrieMerkleProof::get_segment_proof_hash(node, &hash, *chr, hashes, 4)
                 },
                 TrieMerkleProofType::Node16((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 16)
+                    TrieMerkleProof::get_segment_proof_hash(node, &hash, *chr, hashes, 16)
                 },
                 TrieMerkleProofType::Node48((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 48)
+                    TrieMerkleProof::get_segment_proof_hash(node, &hash, *chr, hashes, 48)
                 },
                 TrieMerkleProofType::Node256((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 256)
+                    TrieMerkleProof::get_segment_proof_hash(node, &hash, *chr, hashes, 256)
                 },
                 _ => {
                     trace!("Invalid proof -- encountered a non-node proof type");
@@ -822,7 +821,7 @@ impl TrieMerkleProof {
     }
 
     /// Given a segment proof, extract the path prefix it encodes
-    fn get_segment_proof_path_prefix(segment_proof: &[TrieMerkleProofType]) -> Option<Vec<u8>> {
+    fn get_segment_proof_path_prefix(segment_proof: &[TrieMerkleProofType<T>]) -> Option<Vec<u8>> {
         let mut path_parts = vec![];
         for proof_node in segment_proof {
             match proof_node {
@@ -866,7 +865,7 @@ impl TrieMerkleProof {
     /// * segment proof i+1 must be a prefix of segment proof i
     /// * segment proof 0 must end in a leaf
     /// * all segment proofs must end in a Node256 (a root)
-    fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType>, expected_path: &TriePath) -> bool {
+    fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType<T>>, expected_path: &TriePath) -> bool {
         if proof.len() == 0 {
             trace!("Proof is empty");
             return false;
@@ -978,7 +977,7 @@ impl TrieMerkleProof {
     /// which block headers.  This can be calculated and verified independently from the blockchain
     /// headers.
     /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
-    pub fn verify_proof(proof: &Vec<TrieMerkleProofType>, path: &TriePath, value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
+    pub fn verify_proof(proof: &Vec<TrieMerkleProofType<T>>, path: &TriePath, value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, T>) -> bool {
         if !TrieMerkleProof::is_proof_well_formed(&proof, path) {
             return false;
         }
@@ -1053,7 +1052,7 @@ impl TrieMerkleProof {
                 trace!("Block hash for {:?} is {:?}", &trie_hash, bhh);
 
                 // safe because block header hashes are 32 bytes long
-                TrieHash(bhh.0)
+                TrieHash(bhh.clone().to_bytes())
             },
             None => {
                 trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
@@ -1157,7 +1156,7 @@ impl TrieMerkleProof {
                     trace!("Block hash for {:?} is {:?}", &trie_hash, bhh);
 
                     // safe because block header hashes are 32 bytes long
-                    TrieHash(bhh.0)
+                    TrieHash(bhh.clone().to_bytes())
                 },
                 None => {
                     trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
@@ -1179,12 +1178,12 @@ impl TrieMerkleProof {
     }
 
     /// Verify this proof
-    pub fn verify(&self, path: &TriePath, marf_value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
-        TrieMerkleProof::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block)
+    pub fn verify(&self, path: &TriePath, marf_value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, T>) -> bool {
+        TrieMerkleProof::<T>::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block)
     }
 
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf
-    fn walk_to_leaf_or_backptr<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, path: &TriePath) -> Result<(TrieCursor<T>, TrieNodeType, TriePtr), Error> {
+    fn walk_to_leaf_or_backptr(storage: &mut TrieFileStorage<T>, path: &TriePath) -> Result<(TrieCursor<T>, TrieNodeType, TriePtr), Error> {
         trace!("Walk path {:?} from {:?} to the first backptr", path, &storage.get_cur_block());
         
         let mut node_ptr = storage.root_trieptr();
@@ -1250,7 +1249,7 @@ impl TrieMerkleProof {
 
     /// Make a merkle proof of inclusion from a path.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_path<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, path: &TriePath, expected_value: &MARFValue, root_block_header: &T) -> Result<TrieMerkleProof, Error> {
+    pub fn from_path(storage: &mut TrieFileStorage<T>, path: &TriePath, expected_value: &MARFValue, root_block_header: &T) -> Result<TrieMerkleProof<T>, Error> {
         // accumulate proofs in reverse order -- each proof will be from an earlier and earlier
         // trie, so we'll reverse them in the end so the proof starts with the latest trie.
         let mut segment_proofs = vec![];
@@ -1333,13 +1332,13 @@ impl TrieMerkleProof {
     
     /// Make a merkle proof of inclusion from a key/value pair.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_entry<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, key: &String, value: &String, root_block_header: &T) -> Result<TrieMerkleProof, Error> {
+    pub fn from_entry(storage: &mut TrieFileStorage<T>, key: &String, value: &String, root_block_header: &T) -> Result<TrieMerkleProof<T>, Error> {
         let marf_value = MARFValue::from_value(value);
         let path = TriePath::from_key(key);
         TrieMerkleProof::from_path(storage, &path, &marf_value, root_block_header)
     }
 
-    pub fn from_raw_entry<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, key: &str, value: &MARFValue, root_block_header: &T) -> Result<TrieMerkleProof, Error> {
+    pub fn from_raw_entry(storage: &mut TrieFileStorage<T>, key: &str, value: &MARFValue, root_block_header: &T) -> Result<TrieMerkleProof<T>, Error> {
         let path = TriePath::from_key(key);
         TrieMerkleProof::from_path(storage, &path, value, root_block_header)
     }

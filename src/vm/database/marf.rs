@@ -42,7 +42,7 @@ pub trait ClarityBackingStore {
     fn put_all(&mut self, items: Vec<(String, String)>);
     /// fetch K-V out of the committed datastore
     fn get(&mut self, key: &str) -> Option<String>;
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)>;
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)>;
     fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
@@ -304,7 +304,7 @@ impl ClarityBackingStore for MarfedKV {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)> {
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         self.marf.get_with_proof(&self.chain_tip, key)
             .or_else(|e| {
                 match e {
@@ -382,7 +382,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         self.side_store.get(key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)> {
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         self.side_store.get(key)
             .map(|x| {
                 (x, TrieMerkleProof(vec![]))

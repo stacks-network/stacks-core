@@ -239,7 +239,7 @@ impl <'a> RollbackWrapper <'a> {
 
     /// this function will only return commitment proofs for values _already_ materialized
     ///  in the underlying store. otherwise it returns None.
-    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, TrieMerkleProof)> where T: ClarityDeserializable<T> {
+    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, TrieMerkleProof<StacksBlockId>)> where T: ClarityDeserializable<T> {
         self.store.get_with_proof(key)
             .map(|(value, proof)| (T::deserialize(&value), proof))
     }

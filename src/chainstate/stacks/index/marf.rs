@@ -529,7 +529,7 @@ impl <T: MarfTrieId> MARF <T> {
         MARF::get_by_key(&mut self.storage, block_hash, key)
     }
 
-    pub fn get_with_proof(&mut self, block_hash: &T, key: &str) -> Result<Option<(MARFValue, TrieMerkleProof)>, Error> {
+    pub fn get_with_proof(&mut self, block_hash: &T, key: &str) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let marf_value = match MARF::get_by_key(&mut self.storage, block_hash, key)? {
             None => return Ok(None),
             Some(x) => x

@@ -186,7 +186,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.get_value(key, expected)
     }
 
-    pub fn get_with_proof <T> (&mut self, key: &str) -> Option<(T, TrieMerkleProof)> where T: ClarityDeserializable<T> {
+    pub fn get_with_proof <T> (&mut self, key: &str) -> Option<(T, TrieMerkleProof<StacksBlockId>)> where T: ClarityDeserializable<T> {
         self.store.get_with_proof(key)
     }
 

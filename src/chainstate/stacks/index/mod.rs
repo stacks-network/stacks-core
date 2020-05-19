@@ -66,7 +66,7 @@ pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
 pub trait MarfTrieId:
 PartialEq + Clone + std::fmt::Display + std::fmt::Debug +
 rusqlite::types::ToSql + rusqlite::types::FromSql + std::convert::From<[u8; 32]> +
-std::convert::From<MARFValue>
+std::convert::From<MARFValue> + ::net::StacksMessageCodec
 {
     fn as_bytes(&self) -> &[u8];
     fn to_bytes(self) -> [u8; 32];
@@ -107,9 +107,10 @@ impl From<MARFValue> for $thing {
     }
 }
 
-impl_marf_trie_id!(BlockHeaderHash);
 impl_marf_trie_id!(BurnchainHeaderHash);
 impl_marf_trie_id!(StacksBlockId);
+#[cfg(test)]
+impl_marf_trie_id!(BlockHeaderHash);
 
 impl TrieHash {
     /// TrieHash of zero bytes
