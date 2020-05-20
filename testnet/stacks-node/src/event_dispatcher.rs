@@ -21,9 +21,9 @@ struct EventObserver {
     endpoint: String,
 }
 
-const STATUS_RESP_TRUE = "success";
-const STATUS_RESP_NOT_COMMITTED = "abort_by_response";
-const STATUS_RESP_POST_CONDITION  = "abort_by_post_condition";
+const STATUS_RESP_TRUE: &str = "success";
+const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
+const STATUS_RESP_POST_CONDITION: &str  = "abort_by_post_condition";
 
 impl EventObserver {
 
