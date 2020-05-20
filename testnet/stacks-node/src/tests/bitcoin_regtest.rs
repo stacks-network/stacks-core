@@ -5,7 +5,6 @@ use crate::helium::RunLoop;
 
 use stacks::chainstate::burn::operations::BlockstackOperationType::{LeaderBlockCommit, LeaderKeyRegister};
 use stacks::util::hash::{hex_bytes};
-use stacks::util::sleep_ms;
 
 use std::io::{BufReader, BufRead};
 use super::{PUBLISH_CONTRACT};
@@ -122,7 +121,6 @@ fn bitcoind_integration_test() {
     let mut run_loop = RunLoop::new(conf);
 
     run_loop.callbacks.on_burn_chain_initialized(|burnchain_controller| {
-        sleep_ms(5000);
         burnchain_controller.bootstrap_chain(201);
     });
 

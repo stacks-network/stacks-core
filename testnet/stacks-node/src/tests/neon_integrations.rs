@@ -14,7 +14,7 @@ use super::bitcoin_regtest::BitcoinCoreController;
 use std::{thread, env};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-
+use std::time::{Instant, Duration};
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -40,22 +40,22 @@ fn next_block_and_wait(btc_controller: &mut BitcoinRegtestController, blocks_pro
     let current = blocks_processed.load(Ordering::SeqCst);
     eprintln!("Issuing block, waiting for bump");
     btc_controller.build_next_block(1);
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) <= current {
-        if start.elapsed() > std::time::Duration::from_secs(PANIC_TIMEOUT_SECS) {
+        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
             panic!("Timed out waiting for block to process");
         }
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(100));
     }
 }
 
 fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) == 0 {
-        if start.elapsed() > std::time::Duration::from_secs(PANIC_TIMEOUT_SECS) {
+        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
             panic!("Timed out waiting for run loop to start");
         }
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(100));
     }
 }
 

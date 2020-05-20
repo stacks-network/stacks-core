@@ -307,7 +307,8 @@ impl MemPoolDB {
         
         let ancestor_tip = {
             let mut headers_tx = chainstate.headers_tx_begin()?;
-            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash), next_height)? {
+            let index_block = StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash);
+            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &index_block, next_height)? {
                 Some(tip_info) => tip_info,
                 None => {
                     // no such ancestor.  We're done

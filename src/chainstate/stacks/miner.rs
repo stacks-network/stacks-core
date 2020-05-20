@@ -118,13 +118,13 @@ impl <'a> StacksMicroblockBuilder <'a> {
             &self.anchor_block_bhh, &self.anchor_block, self.anchor_block_height, &mut self.header_reader,
             |micro_txs| {
                 for mempool_tx in micro_txs.into_iter() {
+                    if mempool_tx.tx.anchor_mode != TransactionAnchorMode::OffChainOnly && mempool_tx.tx.anchor_mode != TransactionAnchorMode::Any {
+                        continue;
+                    }
                     if considered.contains(&mempool_tx.metadata.txid) {
                         continue;
                     } else {
                         considered.insert(mempool_tx.metadata.txid.clone());
-                    }
-                    if mempool_tx.tx.anchor_mode != TransactionAnchorMode::OffChainOnly && mempool_tx.tx.anchor_mode != TransactionAnchorMode::Any {
-                        continue;
                     }
                     if bytes_so_far + mempool_tx.metadata.len >= MAX_EPOCH_SIZE.into() {
                         return Err(Error::BlockTooBigError);
