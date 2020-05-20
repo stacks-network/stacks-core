@@ -150,6 +150,11 @@ impl EventDispatcher {
         let mut events: Vec<(Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
         for receipt in chain_tip.receipts.iter() {
+            if receipt.post_condition_aborted {
+                // don't include events for transactions that
+                //   were aborted by post_conditions in the block's events
+                continue;
+            }
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
                 match event {
