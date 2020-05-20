@@ -34,9 +34,9 @@ async fn main() -> http_types::Result<()> {
     }
 
     // Generating block
-    // Baseline: 100 for miner, 100 for faucet
+    // Baseline: 150 for miner, 150 for faucet
     let config = ConfigFile::from_path(&argv[1]);
-    let mut num_blocks = 100;
+    let mut num_blocks = 0;
     let block_time = Duration::from_millis(config.neon.block_time);
 
     if is_bootstrap_chain_required(&config).await? {
@@ -48,18 +48,22 @@ async fn main() -> http_types::Result<()> {
         }.as_secs() as u64;
 
         let time_since_genesis = now - config.neon.genesis_timestamp;
-        
+
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
-        num_blocks += time_since_genesis / block_time.as_secs();
+        let num_blocks_required = time_since_genesis / block_time.as_secs();
+        let num_blocks_for_miner = 150 + num_blocks_required;
+        let num_blocks_for_faucet = 150;
 
+        // Generate blocks for the neon faucet
+        let faucet_address = config.neon.faucet_address.clone();
+        generate_blocks(num_blocks_for_faucet, faucet_address, &config).await;
+
+        // Generate blocks for the neon miner
         let miner_address = config.neon.miner_address.clone();
         generate_blocks(num_blocks, miner_address, &config).await;
 
-        // Generate 100 blocks for the neon faucet
-        let faucet_address = config.neon.faucet_address.clone();
-        generate_blocks(100, faucet_address, &config).await;
-        num_blocks += 100;
+        num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
     }
 
     // Start a loop in a separate thread, generating new blocks
