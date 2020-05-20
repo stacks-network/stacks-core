@@ -4,6 +4,7 @@ p2p_bind = "127.0.0.1:20444"
 seed = "0000000000000000000000000000000000000000000000000000000000000000"
 local_peer_seed = "0000000000000000000000000000000000000000000000000000000000000000"
 miner = true
+mine_microblocks = true
 
 [burnchain]
 chain = "bitcoin"
@@ -11,6 +12,7 @@ mode = "neon"
 peer_host = "127.0.0.1"
 rpc_port = 28443
 peer_port = 18444
+commit_anchor_block_within = 20_000
 
 [[mstx_balance]]
 # Private key: b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001

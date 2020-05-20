@@ -1,10 +1,11 @@
+mod neon_integrations;
 mod integrations;
 mod bitcoin_regtest;
 mod mempool;
 
 use stacks::chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
 use stacks::chainstate::stacks::{TransactionPayload, StacksTransactionSigner, StacksPublicKey,TransactionPostConditionMode, TransactionSmartContract, TransactionAuth,TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    StacksMicroblockHeader, StacksPrivateKey,
+    StacksMicroblockHeader, StacksPrivateKey, TransactionAnchorMode,
     TokenTransferMemo, CoinbasePayload, TransactionContractCall, StacksAddress, StacksTransaction, TransactionSpendingCondition};
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::{hex_bytes};
@@ -48,13 +49,22 @@ lazy_static! {
 }
 
 pub fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
-                                         sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
+                                             sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
+    serialize_sign_standard_single_sig_tx_anchor_mode(
+        payload, sender, nonce, fee_rate, TransactionAnchorMode::OnChainOnly)
+}
+
+pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
+    payload: TransactionPayload, sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+    anchor_mode: TransactionAnchorMode) -> Vec<u8> {
+
     let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
         .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
     spending_condition.set_fee_rate(fee_rate);
     let auth = TransactionAuth::Standard(spending_condition);
     let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+    unsigned_tx.anchor_mode = anchor_mode;
     unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
     unsigned_tx.chain_id = TESTNET_CHAIN_ID;
 
@@ -74,6 +84,17 @@ pub fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u6
     let payload = TransactionSmartContract { name, code_body };
 
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+}
+
+pub fn make_contract_publish_microblock_only(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                             contract_name: &str, contract_content: &str) -> Vec<u8> {
+    let name = ContractName::from(contract_name);
+    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
+
+    let payload = TransactionSmartContract { name, code_body };
+
+    serialize_sign_standard_single_sig_tx_anchor_mode(payload.into(), sender, nonce, fee_rate,
+                                                      TransactionAnchorMode::OffChainOnly)
 }
 
 pub fn new_test_conf() -> Config {
@@ -113,6 +134,12 @@ pub fn make_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64
                             recipient: &PrincipalData, amount: u64) -> Vec<u8> {
     let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+}
+
+pub fn make_stacks_transfer_mblock_only(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                                        recipient: &PrincipalData, amount: u64) -> Vec<u8> {
+    let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    serialize_sign_standard_single_sig_tx_anchor_mode(payload.into(), sender, nonce, fee_rate, TransactionAnchorMode::OffChainOnly)
 }
 
 pub fn make_poison(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
