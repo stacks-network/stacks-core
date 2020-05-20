@@ -145,7 +145,7 @@ impl NetworkState {
     /// Returns the handle to the poll state, used to key network poll events.
     pub fn bind(&mut self, addr: &SocketAddr) -> Result<usize, net_error> {
         let server = NetworkState::bind_address(addr)?;
-        let next_server_event = self.next_event_id();
+        let next_server_event = self.next_event_id()?;
 
         self.poll.register(&server, mio::Token(next_server_event), Ready::all(), PollOpt::edge())
             .map_err(|e| {
@@ -159,7 +159,7 @@ impl NetworkState {
             server_event: mio::Token(next_server_event),
         };
 
-        assert!(!self.event_map.contains_key(&next_server_event));
+        assert!(!self.event_map.contains_key(&next_server_event), "BUG: failed to generate an unused server event ID");
 
         self.servers.push(network_server);
         self.event_map.insert(next_server_event, 0);        // server events always mapped to 0
@@ -167,24 +167,42 @@ impl NetworkState {
         Ok(next_server_event)
     }
 
-    /// Register a socket for read/write notifications with this poller
-    pub fn register(&mut self, server_event_id: usize, event_id: usize, sock: &mio_net::TcpStream) -> Result<(), net_error> {
+    /// Register a socket for read/write notifications with this poller.
+    /// Try to use the given hint_event_id value, but generate a different event ID if it's been
+    /// taken.
+    /// Return the actual event ID used (it may be different than hint_event_id)
+    pub fn register(&mut self, server_event_id: usize, hint_event_id: usize, sock: &mio_net::TcpStream) -> Result<usize, net_error> {
+        let hint_event_id = hint_event_id % self.event_capacity;
+        if let Some(x) = self.event_map.get(&server_event_id) {
+            if x != &0 {
+                // not a server event
+                error!("Server event ID {} not mapped to a server token, but to {}", &server_event_id, x);
+                return Err(net_error::RegisterError);
+            }
+        }
+        else {
+            // not a server event
+            panic!("Not a server event ID: {}", &server_event_id);
+        }
+
+        // if the event ID is in use, then find another one
+        let event_id = 
+            if self.event_map.contains_key(&hint_event_id) {
+                self.next_event_id()?
+            }
+            else {
+                hint_event_id
+            };
+        
         self.poll.register(sock, mio::Token(event_id), Ready::all(), PollOpt::edge())
             .map_err(|e| {
-                error!("Failed to register socket: {:?}", &e);
+                error!("Failed to register socket on server {} event ID {} ({}): {:?}", server_event_id, event_id, hint_event_id, &e);
                 net_error::RegisterError
             })?;
 
-        // this is a server event
-        assert!(self.event_map.contains_key(&server_event_id));
-        assert_eq!(self.event_map.get(&server_event_id), Some(&0));
-
-        // this event ID is not in use
-        assert!(!self.event_map.contains_key(&event_id));
-
         self.event_map.insert(event_id, server_event_id);
-        test_debug!("Register socket {:?} as event {} on server {}", sock, event_id, server_event_id);
-        Ok(())
+        test_debug!("Register socket {:?} as event {} ({}) on server {}", sock, event_id, hint_event_id, server_event_id);
+        Ok(event_id)
     }
 
     /// Deregister a socket event
@@ -194,28 +212,34 @@ impl NetworkState {
                 error!("Failed to deregister socket {}: {:?}", event_id, &e);
                 net_error::RegisterError
             })?;
+        
+        self.event_map.remove(&event_id);
 
         sock.shutdown(Shutdown::Both)
             .map_err(|_e| net_error::SocketError)?;
 
-        self.event_map.remove(&event_id);
         test_debug!("Socket deregistered: {}, {:?}", event_id, sock);
         Ok(())
     }
 
-    fn make_next_event_id(&self, cur_count: usize, in_use: &HashSet<usize>) -> usize {
+    fn make_next_event_id(&self, cur_count: usize, in_use: &HashSet<usize>) -> Result<usize, net_error> {
         let mut ret = cur_count;
-        while self.event_map.contains_key(&ret) || in_use.contains(&ret) {
-            ret = (ret + 1) % self.event_capacity;
+        for _ in 0..self.event_capacity {
+            if self.event_map.contains_key(&ret) || in_use.contains(&ret) {
+                ret = (ret + 1) % self.event_capacity;
+            }
+            else {
+                return Ok(ret);
+            }
         }
-        ret
+        return Err(net_error::TooManyPeers);
     }
 
     /// next event ID
-    pub fn next_event_id(&mut self) -> usize {
-        let ret = self.make_next_event_id(self.count, &HashSet::new());
+    pub fn next_event_id(&mut self) -> Result<usize, net_error> {
+        let ret = self.make_next_event_id(self.count, &HashSet::new())?;
         self.count = (ret + 1) % self.event_capacity;
-        ret
+        Ok(ret)
     }
 
     /// Connect to a remote peer, but don't register it with the poll handle.
@@ -306,7 +330,18 @@ impl NetworkState {
                             }
                         };
 
-                        let next_event_id = self.make_next_event_id(self.count, &new_events);
+                        // this does the same thing as next_event_id(), but we can't borrow self
+                        // mutably here (so we'll just do the increment-mod directly).
+                        let next_event_id = match self.make_next_event_id(self.count, &new_events) {
+                            Ok(eid) => eid,
+                            Err(_e) => {
+                                // no poll slots available. Close the socket and carry on.
+                                info!("Too many peers, closing {:?}", &_client_addr);
+                                let _ = client_sock.shutdown(Shutdown::Both);
+                                continue;
+                            }
+                        };
+
                         self.count = (next_event_id + 1) % self.event_capacity;
 
                         new_events.insert(next_event_id);
@@ -332,15 +367,113 @@ impl NetworkState {
                         poll_state.ready.push(event_id);
                     }
                     else {
-                        panic!("Unknown server event ID {}", server_event_id);
+                        warn!("Unknown server event ID {}", server_event_id);
                     }
                 },
                 None => {
-                    panic!("Surreptitious readiness event {}", event_id);
+                    warn!("Surreptitious readiness event {}", event_id);
                 }
             }
         }
 
         Ok(poll_states)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use mio;
+    use mio::net as mio_net;
+    use mio::Ready;
+    use mio::Token;
+    use mio::PollOpt;
+    
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_bind() {
+        let mut ns = NetworkState::new(100).unwrap();
+        let mut server_events = HashSet::new();
+        for port in 49000..49010 {
+            let addr = format!("127.0.0.1:{}", &port).parse::<SocketAddr>().unwrap();
+            let event_id = ns.bind(&addr).unwrap();
+            assert!(!server_events.contains(&event_id));
+            server_events.insert(event_id);
+        }
+    }
+
+    #[test]
+    fn test_register_deregister() {
+        let mut ns = NetworkState::new(100).unwrap();
+        let mut server_events = vec![];
+        let mut event_ids = HashSet::new();
+        for port in 49010..49020 {
+            let addr = format!("127.0.0.1:{}", &port).parse::<SocketAddr>().unwrap();
+            let event_id = ns.bind(&addr).unwrap();
+            server_events.push(event_id);
+            event_ids.insert(event_id);
+        }
+
+        let mut client_events = vec![];
+        for port in 49010..49020 {
+            let addr = format!("127.0.0.1:{}", &port).parse::<SocketAddr>().unwrap();
+            let sock = NetworkState::connect(&addr).unwrap();
+
+            let event_id = ns.register(server_events[port - 49010], 1, &sock).unwrap();
+            assert!(event_id != 0);
+            assert!(!event_ids.contains(&event_id));
+            ns.deregister(event_id, &sock).unwrap();
+
+            let event_id = ns.register(server_events[port - 49010], 101, &sock).unwrap();
+            assert!(event_id != 0);
+            assert!(!event_ids.contains(&event_id));
+            ns.deregister(event_id, &sock).unwrap();
+            
+            let event_id = ns.register(server_events[port - 49010], server_events[port - 49010], &sock).unwrap();
+            assert!(event_id != 0);
+            assert!(!event_ids.contains(&event_id));
+            ns.deregister(event_id, &sock).unwrap();
+
+            let event_id = ns.register(server_events[port - 49010], 11, &sock).unwrap();
+            assert!(!event_ids.contains(&event_id));
+
+            event_ids.insert(event_id);
+            client_events.push(event_id);
+        }
+
+        test_debug!("=====");
+        for port in 49010..49020 {
+            let addr = format!("127.0.0.1:{}", &port).parse::<SocketAddr>().unwrap();
+            let sock = NetworkState::connect(&addr).unwrap();
+
+            // can't use non-server events
+            assert_eq!(Err(net_error::RegisterError), ns.register(client_events[port - 49010], port - 49010 + 1, &sock));
+        }
+    }
+
+    #[test]
+    fn test_register_too_many_peers() {
+        let mut ns = NetworkState::new(20).unwrap();
+        let mut server_events = vec![];
+        let mut event_ids = HashSet::new();
+        for port in 49020..49030 {
+            let addr = format!("127.0.0.1:{}", &port).parse::<SocketAddr>().unwrap();
+            let event_id = ns.bind(&addr).unwrap();
+            server_events.push(event_id);
+            event_ids.insert(event_id);
+            
+            let sock = NetworkState::connect(&addr).unwrap();
+
+            // register 10 client events
+            let event_id = ns.register(server_events[port - 49020], 11, &sock).unwrap();
+            assert!(!event_ids.contains(&event_id));
+        }
+
+        // the 21st socket should fail
+        let addr = "127.0.0.1:49020".parse::<SocketAddr>().unwrap();
+        let sock = NetworkState::connect(&addr).unwrap();
+        let res = ns.register(server_events[0], 11, &sock);
+        assert_eq!(Err(net_error::TooManyPeers), res);
     }
 }

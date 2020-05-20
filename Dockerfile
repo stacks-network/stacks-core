@@ -5,7 +5,7 @@ WORKDIR /src
 COPY . .
 
 RUN rustup target add x86_64-unknown-linux-musl && \
-    apt-get update && apt-get install -y musl-tools
+    apt-get update && apt-get install -y git musl-tools
 
 RUN CC=musl-gcc \
     CC_x86_64_unknown_linux_musl=musl-gcc \

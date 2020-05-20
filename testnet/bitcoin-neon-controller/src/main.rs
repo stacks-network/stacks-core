@@ -34,9 +34,9 @@ async fn main() -> http_types::Result<()> {
     }
 
     // Generating block
-    // Baseline: 100 for miner, 100 for faucet
+    // Baseline: 150 for miner, 150 for faucet
     let config = ConfigFile::from_path(&argv[1]);
-    let mut num_blocks = 100;
+    let mut num_blocks = 0;
     let block_time = Duration::from_millis(config.neon.block_time);
 
     if is_bootstrap_chain_required(&config).await? {
@@ -48,18 +48,22 @@ async fn main() -> http_types::Result<()> {
         }.as_secs() as u64;
 
         let time_since_genesis = now - config.neon.genesis_timestamp;
-        
+
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
-        num_blocks += time_since_genesis / block_time.as_secs();
+        let num_blocks_required = time_since_genesis / block_time.as_secs();
+        let num_blocks_for_miner = 150 + num_blocks_required;
+        let num_blocks_for_faucet = 150;
 
+        // Generate blocks for the neon faucet
+        let faucet_address = config.neon.faucet_address.clone();
+        generate_blocks(num_blocks_for_faucet, faucet_address, &config).await;
+
+        // Generate blocks for the neon miner
         let miner_address = config.neon.miner_address.clone();
         generate_blocks(num_blocks, miner_address, &config).await;
 
-        // Generate 100 blocks for the neon faucet
-        let faucet_address = config.neon.faucet_address.clone();
-        generate_blocks(100, faucet_address, &config).await;
-        num_blocks += 100;
+        num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
     }
 
     // Start a loop in a separate thread, generating new blocks
@@ -132,13 +136,10 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
 
                 println!("{:?}", rpc_req);
 
-                let authorized_methods = vec![
-                    "listunspent",
-                    "importaddress",
-                    "sendrawtransaction"];
+                let authorized_methods = &config.neon.whitelisted_rpc_calls;
                 
                 // Guard: unauthorized method
-                if !authorized_methods.contains(&rpc_req.method.as_str()) {
+                if !authorized_methods.contains(&rpc_req.method) {
                     return Ok(Response::new(StatusCode::MethodNotAllowed))
                 }
 
@@ -146,7 +147,19 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
                 let stream = TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await?;
                 let body = serde_json::to_vec(&rpc_req).unwrap();
                 let req = build_request(&config, body);
-                client::connect(stream.clone(), req).await
+                let response = match client::connect(stream.clone(), req).await {
+                    Ok(ref mut res) => {
+                        let mut response = Response::new(res.status());
+                        let _ = response.append_header("Content-Type", "application/json");
+                        response.set_body(res.take_body());
+                        response
+                    },
+                    Err(err) => {
+                        println!("Unable to reach host: {:?}", err);
+                        return Ok(Response::new(StatusCode::MethodNotAllowed))
+                    }
+                };
+                Ok(response)
             },
             _ => {
                 Ok(Response::new(StatusCode::MethodNotAllowed))
@@ -232,11 +245,11 @@ pub struct RPCRequest {
     /// The name of the RPC call
     pub method: String,
     /// Parameters to the RPC call
-    pub params: Vec<serde_json::Value>,
+    pub params: serde_json::Value,
     /// Identifier for this Request, which should appear in the response
     pub id: serde_json::Value,
     /// jsonrpc field, MUST be "2.0"
-    pub jsonrpc: String,
+    pub jsonrpc: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -252,18 +265,18 @@ impl RPCRequest {
     pub fn generate_next_block_req(blocks_count: u64, address: String) -> RPCRequest {
         RPCRequest {
             method: "generatetoaddress".to_string(),
-            params: vec![blocks_count.into(), address.into()],
+            params: serde_json::Value::Array(vec![blocks_count.into(), address.into()]),
             id: 0.into(),
-            jsonrpc: "2.0".to_string()
+            jsonrpc: "2.0".to_string().into()
         }
     }
 
     pub fn is_chain_bootstrapped() -> RPCRequest {
         RPCRequest {
             method: "getblockhash".to_string(),
-            params: vec![200.into()],
+            params: serde_json::Value::Array(vec![200.into()]),
             id: 0.into(),
-            jsonrpc: "2.0".to_string()
+            jsonrpc: "2.0".to_string().into()
         }
     }
 }
@@ -303,6 +316,8 @@ pub struct RegtestConfig {
     bitcoind_rpc_pass: String,
     /// Used for deducting the right amount of blocks
     genesis_timestamp: u64,
+    /// List of whitelisted RPC calls
+    whitelisted_rpc_calls: Vec<String>, 
 }
 
 impl RegtestConfig {

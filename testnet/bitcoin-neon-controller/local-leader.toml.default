@@ -2,11 +2,18 @@
 rpc_bind = "0.0.0.0:28443"
 block_time = 7000
 miner_address = "mtFzK54XtpktHj7fKonFExEPEGkUMsiXdy"
-faucet_address = "n3k15aVS4rEWhVYn4YfAFjD8Em5mmsducg"
+faucet_address = "mrzLDS7LT3otAnpiRWGYkWipdnAZJaXAZQ"
 bitcoind_rpc_host = "127.0.0.1:18443"
 bitcoind_rpc_user = "helium-node"
 bitcoind_rpc_pass = "secret"
-genesis_timestamp = 1588615296
+genesis_timestamp = 1588902103
+whitelisted_rpc_calls = [
+    "listunspent",
+    "importaddress",
+    "sendrawtransaction",
+    "getrawtransaction",
+    "scantxoutset"
+]
 
 # Faucet:
 # Private Key          cTYqAVPS7uJTAcxyzkXWjmRGoCjkPcb38wZVRjyXov1RiRDWPQj3

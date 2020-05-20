@@ -259,6 +259,8 @@ pub enum PeerNetworkWorkState {
     Prune
 }
 
+pub type PeerMap = HashMap<usize, ConversationP2P>;
+
 pub struct PeerNetwork {
     pub local_peer: LocalPeer,
     pub peer_version: u32,
@@ -267,7 +269,7 @@ pub struct PeerNetwork {
     pub peerdb: PeerDB,
 
     // ongoing p2p conversations (either they reached out to us, or we to them)
-    pub peers: HashMap<usize, ConversationP2P>,
+    pub peers: PeerMap,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
     pub events: HashMap<NeighborKey, usize>,
     pub connecting: HashMap<usize, (mio_net::TcpStream, bool, u64)>,   // (socket, outbound?, connection sent)
@@ -299,7 +301,9 @@ pub struct PeerNetwork {
     pub walk: Option<NeighborWalk>,
     pub walk_deadline: u64,
     pub walk_count: u64,
+    pub walk_attempts: u64,
     pub walk_total_step_count: u64,
+    pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>,   // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult,        // last successful neighbor walk result
     
     // peer block inventory state
@@ -332,7 +336,7 @@ impl PeerNetwork {
 
             peerdb: peerdb,
 
-            peers: HashMap::new(),
+            peers: PeerMap::new(),
             sockets: HashMap::new(),
             events: HashMap::new(),
             connecting: HashMap::new(),
@@ -353,8 +357,10 @@ impl PeerNetwork {
 
             walk: None,
             walk_deadline: 0,
+            walk_attempts: 0,
             walk_count: 0,
             walk_total_step_count: 0,
+            walk_pingbacks: HashMap::new(),
             walk_result: NeighborWalkResult::new(),
             
             inv_state: None,
@@ -372,7 +378,7 @@ impl PeerNetwork {
 
     /// start serving.
     pub fn bind(&mut self, my_addr: &SocketAddr, http_addr: &SocketAddr) -> Result<(), net_error> {
-        let mut net = NetworkState::new(800)?;
+        let mut net = NetworkState::new(self.connection_opts.max_sockets)?;
 
         let p2p_handle = net.bind(my_addr)?;
         let http_handle = net.bind(http_addr)?;
@@ -551,7 +557,7 @@ impl PeerNetwork {
     }
 
     /// Count how many outbound conversations are going on 
-    pub fn count_outbound_conversations(peers: &HashMap<usize, ConversationP2P>) -> u64 {
+    pub fn count_outbound_conversations(peers: &PeerMap) -> u64 {
         let mut ret = 0;
         for (_, convo) in peers.iter() {
             if convo.stats.outbound {
@@ -597,11 +603,11 @@ impl PeerNetwork {
             },
             Some(ref mut network) => {
                 let sock = NetworkState::connect(&neighbor.addrbytes.to_socketaddr(neighbor.port))?;
-                let next_event_id = network.next_event_id();
-                network.register(self.p2p_network_handle, next_event_id, &sock)?;
+                let hint_event_id = network.next_event_id()?;
+                let registered_event_id = network.register(self.p2p_network_handle, hint_event_id, &sock)?;
 
-                self.connecting.insert(next_event_id, (sock, true, get_epoch_time_secs()));
-                next_event_id
+                self.connecting.insert(registered_event_id, (sock, true, get_epoch_time_secs()));
+                registered_event_id
             }
         };
 
@@ -1131,27 +1137,36 @@ impl PeerNetwork {
 
         let mut registered = vec![];
 
-        for (event_id, client_sock) in poll_state.new.drain() {
-            // event ID already used?
-            if self.peers.contains_key(&event_id) {
-                continue;
-            }
-
-            match self.network {
+        for (hint_event_id, client_sock) in poll_state.new.drain() {
+            let event_id = match self.network {
                 Some(ref mut network) => {
                     // add to poller
-                    if let Err(_e) = network.register(self.p2p_network_handle, event_id, &client_sock) {
+                    let event_id = match network.register(self.p2p_network_handle, hint_event_id, &client_sock) {
+                        Ok(event_id) => event_id,
+                        Err(e) => {
+                            warn!("Failed to register {:?}: {:?}", &client_sock, &e);
+                            continue;
+                        }
+                    };
+            
+                    // event ID already used?
+                    if self.peers.contains_key(&event_id) {
+                        warn!("Already have an event {}: {:?}", event_id, self.peers.get(&event_id));
+                        let _ = network.deregister(event_id, &client_sock);
                         continue;
                     }
+
+                    event_id
                 },
                 None => {
                     test_debug!("{:?}: network not connected", &self.local_peer);
                     return Err(net_error::NotConnected);
                 }
-            }
+            };
 
             // start tracking it
             if let Err(_e) = self.register_peer(event_id, client_sock, false) {
+                // NOTE: register_peer will deregister the socket for us
                 continue;
             }
             registered.push(event_id);
@@ -1330,7 +1345,7 @@ impl PeerNetwork {
         let now = get_epoch_time_secs();
         let mut relay_handles = HashMap::new();
         for (_, convo) in self.peers.iter_mut() {
-            if convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.peer_heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
+            if convo.is_outbound() && convo.is_authenticated() && convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.heartbeat as u64) + self.connection_opts.neighbor_request_timeout < now {
                 // haven't talked to this neighbor in a while
                 let payload = StacksMessageType::Ping(PingData::new());
                 let ping_res = convo.sign_message(&self.chain_view, &self.local_peer.private_key, payload);
@@ -1364,17 +1379,27 @@ impl PeerNetwork {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
         for (event_id, (socket, _, ts)) in self.connecting.iter() {
-            if ts + self.connection_opts.timeout < get_epoch_time_secs() {
-                debug!("{:?}: Disconnect unresponsive connecting peer {:?}", &self.local_peer, socket);
+            if ts + self.connection_opts.connect_timeout < now {
+                debug!("{:?}: Disconnect unresponsive connecting peer {:?}: timed out after {} ({} < {})s", &self.local_peer, socket, self.connection_opts.timeout, ts + self.connection_opts.timeout, now);
                 to_remove.push(*event_id);
             }
         }
         
         for (event_id, convo) in self.peers.iter() {
-            if convo.stats.last_handshake_time > 0 && convo.stats.last_contact_time + (convo.heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
-                // we haven't heard from this peer in too long a time 
-                debug!("{:?}: Disconnect unresponsive peer {:?}", &self.local_peer, &convo);
-                to_remove.push(*event_id);
+            if convo.is_authenticated() {
+                // have handshaked with this remote peer
+                if convo.stats.last_contact_time + (convo.peer_heartbeat as u64) + self.connection_opts.neighbor_request_timeout < now {
+                    // we haven't heard from this peer in too long a time 
+                    debug!("{:?}: Disconnect unresponsive authenticated peer {:?}: {} + {} + {} < {}", &self.local_peer, &convo, convo.stats.last_contact_time, convo.peer_heartbeat, self.connection_opts.neighbor_request_timeout, now);
+                    to_remove.push(*event_id);
+                }
+            }
+            else {
+                // have not handshaked with this remote peer
+                if convo.instantiated + self.connection_opts.handshake_timeout < now {
+                    debug!("{:?}: Disconnect unresponsive unauthenticated peer {:?}: {} + {} < {}", &self.local_peer, &convo, convo.instantiated, self.connection_opts.handshake_timeout, now);
+                    to_remove.push(*event_id);
+                }
             }
         }
 
@@ -1451,7 +1476,7 @@ impl PeerNetwork {
         }
 
         for (nk, (event_id, msg)) in msgs.drain() {
-            match self.send_message(&nk, msg, NEIGHBOR_REQUEST_TIMEOUT) {
+            match self.send_message(&nk, msg, self.connection_opts.neighbor_request_timeout) {
                 Ok(handle) => {
                     self.add_relay_handle(event_id, handle);
                 },
@@ -1975,6 +2000,89 @@ impl PeerNetwork {
         }
         Ok(unhandled)
     }
+    
+    /// Find unauthenticated inbound conversations
+    fn find_unauthenticated_inbound_convos(&self) -> Vec<usize> {
+        let mut ret = vec![];
+        for (event_id, convo) in self.peers.iter() {
+            if !convo.is_outbound() && !convo.is_authenticated() {
+                ret.push(*event_id);
+            }
+        }
+        ret
+    }
+
+    /// Find inbound conversations that have authenticated, given a list of event ids to search
+    /// for.  Add them to our network pingbacks
+    fn schedule_network_pingbacks(&mut self, event_ids: Vec<usize>) -> Result<(), net_error> {
+        if cfg!(test) && self.connection_opts.disable_pingbacks {
+            test_debug!("{:?}: pingbacks are disabled for testing", &self.local_peer);
+            return Ok(())
+        }
+
+        // clear timed-out pingbacks
+        let mut to_remove = vec![];
+        for (naddr, pingback) in self.walk_pingbacks.iter() {
+            if pingback.ts + self.connection_opts.pingback_timeout < get_epoch_time_secs() {
+                to_remove.push((*naddr).clone());
+            }
+        }
+
+        for naddr in to_remove.into_iter() {
+            self.walk_pingbacks.remove(&naddr);
+        }
+
+        let my_pubkey_hash = Hash160::from_data(&Secp256k1PublicKey::from_private(&self.local_peer.private_key).to_bytes()[..]);
+
+        // add new pingbacks
+        for event_id in event_ids.into_iter() {
+            if let Some(ref convo) = self.peers.get(&event_id) {
+                if !convo.is_outbound() && convo.is_authenticated() {
+                    let nk = convo.to_handshake_neighbor_key();
+                    let addr = convo.to_handshake_neighbor_address();
+                    let pubkey = convo.get_public_key().expect("BUG: convo is authenticated but we have no public key for it");
+
+                    if addr.public_key_hash == my_pubkey_hash {
+                        // don't talk to ourselves
+                        continue;
+                    }
+
+                    let neighbor_opt = PeerDB::get_peer(self.peerdb.conn(), self.local_peer.network_id, &addr.addrbytes, addr.port)
+                        .map_err(net_error::DBError)?;
+                    
+                    if neighbor_opt.is_some() {
+                        debug!("{:?}: will not ping back {:?}: already known to us", &self.local_peer, &nk);
+                        continue;
+                    }
+
+                    debug!("{:?}: will ping back {:?} ({:?}) to see if it's routable from us", &self.local_peer, &nk, convo);
+                    self.walk_pingbacks.insert(addr, NeighborPingback { 
+                        peer_version: nk.peer_version,
+                        network_id: nk.network_id,
+                        ts: get_epoch_time_secs(),
+                        pubkey: pubkey
+                    });
+
+                    if self.walk_pingbacks.len() > MAX_NEIGHBORS_DATA_LEN as usize {
+                        // drop one at random 
+                        let idx = thread_rng().gen::<usize>() % self.walk_pingbacks.len();
+                        let drop_addr = match self.walk_pingbacks.keys().skip(idx).next() {
+                            Some(ref addr) => (*addr).clone(),
+                            None => {
+                                continue;
+                            }
+                        };
+
+                        debug!("{:?}: drop pingback {:?}", &self.local_peer, drop_addr);
+                        self.walk_pingbacks.remove(&drop_addr);
+                    }
+                }
+            }
+        }
+
+        test_debug!("{:?}: have {} pingbacks scheduled", &self.local_peer, self.walk_pingbacks.len());
+        Ok(())
+    }
 
     /// Are we in the process of downloading blocks?
     pub fn has_more_downloads(&self) -> bool {
@@ -2029,6 +2137,9 @@ impl PeerNetwork {
         // set up sockets that have finished connecting
         self.process_connecting_sockets(&mut poll_state);
 
+        // find out who is inbound and unathenticed
+        let unauthenticated_inbounds = self.find_unauthenticated_inbound_convos();
+
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
         let (error_events, unsolicited_messages) = self.process_ready_sockets(burndb, chainstate, &mut poll_state);
         for error_event in error_events {
@@ -2037,6 +2148,9 @@ impl PeerNetwork {
         }
         let unhandled_messages = self.handle_unsolicited_messages(burndb, unsolicited_messages)?;
         network_result.consume_unsolicited(unhandled_messages);
+
+        // schedule now-authenticated inbound convos for pingback
+        self.schedule_network_pingbacks(unauthenticated_inbounds)?;
 
         // do some Actual Work(tm)
         // do this _after_ processing new sockets, so the act of opening a socket doesn't trample
@@ -2123,7 +2237,7 @@ impl PeerNetwork {
         let mut result = NetworkResult::new();
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
-            let http_stacks_msgs = network.http.run(network_state, network.chain_view.clone(), burndb, &mut network.peerdb, chainstate, mempool, http_poll_state)?;
+            let http_stacks_msgs = network.http.run(network_state, network.chain_view.clone(), &network.peers, burndb, &network.peerdb, chainstate, mempool, http_poll_state)?;
             result.consume_http_uploads(http_stacks_msgs);
             Ok(())
         })?;

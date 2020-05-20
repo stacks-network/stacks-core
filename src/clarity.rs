@@ -24,7 +24,7 @@ use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteConnection,
                    MarfedKV, MemoryBackingStore, NULL_HEADER_DB};
 use vm::errors::{InterpreterResult, RuntimeErrorType, Error};
-use vm::{SymbolicExpression, SymbolicExpressionType, Value};
+use vm::{SymbolicExpression, SymbolicExpressionType, Value, execute as vm_execute};
 use vm::analysis;
 use vm::analysis::{errors::CheckResult, AnalysisDatabase, ContractAnalysis};
 use vm::analysis::contract_interface_builder::build_contract_interface;
@@ -606,15 +606,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let arguments: Vec<_> = args[5..]
                 .iter()
                 .map(|argument| {
-                    let mut argument_parsed = friendly_expect(
-                        parse(&contract_identifier, argument),
+                    let argument_parsed = friendly_expect(
+                        vm_execute(argument),
                         &format!("Error parsing argument \"{}\"", argument));
                     let argument_value = friendly_expect_opt(
-                        argument_parsed.pop(),
+                        argument_parsed,
                         &format!("Failed to parse a value from the argument: {}", argument));
-                    let argument_value = friendly_expect_opt(
-                        argument_value.match_literal_value(),
-                        &format!("Expected a literal value from the argument: {}", argument));
                     SymbolicExpression::atom_value(argument_value.clone())
                 })
                 .collect();
@@ -681,8 +678,8 @@ mod test {
         eprintln!("execute tokens");
         invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
-                                 "u1000".to_string()]);
-                            
+                                 "(+ u900 u100)".to_string()]);
+
         eprintln!("eval tokens");
         invoke_command("test", &["eval".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(), 
                                  "sample-contracts/tokens-mint.clar".to_string(),

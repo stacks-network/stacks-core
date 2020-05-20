@@ -106,6 +106,7 @@ fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_ident
 fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     let contract = "(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
                     (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))
+                    (define-read-only (balance-stx (p principal)) (stx-get-balance p))
                     (define-public (to-contract (amount uint) (p principal))
                       (let ((contract-principal (as-contract tx-sender)))
                         (stx-transfer? amount p contract-principal)))
@@ -210,6 +211,25 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
             &symbols_from_values(vec![Value::UInt(2), p2.clone(), p1.clone()])).unwrap_err(),
         RuntimeErrorType::ArithmeticOverflow.into());
 
+    // test 6: check balance
+
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "balance-stx",
+        &symbols_from_values(vec![p2.clone()])).unwrap();
+
+    assert_eq!(result, Value::UInt(1000));
+
+    // test 7: check balance is 0 for nonexistent principal
+
+    let sp_data = PrincipalData::parse_standard_principal("SPZG6BAY4JVR9RNAB1HY92B7Q208ZYY4HZEA9PX5").unwrap();
+    let nonexistent_principal = Value::Principal(PrincipalData::Standard(sp_data));
+
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "balance-stx",
+        &symbols_from_values(vec![nonexistent_principal.clone()])).unwrap();
+
+    assert_eq!(result, Value::UInt(0));
+
     // now, let's actually do a couple transfers/burns and check the asset maps.
 
     let (result, asset_map, _events) = execute_transaction(
@@ -253,6 +273,18 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert_eq!(table.get(&p2_principal).unwrap()
                .get(&AssetIdentifier::STX()).unwrap(),
                &AssetMapEntry::STX(10));
+
+    // now check contract balance with stx-get-balance
+
+    let cp_data = PrincipalData::parse_qualified_contract_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens").unwrap();
+    let contract_principal = Value::Principal(cp_data);
+
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "balance-stx",
+        &symbols_from_values(vec![contract_principal.clone()])).unwrap();
+
+    assert_eq!(result, Value::UInt(10));
+
 
     // now let's do a contract -> user transfer
 

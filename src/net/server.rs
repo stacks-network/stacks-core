@@ -38,6 +38,7 @@ use net::db::*;
 use net::poll::*;
 use net::rpc::*;
 use net::http::*;
+use net::p2p::PeerMap;
 
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::stacks::db::StacksChainState;
@@ -124,8 +125,8 @@ impl HttpPeer {
         }
 
         let sock = NetworkState::connect(&addr)?;
-        let next_event_id = network_state.next_event_id();
-        network_state.register(self.http_server_handle, next_event_id, &sock)?;
+        let hint_event_id = network_state.next_event_id()?;
+        let next_event_id = network_state.register(self.http_server_handle, hint_event_id, &sock)?;
 
         self.connecting.insert(next_event_id, (sock, Some(data_url), request, get_epoch_time_secs()));
         Ok(next_event_id)
@@ -244,7 +245,7 @@ impl HttpPeer {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
         for (event_id, (socket, _, _, ts)) in self.connecting.iter() {
-            if ts + self.connection_opts.timeout < now {
+            if ts + self.connection_opts.connect_timeout < now {
                 debug!("Disconnect connecting HTTP peer {:?}", &socket);
                 to_remove.push(*event_id);
             }
@@ -302,17 +303,24 @@ impl HttpPeer {
     fn process_new_sockets(&mut self, network_state: &mut NetworkState, chainstate: &mut StacksChainState, poll_state: &mut NetworkPollState) -> Result<Vec<usize>, net_error> {
         let mut registered = vec![];
 
-        for (event_id, client_sock) in poll_state.new.drain() {
+        for (hint_event_id, client_sock) in poll_state.new.drain() {
+            let event_id = match network_state.register(self.http_server_handle, hint_event_id, &client_sock) {
+                Ok(event_id) => event_id,
+                Err(e) => {
+                    warn!("Failed to register HTTP connection {:?}: {:?}", &client_sock, &e);
+                    continue;
+                }
+            };
+            
             // event ID already used?
             if self.peers.contains_key(&event_id) {
-                continue;
-            }
-
-            if let Err(_e) = network_state.register(self.http_server_handle, event_id, &client_sock) {
+                warn!("Already have an event {}: {:?}", event_id, self.peers.get(&event_id));
+                let _ = network_state.deregister(event_id, &client_sock);
                 continue;
             }
 
             if let Err(_e) = self.register_http(network_state, chainstate, event_id, client_sock, None, None) {
+                // NOTE: register_http will deregister the socket for us
                 continue;
             }
             registered.push(event_id);
@@ -324,7 +332,8 @@ impl HttpPeer {
     /// Process network traffic on a HTTP conversation.
     /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
     /// forwarded to the peer network.
-    fn process_http_conversation(chain_view: &BurnchainView, burndb: &BurnDB, peerdb: &mut PeerDB,
+    fn process_http_conversation(chain_view: &BurnchainView, peers: &PeerMap,
+                                 burndb: &BurnDB, peerdb: &PeerDB,
                                  chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
                                  event_id: usize, client_sock: &mut mio_net::TcpStream,
                                  convo: &mut ConversationHttp) -> Result<(bool, Vec<StacksMessageType>), net_error> {
@@ -371,7 +380,7 @@ impl HttpPeer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        let msgs = match convo.chat(chain_view, burndb, peerdb, chainstate, mempool) {
+        let msgs = match convo.chat(chain_view, peers, burndb, peerdb, chainstate, mempool) {
             Ok(msgs) => msgs,
             Err(e) => {
                 debug!("Failed to converse HTTP on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
@@ -418,7 +427,7 @@ impl HttpPeer {
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the list of
     /// peer network messages we'll need to forward
-    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &BurnDB, peerdb: &mut PeerDB,
+    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
                              chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -441,7 +450,7 @@ impl HttpPeer {
                 Some(ref mut convo) => {
                     // activity on a http socket
                     test_debug!("Process HTTP data from {:?}", convo);
-                    match HttpPeer::process_http_conversation(&self.chain_view, burndb, peerdb, chainstate, mempool,
+                    match HttpPeer::process_http_conversation(&self.chain_view, peers, burndb, peerdb, chainstate, mempool,
                                                               *event_id, client_sock, convo) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {
@@ -496,7 +505,7 @@ impl HttpPeer {
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the list of messages to forward along to the peer network.
-    pub fn run(&mut self, network_state: &mut NetworkState, new_chain_view: BurnchainView, burndb: &BurnDB, peerdb: &mut PeerDB,
+    pub fn run(&mut self, network_state: &mut NetworkState, new_chain_view: BurnchainView, p2p_peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
                chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, mut poll_state: NetworkPollState) -> Result<Vec<StacksMessageType>, net_error> {
 
         // update burnchain snapshot
@@ -509,7 +518,7 @@ impl HttpPeer {
         self.process_connecting_sockets(network_state, chainstate, &mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let (stacks_msgs, error_events) = self.process_ready_sockets(&mut poll_state, burndb, peerdb, chainstate, mempool);
+        let (stacks_msgs, error_events) = self.process_ready_sockets(&mut poll_state, p2p_peers, burndb, peerdb, chainstate, mempool);
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);
             self.deregister_http(network_state, error_event);
@@ -899,7 +908,7 @@ mod test {
     
     #[test]
     fn test_http_400() {
-        test_http_server("test_http_getinfo", 51070, 51071, ConnectionOptions::default(), 1, 0,
+        test_http_server("test_http_400", 51070, 51071, ConnectionOptions::default(), 1, 0,
                         |client_id, _| {
                             // live example -- should fail because we don't support `Connection:
                             // upgrade`
@@ -913,6 +922,25 @@ mod test {
                             let http_response_str = String::from_utf8(http_response_bytes).unwrap();
                             eprintln!("HTTP response\n{}", http_response_str);
                             assert!(http_response_str.find("400 Bad Request").is_some());
+                            true
+                        });
+    }
+
+    #[test]
+    fn test_http_404() {
+        test_http_server("test_http_404", 51072, 51073, ConnectionOptions::default(), 1, 0,
+                        |client_id, _| {
+                            // live example -- should fail because /favicon.ico doesn't exist.
+                            let request_txt = "GET /favicon.ico HTTP/1.1\r\nConnection: close\r\nHost: 127.0.0.1:20443\r\nuser-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36\r\nreferer: http://127.0.0.1:20443/v2/info\r\naccept: image/webp,image/apng,image/*,*/*;q=0.8\r\nsec-fetch-dest: empty\r\naccept-encoding: gzip, deflate, br\r\nsec-fetch-site: same-origin\r\naccept-language: en-US,en;q=0.9\r\ndnt: 1\r\nsec-fetch-mode: no-cors\r\n\r\n";
+                            request_txt.as_bytes().to_vec()
+                        },
+                        |client_id, http_response_bytes_res| {
+                            // should be a HTTP 404 error 
+                            eprintln!("{:?}", &http_response_bytes_res);
+                            let http_response_bytes = http_response_bytes_res.unwrap();
+                            let http_response_str = String::from_utf8(http_response_bytes).unwrap();
+                            eprintln!("HTTP response\n{}", http_response_str);
+                            assert!(http_response_str.find("404 Not Found").is_some());
                             true
                         });
     }
