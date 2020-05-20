@@ -16,6 +16,7 @@ use vm::analysis::ContractAnalysis;
 pub struct StacksTransactionReceipt {
     pub transaction: StacksTransaction,
     pub events: Vec<StacksTransactionEvent>,
+    pub post_condition_aborted: bool,
     pub result: Value,
     pub stx_burned: u128,
     pub contract_analysis: Option<ContractAnalysis>,

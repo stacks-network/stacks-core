@@ -21,6 +21,10 @@ struct EventObserver {
     endpoint: String,
 }
 
+const STATUS_RESP_TRUE = "success";
+const STATUS_RESP_NOT_COMMITTED = "abort_by_response";
+const STATUS_RESP_POST_CONDITION  = "abort_by_post_condition";
+
 impl EventObserver {
 
     pub fn send(&mut self, filtered_events: Vec<&(Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip) {
@@ -33,9 +37,17 @@ impl EventObserver {
         let serialized_txs: Vec<serde_json::Value> = chain_tip.receipts.iter().map(|receipt| {
             let tx = &receipt.transaction;
 
-            let (success, result) = match &receipt.result {
-                Value::Response(response_data) => {
-                    (response_data.committed, response_data.data.clone())
+            let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
+                (false, Value::Response(response_data)) => {
+                    let status = if response_data.committed {
+                        STATUS_RESP_TRUE
+                    } else {
+                        STATUS_RESP_NOT_COMMITTED
+                    };
+                    (status, response_data.data.clone())
+                },
+                (true, Value::Response(response_data)) => {
+                    (STATUS_RESP_POST_CONDITION, response_data.data.clone())
                 },
                 _ => unreachable!(), // Transaction results should always be a Value::Response type
             };
@@ -62,7 +74,7 @@ impl EventObserver {
             let val = json!({
                 "txid": format!("0x{}", tx.txid()),
                 "tx_index": tx_index,
-                "success": success,
+                "status": success,
                 "raw_result": format!("0x{}", raw_result.join("")),
                 "raw_tx": format!("0x{}", raw_tx.join("")),
                 "contract_abi": contract_interface_json,
