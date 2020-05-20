@@ -817,10 +817,16 @@ mod tests {
                                        |_, _| false)).unwrap().0,
                 Value::okay(Value::Int(1)).unwrap());
 
-            assert_eq!(
-                conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
-                                       |_, _| true)).unwrap().0,
-                Value::okay(Value::Int(10)).unwrap());
+            let e = conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
+                                                                  |_, _| true)).unwrap_err();
+            let result_value = if let Error::PostConditionAbort(v, ..) = e {
+                v.unwrap()
+            } else {
+                panic!("Expects a PostConditionAbort error")
+            };
+
+            assert_eq!(result_value,
+                       Value::okay(Value::Int(10)).unwrap());
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
