@@ -64,7 +64,6 @@ pub struct Node {
     keychain: Keychain,
     last_sortitioned_block: Option<BurnchainTip>,
     event_dispatcher: EventDispatcher,
-    nonce: u64,
 }
 
 fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
@@ -142,7 +141,6 @@ impl Node {
             last_sortitioned_block: None,
             config,
             burnchain_tip: None,
-            nonce: 0,
             event_dispatcher,
         }
     }
@@ -181,7 +179,6 @@ impl Node {
             last_sortitioned_block: None,
             config,
             burnchain_tip: None,
-            nonce: 0,
             event_dispatcher,
         };
 
@@ -281,11 +278,79 @@ impl Node {
     pub fn setup(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) {
         // Register a new key
         let burnchain_tip = burnchain_controller.get_chain_tip();
-        let vrf_pk = self.keychain.rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
+        let block_height = burnchain_tip.block_snapshot.block_height;
+        for k in 0..block_height {
+            self.keychain.rotate_vrf_keypair(k);
+        }
+        let vrf_pk = self.keychain.rotate_vrf_keypair(block_height);
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash; 
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
         burnchain_controller.submit_operation(key_reg_op, &mut op_signer);
+    }
+
+    pub fn restore_chainstate(&mut self, burnchain_tip: &BurnchainTip) -> bool {
+        burnchain_tip.block_snapshot.winning_stacks_block_hash;
+
+        let res = StacksChainState::load_block(
+            &self.chain_state.blocks_path, 
+            &burnchain_tip.block_snapshot.burn_header_hash, 
+            &burnchain_tip.block_snapshot.canonical_stacks_tip_hash);
+        
+        if let Ok(Some(block)) = res {
+
+            let metadata = StacksChainState::get_anchored_block_header_info(
+                &self.chain_state.headers_db, 
+                &burnchain_tip.block_snapshot.burn_header_hash, 
+                &burnchain_tip.block_snapshot.canonical_stacks_tip_hash).unwrap().unwrap();
+
+            let chain_tip = ChainTip {
+                metadata,
+                block,
+                receipts: vec![],        
+            };
+
+            self.chain_tip = Some(chain_tip);
+
+            return true;
+        }
+
+        let blocks = StacksChainState::list_blocks(&self.chain_state.blocks_db).unwrap();
+        let mut parent_block_hash = None;
+        for (burn_header_hash, block_hash) in blocks.iter() {
+            println!("-> {} / {}", burn_header_hash, block_hash);
+            if *burn_header_hash == burnchain_tip.block_snapshot.parent_burn_header_hash {
+                parent_block_hash = Some(block_hash);
+                break;
+            }
+        }
+        let parent_block_hash = match parent_block_hash {
+            Some(parent_block_hash) => parent_block_hash,
+            _ => panic!("Corrupted. please update your working_dir"),
+        };
+
+        let res = StacksChainState::load_block(
+            &self.chain_state.blocks_path, 
+            &burnchain_tip.block_snapshot.parent_burn_header_hash, 
+            &parent_block_hash);
+        
+        if let Ok(Some(block)) = res {
+
+            let metadata = StacksChainState::get_anchored_block_header_info(
+                &self.chain_state.headers_db, 
+                &burnchain_tip.block_snapshot.burn_header_hash, 
+                &burnchain_tip.block_snapshot.canonical_stacks_tip_hash).unwrap().unwrap();
+
+            let chain_tip = ChainTip {
+                metadata,
+                block,
+                receipts: vec![],        
+            };
+
+            self.chain_tip = Some(chain_tip);
+        }
+
+        return false;
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -295,6 +360,8 @@ impl Node {
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
         let ops = &burnchain_tip.state_transition.accepted_ops;
+
+        println!("Processing -> {:?}", ops);
 
         for op in ops.iter() {
             match op {
@@ -382,7 +449,7 @@ impl Node {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = self.keychain.rotate_microblock_keypair();
+        let microblock_secret_key = self.keychain.rotate_microblock_keypair(block_to_build_upon.block_snapshot.block_height);
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
@@ -558,16 +625,21 @@ impl Node {
                                 burnchain_tip: &BurnchainTip,
                                 vrf_seed: VRFSeed) -> BlockstackOperationType {
 
+        println!("1 -> {:?}", burnchain_tip);
         let winning_tx_vtindex = match (burnchain_tip.get_winning_tx_index(), burnchain_tip.block_snapshot.total_burn) {
             (Some(winning_tx_id), _) => winning_tx_id,
             (None, 0) => 0,
             _ => unreachable!()
         };
+        println!("2");
+
 
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
             true => (0, 0), // parent_block_ptr and parent_vtxindex should both be 0 on block #1
             false => (burnchain_tip.block_snapshot.block_height as u32, winning_tx_vtindex as u16)
         };
+
+        println!("3");
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             block_header_hash,
@@ -589,7 +661,21 @@ impl Node {
     // Constructs a coinbase transaction
     fn generate_coinbase_tx(&mut self) -> StacksTransaction {
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
-        tx_auth.set_origin_nonce(self.nonce);
+
+        let coinbase_nonce = match self.chain_tip {
+            Some(ref chain_tip) => {
+                let principal = self.keychain.origin_address().unwrap().into();
+                let account = self.chain_state.with_read_only_clarity_tx(
+                    &chain_tip.metadata.burn_header_hash, 
+                    &chain_tip.metadata.anchored_header.block_hash(), |conn| {
+                    StacksChainState::get_account(conn, &principal)
+                });
+                account.nonce
+            },
+            _ => 0
+        };
+
+        tx_auth.set_origin_nonce(coinbase_nonce);
 
         let mut tx = StacksTransaction::new(
             TransactionVersion::Testnet, 
@@ -600,9 +686,6 @@ impl Node {
         let mut tx_signer = StacksTransactionSigner::new(&tx);
         self.keychain.sign_as_origin(&mut tx_signer);
      
-        // Increment nonce
-        self.nonce += 1;
-
         tx_signer.get_tx().unwrap()                       
     }
 }

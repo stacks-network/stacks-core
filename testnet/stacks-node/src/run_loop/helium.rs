@@ -52,10 +52,10 @@ impl RunLoop {
 
         self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 
-        let initial_state = burnchain.start();
+        let mut burnchain_tip = burnchain.start();
 
         // Update each node with the genesis block.
-        self.node.process_burnchain_state(&initial_state);
+        self.node.process_burnchain_state(&burnchain_tip);
 
         // make first non-genesis block, with initial VRF keys
         self.node.setup(&mut burnchain);
@@ -64,69 +64,135 @@ impl RunLoop {
         // that will be used for bootstraping the chain.
         let mut round_index: u64 = 0;
 
-        // Sync and update node with this new block.
-        let burnchain_tip = burnchain.sync();
-        self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
-        let mut chain_tip = ChainTip::genesis();
+        let (mut artifacts, mut chain_tip) = match burnchain_tip.block_snapshot.block_height == 0 {
+            true => {
+                // Sync and update node with this new block.
+                burnchain_tip = burnchain.sync();
+                self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
+                let chain_tip = ChainTip::genesis();
 
-        self.node.spawn_peer_server();
+                // Bootstrap the chain: node will start a new tenure,
+                // using the sortition hash from block #1 for generating a VRF.
+                let mut first_tenure = match self.node.initiate_genesis_tenure(&burnchain_tip) {
+                    Some(res) => res,
+                    None => panic!("Error while initiating genesis tenure")
+                };
 
-        // Bootstrap the chain: node will start a new tenure,
-        // using the sortition hash from block #1 for generating a VRF.
-        let leader = &mut self.node;
-        let mut first_tenure = match leader.initiate_genesis_tenure(&burnchain_tip) {
-            Some(res) => res,
-            None => panic!("Error while initiating genesis tenure")
-        };
+                self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &mut first_tenure);
 
-        self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &mut first_tenure);
+                // Run the tenure, keep the artifacts
+                let artifacts_from_1st_tenure = match first_tenure.run() {
+                    Some(res) => res,
+                    None => panic!("Error while running 1st tenure")
+                };
 
-        // Run the tenure, keep the artifacts
-        let artifacts_from_1st_tenure = match first_tenure.run() {
-            Some(res) => res,
-            None => panic!("Error while running 1st tenure")
-        };
+                // Tenures are instantiating their own chainstate, so that nodes can keep a clean chainstate,
+                // while having the option of running multiple tenures concurrently and try different strategies.
+                // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
+                // we have the 1st node (leading) updating its chainstate with the artifacts from its own tenure.
+                self.node.commit_artifacts(
+                    &artifacts_from_1st_tenure.anchored_block, 
+                    &artifacts_from_1st_tenure.parent_block, 
+                    &mut burnchain, 
+                    artifacts_from_1st_tenure.burn_fee);
 
-        // Tenures are instantiating their own chainstate, so that nodes can keep a clean chainstate,
-        // while having the option of running multiple tenures concurrently and try different strategies.
-        // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
-        // we have the 1st node (leading) updating its chainstate with the artifacts from its own tenure.
-        leader.commit_artifacts(
-            &artifacts_from_1st_tenure.anchored_block, 
-            &artifacts_from_1st_tenure.parent_block, 
-            &mut burnchain, 
-            artifacts_from_1st_tenure.burn_fee);
+                burnchain_tip = burnchain.sync();
+                self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
+                
 
-        let mut burnchain_tip = burnchain.sync();
-        self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
+                let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_tip) {
+                    (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
+                    (None, _) => panic!("Node should have a sortitioned block")
+                };
+                
+                // Have the node process its own tenure.
+                // We should have some additional checks here, and ensure that the previous artifacts are legit.
+        
+                let chain_tip = self.node.process_tenure(
+                    &artifacts_from_1st_tenure.anchored_block, 
+                    &last_sortitioned_block.block_snapshot.burn_header_hash, 
+                    &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
+                    artifacts_from_1st_tenure.microblocks.clone(),
+                    burnchain.burndb_mut());
+        
+                self.callbacks.invoke_new_stacks_chain_state(
+                    round_index, 
+                    &burnchain_tip, 
+                    &chain_tip, 
+                    &mut self.node.chain_state);
+        
+                // If the node we're looping on won the sortition, initialize and configure the next tenure
+                if !won_sortition {
+                    panic!("")
+                }
 
-        let mut leader_tenure = None;
+                (Some(artifacts_from_1st_tenure), chain_tip)
+            },
+            false => {
+                println!("Catching up!");
 
-        let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_tip) {
-            (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
-            (None, _) => panic!("Node should have a sortitioned block")
+                let last_burnchain_block_processed = self.node.restore_chainstate(&burnchain_tip); // todo(ludo): should return genesis?
+
+                if !last_burnchain_block_processed {
+                    self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
+                }
+                // todo(ludo): chain_tip should be restored first.
+                let mut first_tenure = match self.node.initiate_new_tenure() {
+                    Some(res) => res,
+                    None => panic!("Error while initiating genesis tenure")
+                };
+
+                // Run the tenure, keep the artifacts
+                let artifacts_from_1st_tenure = match first_tenure.run() {
+                    Some(res) => res,
+                    None => panic!("Error while running 1st tenure")
+                };
+
+                // Tenures are instantiating their own chainstate, so that nodes can keep a clean chainstate,
+                // while having the option of running multiple tenures concurrently and try different strategies.
+                // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
+                // we have the 1st node (leading) updating its chainstate with the artifacts from its own tenure.
+                self.node.commit_artifacts(
+                    &artifacts_from_1st_tenure.anchored_block, 
+                    &artifacts_from_1st_tenure.parent_block, 
+                    &mut burnchain, 
+                    artifacts_from_1st_tenure.burn_fee);
+
+                burnchain_tip = burnchain.sync();                
+
+                let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_tip) {
+                    (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
+                    (None, _) => panic!("Node should have a sortitioned block")
+                };
+                
+                // Have the node process its own tenure.
+                // We should have some additional checks here, and ensure that the previous artifacts are legit.
+        
+                let chain_tip = self.node.process_tenure(
+                    &artifacts_from_1st_tenure.anchored_block, 
+                    &last_sortitioned_block.block_snapshot.burn_header_hash, 
+                    &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
+                    artifacts_from_1st_tenure.microblocks.clone(),
+                    burnchain.burndb_mut());
+        
+                self.callbacks.invoke_new_stacks_chain_state(
+                    round_index, 
+                    &burnchain_tip, 
+                    &chain_tip, 
+                    &mut self.node.chain_state);
+        
+                // If the node we're looping on won the sortition, initialize and configure the next tenure
+                if !won_sortition {
+                    panic!("")
+                }
+        
+                (Some(artifacts_from_1st_tenure), chain_tip)
+            }
         };
         
-        // Have the node process its own tenure.
-        // We should have some additional checks here, and ensure that the previous artifacts are legit.
+        self.node.spawn_peer_server();
 
-        chain_tip = self.node.process_tenure(
-            &artifacts_from_1st_tenure.anchored_block, 
-            &last_sortitioned_block.block_snapshot.burn_header_hash, 
-            &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
-            artifacts_from_1st_tenure.microblocks.clone(),
-            burnchain.burndb_mut());
-
-        self.callbacks.invoke_new_stacks_chain_state(
-            round_index, 
-            &burnchain_tip, 
-            &chain_tip, 
-            &mut self.node.chain_state);
-
-        // If the node we're looping on won the sortition, initialize and configure the next tenure
-        if won_sortition {
-            leader_tenure = self.node.initiate_new_tenure();
-        }
+        let mut leader_tenure = self.node.initiate_new_tenure();
 
         // Start the runloop
         round_index = 1;

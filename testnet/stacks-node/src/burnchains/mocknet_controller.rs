@@ -95,20 +95,56 @@ impl BurnchainController for MocknetController {
         let block_snapshot = BurnDB::get_canonical_burn_chain_tip(db.conn())
             .expect("FATAL: failed to get canonical chain tip");
 
-        self.db = Some(db);
+        println!("-----> {:?}", block_snapshot);
 
-        let genesis_state = BurnchainTip {
-            block_snapshot,
-            state_transition: BurnchainStateTransition {
-                burn_dist: vec![],
-                accepted_ops: vec![],
-                consumed_leader_keys: vec![]
+        let current_state = match block_snapshot.block_height {
+            1 => {
+                BurnchainTip {
+                    block_snapshot,
+                    state_transition: BurnchainStateTransition::noop(),
+                    received_at: Instant::now(),
+                }
             },
-            received_at: Instant::now(),
-        };
-        self.chain_tip = Some(genesis_state.clone());
+            _ => {
+                // Retrieve the latest ops
+                let mut ops: Vec<BlockstackOperationType> = vec![];
+                let ic = db.index_conn();
+                let tip_block_hash = block_snapshot.burn_header_hash;
+                let mut block_commits = BurnDB::get_block_commits_by_block(&ic, block_snapshot.block_height, &tip_block_hash)
+                    .expect("Unexpected BurnDB error fetching block commits")
+                    .drain(..)
+                    .map(|op| BlockstackOperationType::LeaderBlockCommit(op))
+                    .collect::<Vec<BlockstackOperationType>>();
+                let mut leader_keys = BurnDB::get_leader_keys_by_block(&ic, block_snapshot.block_height, &tip_block_hash)
+                    .expect("Unexpected BurnDB error fetching leader keys")
+                    .drain(..)
+                    .map(|op| BlockstackOperationType::LeaderKeyRegister(op))
+                    .collect::<Vec<BlockstackOperationType>>();
+                let mut user_burns = BurnDB::get_user_burns_by_block(&ic, block_snapshot.block_height, &tip_block_hash)
+                    .expect("Unexpected BurnDB error fetching user burns")
+                    .drain(..)
+                    .map(|op| BlockstackOperationType::UserBurnSupport(op))
+                    .collect::<Vec<BlockstackOperationType>>();
+                    
+                ops.append(&mut block_commits);
+                ops.append(&mut leader_keys);
+                ops.append(&mut user_burns);
 
-        genesis_state
+                let state_transition = BurnchainStateTransition::from_block_ops(&ic, &block_snapshot, &ops);
+                println!("===> {:?}", state_transition);
+                let state_transition = state_transition.unwrap();
+
+                BurnchainTip {
+                    block_snapshot,
+                    state_transition,
+                    received_at: Instant::now(),
+                }
+            }
+        };
+
+        self.db = Some(db);
+        self.chain_tip = Some(current_state.clone());
+        current_state
     }
 
     fn submit_operation(&mut self, operation: BlockstackOperationType, _op_signer: &mut BurnchainOpSigner) -> bool {

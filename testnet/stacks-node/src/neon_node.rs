@@ -593,11 +593,6 @@ impl InitializedNeonNode {
                &burn_block.sortition_hash,
                &registered_key.vrf_public_key.to_hex());
 
-        // Generates a new secret key for signing the trail of microblocks
-        // of the upcoming tenure.
-        let microblock_secret_key = keychain.rotate_microblock_keypair();
-        let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_secret_key).to_bytes());
-
         let (stacks_parent_header, parent_burn_hash, parent_block_burn_height, parent_block_total_burn,
              parent_winning_vtxindex, coinbase_nonce) =
             if let Some(stacks_tip) = chain_state.get_stacks_chain_tip(burn_db).unwrap() {
@@ -654,6 +649,11 @@ impl InitializedNeonNode {
                 (chain_tip.metadata, FIRST_BURNCHAIN_BLOCK_HASH.clone(), 0, 0, 0, 0)
             };
         
+        // Generates a new secret key for signing the trail of microblocks
+        // of the upcoming tenure.
+        let microblock_secret_key = keychain.rotate_microblock_keypair(parent_block_burn_height);
+        let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_secret_key).to_bytes());
+
         let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
         let anchored_block = match StacksBlockBuilder::build_anchored_block(

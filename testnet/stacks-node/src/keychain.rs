@@ -72,7 +72,7 @@ impl Keychain {
                 Some(sk) => break sk,
                 None => seed = Sha256Sum::from_data(seed.as_bytes())
             }
-        };        
+        };
         let pk = VRFPublicKey::from_private(&sk);
 
         self.vrf_secret_keys.push(sk.clone());
@@ -80,12 +80,11 @@ impl Keychain {
         pk
     }
 
-    pub fn rotate_microblock_keypair(&mut self) -> StacksPrivateKey {
-        let mut seed = match self.microblocks_secret_keys.last() {
-            // First key is the hash of the secret state
-            None => self.hashed_secret_state,
-            // Next key is the hash of the last
-            Some(last_sk) => Sha256Sum::from_data(&last_sk.to_bytes()[..]),  
+    pub fn rotate_microblock_keypair(&mut self, block_height: u64) -> StacksPrivateKey {
+        let mut seed = {
+            let mut secret_state = self.hashed_secret_state.to_bytes().to_vec();
+            secret_state.extend_from_slice(&block_height.to_be_bytes()[..]);
+            Sha256Sum::from_data(&secret_state)
         };
 
         // Not every 256-bit number is a valid secp256k1 secret key.
