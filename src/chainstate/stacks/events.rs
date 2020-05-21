@@ -32,46 +32,53 @@ pub enum StacksTransactionEvent {
 }
 
 impl StacksTransactionEvent {
-
-    pub fn json_serialize(&self, txid: &Txid) -> serde_json::Value {
+    pub fn json_serialize(&self, txid: &Txid, committed: bool) -> serde_json::Value {
         match self {
             StacksTransactionEvent::SmartContractEvent(event_data) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "contract_event",
-                    "contract_event": event_data.json_serialize()
+                "txid": format!("0x{:?}", txid),
+                "committed": committed,
+                "type": "contract_event",
+                "contract_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "committed": committed,
                 "type": "stx_transfer_event",
                 "stx_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "committed": committed,
                 "type": "stx_mint_event",
                 "stx_mint_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "committed": committed,
                 "type": "stx_burn_event",
                 "stx_burn_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "committed": committed,
                 "type": "nft_transfer_event",
                 "nft_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "committed": committed,
                 "type": "nft_mint_event",
                 "nft_mint_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "committed": committed,
                 "type": "ft_transfer_event",
                 "ft_transfer_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
+                "committed": committed,
                 "type": "ft_mint_event",
                 "ft_mint_event": event_data.json_serialize()
             }),
