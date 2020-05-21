@@ -548,7 +548,7 @@ impl StacksChainState {
                                 info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
                                 Ok((Value::err_none(), AssetMap::new(), vec![]))
                             },
-                            clarity_error::PostConditionAbort(value, assets, events) => {
+                            clarity_error::AbortedByCallback(value, assets, events) => {
                                 let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
                                     events,
@@ -650,7 +650,7 @@ impl StacksChainState {
                                 warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
                                 Err(e)
                             },
-                            clarity_error::PostConditionAbort(_, assets, events) => {
+                            clarity_error::AbortedByCallback(_, assets, events) => {
                                 let receipt = StacksTransactionReceipt::from_condition_aborted_smart_contract(
                                     tx.clone(), events, assets.get_stx_burned_total(), contract_analysis, total_cost);
                                 return Ok(receipt);

@@ -71,7 +71,7 @@ pub enum Error {
     Interpreter(InterpreterError),
     BadTransaction(String),
     CostError(ExecutionCost, ExecutionCost),
-    PostConditionAbort(Option<Value>, AssetMap, Vec<StacksTransactionEvent>)
+    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>)
 }
 
 impl From<CheckError> for Error {
@@ -112,7 +112,7 @@ impl fmt::Display for Error {
             Error::CostError(ref a, ref b) => write!(f, "Cost Error: {} cost exceeded budget of {} cost", a, b),
             Error::Analysis(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
-            Error::PostConditionAbort(_, ..) => write!(f, "Post condition aborted transaction"),
+            Error::AbortedByCallback(..) => write!(f, "Post condition aborted transaction"),
             Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
             Error::BadTransaction(ref s) => fmt::Display::fmt(s, f)
         }
@@ -123,7 +123,7 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::CostError(ref _a, ref _b) => None,
-            Error::PostConditionAbort(_, ..) => None,
+            Error::AbortedByCallback(..) => None,
             Error::Analysis(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
@@ -561,7 +561,7 @@ impl <'a> ClarityTransactionConnection <'a> {
             abort_call_back)
             .and_then(|(value, assets, events, aborted)|
                  if aborted {
-                     Err(Error::PostConditionAbort(Some(value), assets, events))
+                     Err(Error::AbortedByCallback(Some(value), assets, events))
                  } else {
                      Ok((value, assets, events))
                  }
@@ -581,7 +581,7 @@ impl <'a> ClarityTransactionConnection <'a> {
                        .map_err(Error::from) },
             abort_call_back)?;
         if aborted {
-            Err(Error::PostConditionAbort(None, asset_map, events))
+            Err(Error::AbortedByCallback(None, asset_map, events))
         } else {
             Ok((asset_map, events))
         }
@@ -704,7 +704,7 @@ mod tests {
 
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
-                let (ct_ast, ct_analysis) = tx.analyze_smart_contract(&contract_identifier, &contract)
+                let (ct_ast, _ct_analysis) = tx.analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
                 assert!(
                     format!("{}", tx.initialize_smart_contract(
@@ -819,10 +819,10 @@ mod tests {
 
             let e = conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
                                                                   |_, _| true)).unwrap_err();
-            let result_value = if let Error::PostConditionAbort(v, ..) = e {
+            let result_value = if let Error::AbortedByCallback(v, ..) = e {
                 v.unwrap()
             } else {
-                panic!("Expects a PostConditionAbort error")
+                panic!("Expects a AbortedByCallback error")
             };
 
             assert_eq!(result_value,
@@ -861,7 +861,6 @@ mod tests {
 
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
-        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
         let spending_cond = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {

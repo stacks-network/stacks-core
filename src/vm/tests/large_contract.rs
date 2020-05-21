@@ -207,7 +207,7 @@ pub fn fcall_memory_test() {
                 match conn.initialize_smart_contract(
                     // initialize the ok contract without errs, but still abort.
                     &contract_identifier, &ct_ast, &contract_ok, |_,_| true).unwrap_err() {
-                    ClarityError::PostConditionAbort(..) => true,
+                    ClarityError::AbortedByCallback(..) => true,
                     _ => false
                 });
         });
