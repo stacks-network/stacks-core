@@ -492,7 +492,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn build_next_block(&self, num_blocks: u64) {
+    pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
