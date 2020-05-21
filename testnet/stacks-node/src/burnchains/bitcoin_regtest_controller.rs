@@ -290,7 +290,7 @@ impl BitcoinRegtestController {
         
         let public_key = signer.get_public_key();
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, 0)?;
+        let (mut tx, utxos) = self.prepare_tx(&public_key, DUST_UTXO_LIMIT)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -311,9 +311,23 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
+        let address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
+        let identifier_output = TxOut {
+            value: DUST_UTXO_LIMIT,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_DUP)
+                .push_opcode(opcodes::All::OP_HASH160)
+                .push_slice(&address_hash)
+                .push_opcode(opcodes::All::OP_EQUALVERIFY)
+                .push_opcode(opcodes::All::OP_CHECKSIG)
+                .into_script()
+        };
+
+        tx.output.push(identifier_output);
+
         self.finalize_tx(
             &mut tx, 
-            0, 
+            DUST_UTXO_LIMIT,
             utxos,
             signer)?;
 
@@ -360,8 +374,8 @@ impl BitcoinRegtestController {
         tx.output = vec![consensus_output, burn_output];
 
         self.finalize_tx(
-            &mut tx, 
-            payload.burn_fee, 
+            &mut tx,
+            payload.burn_fee,
             utxos,
             signer)?;
 
@@ -427,9 +441,9 @@ impl BitcoinRegtestController {
             return None
         }
         let value = total_unspent - total_spent - tx_fee;
-        if value > DUST_UTXO_LIMIT {
+        if value >= DUST_UTXO_LIMIT {
             let change_output = TxOut {
-                value: total_unspent - total_spent - tx_fee,
+                value,
                 script_pubkey: Builder::new()
                     .push_opcode(opcodes::All::OP_DUP)
                     .push_opcode(opcodes::All::OP_HASH160)
