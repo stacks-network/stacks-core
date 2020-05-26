@@ -90,15 +90,20 @@ impl Keychain {
 
         // Not every 256-bit number is a valid secp256k1 secret key.
         // As such, we continuously generate seeds through re-hashing until one works.
-        let sk = loop {
+        let mut sk = loop {
             match StacksPrivateKey::from_slice(&seed.to_bytes()[..]) {
                 Ok(sk) => break sk,
                 Err(_) => seed = Sha256Sum::from_data(seed.as_bytes())
             }
         };
+        sk.set_compress_public(true);
         self.microblocks_secret_keys.push(sk.clone());
 
         sk
+    }
+
+    pub fn get_microblock_key(&self) -> Option<StacksPrivateKey> {
+        self.microblocks_secret_keys.last().cloned()
     }
 
     pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) -> () {
@@ -177,7 +182,7 @@ impl Keychain {
         }
     }
 
-    pub fn generate_op_signer(&mut self) -> BurnchainOpSigner {
+    pub fn generate_op_signer(&self) -> BurnchainOpSigner {
         BurnchainOpSigner::new(self.secret_keys[0], false)
     }
 }

@@ -368,6 +368,12 @@ impl StacksMessageCodec for TransactionPostCondition {
 }
 
 impl StacksTransaction {
+    pub fn tx_len(&self) -> u64 {
+        let mut tx_bytes = vec![];
+        self.consensus_serialize(&mut tx_bytes).expect("BUG: Failed to serialize a transaction object");
+        tx_bytes.len() as u64
+    }
+
     pub fn consensus_deserialize_with_len<R: Read>(fd: &mut R) -> Result<(StacksTransaction, u64), net_error> {
         let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN.into());
         let fd = &mut bound_read;

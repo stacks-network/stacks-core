@@ -6,7 +6,7 @@ COPY . .
 
 RUN rustup target add armv7-unknown-linux-gnueabihf
 
-RUN apt-get update && apt-get install -y gcc-arm-linux-gnueabihf
+RUN apt-get update && apt-get install -y git gcc-arm-linux-gnueabihf
 
 RUN CC=arm-linux-gnueabihf-gcc \
     CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc \

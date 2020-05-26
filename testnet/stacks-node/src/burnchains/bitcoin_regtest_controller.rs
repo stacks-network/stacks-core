@@ -44,6 +44,8 @@ pub struct BitcoinRegtestController {
     chain_tip: Option<BurnchainTip>,
 }
 
+const DUST_UTXO_LIMIT: u64 = 5500;
+
 impl BitcoinRegtestController {
 
     pub fn generic(config: Config) -> Box<dyn BurnchainController> {
@@ -288,7 +290,7 @@ impl BitcoinRegtestController {
         
         let public_key = signer.get_public_key();
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, 0)?;
+        let (mut tx, utxos) = self.prepare_tx(&public_key, DUST_UTXO_LIMIT)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -309,11 +311,25 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
+        let address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
+        let identifier_output = TxOut {
+            value: DUST_UTXO_LIMIT,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_DUP)
+                .push_opcode(opcodes::All::OP_HASH160)
+                .push_slice(&address_hash)
+                .push_opcode(opcodes::All::OP_EQUALVERIFY)
+                .push_opcode(opcodes::All::OP_CHECKSIG)
+                .into_script()
+        };
+
+        tx.output.push(identifier_output);
+
         self.finalize_tx(
             &mut tx, 
-            0, 
+            DUST_UTXO_LIMIT,
             utxos,
-            signer);
+            signer)?;
 
         info!("Miner node: submitting leader_key_register op - {}", public_key.to_hex());
 
@@ -358,10 +374,10 @@ impl BitcoinRegtestController {
         tx.output = vec![consensus_output, burn_output];
 
         self.finalize_tx(
-            &mut tx, 
-            payload.burn_fee, 
+            &mut tx,
+            payload.burn_fee,
             utxos,
-            signer);
+            signer)?;
 
         info!("Miner node: submitting leader_block_commit op - {}", public_key.to_hex());
 
@@ -411,7 +427,7 @@ impl BitcoinRegtestController {
         Some((transaction, utxos))
     }
 
-    fn finalize_tx(&self, tx: &mut Transaction, total_spent: u64, utxos: Vec<UTXO>, signer: &mut BurnchainOpSigner) {
+    fn finalize_tx(&self, tx: &mut Transaction, total_spent: u64, utxos: Vec<UTXO>, signer: &mut BurnchainOpSigner) -> Option<()> {
 
         let tx_fee = self.config.burnchain.burnchain_op_tx_fee;
 
@@ -419,17 +435,27 @@ impl BitcoinRegtestController {
         let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
         let public_key = signer.get_public_key();
         let change_address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
-        let change_output = TxOut {
-            value: total_unspent - total_spent - tx_fee,
-            script_pubkey: Builder::new()
-                .push_opcode(opcodes::All::OP_DUP)
-                .push_opcode(opcodes::All::OP_HASH160)
-                .push_slice(&change_address_hash)
-                .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                .push_opcode(opcodes::All::OP_CHECKSIG)
-                .into_script()
-        };
-        tx.output.push(change_output);
+        if total_unspent < total_spent + tx_fee {
+            warn!("Unspent total {} is less than intended spend: {}",
+                  total_unspent, total_spent + tx_fee);
+            return None
+        }
+        let value = total_unspent - total_spent - tx_fee;
+        if value >= DUST_UTXO_LIMIT {
+            let change_output = TxOut {
+                value,
+                script_pubkey: Builder::new()
+                    .push_opcode(opcodes::All::OP_DUP)
+                    .push_opcode(opcodes::All::OP_HASH160)
+                    .push_slice(&change_address_hash)
+                    .push_opcode(opcodes::All::OP_EQUALVERIFY)
+                    .push_opcode(opcodes::All::OP_CHECKSIG)
+                    .into_script()
+            };
+            tx.output.push(change_output);
+        } else {
+            debug!("Not enough change to clear dust limit. Not adding change address.");
+        }
 
         // Sign the UTXOs
         for (i, utxo) in utxos.iter().enumerate() {
@@ -455,6 +481,8 @@ impl BitcoinRegtestController {
                 .into_script();   
         }
         signer.dispose();
+
+        Some(())
     }
  
     fn build_user_burn_support_tx(&mut self, _payload: UserBurnSupportOp, _signer: &mut BurnchainOpSigner) -> Option<Transaction> {
@@ -478,7 +506,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn build_next_block(&self, num_blocks: u64) {
+    pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
@@ -758,7 +786,8 @@ struct BitcoinRPCRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 enum RPCError {
     Network(String),
-    Parsing(String)
+    Parsing(String),
+    Bitcoind(String),
 }
 
 type RPCResult<T> = Result<T, RPCError>;
@@ -857,7 +886,14 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        BitcoinRPCRequest::send(request_builder, payload)?;
+        let json_resp = BitcoinRPCRequest::send(request_builder, payload)?;
+
+        if let Some(e) = json_resp.get("error") {
+            if !e.is_null() {
+                error!("Error submitting transaction: {}", json_resp);
+                return Err(RPCError::Bitcoind(json_resp.to_string()))
+            }
+        }
         Ok(())
     }
 
@@ -888,10 +924,13 @@ impl BitcoinRPCRequest {
         let result = request_builder.json(&body).send();
         let response = result
             .map_err(|e| RPCError::Network(format!("RPC Error: {}", e)))?;
+        if !response.status().is_success() {
+            return Err(RPCError::Network(
+                format!("RPC response status bad: {}, {:?}",
+                        response.status(), response.text())))
+        }
         let payload = response.json::<serde_json::Value>()
             .map_err(|e| RPCError::Parsing(format!("RPC Error: {}", e)))?;
         Ok(payload)
     }
 }
-
-

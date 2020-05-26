@@ -40,7 +40,7 @@ use vm::clarity::ClarityConnection;
 
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
-use util::secp256k1::MessageSignature;
+use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use net::StacksPublicKeyBuffer;
 
@@ -55,6 +55,158 @@ use util::vrf::*;
 
 use core::*;
 use core::mempool::*;
+
+///
+///    Independent structure for building microblocks:
+///       StacksBlockBuilder cannot be used, since microblocks should only be broadcasted
+///       once the anchored block is mined, won sortition, and a StacksBlockBuilder will
+///       not survive that long.
+///
+///     StacksMicroblockBuilder holds a mutable reference to the provided chainstate in the
+///       new function. This is required for the `clarity_tx` -- basically, to append transactions
+///       as new microblocks, the builder _needs_ to be able to keep the current clarity_tx "open" 
+pub struct StacksMicroblockBuilder<'a> {
+    anchor_block: BlockHeaderHash,
+    anchor_block_bhh: BurnchainHeaderHash,
+    anchor_block_height: u64,
+    prev_microblock_header: Option<StacksMicroblockHeader>,
+    header_reader: StacksChainState,
+    clarity_tx: Option<ClarityTx<'a>>,
+    considered: Option<HashSet<Txid>>,
+    bytes_so_far: u64,
+}
+
+impl <'a> StacksMicroblockBuilder <'a> {
+    pub fn new(anchor_block: BlockHeaderHash, anchor_block_bhh: BurnchainHeaderHash,
+               chainstate: &'a mut StacksChainState, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
+        let header_reader = chainstate.reopen()?;
+        let mut clarity_tx = chainstate.block_begin(&anchor_block_bhh, &anchor_block,
+                                                    &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
+        let anchor_block_height = 
+            StacksChainState::get_anchored_block_header_info(&header_reader.headers_db, &anchor_block_bhh, &anchor_block)?
+            .ok_or(Error::NoSuchBlockError)?
+            .block_height;
+
+        clarity_tx.reset_cost(initial_cost);
+        Ok(StacksMicroblockBuilder {
+            anchor_block,
+            anchor_block_bhh,
+            anchor_block_height,
+            bytes_so_far,
+            clarity_tx: Some(clarity_tx),
+            header_reader,
+            prev_microblock_header: None,
+            considered: Some(HashSet::new()),
+        })
+    }
+
+    pub fn mine_next_microblock(&mut self,
+                                mem_pool: &MemPoolDB,
+                                miner_key: &Secp256k1PrivateKey,
+                                miner_pubkey_hash: &Hash160) -> Result<StacksMicroblock, Error> {
+        let mut txs_to_broadcast = vec![];
+
+        let mut clarity_tx = self.clarity_tx.take()
+            .expect("Microblock already open and processing");
+
+        let mut considered = self.considered.take()
+            .expect("Microblock already open and processing");
+
+        let mut bytes_so_far = self.bytes_so_far;
+
+        let result = mem_pool.iterate_candidates(
+            &self.anchor_block_bhh, &self.anchor_block, self.anchor_block_height, &mut self.header_reader,
+            |micro_txs| {
+                for mempool_tx in micro_txs.into_iter() {
+                    if mempool_tx.tx.anchor_mode != TransactionAnchorMode::OffChainOnly && mempool_tx.tx.anchor_mode != TransactionAnchorMode::Any {
+                        continue;
+                    }
+                    if considered.contains(&mempool_tx.metadata.txid) {
+                        continue;
+                    } else {
+                        considered.insert(mempool_tx.metadata.txid.clone());
+                    }
+                    if bytes_so_far + mempool_tx.metadata.len >= MAX_EPOCH_SIZE.into() {
+                        return Err(Error::BlockTooBigError);
+                    }
+                    match StacksChainState::process_transaction(&mut clarity_tx, &mempool_tx.tx) {
+                        Ok(_) => {
+                            bytes_so_far += mempool_tx.metadata.len;
+                            txs_to_broadcast.push(mempool_tx.tx);
+                        },
+                        Err(e) => {
+                            match e {
+                                Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
+                                    warn!("Transaction {} reached block cost {}; budget was {}", mempool_tx.tx.txid(), &cost_after, &total_budget);
+                                    clarity_tx.reset_cost(cost_before.clone());
+                                },
+                                _ => {
+                                    warn!("Error processing TX {}: {}", mempool_tx.tx.txid(), e);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            });
+
+        self.bytes_so_far = bytes_so_far;
+        self.clarity_tx.replace(clarity_tx);
+        self.considered.replace(considered);
+
+        match result {
+            Ok(_) => {},
+            Err(Error::BlockTooBigError) => {
+                info!("Block budget reached with microblocks");
+            },
+            Err(e) => {
+                warn!("Error producing microblock: {}", e);
+                return Err(e);
+            }
+        }
+
+        if txs_to_broadcast.len() == 0 {
+            return Err(Error::NoTransactionsToMine)
+        }
+
+        let txid_vecs = txs_to_broadcast
+            .iter()
+            .map(|tx| tx.txid().as_bytes().to_vec())
+            .collect();
+
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+        let tx_merkle_root = merkle_tree.root();
+        let mut next_microblock_header =
+            if let Some(ref prev_microblock) = self.prev_microblock_header {
+                StacksMicroblockHeader::from_parent_unsigned(prev_microblock, &tx_merkle_root)
+                    .ok_or(Error::MicroblockStreamTooLongError)?
+            } else {
+                // .prev_block is the hash of the parent anchored block
+                StacksMicroblockHeader::first_unsigned(&self.anchor_block, &tx_merkle_root)
+            };
+
+        next_microblock_header.sign(miner_key).unwrap();
+        next_microblock_header.verify(miner_pubkey_hash).unwrap();
+
+        self.prev_microblock_header = Some(next_microblock_header.clone());
+
+        let microblock = StacksMicroblock {
+            header: next_microblock_header,
+            txs: txs_to_broadcast
+        };
+        
+        debug!("\n\nMiner: Mined microblock block {} (seq={}): {} transaction(s)\n",
+               microblock.block_hash(), microblock.header.sequence, microblock.txs.len());
+        Ok(microblock)
+    }
+}
+
+impl <'a> Drop for StacksMicroblockBuilder<'a> {
+    fn drop(&mut self) {
+        self.clarity_tx.take().expect("Attempted to reclose closed microblock builder")
+            .rollback_block()
+    }
+}
 
 impl StacksBlockBuilder {
     fn from_parent_pubkey_hash(miner_id: usize, parent_chain_tip: &StacksHeaderInfo, total_work: &StacksWorkScore, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
@@ -136,11 +288,14 @@ impl StacksBlockBuilder {
 
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Errors out if we exceed budget, or the transaction is invalid.
-    pub fn try_mine_tx<'a>(&mut self, clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
-        let mut tx_bytes = vec![];
-        tx.consensus_serialize(&mut tx_bytes).map_err(Error::NetError)?;
-        let tx_len = tx_bytes.len() as u64;
-        
+    pub fn try_mine_tx(&mut self, clarity_tx: &mut ClarityTx, tx: &StacksTransaction) -> Result<(), Error> {
+        let tx_len = tx.tx_len();
+        self.try_mine_tx_with_len(clarity_tx, tx, tx_len)
+    }
+
+    /// Append a transaction if doing so won't exceed the epoch data size.
+    /// Errors out if we exceed budget, or the transaction is invalid.
+    pub fn try_mine_tx_with_len(&mut self, clarity_tx: &mut ClarityTx, tx: &StacksTransaction, tx_len: u64) -> Result<(), Error> {        
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             return Err(Error::BlockTooBigError);
         }
@@ -378,7 +533,7 @@ impl StacksBlockBuilder {
     }
 
     /// Finish up mining an epoch's transactions
-    pub fn epoch_finish<'a>(self, tx: ClarityTx<'a>) {
+    pub fn epoch_finish(self, tx: ClarityTx) -> ExecutionCost {
         let new_burn_hash = MINER_BLOCK_BURN_HEADER_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
@@ -389,9 +544,11 @@ impl StacksBlockBuilder {
         //        let moved_name = format!("{}.mined", index_block_hash);
 
         // write out the trie...
-        tx.commit_mined_block(&index_block_hash);
+        let consumed = tx.commit_mined_block(&index_block_hash);
 
         test_debug!("\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n", self.miner_id, self.chain_tip.burn_header_hash, self.chain_tip.anchored_header.block_hash());
+
+        consumed
     }
     
     /// Unconditionally build an anchored block from a list of transactions.
@@ -430,70 +587,8 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
-    /// Walk the mempool back to the first chain tip that has a transction we can mine.
-    /// Returns (burn hash, block hash, block height, timestamp)
-    fn walk_mempool(mempool: &MemPoolDB, chainstate: &mut StacksChainState, tip_burn_header_hash: &BurnchainHeaderHash, tip_block_hash: &BlockHeaderHash, tip_height: u64) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash, u64, u64)>, Error> {
-        // Walk back to the next-highest
-        // ancestor of this tip, and see if we can include anything from there.
-        let next_height = MemPoolDB::get_previous_block_height(mempool.conn(), tip_height)?.unwrap_or(0);
-        if next_height == 0 && tip_height == 0 {
-            // we're done -- tried every tx
-            debug!("Done scanning mempool -- at height 0");
-            return Ok(None);
-        }
-
-        let mut next_tips = MemPoolDB::get_chain_tips_at_height(mempool.conn(), next_height)?;
-        if next_tips.len() == 0 {
-            // we're done -- no more chain tips
-            debug!("Done scanning mempool -- no chain tips at height {}", next_height);
-            return Ok(None);
-        }
-        
-        let ancestor_tip = {
-            let mut headers_tx = chainstate.headers_tx_begin()?;
-            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash), next_height)? {
-                Some(tip_info) => tip_info,
-                None => {
-                    // no such ancestor.  We're done
-                    debug!("Done scanning mempool -- no ancestor at height {} off of {}/{} ({})", next_height, tip_burn_header_hash, tip_block_hash, StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash));
-                    return Ok(None);
-                }
-            }
-        };
-        
-        // find out which tip is the ancestor tip
-        let mut found = false;
-        let mut next_tip_burn_header_hash = tip_burn_header_hash.clone();
-        let mut next_tip_block_hash = tip_block_hash.clone();
-
-        for (burn_bhh, block_bhh) in next_tips.drain(..) {
-            test_debug!("mempool tip: {}/{}", &burn_bhh, &block_bhh);
-            if ancestor_tip.burn_header_hash == burn_bhh && ancestor_tip.anchored_header.block_hash() == block_bhh {
-                found = true;
-                next_tip_burn_header_hash = burn_bhh;
-                next_tip_block_hash = block_bhh;
-                break;
-            }
-        }
-        
-        if !found {
-            // no such ancestor.  We're done.
-            debug!("Done scanning mempool -- none of the available prior chain tips at {} is an ancestor of {}/{}", next_height, tip_burn_header_hash, tip_block_hash);
-            return Ok(None);
-        }
-
-        let next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), &next_tip_burn_header_hash, &next_tip_block_hash, 0)? {
-            Some(ts) => ts,
-            None => {
-                unreachable!("No transactions at a chain tip that exists");
-            }
-        };
-        
-        debug!("Will start scaning mempool at {}/{} height={} ts={}", &next_tip_burn_header_hash, &next_tip_block_hash, next_height, next_timestamp);
-        Ok(Some((next_tip_burn_header_hash, next_tip_block_hash, next_height, next_timestamp)))
-    }
-
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
+    ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(chainstate_handle: &StacksChainState,       // not directly used; used as a handle to open other chainstates
                                 mempool: &MemPoolDB,
                                 parent_stacks_header: &StacksHeaderInfo,    // Stacks header we're building off of
@@ -501,13 +596,13 @@ impl StacksBlockBuilder {
                                 proof: VRFProof,                            // proof over the burnchain's last seed
                                 pubkey_hash: Hash160,
                                 coinbase_tx: &StacksTransaction,
-                                execution_budget: ExecutionCost) -> Result<StacksBlock, Error> {
+                                execution_budget: ExecutionCost) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
 
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {} else {
             return Err(Error::MemPoolError("Not a coinbase transaction".to_string()));
         }
 
-        let (mut tip_burn_header_hash, mut tip_block_hash, mut tip_height) = (parent_stacks_header.burn_header_hash.clone(), parent_stacks_header.anchored_header.block_hash(), parent_stacks_header.block_height);
+        let (tip_burn_header_hash, tip_block_hash, tip_height) = (parent_stacks_header.burn_header_hash.clone(), parent_stacks_header.anchored_header.block_hash(), parent_stacks_header.block_height);
 
         debug!("Build anchored block off of {}/{} height {}", &tip_burn_header_hash, &tip_block_hash, tip_height); 
         
@@ -516,8 +611,6 @@ impl StacksBlockBuilder {
 
         let mut builder = StacksBlockBuilder::make_block_builder(parent_stacks_header, proof, total_burn, pubkey_hash)?;
 
-        let cost_overflow_recovery_builder = builder.clone();     // used to construct the real anchored block if we run out of budget
-        
         let mut epoch_tx = builder.epoch_begin(&mut chainstate)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
@@ -525,45 +618,8 @@ impl StacksBlockBuilder {
         let mut mined_origin_nonces = HashMap::new();     // map addrs of mined transaction origins to the nonces we used
         let mut mined_sponsor_nonces = HashMap::new();    // map addrs of mined transaction sponsors to the nonces we used
 
-        debug!("Begin scanning transaction mempool at {}/{} height={}", &tip_burn_header_hash, &tip_block_hash, tip_height);
-
-        let mut next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, 0)? {
-            Some(ts) => ts,
-            None => {
-                // walk back to where the first transaction we can mine can be found
-                match StacksBlockBuilder::walk_mempool(mempool, &mut header_reader_chainstate, &tip_burn_header_hash, &tip_block_hash, tip_height)? {
-                    Some((next_burn_bhh, next_block_bhh, next_height, next_timestamp)) => {
-                        tip_burn_header_hash = next_burn_bhh;
-                        tip_block_hash = next_block_bhh;
-                        tip_height = next_height;
-                        next_timestamp
-                    },
-                    None => {
-                        // no transactions anywhere, so mine an empty block
-                        let block = builder.mine_anchored_block(&mut epoch_tx);
-                        builder.epoch_finish(epoch_tx);
-                        return Ok(block);
-                    }
-                }
-            }
-        };
-
-        // set to true if we exceed budget, and need to rebuild with known-good transactions.
-        let mut do_rebuild = false;
-
-        loop {
-            debug!("Scan mempool transactions at {}/{} height={} starting at {}", &tip_burn_header_hash, &tip_block_hash, tip_height, next_timestamp);
-            let mut available_txs = match MemPoolDB::get_txs_at(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, next_timestamp) {
-                Ok(txs) => txs,
-                Err(e) => {
-                    epoch_tx.rollback_block();
-                    return Err(e.into());
-                }
-            };
-            
-            debug!("Mempool has {} transactions at {}/{} height={} ts={}", available_txs.len(), &tip_burn_header_hash, &tip_block_hash, tip_height, next_timestamp);
-
-            for txinfo in available_txs.drain(..) {
+        let result = mempool.iterate_candidates(&tip_burn_header_hash, &tip_block_hash, tip_height, &mut header_reader_chainstate, |available_txs| {
+            for txinfo in available_txs.into_iter() {
                 // skip transactions early if we can
                 if considered.contains(&txinfo.tx.txid()) {
                     continue;
@@ -579,14 +635,12 @@ impl StacksBlockBuilder {
 
                 considered.insert(txinfo.tx.txid());
 
-                match builder.try_mine_tx(&mut epoch_tx, &txinfo.tx) {
+                match builder.try_mine_tx_with_len(&mut epoch_tx, &txinfo.tx, txinfo.metadata.len) {
                     Ok(_) => {},
                     Err(Error::BlockTooBigError) => {
                         // done mining -- our execution budget is exceeded.
                         // Make the block from the transactions we did manage to get
                         debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
-                        do_rebuild = true;
-                        continue;
                     },
                     Err(e) => {
                         warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
@@ -599,46 +653,26 @@ impl StacksBlockBuilder {
                     mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
                 }
             }
+            Ok(())
+        });
 
-            // page back
-            next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, next_timestamp)? {
-                Some(ts) => ts,
-                None => {
-                    // walk back
-                    match StacksBlockBuilder::walk_mempool(mempool, &mut header_reader_chainstate, &tip_burn_header_hash, &tip_block_hash, tip_height)? {
-                        Some((next_burn_bhh, next_block_bhh, next_height, next_timestamp)) => {
-                            tip_burn_header_hash = next_burn_bhh;
-                            tip_block_hash = next_block_bhh;
-                            tip_height = next_height;
-                            next_timestamp
-                        },
-                        None => {
-                            // no more transactions
-                            break;
-                        }
-                    }
-                }
-            };
+        match result {
+            Ok(_) => {},
+            Err(e) => {
+                warn!("Failure building block: {}", e);
+                epoch_tx.rollback_block();
+                return Err(e);
+            },
         }
 
-        if do_rebuild {
-            // re-build a block using the txs that we could mine.
-            // TODO: this is only necessary because there's no way to retroatively abort a
-            // transaction's state that we committed to in a ClarityBlockConnection.  If there was,
-            // then we'd just "undo" the offending transaction.  But until this exists, the only
-            // way to recover from a budget-exceeded condition is to re-mine the transactions that
-            // we know did fit.
-            let txs = mem::replace(&mut builder.txs, vec![]);
-            epoch_tx.rollback_block();
+        // the prior do_rebuild logic wasn't necessary
+        // a transaction that caused a budget exception is rolled back in process_transaction
 
-            return StacksBlockBuilder::make_anchored_block_from_txs(cost_overflow_recovery_builder, &mut chainstate, txs);
-        }
-        else {
-            // save the block so we can build microblocks off of it
-            let block = builder.mine_anchored_block(&mut epoch_tx);
-            builder.epoch_finish(epoch_tx);
-            Ok(block)
-        }
+        // save the block so we can build microblocks off of it
+        let block = builder.mine_anchored_block(&mut epoch_tx);
+        let size = builder.bytes_so_far;
+        let consumed = builder.epoch_finish(epoch_tx);
+        Ok((block, consumed, size))
     }
 }
 
@@ -3371,7 +3405,7 @@ pub mod test {
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
 
             last_block = Some(stacks_block.clone());
@@ -3438,7 +3472,7 @@ pub mod test {
                     mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
                 } 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());
@@ -3535,7 +3569,7 @@ pub mod test {
                 }
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());
@@ -3660,7 +3694,7 @@ pub mod test {
                 };
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());
@@ -3761,7 +3795,7 @@ pub mod test {
                     };
                 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());
@@ -3841,7 +3875,7 @@ pub mod test {
                     mempool.submit(&parent_tip_bhh, &parent_header_hash, contract_tx).unwrap();
                 }
                 
-                (anchored_block, vec![])
+                (anchored_block.0, vec![])
             });
             
             last_block = Some(stacks_block.clone());

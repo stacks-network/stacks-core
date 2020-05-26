@@ -69,7 +69,7 @@ async fn main() -> http_types::Result<()> {
 
         // Generate blocks for the neon miner
         let miner_address = config.neon.miner_address.clone();
-        generate_blocks(num_blocks, miner_address, &config).await;
+        generate_blocks(num_blocks_for_miner, miner_address, &config).await;
 
         num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
     }

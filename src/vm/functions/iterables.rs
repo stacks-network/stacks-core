@@ -186,7 +186,7 @@ pub fn special_concat(args: &[SymbolicExpression], env: &mut Environment, contex
 pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    let iterable = eval(&args[0], env, context)?;
+    let mut iterable = eval(&args[0], env, context)?;
 
     runtime_cost!(cost_functions::AS_MAX_LEN, env, 0)?;
 
@@ -199,6 +199,9 @@ pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, co
         if iterable_len as u128 > *expected_len {
             Ok(Value::none())
         } else {
+            if let Value::List(ref mut list) = iterable {
+                list.type_signature.reduce_max_len(*expected_len as u32);
+            }
             Ok(Value::some(iterable)?)
         }
     } else {

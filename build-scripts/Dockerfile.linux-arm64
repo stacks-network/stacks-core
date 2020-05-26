@@ -6,7 +6,7 @@ COPY . .
 
 RUN rustup target add aarch64-unknown-linux-gnu
 
-RUN apt-get update && apt-get install -y gcc-aarch64-linux-gnu
+RUN apt-get update && apt-get install -y git gcc-aarch64-linux-gnu
 
 RUN CC=aarch64-linux-gnu-gcc \
     CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \

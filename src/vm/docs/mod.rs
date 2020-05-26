@@ -404,11 +404,14 @@ or a buffer and another buffer of length 1 and outputs a buffer or a list of the
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list, uint",
     output_type: "(optional buff|list)",
-    signature: "(as-max-len? buffer 10)",
+    signature: "(as-max-len? buffer u10)",
     description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
 or buffer of length M and outputs that same list or buffer, but typed with max length N.
-At runtime, a check is performed, which if it fails, returns a (none) option.",
-    example: "(as-max-len? (list 2 2 2) 3) ;; Returns (some (list 2 2 2))"
+
+This function returns an optional type with the resulting iterable. If the input iterable is less than
+or equal to the supplied max-len, it returns `(some <iterable>)`, otherwise it returns `none`.",
+    example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (list 2 2 2))
+(as-max-len? (list 1 2 3) u2) ;; Returns none"
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
@@ -586,7 +589,7 @@ const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     output_type: "(response A B)",
     signature: "(contract-call? .contract-name function-name arg0 arg1 ...)",
     description: "The `contract-call?` function executes the given public function of the given contract.
-You _may not_ this function to call a public function defined in the current contract. If the public
+You _may not_ use this function to call a public function defined in the current contract. If the public
 function returns _err_, any database changes resulting from calling `contract-call?` are aborted.
 If the function returns _ok_, database changes occurred.",
     example: "(contract-call? .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
@@ -1180,6 +1183,19 @@ one of the following error codes:
 "
 };
 
+const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(stx-get-balance owner)",
+    description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
+
+This function returns the STX balance of the `owner` principal. In the event that the `owner`
+principal isn't materialized, it returns 0.
+",
+    example: "
+(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns u100
+"
+};
+
 const STX_TRANSFER: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-transfer? amount sender recipient)",
@@ -1290,6 +1306,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
+        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }

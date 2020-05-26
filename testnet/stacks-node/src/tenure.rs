@@ -81,7 +81,7 @@ impl <'a> Tenure {
             &self.config.get_chainstate_path(),
             self.config.block_limit.clone()).unwrap();
 
-        let anchored_block = StacksBlockBuilder::build_anchored_block(
+        let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
             &mut chain_state, &mut self.mem_pool, &self.parent_block.metadata,
             self.parent_block_total_burn, self.vrf_proof.clone(), self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx, self.config.block_limit.clone()).unwrap();

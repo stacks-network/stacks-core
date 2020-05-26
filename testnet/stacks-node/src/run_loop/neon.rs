@@ -10,6 +10,14 @@ use stacks::burnchains::bitcoin::{BitcoinNetworkType,
 use super::RunLoopCallbacks;
 
 /// Coordinating a node running in neon mode.
+#[cfg(test)]
+pub struct RunLoop {
+    config: Config,
+    pub callbacks: RunLoopCallbacks,
+    blocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+#[cfg(not(test))]
 pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
@@ -18,11 +26,39 @@ pub struct RunLoop {
 impl RunLoop {
 
     /// Sets up a runloop and node, given a config.
+    #[cfg(not(test))]
     pub fn new(config: Config) -> Self {
         Self {
             config,
-            callbacks: RunLoopCallbacks::new()
+            callbacks: RunLoopCallbacks::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            callbacks: RunLoopCallbacks::new(),
+            blocks_processed: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn get_blocks_processed_arc(&self) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
+        self.blocks_processed.clone()
+    }
+
+    #[cfg(not(test))]
+    fn get_blocks_processed_arc(&self) {
+    }
+
+    #[cfg(test)]
+    fn bump_blocks_processed(&self) {
+        self.blocks_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(not(test))]
+    fn bump_blocks_processed(&self) {
     }
 
     /// Starts the testnet runloop.
@@ -37,7 +73,7 @@ impl RunLoop {
         let mut burnchain = BitcoinRegtestController::new(self.config.clone());
 
         let is_miner = if self.config.node.miner {
-            let mut keychain = Keychain::default(self.config.node.seed.clone());
+            let keychain = Keychain::default(self.config.node.seed.clone());
             let btc_addr = BitcoinAddress::from_bytes(
                 BitcoinNetworkType::Regtest,
                 BitcoinAddressType::PublicKeyHash,
@@ -66,9 +102,9 @@ impl RunLoop {
         // setup genesis
         let node = NeonGenesisNode::new(self.config.clone(), |_| {});
         let mut node = if is_miner {
-            node.into_initialized_leader_node(burnchain_tip.clone())
+            node.into_initialized_leader_node(burnchain_tip.clone(), self.get_blocks_processed_arc())
         } else {
-            node.into_initialized_node(burnchain_tip.clone())
+            node.into_initialized_node(burnchain_tip.clone(), self.get_blocks_processed_arc())
         };
 
         // TODO (hack) instantiate the burndb in the burnchain
@@ -76,6 +112,7 @@ impl RunLoop {
 
         // Start the runloop
         info!("Begin run loop");
+        self.bump_blocks_processed();
         loop {
             burnchain_tip = burnchain.sync();
 
