@@ -76,8 +76,7 @@ amount = 100000000
 ## A demo is available here: https://github.com/blockstack/stacks-blockchain-sidecar
 ##
 # [[events_observer]]
-# port = 8080
-# address = "127.0.0.1"
+# endpoint = "http://127.0.0.1:8080"
 # events_keys = [
 #     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store::print",
 #     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.ft-token",
