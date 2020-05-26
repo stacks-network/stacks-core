@@ -50,6 +50,7 @@ mio = "0.6"
 libc = "0.2"
 lazy_static = "1.4.0"
 url = "2.1.1"
+percent-encoding = "2.1.0"
 sha2 = "0.8.0"
 
 [dependencies.serde_json]

@@ -476,7 +476,7 @@ fn integration_test_get_info() {
                                                                        "(get-exotic-data-info u1)");
                 assert_eq!(result_data, expected_data);
 
-                // how about a read-only function call!
+                // let's try a call with a url-encoded string.
                 let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info",
                                    "get-exotic-data-info%3F");
                 eprintln!("Test: POST {}", path);
@@ -489,17 +489,14 @@ fn integration_test_get_info() {
                 let res = client.post(&path)
                     .json(&body)
                     .send()
-                    .unwrap();
-                eprintln!("{:?}", res);
-
-                let res = res
+                    .unwrap()
                     .json::<serde_json::Value>().unwrap();
                 assert!(res.get("cause").is_none());
                 assert!(res["okay"].as_bool().unwrap());
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
-                                                                       "(get-exotic-data-info u1)");
+                                                                       "(get-exotic-data-info? u1)");
                 assert_eq!(result_data, expected_data);
 
                 // let's have a runtime error!
