@@ -54,6 +54,9 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-read-only (get-exotic-data-info (height uint))
           (unwrap-panic (map-get? block-data { height: height })))
 
+        (define-read-only (get-exotic-data-info? (height uint))
+          (unwrap-panic (map-get? block-data { height: height })))
+
         (define-private (exotic-data-checks (height uint))
           (let ((block-to-check (unwrap-panic (get-block-info? id-header-hash height)))
                 (block-info (unwrap-panic (map-get? block-data ((height (- height u1)))))))
@@ -465,6 +468,32 @@ fn integration_test_get_info() {
                     .json(&body)
                     .send()
                     .unwrap().json::<serde_json::Value>().unwrap();
+                assert!(res.get("cause").is_none());
+                assert!(res["okay"].as_bool().unwrap());
+
+                let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(get-exotic-data-info u1)");
+                assert_eq!(result_data, expected_data);
+
+                // how about a read-only function call!
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info",
+                                   "get-exotic-data-info%3F");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![Value::UInt(1).serialize()]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap();
+                eprintln!("{:?}", res);
+
+                let res = res
+                    .json::<serde_json::Value>().unwrap();
                 assert!(res.get("cause").is_none());
                 assert!(res["okay"].as_bool().unwrap());
 
