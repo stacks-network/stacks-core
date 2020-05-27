@@ -218,7 +218,7 @@ impl NetworkState {
         sock.shutdown(Shutdown::Both)
             .map_err(|_e| net_error::SocketError)?;
 
-        test_debug!("Socket deregistered: {}, {:?}", event_id, sock);
+        debug!("Socket deregistered: {}, {:?}", event_id, sock);
         Ok(())
     }
 
