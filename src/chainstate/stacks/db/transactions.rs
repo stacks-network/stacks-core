@@ -3242,6 +3242,7 @@ pub mod test {
 
         eprintln!("{:?}", &err);
         assert_eq!(fee, 0);
+        if let Error::InvalidFee = err {} else { assert!(false) };
     }
     // TODO: test poison microblock
 }
