@@ -302,6 +302,7 @@ pub struct PeerNetwork {
     pub walk_deadline: u64,
     pub walk_count: u64,
     pub walk_attempts: u64,
+    pub walk_retries: u64,
     pub walk_total_step_count: u64,
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>,   // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult,        // last successful neighbor walk result
@@ -323,7 +324,10 @@ pub struct PeerNetwork {
     pub prune_inbound_counts: HashMap<NeighborKey, u64>,
 
     // http endpoint, used for driving HTTP conversations (some of which we initiate)
-    pub http: HttpPeer
+    pub http: HttpPeer,
+
+    // our own neighbor address that we bind on
+    bind_nk: NeighborKey,
 }
 
 impl PeerNetwork {
@@ -358,6 +362,7 @@ impl PeerNetwork {
             walk: None,
             walk_deadline: 0,
             walk_attempts: 0,
+            walk_retries: 0,
             walk_count: 0,
             walk_total_step_count: 0,
             walk_pingbacks: HashMap::new(),
@@ -373,6 +378,12 @@ impl PeerNetwork {
             prune_inbound_counts : HashMap::new(),
 
             http: http,
+            bind_nk: NeighborKey {
+                network_id: 0,
+                peer_version: 0,
+                addrbytes: PeerAddress([0u8; 16]),
+                port: 0
+            }
         }
     }
 
@@ -390,6 +401,13 @@ impl PeerNetwork {
         self.http_network_handle = http_handle;
 
         self.http.set_server_handle(http_handle);
+
+        self.bind_nk = NeighborKey {
+            network_id: self.local_peer.network_id,
+            peer_version: self.peer_version,
+            addrbytes: PeerAddress::from_socketaddr(my_addr),
+            port: my_addr.port()
+        };
 
         Ok(())
     }
@@ -585,7 +603,20 @@ impl PeerNetwork {
 
     /// Connect to a peer.
     /// Idempotent -- will not re-connect if already connected.
+    /// Fails if the peer is blacklisted.
     pub fn connect_peer(&mut self, neighbor: &NeighborKey) -> Result<usize, net_error> {
+        // don't talk to ourselves
+        if self.is_bound(neighbor) {
+            debug!("{:?}: do not connect to myself at {:?}", &self.local_peer, neighbor);
+            return Err(net_error::Blacklisted);
+        }
+
+        // don't talk if blacklisted
+        if PeerDB::is_peer_blacklisted(&self.peerdb.conn(), neighbor.network_id, &neighbor.addrbytes, neighbor.port)? {
+            debug!("{:?}: Neighbor {:?} is blacklisted; will not connect", &self.local_peer, neighbor);
+            return Err(net_error::Blacklisted);
+        }
+
         if self.is_registered(&neighbor) {
             let event_id = match self.events.get(&neighbor) {
                 Some(eid) => *eid,
@@ -879,7 +910,7 @@ impl PeerNetwork {
         Ok(disconnect)
     }
 
-    /// Get the stored, non-expired public key for a remote peer (if we know of it)
+    /// Get the neighbor if we know of it and it's public key is unexpired.
     fn lookup_peer(&self, cur_block_height: u64, peer_addr: &SocketAddr) -> Result<Option<Neighbor>, net_error> {
         let conn = self.peerdb.conn();
         let addrbytes = PeerAddress::from_socketaddr(peer_addr);
@@ -909,24 +940,31 @@ impl PeerNetwork {
         self.connecting.contains_key(&event_id)
     }
 
+    /// Is this neighbor key the same as the one that represents our p2p bind address?
+    fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
+        self.bind_nk.network_id == neighbor_key.network_id && self.bind_nk.addrbytes == neighbor_key.addrbytes && self.bind_nk.port == neighbor_key.port
+    }
+
     /// Check to see if we can register the given socket
     /// * we can't have registered this neighbor already
     /// * if this is inbound, we can't add more than self.num_clients
     fn can_register_peer(&mut self, neighbor_key: &NeighborKey, outbound: bool) -> Result<(), net_error> {
-        if let Some(event_id) = self.get_event_id(&neighbor_key) {
-            test_debug!("{:?}: already connected to {:?}", &self.local_peer, &neighbor_key);
-            return Err(net_error::AlreadyConnected(event_id));
+        // don't talk to ourselves
+        if self.is_bound(neighbor_key) {
+            debug!("{:?}: do not register myself at {:?}", &self.local_peer, neighbor_key);
+            return Err(net_error::Blacklisted);
         }
 
         // blacklisted?
-        let blacklisted = match PeerDB::get_peer(&self.peerdb.conn(), neighbor_key.network_id, &neighbor_key.addrbytes, neighbor_key.port)? {
-            Some(neighbor) => neighbor.is_blacklisted(),
-            None => false
-        };
-
-        if blacklisted {
+        if PeerDB::is_peer_blacklisted(&self.peerdb.conn(), neighbor_key.network_id, &neighbor_key.addrbytes, neighbor_key.port)? {
             info!("{:?}: Peer {:?} is blacklisted; dropping", &self.local_peer, neighbor_key);
             return Err(net_error::Blacklisted);
+        }
+        
+        // already connected?
+        if let Some(event_id) = self.get_event_id(&neighbor_key) {
+            test_debug!("{:?}: already connected to {:?}", &self.local_peer, &neighbor_key);
+            return Err(net_error::AlreadyConnected(event_id));
         }
 
         // consider rate-limits on in-bound peers
@@ -1345,7 +1383,7 @@ impl PeerNetwork {
         let now = get_epoch_time_secs();
         let mut relay_handles = HashMap::new();
         for (_, convo) in self.peers.iter_mut() {
-            if convo.is_outbound() && convo.is_authenticated() && convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.heartbeat as u64) + self.connection_opts.neighbor_request_timeout < now {
+            if convo.is_outbound() && convo.is_authenticated() && convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
                 // haven't talked to this neighbor in a while
                 let payload = StacksMessageType::Ping(PingData::new());
                 let ping_res = convo.sign_message(&self.chain_view, &self.local_peer.private_key, payload);
@@ -1388,9 +1426,9 @@ impl PeerNetwork {
         for (event_id, convo) in self.peers.iter() {
             if convo.is_authenticated() {
                 // have handshaked with this remote peer
-                if convo.stats.last_contact_time + (convo.peer_heartbeat as u64) + self.connection_opts.neighbor_request_timeout < now {
+                if convo.stats.last_contact_time + (convo.peer_heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
                     // we haven't heard from this peer in too long a time 
-                    debug!("{:?}: Disconnect unresponsive authenticated peer {:?}: {} + {} + {} < {}", &self.local_peer, &convo, convo.stats.last_contact_time, convo.peer_heartbeat, self.connection_opts.neighbor_request_timeout, now);
+                    debug!("{:?}: Disconnect unresponsive authenticated peer {:?}: {} + {} + {} < {}", &self.local_peer, &convo, convo.stats.last_contact_time, convo.peer_heartbeat, NEIGHBOR_REQUEST_TIMEOUT, now);
                     to_remove.push(*event_id);
                 }
             }
@@ -1476,7 +1514,7 @@ impl PeerNetwork {
         }
 
         for (nk, (event_id, msg)) in msgs.drain() {
-            match self.send_message(&nk, msg, self.connection_opts.neighbor_request_timeout) {
+            match self.send_message(&nk, msg, NEIGHBOR_REQUEST_TIMEOUT) {
                 Ok(handle) => {
                     self.add_relay_handle(event_id, handle);
                 },
