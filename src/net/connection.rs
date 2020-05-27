@@ -53,7 +53,7 @@ use net::MAX_MESSAGE_LEN;
 
 use net::inv::INV_SYNC_INTERVAL;
 use net::download::BLOCK_DOWNLOAD_INTERVAL;
-use net::neighbors::{ NEIGHBOR_WALK_INTERVAL, NEIGHBOR_REQUEST_TIMEOUT };
+use net::neighbors::{NUM_INITIAL_WALKS, WALK_RETRY_COUNT, NEIGHBOR_WALK_INTERVAL};
 
 use util::strings::UrlString;
 
@@ -333,7 +333,8 @@ pub struct ConnectionOptions {
     pub soft_max_neighbors_per_host: u64,
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
-    pub neighbor_request_timeout: u64,
+    pub num_initial_walks: u64,
+    pub walk_retry_count: u64,
     pub walk_interval: u64,
     pub walk_inbound_ratio: u64,
     pub inv_sync_interval: u64,
@@ -380,7 +381,8 @@ impl std::default::Default for ConnectionOptions {
             soft_max_neighbors_per_host: 10,     // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them,
-            neighbor_request_timeout: NEIGHBOR_REQUEST_TIMEOUT, // how long a p2p request to a neighbor is allowed to take
+            num_initial_walks: NUM_INITIAL_WALKS,
+            walk_retry_count: WALK_RETRY_COUNT,
             walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk.
             walk_inbound_ratio: 2,                              // walk inbound neighbors twice as often as outbound by default
             inv_sync_interval: INV_SYNC_INTERVAL,               // how often to synchronize block inventories
