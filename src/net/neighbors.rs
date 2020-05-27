@@ -64,9 +64,11 @@ use rand::thread_rng;
 #[cfg(test)] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 0;
 #[cfg(not(test))] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 600;      // don't reach out to a frontier neighbor more than once every 10 minutes
 
-pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 30;      // number of seconds an outstanding request for neighbors can take (default value)
+pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 30;      // number of seconds an outstanding request for neighbors can take
 
 pub const NUM_INITIAL_WALKS : u64 = 10;     // how many unthrottled walks should we do when this peer starts up
+pub const WALK_RETRY_COUNT : u64 = 10;      // how many unthrottled walks should we attempt when the peer starts up
+
 #[cfg(test)] pub const PRUNE_FREQUENCY : u64 = 0;             // how often we should consider pruning neighbors
 #[cfg(not(test))] pub const PRUNE_FREQUENCY : u64 = 43200;     // how often we should consider pruning neighbors (twice a day)
 pub const MAX_NEIGHBOR_BLOCK_DELAY : u64 = 288;     // maximum delta between our current block height and the neighbor's that we will treat this neighbor as fresh
@@ -157,8 +159,8 @@ impl Neighbor {
     /// upper bound.
     pub fn degree(&self) -> u64 {
         let mut rng = thread_rng();
-        let min = cmp::min(self.in_degree, self.out_degree);
-        let max = cmp::max(self.in_degree, self.out_degree);
+        let min = if self.in_degree < self.out_degree { self.in_degree } else { self.out_degree };
+        let max = if self.in_degree >= self.out_degree { self.in_degree } else { self.out_degree };
         let res = rng.gen_range(min, max+1) as u64;
         if res == 0 {
             1
@@ -744,9 +746,9 @@ impl NeighborWalk {
                     let replaced_neighbor_slot_opt = NeighborWalk::find_replaced_neighbor_slot(tx, &neighbor_from_handshake.addr)?;
                     match replaced_neighbor_slot_opt {
                         Some(slot) => {
-                            // if this peer isn't whitelisted, then consider
-                            // replacing
-                            if neighbor_from_handshake.whitelisted > 0 && (neighbor_from_handshake.whitelisted as u64) < get_epoch_time_secs() {
+                            // if this peer isn't whitelisted or blacklisted, then consider
+                            // replacing.  Otherwise, keep the local configuration's preference.
+                            if !neighbor_from_handshake.is_blacklisted() && !neighbor_from_handshake.is_whitelisted() {
                                 self.neighbor_replacements.insert(neighbor_from_handshake.addr.clone(), neighbor_from_handshake.clone());
                                 self.replaced_neighbors.insert(neighbor_from_handshake.addr.clone(), slot);
                             }
@@ -1940,10 +1942,10 @@ impl PeerNetwork {
     pub fn walk_peer_graph(&mut self) -> (bool, Option<NeighborWalkResult>) {
         if self.walk.is_none() {
             // time to do a walk yet?
-            if self.walk_count > NUM_INITIAL_WALKS && self.walk_deadline > get_epoch_time_secs() {
-                // we've done enough walks for an initial mixing,
+            if (self.walk_count > self.connection_opts.num_initial_walks || self.walk_retries > self.connection_opts.walk_retry_count) && self.walk_deadline > get_epoch_time_secs() {
+                // we've done enough walks for an initial mixing, or we can't connect to anyone,
                 // so throttle ourselves down until the walk deadline passes.
-                debug!("{:?}: Throttle walk until {} to walk again", &self.local_peer, self.walk_deadline);
+                debug!("{:?}: Throttle walk until {} to walk again (walk count: {}, walk retries: {})", &self.local_peer, self.walk_deadline, self.walk_count, self.walk_retries);
                 return (true, None);
             }
         }
@@ -1967,17 +1969,22 @@ impl PeerNetwork {
                 };
 
             self.walk_attempts += 1;
+
             match walk_res {
                 Ok(_) => {},
                 Err(Error::NoSuchNeighbor) => match self.instantiate_walk_from_pingback() {
                     Ok(_) => {},
                     Err(e) => {
                         debug!("{:?}: Failed to begin neighbor walk from pingback: {:?}", &self.local_peer, &e);
+                        self.walk_retries += 1;
+                        self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
                         return (true, None);
                     }
                 },
                 Err(e) => {
                     debug!("{:?}: Failed to begin neighbor walk from peer database: {:?}", &self.local_peer, &e);
+                    self.walk_retries += 1;
+                    self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
                     return (true, None);
                 }
             }
@@ -2060,6 +2067,7 @@ impl PeerNetwork {
             Ok(mut walk_opt) => {
                 // did something
                 self.walk_total_step_count += 1;
+                self.walk_retries = 0;
 
                 let mut done = false;
 
