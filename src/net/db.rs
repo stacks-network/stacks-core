@@ -41,6 +41,7 @@ use util::secp256k1::Secp256k1PublicKey;
 use util::macros::is_big_endian;
 
 use chainstate::stacks::StacksPublicKey;
+use chainstate::stacks::StacksPrivateKey;
 
 use rand::RngCore;
 use rand::Rng;
@@ -579,6 +580,14 @@ impl PeerDB {
         }
     }
 
+    /// Is a peer blacklisted?
+    pub fn is_peer_blacklisted(conn: &DBConn, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<bool, db_error> {
+        match PeerDB::get_peer(conn, network_id, peer_addr, peer_port)? {
+            Some(neighbor) => Ok(neighbor.is_blacklisted()),
+            None => Ok(false)
+        }
+    }
+
     /// Insert or replace a neighbor into a given slot 
     pub fn insert_or_replace_peer<'a>(tx: &mut Transaction<'a>, neighbor: &Neighbor, slot: u32) -> Result<(), db_error> {
         let neighbor_args : &[&dyn ToSql] = &[
@@ -616,9 +625,26 @@ impl PeerDB {
     /// Set/unset whitelist flag for a peer
     /// Pass -1 for "always"
     pub fn set_whitelist_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16, whitelist_deadline: i64) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET whitelisted = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4",
+        let num_updated = tx.execute("UPDATE frontier SET whitelisted = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4",
                    &[&whitelist_deadline as &dyn ToSql, &network_id, &peer_addr.to_hex(), &peer_port])
             .map_err(db_error::SqliteError)?;
+
+        if num_updated == 0 {
+            // we're preemptively whitelisting
+            let nk = NeighborKey {
+                peer_version: 0,
+                network_id: network_id,
+                addrbytes: peer_addr.clone(),
+                port: peer_port,
+            };
+            let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
+            let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
+
+            empty_neighbor.whitelisted = whitelist_deadline as i64;
+
+            debug!("Preemptively whitelist peer {:?}", &nk);
+            PeerDB::insert_or_replace_peer(tx, &empty_neighbor, 0)?;
+        }
 
         Ok(())
     }
@@ -627,8 +653,25 @@ impl PeerDB {
     /// negative values aren't allowed
     pub fn set_blacklist_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16, blacklist_deadline: u64) -> Result<(), db_error> {
         let args : &[&dyn ToSql] = &[&u64_to_sql(blacklist_deadline)?, &network_id, &peer_addr.to_hex(), &peer_port];
-        tx.execute("UPDATE frontier SET blacklisted = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4", args)
+        let num_updated = tx.execute("UPDATE frontier SET blacklisted = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4", args)
             .map_err(db_error::SqliteError)?;
+
+        if num_updated == 0 {
+            // we're preemptively blacklisting
+            let nk = NeighborKey {
+                peer_version: 0,
+                network_id: network_id,
+                addrbytes: peer_addr.clone(),
+                port: peer_port,
+            };
+            let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
+            let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
+
+            empty_neighbor.blacklisted = blacklist_deadline as i64;
+            
+            debug!("Preemptively blacklist peer {:?}", &nk);
+            PeerDB::insert_or_replace_peer(tx, &empty_neighbor, 0)?;
+        }
 
         Ok(())
     }
