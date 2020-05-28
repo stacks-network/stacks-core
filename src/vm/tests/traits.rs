@@ -70,7 +70,7 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(owned_env: &mut OwnedEnvironme
             (let ((amount u0))
               (internal-get-1 contract)))
         (define-public (internal-get-1 (contract <trait-1>))
-            (ok u1))";
+            (contract-call? contract get-1 u0))";
     let target_contract =
     "(define-public (get-1 (x uint)) (ok u1))";
 
@@ -98,7 +98,7 @@ fn test_dynamic_dispatch_pass_trait(owned_env: &mut OwnedEnvironment) {
         (define-public (wrapped-get-1 (contract <trait-1>))
               (internal-get-1 contract))
         (define-public (internal-get-1 (contract <trait-1>))
-            (ok u1))";
+            (contract-call? contract get-1 u0))";
     let target_contract =
     "(define-public (get-1 (x uint)) (ok u1))";
 
