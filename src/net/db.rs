@@ -629,12 +629,12 @@ impl PeerDB {
         match PeerDB::get_peer(conn, network_id, peer_addr, peer_port)? {
             Some(neighbor) => {
                 if neighbor.is_blacklisted() {
-                    return Ok(false);
+                    return Ok(true);
                 }
                 if PeerDB::is_address_blacklisted(conn, &neighbor.addr.addrbytes)? {
-                    return Ok(false);
+                    return Ok(true);
                 }
-                return Ok(true);
+                return Ok(false);
             }
             None => {
                 return Ok(false);
