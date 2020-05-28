@@ -869,13 +869,13 @@ fn bad_contract_tx_rollback() {
             },
             2 => {
                 assert_eq!(chain_tip.metadata.block_height, 3);
-                // Block #2 should have 4 txs -- coinbase + 1 transfer + 1 publish
-                assert_eq!(chain_tip.block.txs.len(), 3);
+                // Block #2 should have 4 txs -- coinbase + 2 transfer + 1 publish
+                assert_eq!(chain_tip.block.txs.len(), 4);
             },
             3 => {
                 assert_eq!(chain_tip.metadata.block_height, 4);
-                // Block #2 should have 4 txs -- coinbase + 1 transfer
-                assert_eq!(chain_tip.block.txs.len(), 2);
+                // Block #2 should have 1 txs -- coinbase
+                assert_eq!(chain_tip.block.txs.len(), 1);
             },
             _ => {},
         }
