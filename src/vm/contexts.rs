@@ -1043,6 +1043,18 @@ impl <'a> LocalContext <'a> {
             }
         }
     }
+
+    pub fn lookup_callable_contract(&self, name: &str) -> Option<&(QualifiedContractIdentifier, TraitIdentifier)> {
+        match self.callable_contracts.get(name) {
+            Some(value) => Some(value),
+            None => {
+                match self.parent {
+                    Some(parent) => parent.lookup_callable_contract(name),
+                    None => None
+                }
+            }
+        }
+    }
 }
 
 impl CallStack {
