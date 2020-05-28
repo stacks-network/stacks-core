@@ -859,6 +859,29 @@ fn test_high_order_map() {
     }
 }
 
+
+#[test]
+fn test_function_order_tuples() {
+    let snippet = "
+(define-read-only (get-score)
+    (ok 
+        (tuple
+            (score (get-zero))
+        )
+    )
+)
+
+(define-private (get-zero)
+    0
+)
+
+1
+";
+
+    assert_eq!(&mem_type_check(snippet).unwrap().0.unwrap().to_string(),
+               "int");
+}
+
 #[test]
 fn test_simple_uints() {
     let good = [

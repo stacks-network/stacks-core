@@ -355,8 +355,7 @@ impl MemPoolDB {
     ///  each ancestor chain tip from the given one, starting with the
     ///  most recent chain tip and working backwards until there are
     ///  no more transactions to consider. Each batch of transactions
-    ///  passed to todo will be sorted in fee order, starting with the
-    ///  highest.
+    ///  passed to todo will be sorted in nonce order.
     pub fn iterate_candidates<F, E>(&self,
                                     tip_burn_header_hash: &BurnchainHeaderHash,
                                     tip_block_hash: &BlockHeaderHash,
@@ -389,6 +388,9 @@ impl MemPoolDB {
 
         loop {
             let available_txs = MemPoolDB::get_txs_at(&self.db, &tip_burn_header_hash, &tip_block_hash, next_timestamp)?;
+
+            debug!("Have {} transactions at {}/{} height={} at or after {}", available_txs.len(), &tip_burn_header_hash, &tip_block_hash, tip_height, next_timestamp);
+
             todo(available_txs)?;
             next_timestamp = match MemPoolDB::get_next_timestamp(&self.db, &tip_burn_header_hash, &tip_block_hash, next_timestamp)? {
                 Some(ts) => ts,
@@ -444,14 +446,15 @@ impl MemPoolDB {
 
     /// Get the next timestamp after this one that occurs in this chain tip.
     pub fn get_next_timestamp(conn: &DBConn, burnchain_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64) -> Result<Option<u64>, db_error> {
-        let sql = "SELECT accept_time FROM mempool WHERE accept_time > ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY accept_time LIMIT 1";
+        let sql = "SELECT accept_time FROM mempool WHERE accept_time > ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY accept_time ASC LIMIT 1";
         let args : &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, burnchain_header_hash, block_header_hash];
         query_row(conn, sql, args)
     }
     
-    /// Get all transactions at a particular timestamp and chain tip
+    /// Get all transactions at a particular timestamp on a given chain tip.
+    /// Order them by origin nonce.
     pub fn get_txs_at(conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64) -> Result<Vec<MemPoolTxInfo>, db_error> {
-        let sql = "SELECT * FROM mempool WHERE accept_time = ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY estimated_fee DESC";
+        let sql = "SELECT * FROM mempool WHERE accept_time = ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY origin_nonce ASC";
         let args : &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, burn_header_hash, block_header_hash];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows)

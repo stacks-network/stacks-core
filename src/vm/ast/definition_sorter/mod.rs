@@ -222,10 +222,16 @@ impl <'a> DefinitionSorter {
         }
     }
 
-    fn probe_for_dependencies_in_tuple_list(&mut self, tuples: &[PreSymbolicExpression], tle_index: usize) -> ParseResult<()> {
-        for index in 0..tuples.len() {
-            self.probe_for_dependencies_in_tuple(&tuples[index], tle_index)?;
-        } 
+    /// accept a slice of expected-pairs, e.g., [ (a b) (c d) (e f) ], and
+    ///   probe them for dependencies as if they were part of a tuple definition.
+    fn probe_for_dependencies_in_tuple_list(&mut self, pairs: &[PreSymbolicExpression], tle_index: usize) -> ParseResult<()> {
+        for pair in pairs.iter() {
+            if let Some(pair) = pair.match_list() {
+                if pair.len() == 2 {
+                    self.probe_for_dependencies(&pair[1], tle_index)?;
+                }
+            }
+        }
         Ok(())
     }
     
@@ -250,13 +256,7 @@ impl <'a> DefinitionSorter {
 
     fn probe_for_dependencies_in_tuple(&mut self, expr: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
         if let Some(tuple) = expr.match_list() {
-            for pair in tuple.into_iter() {
-                if let Some(pair) = pair.match_list() {
-                    if pair.len() == 2 {
-                        self.probe_for_dependencies(&pair[1], tle_index)?;
-                    }
-                }
-            }
+            self.probe_for_dependencies_in_tuple_list(tuple, tle_index)?;
         }
         Ok(())
     }

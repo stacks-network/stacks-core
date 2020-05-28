@@ -71,6 +71,7 @@ pub enum Error {
     Interpreter(InterpreterError),
     BadTransaction(String),
     CostError(ExecutionCost, ExecutionCost),
+    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>)
 }
 
 impl From<CheckError> for Error {
@@ -111,6 +112,7 @@ impl fmt::Display for Error {
             Error::CostError(ref a, ref b) => write!(f, "Cost Error: {} cost exceeded budget of {} cost", a, b),
             Error::Analysis(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
+            Error::AbortedByCallback(..) => write!(f, "Post condition aborted transaction"),
             Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
             Error::BadTransaction(ref s) => fmt::Display::fmt(s, f)
         }
@@ -121,6 +123,7 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::CostError(ref _a, ref _b) => None,
+            Error::AbortedByCallback(..) => None,
             Error::Analysis(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
@@ -478,7 +481,7 @@ impl <'a> ClarityTransactionConnection <'a> {
         })
     }
 
-    fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error>
+    fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
           F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error> {
         using!(self.log, "log", |log| {
@@ -497,12 +500,13 @@ impl <'a> ClarityTransactionConnection <'a> {
 
                 let result = match result {
                     Ok((value, asset_map, events)) => {
-                        if abort_call_back(&asset_map, &mut db) {
+                        let aborted = abort_call_back(&asset_map, &mut db);
+                        if aborted {
                             db.roll_back();
                         } else {
                             db.commit();
                         }
-                        Ok((value, asset_map, events))
+                        Ok((value, asset_map, events, aborted))
                     },
                     Err(e) => {
                         db.roll_back();
@@ -547,7 +551,7 @@ impl <'a> ClarityTransactionConnection <'a> {
         let expr_args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
         self.with_abort_callback(
-            |vm_env| { 
+            |vm_env| {
                 vm_env.execute_transaction(
                     Value::Principal(sender.clone()), 
                     contract.clone(), 
@@ -555,6 +559,13 @@ impl <'a> ClarityTransactionConnection <'a> {
                     &expr_args)
                 .map_err(Error::from) },
             abort_call_back)
+            .and_then(|(value, assets, events, aborted)|
+                 if aborted {
+                     Err(Error::AbortedByCallback(Some(value), assets, events))
+                 } else {
+                     Ok((value, assets, events))
+                 }
+            )
     }
 
     /// Initialize a contract in the current block.
@@ -565,11 +576,15 @@ impl <'a> ClarityTransactionConnection <'a> {
     pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST,
                                           contract_str: &str, abort_call_back: F) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
-        let (_, asset_map, events) = self.with_abort_callback(
+        let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
                        .map_err(Error::from) },
             abort_call_back)?;
-        Ok((asset_map, events))
+        if aborted {
+            Err(Error::AbortedByCallback(None, asset_map, events))
+        } else {
+            Ok((asset_map, events))
+        }
     }
 
     /// Commit the changes from the edit log.
@@ -591,7 +606,7 @@ impl <'a> ClarityTransactionConnection <'a> {
     /// Evaluate a raw Clarity snippit
     #[cfg(test)]
     pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
-        let (result, _, _) = self.with_abort_callback(
+        let (result, _, _, _) = self.with_abort_callback(
             |vm_env| { vm_env.eval_raw(code).map_err(Error::from) },
             |_, _| { false })?;
         Ok(result)
@@ -599,7 +614,7 @@ impl <'a> ClarityTransactionConnection <'a> {
 
     #[cfg(test)]
     pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, code: &str) -> Result<Value, Error> {
-        let (result, _, _) = self.with_abort_callback(
+        let (result, _, _, _) = self.with_abort_callback(
             |vm_env| { vm_env.eval_read_only(contract, code).map_err(Error::from) },
             |_, _| { false })?;
         Ok(result)
@@ -689,7 +704,7 @@ mod tests {
 
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
-                let (ct_ast, ct_analysis) = tx.analyze_smart_contract(&contract_identifier, &contract)
+                let (ct_ast, _ct_analysis) = tx.analyze_smart_contract(&contract_identifier, &contract)
                     .unwrap();
                 assert!(
                     format!("{}", tx.initialize_smart_contract(
@@ -802,10 +817,16 @@ mod tests {
                                        |_, _| false)).unwrap().0,
                 Value::okay(Value::Int(1)).unwrap());
 
-            assert_eq!(
-                conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
-                                       |_, _| true)).unwrap().0,
-                Value::okay(Value::Int(10)).unwrap());
+            let e = conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
+                                                                  |_, _| true)).unwrap_err();
+            let result_value = if let Error::AbortedByCallback(v, ..) = e {
+                v.unwrap()
+            } else {
+                panic!("Expects a AbortedByCallback error")
+            };
+
+            assert_eq!(result_value,
+                       Value::okay(Value::Int(10)).unwrap());
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
@@ -826,6 +847,95 @@ mod tests {
                 Value::okay(Value::Int(1)).unwrap());
 
             
+            conn.commit_block();
+        }
+    }
+
+    #[test]
+    pub fn test_post_condition_failure_contract_publish() {
+        use chainstate::stacks::db::*;
+        use chainstate::stacks::*;
+        use util::secp256k1::MessageSignature;
+        use util::strings::StacksString;
+        use util::hash::Hash160;
+
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+        let sender = StandardPrincipalData::transient().into();
+
+        let spending_cond = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+            signer: Hash160([0x11u8; 20]),
+            hash_mode: SinglesigHashMode::P2PKH,
+            key_encoding: TransactionPublicKeyEncoding::Compressed,
+            nonce: 0,
+            fee_rate: 1,
+            signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+        });
+
+        let contract = "(define-public (foo) (ok 1))";
+
+        let mut tx1 = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            TransactionAuth::Standard(spending_cond.clone()),
+            TransactionPayload::SmartContract(TransactionSmartContract {
+                name: "hello-world".into(),
+                code_body: StacksString::from_str(contract).unwrap() }).into());
+
+        let tx2 = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            TransactionAuth::Standard(spending_cond.clone()),
+            TransactionPayload::SmartContract(TransactionSmartContract {
+                name: "hello-world".into(),
+                code_body: StacksString::from_str(contract).unwrap() }).into());
+
+        tx1.post_conditions.push(TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 100));
+
+        let mut tx3 = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            TransactionAuth::Standard(spending_cond.clone()),
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address: sender,
+                contract_name: "hello-world".into(),
+                function_name: "foo".into(),
+                function_args: vec![] }));
+
+        tx3.post_conditions.push(TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 100));
+
+        let account = StacksAccount {
+            principal: sender.into(),
+            nonce: 0,
+            stx_balance: 5000
+        };
+        {
+            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
+
+            conn.as_transaction(|clarity_tx| {
+                let receipt = 
+                    StacksChainState::process_transaction_payload(
+                        clarity_tx,
+                        &tx1,
+                        &account).unwrap();
+                assert_eq!(receipt.post_condition_aborted, true);
+            });
+            conn.as_transaction(|clarity_tx| {
+                StacksChainState::process_transaction_payload(
+                    clarity_tx,
+                    &tx2,
+                    &account).unwrap();
+            });
+
+            conn.as_transaction(|clarity_tx| {
+                let receipt =
+                    StacksChainState::process_transaction_payload(
+                        clarity_tx,
+                        &tx3,
+                        &account).unwrap();
+
+                assert_eq!(receipt.post_condition_aborted, true);
+            });
+
             conn.commit_block();
         }
     }

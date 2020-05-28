@@ -21,21 +21,33 @@ struct EventObserver {
     endpoint: String,
 }
 
+const STATUS_RESP_TRUE: &str = "success";
+const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
+const STATUS_RESP_POST_CONDITION: &str  = "abort_by_post_condition";
+
 impl EventObserver {
 
-    pub fn send(&mut self, filtered_events: Vec<&(Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip) {
+    fn send(&mut self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip) {
         // Serialize events to JSON
-        let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(txid, event)|
-            event.json_serialize(txid)
+        let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(committed, txid, event)|
+            event.json_serialize(txid, *committed)
         ).collect();
 
         let mut tx_index: u32 = 0;
         let serialized_txs: Vec<serde_json::Value> = chain_tip.receipts.iter().map(|receipt| {
             let tx = &receipt.transaction;
 
-            let (success, result) = match &receipt.result {
-                Value::Response(response_data) => {
-                    (response_data.committed, response_data.data.clone())
+            let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
+                (false, Value::Response(response_data)) => {
+                    let status = if response_data.committed {
+                        STATUS_RESP_TRUE
+                    } else {
+                        STATUS_RESP_NOT_COMMITTED
+                    };
+                    (status, response_data.data.clone())
+                },
+                (true, Value::Response(response_data)) => {
+                    (STATUS_RESP_POST_CONDITION, response_data.data.clone())
                 },
                 _ => unreachable!(), // Transaction results should always be a Value::Response type
             };
@@ -62,7 +74,7 @@ impl EventObserver {
             let val = json!({
                 "txid": format!("0x{}", tx.txid()),
                 "tx_index": tx_index,
-                "success": success,
+                "status": success,
                 "raw_result": format!("0x{}", raw_result.join("")),
                 "raw_tx": format!("0x{}", raw_tx.join("")),
                 "contract_abi": contract_interface_json,
@@ -135,7 +147,7 @@ impl EventDispatcher {
     pub fn process_chain_tip(&mut self, chain_tip: &ChainTip) {
 
         let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
-        let mut events: Vec<(Txid, &StacksTransactionEvent)> = vec![];
+        let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
         for receipt in chain_tip.receipts.iter() {
             let tx_hash = receipt.transaction.txid();
@@ -168,7 +180,7 @@ impl EventDispatcher {
                         self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
                     },
                 }
-                events.push((tx_hash, event));
+                events.push((!receipt.post_condition_aborted, tx_hash, event));
                 for o_i in &self.any_event_observers_lookup {
                     dispatch_matrix[*o_i as usize].insert(i);
                 }
@@ -178,10 +190,9 @@ impl EventDispatcher {
 
 
         for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
-            let mut filtered_events: Vec<&(Txid, &StacksTransactionEvent)> = vec![];
-            for event_id in filtered_events_ids {
-                filtered_events.push(&events[*event_id]);
-            }
+            let filtered_events: Vec<_> = filtered_events_ids.iter()
+                .map(|event_id| &events[*event_id]).collect();
+
             self.registered_observers[observer_id].send(filtered_events, chain_tip);
         }
     }
