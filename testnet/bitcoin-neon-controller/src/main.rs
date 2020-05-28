@@ -39,7 +39,7 @@ async fn main() -> http_types::Result<()> {
     let mut num_blocks = 0;
     let block_time = Duration::from_millis(config.neon.block_time);
 
-    if is_bootstrap_chain_required(&config).await? {
+    if is_chain_bootstrap_required(&config).await? {
         println!("Bootstrapping chain");
 
         let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -170,7 +170,7 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
     Ok(())
 }
 
-async fn is_bootstrap_chain_required(config: &ConfigFile) -> http_types::Result<bool> {
+async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<bool> {
 
     let req = RPCRequest::is_chain_bootstrapped();
     let stream = TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await?;
