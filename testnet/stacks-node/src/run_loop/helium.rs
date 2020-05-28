@@ -66,6 +66,7 @@ impl RunLoop {
 
         let (mut artifacts, mut chain_tip) = match burnchain_tip.block_snapshot.block_height == 0 {
             true => {
+                info!("Initiating new chain");
                 // Sync and update node with this new block.
                 burnchain_tip = burnchain.sync();
                 self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
@@ -129,7 +130,7 @@ impl RunLoop {
                 (Some(artifacts_from_1st_tenure), chain_tip)
             },
             false => {
-                println!("Catching up!");
+                info!("Loading initiated chain data from path {}", self.config.node.working_dir);
 
                 let last_burnchain_block_processed = self.node.restore_chainstate(&burnchain_tip); // todo(ludo): should return genesis?
 
@@ -227,11 +228,17 @@ impl RunLoop {
     
             leader_tenure = None;
 
+            // todo(ludo): A panic happening now will be an issue
+
             // Have each node process the new block, that can include, or not, a sortition.
             let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_tip) {
                 (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
                 (None, _) => panic!("Node should have a sortitioned block")
             };
+
+            if round_index  == 3 {
+                panic!("Let's panic");
+            }
 
             match artifacts_from_tenure {
                 // Pass if we're missing the artifacts from the current tenure.

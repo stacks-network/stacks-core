@@ -87,15 +87,13 @@ impl BurnchainController for MocknetController {
         }
     }
    
-    fn start(&mut self) -> BurnchainTip {
+    fn start(&mut self) -> BurnchainTip { // todo(ludo):pass the pk / address of the miner
         let db = match BurnDB::connect(&self.config.get_burn_db_file_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
         };
         let block_snapshot = BurnDB::get_canonical_burn_chain_tip(db.conn())
             .expect("FATAL: failed to get canonical chain tip");
-
-        println!("-----> {:?}", block_snapshot);
 
         let current_state = match block_snapshot.block_height {
             1 => {
@@ -130,9 +128,10 @@ impl BurnchainController for MocknetController {
                 ops.append(&mut leader_keys);
                 ops.append(&mut user_burns);
 
-                let state_transition = BurnchainStateTransition::from_block_ops(&ic, &block_snapshot, &ops);
-                println!("===> {:?}", state_transition);
-                let state_transition = state_transition.unwrap();
+                let state_transition = match BurnchainStateTransition::from_block_ops(&ic, &block_snapshot, &ops) {
+                    Ok(state_transition) => state_transition,
+                    Err(error) => panic!("Error while trying to load existing burn chain state ({:?}). Consider cleaning the current working directory.", error)
+                };
 
                 BurnchainTip {
                     block_snapshot,

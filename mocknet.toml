@@ -1,14 +1,13 @@
 [node]
+name = "helium-node"
 rpc_bind = "0.0.0.0:20443"
-p2p_bind = "0.0.0.0:20444"
-bootstrap_node = "048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@neon.staging.blockstack.xyz:20444"
+seed = "0000000000000000000000000000000000000000000000000000000000000000"
+working_dir = "/tmp/stacks-blockchain-data-01"
 
 [burnchain]
 chain = "bitcoin"
-mode = "neon"
-peer_host = "neon.staging.blockstack.xyz"
-rpc_port = 18443
-peer_port = 18444
+mode = "mocknet"
+commit_anchor_block_within = 2500
 
 [[mstx_balance]]
 address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"

@@ -290,35 +290,33 @@ impl Node {
     }
 
     pub fn restore_chainstate(&mut self, burnchain_tip: &BurnchainTip) -> bool {
-        burnchain_tip.block_snapshot.winning_stacks_block_hash;
 
-        let res = StacksChainState::load_block(
+        // Evaluate best path
+        // Do we have a processed Stacks block for this burnchain tip?
+        let res_block_query = StacksChainState::load_block(
             &self.chain_state.blocks_path, 
             &burnchain_tip.block_snapshot.burn_header_hash, 
             &burnchain_tip.block_snapshot.canonical_stacks_tip_hash);
         
-        if let Ok(Some(block)) = res {
+        let res_block_metadata_query = StacksChainState::get_anchored_block_header_info(
+            &self.chain_state.headers_db, 
+            &burnchain_tip.block_snapshot.burn_header_hash, 
+            &burnchain_tip.block_snapshot.canonical_stacks_tip_hash);
 
-            let metadata = StacksChainState::get_anchored_block_header_info(
-                &self.chain_state.headers_db, 
-                &burnchain_tip.block_snapshot.burn_header_hash, 
-                &burnchain_tip.block_snapshot.canonical_stacks_tip_hash).unwrap().unwrap();
-
-            let chain_tip = ChainTip {
+        if let (Ok(Some(block)), Ok(Some(metadata))) = (res_block_query, res_block_metadata_query) {
+            self.chain_tip = Some(ChainTip {
                 metadata,
                 block,
-                receipts: vec![],        
-            };
-
-            self.chain_tip = Some(chain_tip);
-
+                receipts: vec![],
+            });
             return true;
         }
 
+        // It looks like we don't have a clean, processed Stacks block. 
+        // Do we have its parent?
         let blocks = StacksChainState::list_blocks(&self.chain_state.blocks_db).unwrap();
         let mut parent_block_hash = None;
         for (burn_header_hash, block_hash) in blocks.iter() {
-            println!("-> {} / {}", burn_header_hash, block_hash);
             if *burn_header_hash == burnchain_tip.block_snapshot.parent_burn_header_hash {
                 parent_block_hash = Some(block_hash);
                 break;
@@ -326,31 +324,31 @@ impl Node {
         }
         let parent_block_hash = match parent_block_hash {
             Some(parent_block_hash) => parent_block_hash,
-            _ => panic!("Corrupted. please update your working_dir"),
+            _ => panic!("Error while trying to load existing chain state. Consider cleaning the current working directory."),
         };
 
-        let res = StacksChainState::load_block(
+        let res_block_query = StacksChainState::load_block(
             &self.chain_state.blocks_path, 
             &burnchain_tip.block_snapshot.parent_burn_header_hash, 
             &parent_block_hash);
-        
-        if let Ok(Some(block)) = res {
 
-            let metadata = StacksChainState::get_anchored_block_header_info(
-                &self.chain_state.headers_db, 
-                &burnchain_tip.block_snapshot.burn_header_hash, 
-                &burnchain_tip.block_snapshot.canonical_stacks_tip_hash).unwrap().unwrap();
+        let res_block_metadata_query = StacksChainState::get_anchored_block_header_info(
+            &self.chain_state.headers_db, 
+            &burnchain_tip.block_snapshot.parent_burn_header_hash, 
+            &parent_block_hash);
 
-            let chain_tip = ChainTip {
+        if let (Ok(Some(block)), Ok(Some(metadata))) = (res_block_query, res_block_metadata_query) {
+            self.chain_tip = Some(ChainTip {
                 metadata,
                 block,
-                receipts: vec![],        
-            };
-
-            self.chain_tip = Some(chain_tip);
+                receipts: vec![],
+            });
+            return false;
         }
 
-        return false;
+        // Considering the fact that we're supposed to load a mocknet chainstate, 
+        // the current state we're in looks unsafe so we're aborting the launch. 
+        panic!("Error while trying to load existing chain state. Consider cleaning the current working directory.");
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -360,8 +358,6 @@ impl Node {
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
         let ops = &burnchain_tip.state_transition.accepted_ops;
-
-        println!("Processing -> {:?}", ops);
 
         for op in ops.iter() {
             match op {
