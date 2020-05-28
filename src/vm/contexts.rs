@@ -92,6 +92,7 @@ pub struct ContractContext {
 }
 
 pub struct LocalContext <'a> {
+    pub function_context: Option<&'a LocalContext<'a>>,
     pub parent: Option< &'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
     pub callable_contracts: HashMap<ClarityName, (QualifiedContractIdentifier, TraitIdentifier)>,
@@ -1008,6 +1009,7 @@ impl ContractContext {
 impl <'a> LocalContext <'a> {
     pub fn new() -> LocalContext<'a> {
         LocalContext {
+            function_context: Option::None,
             parent: Option::None,
             callable_contracts: HashMap::new(),
             variables: HashMap::new(),
@@ -1018,12 +1020,20 @@ impl <'a> LocalContext <'a> {
     pub fn depth(&self) -> u16 {
         self.depth
     }
+
+    pub fn function_context(&self) -> &LocalContext {
+        match self.function_context {
+            Some(context) => context,
+            None => self
+        }
+    }
     
     pub fn extend(&'a self) -> Result<LocalContext<'a>> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             Err(RuntimeErrorType::MaxContextDepthReached.into())
         } else {
             Ok(LocalContext {
+                function_context: Some(self.function_context()),
                 parent: Some(self),
                 callable_contracts: HashMap::new(),
                 variables: HashMap::new(),
@@ -1045,15 +1055,7 @@ impl <'a> LocalContext <'a> {
     }
 
     pub fn lookup_callable_contract(&self, name: &str) -> Option<&(QualifiedContractIdentifier, TraitIdentifier)> {
-        match self.callable_contracts.get(name) {
-            Some(value) => Some(value),
-            None => {
-                match self.parent {
-                    Some(parent) => parent.lookup_callable_contract(name),
-                    None => None
-                }
-            }
-        }
+        self.function_context().callable_contracts.get(name)
     }
 }
 
