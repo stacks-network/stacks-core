@@ -100,6 +100,7 @@ impl StacksTransactionReceipt {
             events: vec![StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data))],
             result: Value::okay_true(),
             stx_burned: 0,
+            post_condition_aborted: false,
             contract_analysis: None,
             transaction: tx,
             execution_cost: cost
@@ -109,6 +110,19 @@ impl StacksTransactionReceipt {
     pub fn from_contract_call(tx: StacksTransaction, events: Vec<StacksTransactionEvent>, result: Value, burned: u128, cost: ExecutionCost) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx,
+            post_condition_aborted: false,
+            events,
+            result,
+            stx_burned: burned,
+            contract_analysis: None,
+            execution_cost: cost
+        }
+    }
+
+    pub fn from_condition_aborted_contract_call(tx: StacksTransaction, events: Vec<StacksTransactionEvent>, result: Value, burned: u128, cost: ExecutionCost) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx,
+            post_condition_aborted: true,
             events,
             result,
             stx_burned: burned,
@@ -121,6 +135,19 @@ impl StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx,
             events,
+            post_condition_aborted: false,
+            result: Value::okay_true(),
+            stx_burned: burned,
+            contract_analysis: Some(analysis),
+            execution_cost: cost
+        }
+    }
+
+    pub fn from_condition_aborted_smart_contract(tx: StacksTransaction, events: Vec<StacksTransactionEvent>, burned: u128, analysis: ContractAnalysis, cost: ExecutionCost) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx,
+            events,
+            post_condition_aborted: true,
             result: Value::okay_true(),
             stx_burned: burned,
             contract_analysis: Some(analysis),
@@ -132,6 +159,7 @@ impl StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx,
             events: vec![],
+            post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: 0,
             contract_analysis: None,
@@ -143,6 +171,7 @@ impl StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx,
             events: vec![],
+            post_condition_aborted: false,
             result: Value::err_none(),
             stx_burned: 0,
             contract_analysis: None,
@@ -534,6 +563,15 @@ impl StacksChainState {
                                 info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
                                 Ok((Value::err_none(), AssetMap::new(), vec![]))
                             },
+                            clarity_error::AbortedByCallback(value, assets, events) => {
+                                let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
+                                    tx.clone(),
+                                    events,
+                                    value.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
+                                    assets.get_stx_burned_total(),
+                                    total_cost);
+                                return Ok(receipt);
+                            },
                             // log this for now
                             clarity_error::CostError(ref cost, ref budget) => {
                                 warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
@@ -626,6 +664,11 @@ impl StacksChainState {
                             clarity_error::CostError(ref cost, ref budget) => {
                                 warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
                                 Err(e)
+                            },
+                            clarity_error::AbortedByCallback(_, assets, events) => {
+                                let receipt = StacksTransactionReceipt::from_condition_aborted_smart_contract(
+                                    tx.clone(), events, assets.get_stx_burned_total(), contract_analysis, total_cost);
+                                return Ok(receipt);
                             },
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {

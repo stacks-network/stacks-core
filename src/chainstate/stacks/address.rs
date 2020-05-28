@@ -69,6 +69,15 @@ impl StacksMessageCodec for StacksAddress {
     }
 }
 
+impl From<StandardPrincipalData> for StacksAddress {
+    fn from(o: StandardPrincipalData) -> StacksAddress {
+        StacksAddress {
+            version: o.0,
+            bytes: Hash160(o.1),
+        }
+    }
+}
+
 impl StacksAddress {
     pub fn new(version: u8, hash: Hash160) -> StacksAddress {
         StacksAddress {
