@@ -1315,10 +1315,15 @@ impl NeighborWalk {
                 let replaced_opt = PeerDB::get_peer_at(&mut tx, self.local_peer.network_id, *slot)?;
                 match replaced_opt {
                     Some(replaced) => {
-                        debug!("{:?}: Replace {:?} with {:?}", &self.local_peer, &replaced.addr, &replacement.addr);
+                        if PeerDB::is_address_blacklisted(&mut tx, &replacement.addr.addrbytes)? {
+                            debug!("{:?}: Will not replace {:?} with {:?} -- is blacklisted", &self.local_peer, &replaced.addr, &replacement.addr);
+                        }
+                        else {
+                            debug!("{:?}: Replace {:?} with {:?}", &self.local_peer, &replaced.addr, &replacement.addr);
 
-                        PeerDB::insert_or_replace_peer(&mut tx, &replacement, *slot)?;
-                        self.result.add_replaced(replaced.addr.clone());
+                            PeerDB::insert_or_replace_peer(&mut tx, &replacement, *slot)?;
+                            self.result.add_replaced(replaced.addr.clone());
+                        }
                     },
                     None => {}
                 }
@@ -1499,6 +1504,12 @@ impl PeerNetwork {
 
         let pb = self.walk_pingbacks.get(&addr).unwrap().clone();
         let nk = NeighborKey::from_neighbor_address(pb.peer_version, pb.network_id, &addr);
+
+        // don't proceed if blacklisted
+        if PeerDB::is_peer_blacklisted(&self.peerdb.conn(), nk.network_id, &nk.addrbytes, nk.port)? {
+            debug!("{:?}: pingback neighbor {:?} is blacklisted", &self.local_peer, &nk);
+            return Err(net_error::Blacklisted);
+        }
 
         // (this will be ignored by the neighbor walk)
         let empty_neighbor = Neighbor::empty(&nk, &pb.pubkey, 0);
@@ -2236,6 +2247,79 @@ mod test {
                 assert_eq!(p.public_key, neighbor_2.public_key);
                 assert_eq!(p.expire_block, neighbor_2.expire_block);
             }
+        }
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_step_walk_1_neighbor_blacklisted() {
+        let mut peer_1_config = TestPeerConfig::from_port(31994);
+        let mut peer_2_config = TestPeerConfig::from_port(31996);
+
+        // peer 1 crawls peer 2, but peer 1 has blacklisted peer 2
+        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+
+        peer_1_config.connection_opts.walk_retry_count = 10;
+        peer_2_config.connection_opts.walk_retry_count = 10;
+        peer_1_config.connection_opts.walk_interval = 1;
+        peer_2_config.connection_opts.walk_interval = 1;
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        {
+            let mut tx = peer_1.network.peerdb.tx_begin().unwrap();
+            PeerDB::add_blacklist_cidr(&mut tx, &PeerAddress::from_ipv4(127,0,0,1), 128).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let mut i = 0;
+        let mut walk_1_count = 0;
+        let mut walk_2_count = 0;
+        let mut walk_1_retries = 0;
+        let mut walk_2_retries = 0;
+        let mut walk_1_total = 0;
+        let mut walk_2_total = 0;
+        
+        // walks just don't start
+        while walk_1_retries < 20 && walk_2_retries < 20 {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+
+            walk_1_count = peer_1.network.walk_total_step_count;
+            walk_2_count = peer_2.network.walk_total_step_count;
+
+            assert_eq!(walk_1_count, 0);
+            assert_eq!(walk_2_count, 0);
+           
+            walk_1_total = peer_1.network.walk_count;
+            walk_2_total = peer_2.network.walk_count;
+            
+            assert_eq!(walk_1_total, 0);
+            assert_eq!(walk_2_total, 0);
+
+            walk_1_retries = peer_1.network.walk_retries;
+            walk_2_retries = peer_2.network.walk_retries;
+
+            match peer_1.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.dead_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            match peer_2.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.dead_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            i += 1;
         }
     }
     
