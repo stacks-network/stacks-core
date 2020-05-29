@@ -82,11 +82,12 @@ macro_rules! trace {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_TRACE {
             use std::time::SystemTime;
+            use std::thread;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
-            eprintln!("TRACE [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+            eprintln!("TRACE [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
         }
     })
 }
@@ -96,11 +97,12 @@ macro_rules! debug {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_DEBUG {
             use std::time::SystemTime;
+            use std::thread;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
-            eprintln!("DEBUG [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+            eprintln!("DEBUG [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
         }
     })
 }
@@ -110,11 +112,12 @@ macro_rules! info {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_INFO {
             use std::time::SystemTime;
+            use std::thread;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
-            eprintln!("INFO [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+            eprintln!("INFO [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
         }
     })
 }
@@ -124,11 +127,12 @@ macro_rules! warn {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_WARN {
             use std::time::SystemTime;
+            use std::thread;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
-            eprintln!("WARN [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+            eprintln!("WARN [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
         }
     })
 }
@@ -138,11 +142,12 @@ macro_rules! error {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_ERROR {
             use std::time::SystemTime;
+            use std::thread;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
-            eprintln!("ERROR [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+            eprintln!("ERROR [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
         }
     })
 }
@@ -152,11 +157,12 @@ macro_rules! fatal {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_FATAL {
             use std::time::SystemTime;
+            use std::thread;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
-            eprintln!("FATAL [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+            eprintln!("FATAL [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
         }
     })
 }
