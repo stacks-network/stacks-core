@@ -87,7 +87,7 @@ macro_rules! trace {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
-            eprintln!("TRACE [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+            eprintln!("TRACE [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
         }
     })
 }
