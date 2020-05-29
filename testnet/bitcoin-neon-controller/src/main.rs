@@ -201,7 +201,7 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
         };
 
         let body = serde_json::to_vec(&req).unwrap();
-        let response = client::connect(stream.clone(), build_request(&config, body)).await;
+        let response = client::connect(stream, build_request(&config, body)).await;
 
         match response {
             Ok(response) => {
