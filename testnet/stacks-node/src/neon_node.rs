@@ -595,8 +595,9 @@ impl InitializedNeonNode {
             if let Some(key) = self.active_keys.pop() {
                 // sleep a little before building the anchor block, to give any broadcasted 
                 //   microblocks time to propagate.
-                debug!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
-                thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
+                info!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
+                let microblock_propagation_delay = 1500;
+                thread::sleep(std::time::Duration::from_millis(microblock_propagation_delay));
                 self.relay_channel
                     .send(RelayerDirective::RunTenure(key, burnchain_tip))
                     .is_ok()
