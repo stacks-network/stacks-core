@@ -549,7 +549,7 @@ impl InitializedNeonNode {
         let burnchain_signer = keychain.get_burnchain_signer();
         let relayer = Relayer::from_p2p(&mut p2p_net);
 
-        let sleep_before_tenure = config.burnchain.commit_anchor_block_within;
+        let sleep_before_tenure = config.node.wait_time_for_microblocks;
 
         spawn_miner_relayer(relayer, local_peer,
                             config.clone(), keychain,
@@ -595,7 +595,7 @@ impl InitializedNeonNode {
             if let Some(key) = self.active_keys.pop() {
                 // sleep a little before building the anchor block, to give any broadcasted 
                 //   microblocks time to propagate.
-                debug!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
+                info!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
                 thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
                 self.relay_channel
                     .send(RelayerDirective::RunTenure(key, burnchain_tip))

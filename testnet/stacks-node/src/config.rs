@@ -219,6 +219,7 @@ impl Config {
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
                     mine_microblocks: node.mine_microblocks.unwrap_or(default_node_config.mine_microblocks),
+                    wait_time_for_microblocks: node.wait_time_for_microblocks.unwrap_or(default_node_config.wait_time_for_microblocks),
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -506,6 +507,7 @@ pub struct NodeConfig {
     pub bootstrap_node: Option<Neighbor>,
     pub miner: bool,
     pub mine_microblocks: bool,
+    pub wait_time_for_microblocks: u64,
 }
 
 impl NodeConfig {
@@ -538,6 +540,7 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
+            wait_time_for_microblocks: 0,
         }
     }
 
@@ -633,6 +636,7 @@ pub struct NodeConfigFile {
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
     pub mine_microblocks: Option<bool>,
+    pub wait_time_for_microblocks: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default)]
