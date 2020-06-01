@@ -138,7 +138,7 @@ fn inner_process_tenure(
 
     // todo(ludo): yikes but good enough in the context of helium:
     // we only expect 1 block.
-    let processed_block = match processed_blocks.get(0) {
+    let processed_block = match processed_blocks.last() {
         Some(x) => x.clone().0.unwrap(),
         None => {
             warn!("Chainstate expected to process a new block, but we didn't");
