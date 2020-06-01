@@ -8,7 +8,7 @@ edition = "2018"
 lazy_static = "1.4.0"
 pico-args = "0.3.1"
 rand = "=0.7.2"
-reqwest = { version = "0.10", features = ["blocking", "json", "native-tls-vendored"] }
+reqwest = { version = "0.10", features = ["blocking", "json"] }
 secp256k1 = { version = "0.11.5" }
 serde = "1"
 serde_derive = "1"
