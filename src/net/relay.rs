@@ -837,6 +837,13 @@ impl Relayer {
         self.p2p.advertize_blocks(available)
     }
 
+    pub fn broadcast_block(&mut self, burn_header_hash: BurnchainHeaderHash, block: StacksBlock) -> Result<(), net_error> {
+        let blocks_data = BlocksData {
+            blocks: vec![(burn_header_hash, block)]
+        };
+        self.p2p.broadcast_message(vec![], StacksMessageType::Blocks(blocks_data))
+    }
+
     pub fn broadcast_microblock(&mut self,
                                 block_header_hash: &BlockHeaderHash,
                                 block_burn_header_hash: &BurnchainHeaderHash,
