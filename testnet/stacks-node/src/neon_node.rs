@@ -263,7 +263,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), download_backpressure, poll_ms)
                 .unwrap();
 
-            if network_result.has_data_to_store() {
+            if network_result.has_blocks() || network_result.has_microblocks() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
             }
 
@@ -392,10 +392,14 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                     }
                                 };
 
-                            let blocks_available = Relayer::load_blocks_available_data(&burndb, vec![stacks_header.burn_header_hash])
+                            // advertize _and_ push blocks for now
+                            let blocks_available = Relayer::load_blocks_available_data(&burndb, vec![stacks_header.burn_header_hash.clone()])
                                 .expect("Failed to obtain block information for a block we mined.");
                             if let Err(e) = relayer.advertize_blocks(blocks_available) {
                                 warn!("Failed to advertise new block: {}", e);
+                            }
+                            if let Err(e) = relayer.broadcast_block(stacks_header.burn_header_hash, mined_block) {
+                                warn!("Failed to push new block: {}", e);
                             }
 
                             // should we broadcast microblocks?
