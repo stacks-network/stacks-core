@@ -109,7 +109,7 @@ helium\t\tStart a node based on a local setup relying on a local instance of bit
 \t\t  rpcuser=helium
 \t\t  rpcpassword=helium
 
-neon\t\tStart a node that will join and stream blocks from the public neon testnet, powered by Blockstack.
+argon\t\tStart a node that will join and stream blocks from the public argon testnet, powered by Blockstack.
 
 start\t\tStart a node with a config of your own. Can be used for joining a network, starting new chain, etc.
 \t\tArguments:
