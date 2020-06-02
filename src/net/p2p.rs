@@ -2128,14 +2128,30 @@ impl PeerNetwork {
             match self.work_state {
                 PeerNetworkWorkState::GetPublicIP => {
                     // (re)determine our public IP address
-                    if self.do_get_public_ip()? {
-                        self.work_state = PeerNetworkWorkState::ConfirmPublicIP;
+                    match self.do_get_public_ip() {
+                        Ok(b) => {
+                            if b {
+                                self.work_state = PeerNetworkWorkState::ConfirmPublicIP;
+                            }
+                        }
+                        Err(e) => {
+                            info!("Failed to query public IP ({:?}; skipping", &e);
+                            self.work_state = PeerNetworkWorkState::BlockInvSync;
+                        }
                     }
                 },
                 PeerNetworkWorkState::ConfirmPublicIP => {
                     // confirm the public IP address we previously got
-                    if self.do_confirm_public_ip()? {
-                        self.work_state = PeerNetworkWorkState::BlockInvSync;
+                    match self.do_confirm_public_ip() {
+                        Ok(b) => {
+                            if b {
+                                self.work_state = PeerNetworkWorkState::BlockInvSync;
+                            }
+                        },
+                        Err(e) => {
+                            info!("Failed to confirm public IP ({:?}); skipping", &e);
+                            self.work_state = PeerNetworkWorkState::BlockInvSync;
+                        }
                     }
                 }
                 PeerNetworkWorkState::BlockInvSync => {
