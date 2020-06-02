@@ -108,7 +108,7 @@ fn inner_process_tenure(
     parent_burn_header_hash: &BurnchainHeaderHash, 
     burn_db: &mut BurnDB,
     chain_state: &mut StacksChainState,
-    dispatcher: &mut EventDispatcher) -> Result<(StacksHeaderInfo, Vec<StacksTransactionReceipt>), ChainstateError> {
+    dispatcher: &mut EventDispatcher) -> Result<(), ChainstateError> {
     {
         let ic = burn_db.index_conn();
 
@@ -136,22 +136,20 @@ fn inner_process_tenure(
         }
     }
 
-    // todo(ludo): yikes but good enough in the context of helium:
-    // we only expect 1 block.
-    let processed_block = match processed_blocks.get(0) {
-        Some(x) => x.clone().0.unwrap(),
-        None => {
-            warn!("Chainstate expected to process a new block, but we didn't");
-            return Err(ChainstateError::InvalidStacksBlock("Could not process expected block".into()));
+    if processed_blocks.len() == 0 {
+        warn!("Chainstate expected to process a new block, but we didn't");
+        return Err(ChainstateError::InvalidStacksBlock("Could not process expected block".into()));
+    }
+
+    for processed_block in processed_blocks.into_iter() {
+        match processed_block {
+            (Some((header, receipts)), _) => {
+                dispatcher_announce(&chain_state.blocks_path, dispatcher, header, receipts);
+            },
+            _ => {}
         }
-    };
-
-    // Handle events
-    let receipts = processed_block.1;
-    let metadata = processed_block.0;
-
-    dispatcher_announce(&chain_state.blocks_path, dispatcher, metadata.clone(), receipts.clone());
-    Ok((metadata, receipts))
+    }
+    Ok(())
 }
 
 fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64) -> StacksTransaction {
@@ -263,7 +261,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), download_backpressure, poll_ms)
                 .unwrap();
 
-            if network_result.has_data_to_store() {
+            if network_result.has_blocks() || network_result.has_microblocks() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
             }
 
@@ -382,20 +380,23 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                   block_header_hash,
                                   mined_burn_hh);
 
-                            let (stacks_header, _) =
-                                match inner_process_tenure(&mined_block, &burn_header_hash, &parent_block_burn_hash,
-                                                           &mut burndb, &mut chainstate, &mut event_dispatcher) {
-                                    Ok(x) => x,
-                                    Err(e) => {
-                                        warn!("Error processing my tenure, bad block produced: {}", e);
-                                        continue;
-                                    }
-                                };
+                            match inner_process_tenure(&mined_block, &burn_header_hash, &parent_block_burn_hash,
+                                                       &mut burndb, &mut chainstate, &mut event_dispatcher) {
+                                Ok(x) => x,
+                                Err(e) => {
+                                    warn!("Error processing my tenure, bad block produced: {}", e);
+                                    continue;
+                                }
+                            };
 
-                            let blocks_available = Relayer::load_blocks_available_data(&burndb, vec![stacks_header.burn_header_hash])
+                            // advertize _and_ push blocks for now
+                            let blocks_available = Relayer::load_blocks_available_data(&burndb, vec![burn_header_hash.clone()])
                                 .expect("Failed to obtain block information for a block we mined.");
                             if let Err(e) = relayer.advertize_blocks(blocks_available) {
                                 warn!("Failed to advertise new block: {}", e);
+                            }
+                            if let Err(e) = relayer.broadcast_block(burn_header_hash.clone(), mined_block) {
+                                warn!("Failed to push new block: {}", e);
                             }
 
                             // should we broadcast microblocks?
@@ -549,7 +550,7 @@ impl InitializedNeonNode {
         let burnchain_signer = keychain.get_burnchain_signer();
         let relayer = Relayer::from_p2p(&mut p2p_net);
 
-        let sleep_before_tenure = config.burnchain.commit_anchor_block_within;
+        let sleep_before_tenure = config.node.wait_time_for_microblocks;
 
         spawn_miner_relayer(relayer, local_peer,
                             config.clone(), keychain,
@@ -595,7 +596,7 @@ impl InitializedNeonNode {
             if let Some(key) = self.active_keys.pop() {
                 // sleep a little before building the anchor block, to give any broadcasted 
                 //   microblocks time to propagate.
-                debug!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
+                info!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
                 thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
                 self.relay_channel
                     .send(RelayerDirective::RunTenure(key, burnchain_tip))

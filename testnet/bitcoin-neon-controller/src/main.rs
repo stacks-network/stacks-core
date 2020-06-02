@@ -3,7 +3,7 @@
 use std::io::{BufReader, Read};
 use std::fs::File;
 use std::env;
-use std::thread;
+use std::thread::{self, sleep};
 use std::time::Duration;
 use std::time::{UNIX_EPOCH, SystemTime};
 
@@ -24,6 +24,8 @@ use serde::Deserialize;
 use serde_json::Deserializer;
 use toml;
 
+use rand::{Rng, thread_rng};
+
 #[async_std::main]
 async fn main() -> http_types::Result<()> {
     let argv : Vec<String> = env::args().collect();
@@ -39,7 +41,7 @@ async fn main() -> http_types::Result<()> {
     let mut num_blocks = 0;
     let block_time = Duration::from_millis(config.neon.block_time);
 
-    if is_bootstrap_chain_required(&config).await? {
+    if is_chain_bootstrap_required(&config).await? {
         println!("Bootstrapping chain");
 
         let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -64,6 +66,14 @@ async fn main() -> http_types::Result<()> {
         generate_blocks(num_blocks_for_miner, miner_address, &config).await;
 
         num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
+
+        // By blocking here, we ensure that the http server does not start
+        // serving requests with a bitcoin chain still being constructed.
+        while is_chain_bootstrap_required(&config).await? {
+            println!("Waiting on initial blocks to be available");
+            let backoff = Duration::from_millis(1_000);
+            sleep(backoff)
+        }
     }
 
     // Start a loop in a separate thread, generating new blocks
@@ -170,12 +180,39 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
     Ok(())
 }
 
-async fn is_bootstrap_chain_required(config: &ConfigFile) -> http_types::Result<bool> {
+async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<bool> {
 
     let req = RPCRequest::is_chain_bootstrapped();
-    let stream = TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await?;
-    let body = serde_json::to_vec(&req).unwrap();
-    let mut resp = client::connect(stream.clone(), build_request(&config, body)).await?;
+
+    let mut backoff: f64 = 1.0;
+    let mut rng = thread_rng();
+    let mut resp =  loop {
+
+        backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
+        let duration = Duration::from_millis((backoff * 1_000.0) as u64);
+
+        let stream = match TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                println!("Error while trying to connect to {}: {:?}", config.neon.bitcoind_rpc_host, e);
+                sleep(duration);
+                continue
+            }
+        };
+
+        let body = serde_json::to_vec(&req).unwrap();
+        let response = client::connect(stream, build_request(&config, body)).await;
+
+        match response {
+            Ok(response) => {
+                break response;
+            },
+            Err(e) => {
+                println!("Error: {:?}", e);
+                sleep(duration);
+            }
+        };
+    };
 
     let (res, buffer) = async_std::task::block_on(async move {
         let mut buffer = Vec::new();
