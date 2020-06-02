@@ -348,6 +348,9 @@ pub struct ConnectionOptions {
     pub max_microblocks_push_bandwidth: u64,
     pub max_transaction_push_bandwidth: u64,
     pub max_sockets: usize,
+    pub public_ip_address: Option<(PeerAddress, u16)>,
+    pub public_ip_request_timeout: u64,
+    pub public_ip_timeout: u64,
     
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -398,6 +401,9 @@ impl std::default::Default for ConnectionOptions {
             max_microblocks_push_bandwidth: 0,     // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0,      // infinite upload bandwidth allowed
             max_sockets: 800,               // maximum number of client sockets we'll ever register
+            public_ip_address: None,        // resolve it at runtime by default
+            public_ip_request_timeout: 60,  // how often we can attempt to look up our public IP address
+            public_ip_timeout: 3600,        // re-learn the public IP ever hour, if it's not given
 
             // no faults on by default
             disable_neighbor_walk: false,
