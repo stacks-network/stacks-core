@@ -2273,6 +2273,93 @@ mod test {
     
     #[test]
     #[ignore]
+    fn test_step_walk_1_neighbor_plain_no_natpunch() {
+        let mut peer_1_config = TestPeerConfig::from_port(31980);
+        let mut peer_2_config = TestPeerConfig::from_port(31982);
+
+        // simulate peer 2 not knowing how to handle a natpunch request
+        peer_2_config.connection_opts.disable_natpunch = true;
+
+        // peer 1 crawls peer 2
+        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        let mut i = 0;
+        let mut walk_1_count = 0;
+        let mut walk_2_count = 0;
+        
+        while walk_1_count < 20 || walk_2_count < 20 {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+
+            walk_1_count = peer_1.network.walk_total_step_count;
+            walk_2_count = peer_2.network.walk_total_step_count;
+
+            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+
+            match peer_1.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.dead_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            match peer_2.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.dead_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            i += 1;
+        }
+
+        debug!("Completed walk round {} step(s)", i);
+
+        peer_1.dump_frontier();
+        peer_2.dump_frontier();
+
+        // peer 1 contacted peer 2
+        let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
+        assert!(stats_1.last_contact_time > 0);
+        assert!(stats_1.last_handshake_time > 0);
+        assert!(stats_1.last_send_time > 0);
+        assert!(stats_1.last_recv_time > 0);
+        assert!(stats_1.bytes_rx > 0);
+        assert!(stats_1.bytes_tx > 0);
+
+        let neighbor_2 = peer_2.to_neighbor();
+
+        // peer 2 is in peer 1's frontier DB
+        let peer_1_dbconn = peer_1.get_peerdb_conn();
+        match PeerDB::get_peer(peer_1_dbconn, neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap() {
+            None => {
+                test_debug!("no such peer: {:?}", &neighbor_2.addr);
+                assert!(false);
+            },
+            Some(p) => {
+                assert_eq!(p.public_key, neighbor_2.public_key);
+                assert_eq!(p.expire_block, neighbor_2.expire_block);
+            }
+        }
+
+        // peer 1 did not learn IP address
+        assert!(peer_1.network.local_peer.public_ip_address.is_none());
+        assert!(!peer_1.network.public_ip_confirmed);
+
+        // peer 2 did not learn IP address
+        assert!(peer_2.network.local_peer.public_ip_address.is_none());
+        assert!(!peer_2.network.public_ip_confirmed);
+    }
+    
+    #[test]
+    #[ignore]
     fn test_step_walk_1_neighbor_blacklisted() {
         let mut peer_1_config = TestPeerConfig::from_port(31994);
         let mut peer_2_config = TestPeerConfig::from_port(31996);
@@ -3699,6 +3786,7 @@ mod test {
             conf.blacklisted = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
+            conf.connection_opts.soft_max_neighbors_per_org = PEER_COUNT as u64;
 
             peer_configs.push(conf);
         }
