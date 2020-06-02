@@ -395,7 +395,7 @@ impl PeerDB {
     }
 
     fn reset_blacklists<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET blacklisted = -1", NO_PARAMS).map_err(db_error::SqliteError)?;
+        tx.execute("UPDATE frontier SET blacklisted = 0", NO_PARAMS).map_err(db_error::SqliteError)?;
         Ok(())
     }
     
