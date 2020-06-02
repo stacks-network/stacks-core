@@ -108,18 +108,21 @@ pub struct LocalPeer {
     pub addrbytes: PeerAddress,
     pub port: u16,
     pub services: u16,
-    pub data_url: UrlString
+    pub data_url: UrlString,
+
+    // filled in and curated at runtime
+    pub public_ip_address: Option<(PeerAddress, u16)>
 }
 
 impl fmt::Display for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "local.{:x}://{:?}", self.network_id, &self.addrbytes.to_socketaddr(self.port))
+        write!(f, "local.{:x}://(bind={:?})(pub={:?})", self.network_id, &self.addrbytes.to_socketaddr(self.port), &self.public_ip_address.map(|(ref addrbytes, ref port)| addrbytes.to_socketaddr(*port)))
     }
 }
 
 impl fmt::Debug for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "local.{:x}://{:?}", self.network_id, &self.addrbytes.to_socketaddr(self.port))
+        write!(f, "local.{:x}://(bind={:?})(pub={:?})", self.network_id, &self.addrbytes.to_socketaddr(self.port), &self.public_ip_address.map(|(ref addrbytes, ref port)| addrbytes.to_socketaddr(*port)))
     }
 }
 
@@ -146,7 +149,8 @@ impl LocalPeer {
             addrbytes: addr,
             port: port,
             services: services as u16,
-            data_url: data_url
+            data_url: data_url,
+            public_ip_address: None
         }
     }
 
@@ -196,7 +200,8 @@ impl FromRow<LocalPeer> for LocalPeer {
             addrbytes: addrbytes,
             port: port,
             services: services,
-            data_url: data_url
+            data_url: data_url,
+            public_ip_address: None
         })
     }
 }
