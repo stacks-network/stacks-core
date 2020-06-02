@@ -48,6 +48,10 @@ fn main() {
             args.finish().unwrap();
             ConfigFile::neon()
         }
+        "argon" => {
+            args.finish().unwrap();
+            ConfigFile::argon()
+        }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
@@ -73,7 +77,7 @@ fn main() {
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         run_loop.start(num_round);
-    } else if conf.burnchain.mode == "neon" {
+    } else if conf.burnchain.mode == "neon" || conf.burnchain.mode == "argon" {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round);
     } else {
