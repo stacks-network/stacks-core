@@ -242,7 +242,7 @@ pub struct NeighborWalk {
     pub state: NeighborWalkState,
     pub events: HashSet<usize>,
 
-    local_peer: LocalPeer,
+    local_peer: LocalPeer,      // gets instantiated as a copy from PeerNetwork
     chain_view: BurnchainView,
 
     connecting: HashMap<NeighborKey, usize>,
@@ -2000,6 +2000,15 @@ impl PeerNetwork {
                 }
             }
         }
+
+        // synchronize local peer state, in case we learn e.g. the public IP address in the mean
+        // time
+        match self.walk {
+            Some(ref mut walk) => {
+                walk.local_peer = self.local_peer.clone();
+            },
+            None => {}
+        }
        
         // take as many steps as we can
         let mut walk_state = self.get_walk_state();
@@ -2190,7 +2199,7 @@ mod test {
         let mut walk_1_count = 0;
         let mut walk_2_count = 0;
         
-        while walk_1_count < 20 && walk_2_count < 20 {
+        while walk_1_count < 20 || walk_2_count < 20 || (!peer_1.network.public_ip_confirmed || !peer_2.network.public_ip_confirmed) {
             let _ = peer_1.step();
             let _ = peer_2.step();
 
@@ -2248,6 +2257,18 @@ mod test {
                 assert_eq!(p.expire_block, neighbor_2.expire_block);
             }
         }
+
+        // peer 1 learned and confirmed its public IP address from peer 2
+        assert!(peer_1.network.local_peer.public_ip_address.is_some());
+        assert_eq!(peer_1.network.local_peer.public_ip_address.clone().unwrap(), (PeerAddress::from_socketaddr(&format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()), 31990)); 
+        assert!(peer_1.network.public_ip_learned);
+        assert!(peer_1.network.public_ip_confirmed);
+
+        // peer 2 learned and confirmed its public IP address from peer 1
+        assert!(peer_2.network.local_peer.public_ip_address.is_some());
+        assert_eq!(peer_2.network.local_peer.public_ip_address.clone().unwrap(), (PeerAddress::from_socketaddr(&format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()), 31992)); 
+        assert!(peer_2.network.public_ip_learned);
+        assert!(peer_2.network.public_ip_confirmed);
     }
     
     #[test]
@@ -2281,7 +2302,8 @@ mod test {
         let mut walk_1_total = 0;
         let mut walk_2_total = 0;
         
-        // walks just don't start
+        // walks just don't start.
+        // neither peer learns their public IP addresses.
         while walk_1_retries < 20 && walk_2_retries < 20 {
             let _ = peer_1.step();
             let _ = peer_2.step();
@@ -2321,6 +2343,14 @@ mod test {
 
             i += 1;
         }
+        
+        assert!(peer_1.network.public_ip_learned);
+        assert!(!peer_1.network.public_ip_confirmed);
+        assert!(peer_1.network.local_peer.public_ip_address.is_none());
+        
+        assert!(peer_2.network.public_ip_learned);
+        assert!(!peer_2.network.public_ip_confirmed);
+        assert!(peer_2.network.local_peer.public_ip_address.is_none());
     }
     
     #[test]
