@@ -745,7 +745,10 @@ impl ConversationP2P {
                 // for outbound connections, the self-reported address must match socket address if we already have a public key.
                 // (not the case for inbound connections, since the peer socket address we see may
                 // not be the same as the address the remote peer thinks it has).
-                if self.stats.outbound && (self.peer_addrbytes != handshake_data.addrbytes || self.peer_port != handshake_data.port) {
+                // The only exception to this is if the remote peer does not yet know its own
+                // public IP address, in which case, its handshake addrbytes will be the
+                // any-network bind address (0.0.0.0 or ::)
+                if self.stats.outbound && (!handshake_data.addrbytes.is_anynet() && (self.peer_addrbytes != handshake_data.addrbytes || self.peer_port != handshake_data.port)) {
                     // wrong peer address
                     test_debug!("{:?}: invalid handshake -- wrong addr/port ({:?}:{:?})", &self, &handshake_data.addrbytes, handshake_data.port);
                     return Err(net_error::InvalidHandshake);
@@ -804,7 +807,19 @@ impl ConversationP2P {
 
         Ok(updated)
     }
-    
+
+    /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
+    /// No authentication from the peer is necessary.
+    fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
+        let natpunch_data = NatPunchData {
+            addrbytes: self.peer_addrbytes.clone(),
+            port: self.peer_port,
+            nonce: nonce
+        };
+        let msg = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, StacksMessageType::NatPunchReply(natpunch_data));
+        msg
+    }
+     
     /// Handle an inbound handshake request, and generate either a HandshakeAccept or a HandshakeReject
     /// payload to send back.
     /// A handshake will only be accepted if we do not yet know the public key of this remote peer,
@@ -1277,6 +1292,17 @@ impl ConversationP2P {
                 test_debug!("{:?}: Got Pong", &self);
                 Ok(None)
             },
+            StacksMessageType::NatPunchRequest(ref nonce) => {
+                test_debug!("{:?}: Got NatPunchRequest({})", &self, nonce);
+
+                consume = true;
+                let msg = self.handle_natpunch_request(burnchain_view, *nonce);
+                Ok(Some(msg))
+            },
+            StacksMessageType::NatPunchReply(ref _m) => {
+                test_debug!("{:?}: Got NatPunchReply({})", &self, _m.nonce);
+                Ok(None)
+            },
             _ => {
                 test_debug!("{:?}: Got a data-plane message (type {})", &self, msg.payload.get_message_name());
                 Ok(None)       // nothing to reply to at this time
@@ -1290,7 +1316,7 @@ impl ConversationP2P {
     /// deal with it (if we do deal with it)
     fn handle_unauthenticated_control_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burnchain_view: &BurnchainView, msg: &mut StacksMessage) -> Result<(Option<StacksMessage>, bool), net_error> {
         // only thing we'll take right now is a handshake, as well as handshake
-        // accept/rejects and nacks.
+        // accept/rejects, nacks, and NAT holepunches
         //
         // Anything else will be nack'ed -- the peer will first need to handshake.
         let mut consume = false;
@@ -1329,6 +1355,18 @@ impl ConversationP2P {
                 // But, it's okay to forward this back (i.e. don't consume).
                 Ok(None)
             }
+            StacksMessageType::NatPunchRequest(ref nonce) => {
+                test_debug!("{:?}: Got unauthenticated NatPunchRequest({})", &self, *nonce);
+                consume = true;
+                let msg = self.handle_natpunch_request(burnchain_view, *nonce);
+                Ok(Some(msg))
+            },
+            StacksMessageType::NatPunchReply(ref _m) => {
+                test_debug!("{:?}: Got unauthenticated NatPunchReply({})", &self, _m.nonce);
+
+                // it's okay to forward this back (i.e. don't consume)
+                Ok(None)
+            },
             _ => {
                 test_debug!("{:?}: Got unauthenticated message (type {}), will NACK", &self, msg.payload.get_message_name());
                 let nack_payload = StacksMessageType::Nack(NackData::new(NackErrorCodes::HandshakeRequired));
@@ -2418,6 +2456,82 @@ mod test {
         match reply_1.payload {
             StacksMessageType::Nack(ref data) => {
                 assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
+            },
+            _ => {
+                assert!(false);
+            }
+        }
+    }
+    
+    #[test]
+    fn convo_natpunch() {
+        let conn_opts = ConnectionOptions::default();
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+        let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let burnchain = Burnchain {
+            peer_version: PEER_VERSION,
+            network_id: 0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
+        };
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+            burn_stable_block_height: 12341,
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
+        };
+        chain_view.make_test_data();
+        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_ping_1", &burnchain, 0x9abcdef0, 12352, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_ping_2", &burnchain, 0x9abcdef0, 12353, "http://peer2.com".into(), &vec![], &vec![]);
+
+        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+
+        // convo_1 sends natpunch request to convo_2
+        let natpunch_1 = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::NatPunchRequest(0x12345678)).unwrap();
+        let mut rh_natpunch_1 = convo_1.send_signed_request(natpunch_1.clone(), 1000000).unwrap();
+
+        // convo_2 receives the natpunch request and processes it
+        test_debug!("send natpunch {:?}", &natpunch_1);
+        convo_send_recv(&mut convo_1, vec![&mut rh_natpunch_1], &mut convo_2);
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+
+        // convo_1 gets back a natpunch reply
+        test_debug!("reply natpunch-reply");
+        convo_send_recv(&mut convo_2, vec![&mut rh_natpunch_1], &mut convo_1);
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+
+        let natpunch_reply_1 = rh_natpunch_1.recv(0).unwrap();
+
+        // handled and consumed
+        assert_eq!(unhandled_1.len(), 0);
+        assert_eq!(unhandled_2.len(), 0);
+
+        // convo_2 replies the natpunch data for convo_1 -- i.e. what convo_2 thinks convo_1's IP
+        // address is
+        match natpunch_reply_1.payload {
+            StacksMessageType::NatPunchReply(ref data) => {
+                assert_eq!(data.addrbytes, PeerAddress::from_socketaddr(&socketaddr_1));
+                assert_eq!(data.nonce, 0x12345678);
             },
             _ => {
                 assert!(false);
