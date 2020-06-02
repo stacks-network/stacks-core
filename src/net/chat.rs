@@ -2494,8 +2494,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_ping_1", &burnchain, 0x9abcdef0, 12352, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_ping_2", &burnchain, 0x9abcdef0, 12353, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_natpunch_1", &burnchain, 0x9abcdef0, 12352, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_natpunch_2", &burnchain, 0x9abcdef0, 12353, "http://peer2.com".into(), &vec![], &vec![]);
 
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
