@@ -1293,6 +1293,9 @@ impl ConversationP2P {
                 Ok(None)
             },
             StacksMessageType::NatPunchRequest(ref nonce) => {
+                if cfg!(test) && self.connection.options.disable_natpunch {
+                    return Err(net_error::InvalidMessage);
+                }
                 test_debug!("{:?}: Got NatPunchRequest({})", &self, nonce);
 
                 consume = true;
@@ -1300,6 +1303,9 @@ impl ConversationP2P {
                 Ok(Some(msg))
             },
             StacksMessageType::NatPunchReply(ref _m) => {
+                if cfg!(test) && self.connection.options.disable_natpunch {
+                    return Err(net_error::InvalidMessage);
+                }
                 test_debug!("{:?}: Got NatPunchReply({})", &self, _m.nonce);
                 Ok(None)
             },
@@ -1356,12 +1362,18 @@ impl ConversationP2P {
                 Ok(None)
             }
             StacksMessageType::NatPunchRequest(ref nonce) => {
+                if cfg!(test) && self.connection.options.disable_natpunch {
+                    return Err(net_error::InvalidMessage);
+                }
                 test_debug!("{:?}: Got unauthenticated NatPunchRequest({})", &self, *nonce);
                 consume = true;
                 let msg = self.handle_natpunch_request(burnchain_view, *nonce);
                 Ok(Some(msg))
             },
             StacksMessageType::NatPunchReply(ref _m) => {
+                if cfg!(test) && self.connection.options.disable_natpunch {
+                    return Err(net_error::InvalidMessage);
+                }
                 test_debug!("{:?}: Got unauthenticated NatPunchReply({})", &self, _m.nonce);
 
                 // it's okay to forward this back (i.e. don't consume)
