@@ -1467,7 +1467,7 @@ mod test {
         let n2 = PeerDB::get_peer(db.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().unwrap();
 
         assert_eq!(n1.blacklisted, i64::max_value());
-        assert_eq!(n2.blacklisted, -1);     // refreshed; no longer blacklisted 
+        assert_eq!(n2.blacklisted, 0);     // refreshed; no longer blacklisted 
 
         assert_eq!(n1.whitelisted, -1);
         assert_eq!(n2.whitelisted, -1);
