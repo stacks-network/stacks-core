@@ -476,6 +476,11 @@ impl PeerAddress {
     pub fn from_ipv4(o1: u8, o2: u8, o3: u8, o4: u8) -> PeerAddress {
         PeerAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, o1, o2, o3, o4])
     }
+
+    /// Is this the any-network address?  i.e. 0.0.0.0 (v4) or :: (v6)?
+    pub fn is_anynet(&self) -> bool {
+        self.0 == [0x00; 16] || self == &PeerAddress::from_ipv4(0,0,0,0)
+    }
 }
 
 /// A container for public keys (compressed secp256k1 public keys)
@@ -717,6 +722,13 @@ pub struct PongData {
     pub nonce: u32
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct NatPunchData {
+    pub addrbytes: PeerAddress,
+    pub port: u16,
+    pub nonce: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
@@ -743,6 +755,8 @@ pub enum StacksMessageType {
     Nack(NackData),
     Ping(PingData),
     Pong(PongData),
+    NatPunchRequest(u32),
+    NatPunchReply(NatPunchData),
 }
 
 /// Peer address variants
@@ -1106,6 +1120,8 @@ pub enum StacksMessageID {
     Nack = 12,
     Ping = 13,
     Pong = 14,
+    NatPunchRequest = 15,
+    NatPunchReply = 16,
     Reserved = 255
 }
 
@@ -1840,8 +1856,8 @@ pub mod test {
                 }
             }
 
-            let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.server_port);
-            let http_local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.http_port);
+            let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), config.server_port);
+            let http_local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), config.http_port);
 
             {
                 let mut tx = peerdb.tx_begin().unwrap();
