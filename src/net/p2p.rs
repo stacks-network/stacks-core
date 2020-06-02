@@ -340,6 +340,7 @@ pub struct PeerNetwork {
     public_ip_reply_handle: Option<ReplyHandleP2P>,
     public_ip_self_event_id: usize,
     public_ip_ping_nonce: u32,
+    public_ip_retries: u64,
 }
 
 impl PeerNetwork {
@@ -408,6 +409,7 @@ impl PeerNetwork {
             public_ip_reply_handle: None,
             public_ip_self_event_id: 0,
             public_ip_ping_nonce: 0,
+            public_ip_retries: 0
         }
     }
 
@@ -1311,8 +1313,9 @@ impl PeerNetwork {
                 let (socket, outbound, _) = self.connecting.remove(event_id).unwrap();
                 debug!("{:?}: Connected event {}: {:?} (outbound={})", &self.local_peer, event_id, &socket, outbound);
 
+                let sock_str = format!("{:?}", &socket);
                 if let Err(_e) = self.register_peer(*event_id, socket, outbound) {
-                    debug!("{:?}: Failed to register connected event {}: {:?}", &self.local_peer, event_id, &_e);
+                    debug!("{:?}: Failed to register connected event {} ({}): {:?}", &self.local_peer, event_id, sock_str, &_e);
                 }
             }
         }
@@ -1716,6 +1719,7 @@ impl PeerNetwork {
 
             // began request
             self.public_ip_requested_at = get_epoch_time_secs();
+            self.public_ip_retries += 1;
         }
 
         let rh_opt = self.public_ip_reply_handle.take();
@@ -1782,11 +1786,14 @@ impl PeerNetwork {
                 port: public_ip.1
             };
 
-            let event_id = self.connect_peer_blacklist_checks(&public_nk, false)
-                .map_err(|e| {
+            let event_id = match self.connect_peer_blacklist_checks(&public_nk, false) {
+                Ok(eid) => eid,
+                Err(net_error::AlreadyConnected(eid)) => eid,   // weird if this happens, but you never know
+                Err(e) => {
                     info!("Failed to connect to my IP address: {:?}", &e);
-                    e
-                })?;
+                    return Err(e);
+                }
+            };
 
             self.public_ip_self_event_id = event_id;
 
@@ -1870,7 +1877,23 @@ impl PeerNetwork {
                                 info!("{:?}: confirmed my public IP to be {:?}", &self.local_peer, &public_ip);
                                 self.public_ip_confirmed = true;
                                 self.public_ip_learned_at = get_epoch_time_secs();
+                                self.public_ip_retries = 0;
+
+                                // if our IP address changed, then disconnect witih everyone
+                                let old_ip = self.local_peer.public_ip_address.clone();
                                 self.local_peer.public_ip_address = self.public_ip_address_unconfirmed.clone();
+
+                                if old_ip != self.local_peer.public_ip_address {
+                                    let mut all_event_ids = vec![];
+                                    for (eid, _) in self.peers.iter() {
+                                        all_event_ids.push(*eid);
+                                    }
+                                    
+                                    info!("IP address changed from {:?} to {:?}; closing all connections and re-establishing them", &old_ip, &self.local_peer.public_ip_address);
+                                    for eid in all_event_ids.into_iter() {
+                                        self.deregister_peer(eid);
+                                    }
+                                }
                                 return Ok(true);
                             }
                             else {
@@ -1898,7 +1921,7 @@ impl PeerNetwork {
                     }
                 }
             }
-        }
+            }
         
         return Ok(true);
     }
@@ -1913,6 +1936,11 @@ impl PeerNetwork {
         if self.local_peer.public_ip_address.is_some() && self.public_ip_learned_at + self.connection_opts.public_ip_timeout >= get_epoch_time_secs() {
             // still fresh
             test_debug!("{:?}: learned IP address is still fresh", &self.local_peer);
+            return false;
+        }
+        if self.public_ip_retries > self.connection_opts.public_ip_max_retries && self.public_ip_requested_at + self.connection_opts.public_ip_timeout >= get_epoch_time_secs() {
+            // throttle
+            debug!("{:?}: throttle public IP request (max retires {} exceeded) until {}", &self.local_peer, self.public_ip_retries, self.public_ip_requested_at + self.connection_opts.public_ip_timeout);
             return false;
         }
 
@@ -2127,30 +2155,40 @@ impl PeerNetwork {
             let cur_state = self.work_state;
             match self.work_state {
                 PeerNetworkWorkState::GetPublicIP => {
-                    // (re)determine our public IP address
-                    match self.do_get_public_ip() {
-                        Ok(b) => {
-                            if b {
-                                self.work_state = PeerNetworkWorkState::ConfirmPublicIP;
+                    if cfg!(test) && self.connection_opts.disable_natpunch {
+                        self.work_state = PeerNetworkWorkState::BlockInvSync;
+                    }
+                    else {
+                        // (re)determine our public IP address
+                        match self.do_get_public_ip() {
+                            Ok(b) => {
+                                if b {
+                                    self.work_state = PeerNetworkWorkState::ConfirmPublicIP;
+                                }
                             }
-                        }
-                        Err(e) => {
-                            info!("Failed to query public IP ({:?}; skipping", &e);
-                            self.work_state = PeerNetworkWorkState::BlockInvSync;
+                            Err(e) => {
+                                info!("Failed to query public IP ({:?}; skipping", &e);
+                                self.work_state = PeerNetworkWorkState::BlockInvSync;
+                            }
                         }
                     }
                 },
                 PeerNetworkWorkState::ConfirmPublicIP => {
                     // confirm the public IP address we previously got
-                    match self.do_confirm_public_ip() {
-                        Ok(b) => {
-                            if b {
+                    if cfg!(test) && self.connection_opts.disable_natpunch {
+                        self.work_state = PeerNetworkWorkState::BlockInvSync;
+                    }
+                    else {
+                        match self.do_confirm_public_ip() {
+                            Ok(b) => {
+                                if b {
+                                    self.work_state = PeerNetworkWorkState::BlockInvSync;
+                                }
+                            },
+                            Err(e) => {
+                                info!("Failed to confirm public IP ({:?}); skipping", &e);
                                 self.work_state = PeerNetworkWorkState::BlockInvSync;
                             }
-                        },
-                        Err(e) => {
-                            info!("Failed to confirm public IP ({:?}); skipping", &e);
-                            self.work_state = PeerNetworkWorkState::BlockInvSync;
                         }
                     }
                 }
