@@ -351,6 +351,7 @@ pub struct ConnectionOptions {
     pub public_ip_address: Option<(PeerAddress, u16)>,
     pub public_ip_request_timeout: u64,
     pub public_ip_timeout: u64,
+    pub public_ip_max_retries: u64,
     
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -362,6 +363,7 @@ pub struct ConnectionOptions {
     pub disable_block_advertisement: bool,
     pub disable_pingbacks: bool,
     pub disable_inbound_walks: bool,
+    pub disable_natpunch: bool
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -404,6 +406,7 @@ impl std::default::Default for ConnectionOptions {
             public_ip_address: None,        // resolve it at runtime by default
             public_ip_request_timeout: 60,  // how often we can attempt to look up our public IP address
             public_ip_timeout: 3600,        // re-learn the public IP ever hour, if it's not given
+            public_ip_max_retries: 3,       // maximum number of retries before self-throttling for $public_ip_timeout
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -415,6 +418,7 @@ impl std::default::Default for ConnectionOptions {
             disable_block_advertisement: false,
             disable_pingbacks: false,
             disable_inbound_walks: false,
+            disable_natpunch: false,
         }
     }
 }
