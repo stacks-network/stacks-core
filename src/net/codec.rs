@@ -583,9 +583,18 @@ impl StacksMessageCodec for NeighborsData {
 
 impl HandshakeData {
     pub fn from_local_peer(local_peer: &LocalPeer) -> HandshakeData {
+        let (addrbytes, port) = match local_peer.public_ip_address {
+            Some((ref public_addrbytes, ref public_port)) => {
+                (public_addrbytes.clone(), *public_port)
+            },
+            None => {
+                (local_peer.addrbytes.clone(), local_peer.port)
+            }
+        };
+
         HandshakeData {
-            addrbytes: local_peer.addrbytes.clone(),
-            port: local_peer.port,
+            addrbytes: addrbytes,
+            port: port,
             services: local_peer.services,
             node_public_key: StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer.private_key)),
             expire_block_height: local_peer.private_key_expire,
@@ -717,6 +726,26 @@ impl StacksMessageCodec for PongData {
     }
 }
 
+impl StacksMessageCodec for NatPunchData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.addrbytes)?;
+        write_next(fd, &self.port)?;
+        write_next(fd, &self.nonce)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<NatPunchData, net_error> {
+        let addrbytes : PeerAddress = read_next(fd)?;
+        let port : u16 = read_next(fd)?;
+        let nonce : u32 = read_next(fd)?;
+        Ok(NatPunchData {
+            addrbytes,
+            port,
+            nonce,
+        })
+    }
+}
+
 impl StacksMessageCodec for RelayData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.peer)?;
@@ -751,7 +780,9 @@ impl StacksMessageType {
             StacksMessageType::Transaction(ref _m) => StacksMessageID::Transaction,
             StacksMessageType::Nack(ref _m) => StacksMessageID::Nack,
             StacksMessageType::Ping(ref _m) => StacksMessageID::Ping,
-            StacksMessageType::Pong(ref _m) => StacksMessageID::Pong
+            StacksMessageType::Pong(ref _m) => StacksMessageID::Pong,
+            StacksMessageType::NatPunchRequest(ref _m) => StacksMessageID::NatPunchRequest,
+            StacksMessageType::NatPunchReply(ref _m) => StacksMessageID::NatPunchReply,
         }
     }
 
@@ -771,7 +802,9 @@ impl StacksMessageType {
             StacksMessageType::Transaction(ref _m) => "Transaction",
             StacksMessageType::Nack(ref _m) => "Nack",
             StacksMessageType::Ping(ref _m) => "Ping",
-            StacksMessageType::Pong(ref _m) => "Pong"
+            StacksMessageType::Pong(ref _m) => "Pong",
+            StacksMessageType::NatPunchRequest(ref _m) => "NatPunchRequest",
+            StacksMessageType::NatPunchReply(ref _m) => "NatPunchReply",
         }
     }
 }
@@ -799,6 +832,8 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::Nack as u8 => StacksMessageID::Nack,
             x if x == StacksMessageID::Ping as u8 => StacksMessageID::Ping,
             x if x == StacksMessageID::Pong as u8 => StacksMessageID::Pong,
+            x if x == StacksMessageID::NatPunchRequest as u8 => StacksMessageID::NatPunchRequest,
+            x if x == StacksMessageID::NatPunchReply as u8 => StacksMessageID::NatPunchReply,
             _ => { return Err(net_error::DeserializeError("Unknown message ID".to_string())); }
         };
         Ok(id)
@@ -823,7 +858,9 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::Transaction(ref m) => write_next(fd, m)?,
             StacksMessageType::Nack(ref m) => write_next(fd, m)?,
             StacksMessageType::Ping(ref m) => write_next(fd, m)?,
-            StacksMessageType::Pong(ref m) => write_next(fd, m)?
+            StacksMessageType::Pong(ref m) => write_next(fd, m)?,
+            StacksMessageType::NatPunchRequest(ref nonce) => write_next(fd, nonce)?,
+            StacksMessageType::NatPunchReply(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -846,6 +883,8 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::Nack => { let m : NackData = read_next(fd)?; StacksMessageType::Nack(m) },
             StacksMessageID::Ping => { let m : PingData = read_next(fd)?; StacksMessageType::Ping(m) },
             StacksMessageID::Pong => { let m : PongData = read_next(fd)?; StacksMessageType::Pong(m) },
+            StacksMessageID::NatPunchRequest => { let nonce : u32 = read_next(fd)?; StacksMessageType::NatPunchRequest(nonce) },
+            StacksMessageID::NatPunchReply => { let m : NatPunchData = read_next(fd)?; StacksMessageType::NatPunchReply(m) },
             StacksMessageID::Reserved => { return Err(net_error::DeserializeError("Unsupported message ID 'reserved'".to_string())); }
         };
         Ok(message)
@@ -1528,6 +1567,25 @@ pub mod test {
     }
 
     #[test]
+    fn codec_NatPunch() {
+        let data = NatPunchData {
+            addrbytes: PeerAddress([0x1; 16]),
+            port: 0x1234,
+            nonce: 0x56789abc
+        };
+        let bytes = vec![
+            // peer address
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            // port
+            0x12, 0x34,
+            // nonce
+            0x56, 0x78, 0x9a, 0xbc
+        ];
+
+        check_codec_and_corruption::<NatPunchData>(&data, &bytes);
+    }
+
+    #[test]
     fn codec_StacksMessage() {
         let payloads: Vec<StacksMessageType> = vec![
             StacksMessageType::Handshake(HandshakeData {
@@ -1591,6 +1649,12 @@ pub mod test {
             }),
             StacksMessageType::Pong(PongData {
                 nonce: 0x01020304
+            }),
+            StacksMessageType::NatPunchRequest(0x12345678),
+            StacksMessageType::NatPunchReply(NatPunchData {
+                addrbytes: PeerAddress([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]),
+                port: 12345,
+                nonce: 0x12345678
             }),
         ];
 
