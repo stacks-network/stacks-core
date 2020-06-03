@@ -889,6 +889,7 @@ impl Relayer {
                 }
 
                 // have the p2p thread forward all new unconfirmed microblocks
+                test_debug!("{:?}: Unconfirmed microblocks: {}", &_local_peer, new_microblocks.len());
                 for (relayers, mblocks_msg) in new_microblocks.drain(..) {
                     test_debug!("{:?}: Send {} microblocks for {}", &_local_peer, mblocks_msg.microblocks.len(), &mblocks_msg.index_anchor_block);
                     let msg = StacksMessageType::Microblocks(mblocks_msg);
@@ -1799,7 +1800,7 @@ mod test {
                 })
             });
 
-            spending_account.set_nonce(cur_nonce + 1);
+            // spending_account.set_nonce(cur_nonce + 1);
 
             tx_contract.chain_id = 0x80000000;
             tx_contract.auth.set_origin_nonce(cur_nonce);
@@ -1809,6 +1810,8 @@ mod test {
             spending_account.sign_as_origin(&mut tx_signer);
         
             let tx_contract_signed = tx_signer.get_tx().unwrap();
+
+            test_debug!("make transaction {:?} off of {:?}/{:?}: {:?}", &tx_contract_signed.txid(), burn_header_hash, block_hash, &tx_contract_signed);
 
             Ok(tx_contract_signed)
         }).unwrap();
@@ -1874,6 +1877,17 @@ mod test {
                                            block_data
                                        },
                                        |ref mut peers| {
+                                           // don't do anything until the peers learn their public
+                                           // IP addresses
+                                           if peers[0].network.local_peer.public_ip_address.is_none() {
+                                               test_debug!("Peer 0 doesn't know its public IP yet");
+                                               return;
+                                           }
+                                           if peers[1].network.local_peer.public_ip_address.is_none() {
+                                               test_debug!("Peer 1 doesn't know its public IP yet");
+                                               return;
+                                           }
+
                                            // make sure peer 2's inv has an entry for peer 1, even
                                            // though it's not doing an inv sync
                                            let peer_0_nk = peers[0].to_neighbor().addr;
