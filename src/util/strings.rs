@@ -173,8 +173,10 @@ impl StacksMessageCodec for UrlString {
             return Err(net_error::SerializeError("Failed to serialize URL string: too long".to_string()));
         }
         
-        // must be a valid block URL
-        let _ = self.parse_to_block_url()?;
+        // must be a valid block URL, or empty string
+        if self.as_bytes().len() > 0 {
+            let _ = self.parse_to_block_url()?;
+        }
 
         write_next(fd, &(self.as_bytes().len() as u8))?;
         fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
@@ -196,8 +198,10 @@ impl StacksMessageCodec for UrlString {
         // must decode to a URL
         let url = UrlString::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse URL string: {:?}", e)))?;
         
-        // must be a valid block URL
-        let _ = url.parse_to_block_url()?;
+        // must be a valid block URL, or empty string
+        if url.len() > 0 {
+            let _ = url.parse_to_block_url()?;
+        }
         Ok(url)
     }
 }
