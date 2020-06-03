@@ -365,11 +365,11 @@ impl BlockDownloader {
             match http.get_conversation(event_id) {
                 None => {
                     if http.is_connecting(event_id) {
-                        debug!("Event {} ({:?}, {:?} for block {} is not connected yet", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        debug!("Event {} ({:?}, {:?} for block {} is not connected yet", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                         pending_block_requests.insert(block_key, event_id);
                     }
                     else {
-                        debug!("Event {} ({:?}, {:?} for block {} failed to connect", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        debug!("Event {} ({:?}, {:?} for block {} failed to connect", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                         self.dead_peers.push(event_id);
                     }
                 }
