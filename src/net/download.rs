@@ -852,6 +852,11 @@ impl PeerNetwork {
                         continue;
                     }
                 };
+                if data_url.len() == 0 {
+                    // peer doesn't yet know its public IP address, and isn't given a data URL
+                    // directly
+                    continue;
+                }
                 if block_urls.contains(&data_url) {
                     continue;
                 }
