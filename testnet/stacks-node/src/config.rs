@@ -703,6 +703,7 @@ pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
     STXEvent,
+    MemPoolTransactions,
     AnyEvent,
 }
 
@@ -716,6 +717,10 @@ impl EventKeyType {
             return Some(EventKeyType::STXEvent);
         } 
         
+        if raw_key == "memtx" {
+            return Some(EventKeyType::MemPoolTransactions);
+        }
+
         let comps: Vec<_> = raw_key.split("::").collect();
         if comps.len() ==  1 {
             let split: Vec<_> = comps[0].split(".").collect();

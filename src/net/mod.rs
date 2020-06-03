@@ -357,10 +357,20 @@ impl PartialEq for Error {
 
 /// Helper trait for various primitive types that make up Stacks messages
 pub trait StacksMessageCodec {
+    /// serialize implementors _should never_ error unless there is an underlying
+    ///   failure in writing to the `fd`
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error>
         where Self: Sized;
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, Error>
         where Self: Sized;
+    /// Convenience for serialization to a vec.
+    ///  this function unwraps any underlying serialization error
+    fn serialize_to_vec(&self) -> Vec<u8> where Self: Sized {
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes)
+            .expect("BUG: serialization to buffer failed.");
+        bytes
+    }
 }
 
 /// A container for an IPv4 or IPv6 address.

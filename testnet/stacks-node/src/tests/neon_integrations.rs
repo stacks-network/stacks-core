@@ -8,6 +8,7 @@ use stacks::vm::types::PrincipalData;
 
 use crate::{
     neon, Config, Keychain, config::InitialBalance, BitcoinRegtestController, BurnchainController,
+    config::EventObserverConfig, config::EventKeyType,
 };
 use stacks::net::AccountEntryResponse;
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -15,6 +16,7 @@ use std::{thread, env};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, Duration};
+use stacks::util::hash::bytes_to_hex;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -33,6 +35,67 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let miner_account = keychain.origin_address().unwrap();
 
     (conf, miner_account)
+}
+
+mod test_observer {
+    use std::convert::Infallible;
+    use std::sync::Mutex;
+    use warp;
+    use warp::Filter;
+    use std::thread;
+    use tokio;
+
+    pub const EVENT_OBSERVER_PORT: u16 = 50303;
+
+    lazy_static! {
+        pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    }
+
+    async fn handle_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+        let mut blocks = NEW_BLOCKS.lock().unwrap();
+        blocks.push(block);
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_mempool_txs(txs: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+        let new_rawtxs = txs.as_array().unwrap().into_iter()
+            .map(|x| x.as_str().unwrap().to_string());
+        let mut memtxs = MEMTXS.lock().unwrap();
+        for new_tx in new_rawtxs {
+            memtxs.push(new_tx);
+        }
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    pub fn get_memtxs() -> Vec<String> {
+        MEMTXS.lock().unwrap().clone()
+    }
+
+    pub fn get_blocks() -> Vec<serde_json::Value> {
+        NEW_BLOCKS.lock().unwrap().clone()
+    }
+
+    async fn serve() {
+        let new_blocks = warp::path!("new_block")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_block);
+        let mempool_txs = warp::path!("new_mempool_tx")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_mempool_txs);
+        info!("Spawning warp server");
+        warp::serve(new_blocks.or(mempool_txs))
+            .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT)).await
+    }
+
+    pub fn spawn() {
+        thread::spawn(|| {
+            let mut rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
+            rt.block_on(serve());
+        });
+    }
 }
 
 const PANIC_TIMEOUT_SECS: u64 = 60;
@@ -130,6 +193,14 @@ fn microblock_integration_test() {
 
     conf.node.mine_microblocks = true;
 
+    test_observer::spawn();
+
+    conf.events_observers.push(
+        EventObserverConfig {
+            endpoint: format!("http://localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            events_keys: vec![ EventKeyType::AnyEvent ],
+        });
+
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller.start_bitcoind().map_err(|_e| ()).expect("Failed starting bitcoind");
 
@@ -208,6 +279,27 @@ fn microblock_integration_test() {
     eprintln!("{:#?}", res);
     assert_eq!(res.nonce, 1);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 98300);
+
+    let memtx_events = test_observer::get_memtxs();
+    assert_eq!(memtx_events.len(), 1);
+    assert_eq!(&memtx_events[0], &format!("0x{}", &bytes_to_hex(&tx)));
+
+    // let's make sure the returned blocks all point at each other.
+    let blocks_observed = test_observer::get_blocks();
+    // we at least mined 5 blocks
+    assert!(blocks_observed.len() >= 3, "Blocks observed {} should be >= 3", blocks_observed.len());
+    let mut prior = None;
+    for block in blocks_observed.iter() {
+        let parent_index_hash = block.get("parent_index_block_hash")
+            .unwrap().as_str().unwrap().to_string();
+        let my_index_hash = block.get("index_block_hash")
+            .unwrap().as_str().unwrap().to_string();
+        if let Some(ref previous_index_hash) = prior {
+            assert_eq!(&parent_index_hash, previous_index_hash);
+        }
+
+        prior = Some(my_index_hash);
+    }
 }
 
 #[test]

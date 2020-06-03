@@ -1082,6 +1082,29 @@ impl StacksChainState {
         Ok(Some(microblocks))
     }
 
+    pub fn get_parent_burn_header_hash(burn_ic: &BurnDBConn, parent_block_hash: &BlockHeaderHash,
+                                       my_burn_header_hash: &BurnchainHeaderHash) -> Result<Option<BurnchainHeaderHash>, Error> {
+        let my_burn_block_snapshot = match BurnDB::get_block_snapshot(burn_ic, my_burn_header_hash)? {
+            Some(x) => x,
+            None => return Ok(None)
+        };
+
+        // find all blocks that we have that could be this block's parent
+        let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
+        let possible_parent_snapshots = query_rows::<BlockSnapshot, _>(burn_ic, &sql, &[parent_block_hash])?;
+        for possible_parent in possible_parent_snapshots.into_iter() {
+            let burn_ancestor = BurnDB::get_block_snapshot_in_fork(
+                burn_ic, possible_parent.block_height, &my_burn_block_snapshot.burn_header_hash)?;
+            if let Some(ancestor) = burn_ancestor {
+                assert_eq!(ancestor.burn_header_hash, possible_parent.burn_header_hash);
+
+                // found!
+                return Ok(Some(possible_parent.burn_header_hash));
+            }
+        }
+        return Ok(None)
+    }
+
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
     pub fn load_parent_block_header<'a>(burn_ic: &BurnDBConn<'a>, blocks_conn: &DBConn, blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<(StacksBlockHeader, BurnchainHeaderHash)>, Error> {

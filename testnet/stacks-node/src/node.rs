@@ -8,7 +8,10 @@ use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
-use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, TransactionAnchorMode};
+use stacks::chainstate::stacks::{
+    StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner,
+    StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload,
+    TransactionAnchorMode, StacksBlockHeader };
 use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
 use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -505,7 +508,7 @@ impl Node {
         // Handle events
         let receipts = processed_block.1;
         let metadata = processed_block.0;
-        let block = {
+        let block: StacksBlock = {
             let block_path = StacksChainState::get_block_path(
                 &self.chain_state.blocks_path, 
                 &metadata.burn_header_hash, 
@@ -513,13 +516,16 @@ impl Node {
             StacksChainState::consensus_load(&block_path).unwrap()
         };
 
+        let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+            parent_burn_header_hash, &block.header.parent_block);
+
         let chain_tip = ChainTip {
             metadata,
             block,
             receipts
         };
 
-        self.event_dispatcher.process_chain_tip(&chain_tip);
+        self.event_dispatcher.process_chain_tip(&chain_tip, &parent_index_hash);
 
         self.chain_tip = Some(chain_tip.clone());
 
