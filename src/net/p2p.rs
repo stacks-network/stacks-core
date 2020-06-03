@@ -274,7 +274,7 @@ pub struct PeerNetwork {
     pub peers: PeerMap,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
     pub events: HashMap<NeighborKey, usize>,
-    pub connecting: HashMap<usize, (mio_net::TcpStream, bool, u64)>,   // (socket, outbound?, connection sent)
+    pub connecting: HashMap<usize, (mio_net::TcpStream, bool, u64)>,   // (socket, outbound?, connection sent timestamp)
     pub bans: HashSet<usize>,
 
     // ongoing messages the network is sending via the p2p interface (not bound to a specific
@@ -1938,9 +1938,17 @@ impl PeerNetwork {
             test_debug!("{:?}: learned IP address is still fresh", &self.local_peer);
             return false;
         }
-        if self.public_ip_retries > self.connection_opts.public_ip_max_retries && self.public_ip_requested_at + self.connection_opts.public_ip_timeout >= get_epoch_time_secs() {
+        let throttle_timeout = 
+            if self.local_peer.public_ip_address.is_none() {
+                self.connection_opts.public_ip_request_timeout
+            }
+            else {
+                self.connection_opts.public_ip_timeout
+            };
+
+        if self.public_ip_retries > self.connection_opts.public_ip_max_retries && self.public_ip_requested_at + throttle_timeout >= get_epoch_time_secs() {
             // throttle
-            debug!("{:?}: throttle public IP request (max retires {} exceeded) until {}", &self.local_peer, self.public_ip_retries, self.public_ip_requested_at + self.connection_opts.public_ip_timeout);
+            debug!("{:?}: throttle public IP request (max retires {} exceeded) until {}", &self.local_peer, self.public_ip_retries, self.public_ip_requested_at + throttle_timeout);
             return false;
         }
 
