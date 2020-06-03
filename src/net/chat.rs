@@ -737,7 +737,7 @@ impl ConversationP2P {
                 // if it's improperly signed, it's probably a poorly-timed re-key request (but either way the message should be rejected)
                 message.verify_secp256k1(&handshake_data.node_public_key)
                     .map_err(|_e| {
-                        test_debug!("{:?}: invalid handshake: not signed with given public key", &self);
+                        debug!("{:?}: invalid handshake: not signed with given public key", &self);
                         net_error::InvalidMessage
                     })?;
             },
@@ -750,7 +750,7 @@ impl ConversationP2P {
                 // any-network bind address (0.0.0.0 or ::)
                 if self.stats.outbound && (!handshake_data.addrbytes.is_anynet() && (self.peer_addrbytes != handshake_data.addrbytes || self.peer_port != handshake_data.port)) {
                     // wrong peer address
-                    test_debug!("{:?}: invalid handshake -- wrong addr/port ({:?}:{:?})", &self, &handshake_data.addrbytes, handshake_data.port);
+                    debug!("{:?}: invalid handshake -- wrong addr/port ({:?}:{:?})", &self, &handshake_data.addrbytes, handshake_data.port);
                     return Err(net_error::InvalidHandshake);
                 }
             }
@@ -761,20 +761,20 @@ impl ConversationP2P {
             Ok(_) => {},
             Err(_e) => {
                 // bad public key
-                test_debug!("{:?}: invalid handshake -- invalid public key", &self);
+                debug!("{:?}: invalid handshake -- invalid public key", &self);
                 return Err(net_error::InvalidMessage);
             }
         };
 
         if handshake_data.expire_block_height <= chain_view.burn_block_height {
             // already stale
-            test_debug!("{:?}: invalid handshake -- stale public key (expired at {})", &self, handshake_data.expire_block_height);
+            debug!("{:?}: invalid handshake -- stale public key (expired at {})", &self, handshake_data.expire_block_height);
             return Err(net_error::InvalidHandshake);
         }
 
         // the handshake cannot come from us 
         if handshake_data.node_public_key == StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer.private_key)) {
-            test_debug!("{:?}: invalid handshake -- got a handshake from myself", &self);
+            debug!("{:?}: invalid handshake -- got a handshake from myself", &self);
             return Err(net_error::InvalidHandshake);
         }
 
