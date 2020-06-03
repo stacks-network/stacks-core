@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::io::{BufReader, Read};
 use std::fs::File;
 use std::net::ToSocketAddrs;
-
+use std::net::{SocketAddr, Ipv4Addr, Ipv6Addr};
 use rand::RngCore;
 
 use stacks::burnchains::{
@@ -211,7 +211,25 @@ impl Config {
                     bootstrap_node: None,
                     data_url: match node.data_url {
                         Some(data_url) => data_url,
-                        None => format!("http://{}", rpc_bind)
+                        None => match rpc_bind.parse::<SocketAddr>() {
+                            Ok(addr) => {
+                                // if this is the any-network address, then use an empty string
+                                // (since a public IP address is not given in the config file)
+                                let is_anynet = match addr {
+                                    SocketAddr::V4(addrv4) => addrv4.ip() == &Ipv4Addr::new(0,0,0,0),
+                                    SocketAddr::V6(addrv6) => addrv6.ip() == &Ipv6Addr::new(0,0,0,0,0,0,0,0)
+                                };
+                                if is_anynet {
+                                    "".to_string()
+                                }
+                                else {
+                                    format!("http://{}", rpc_bind)
+                                }
+                            },
+                            Err(_) => {
+                                format!("http://{}", rpc_bind)
+                            }
+                        }
                     },
                     local_peer_seed: match node.local_peer_seed {
                         Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
