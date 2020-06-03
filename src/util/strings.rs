@@ -314,6 +314,43 @@ impl UrlString {
 
         Ok(url)
     }
+
+    /// Is this URL routable?
+    /// i.e. is the host _not_ 0.0.0.0 or ::?
+    pub fn has_routable_host(&self) -> bool {
+        let url = match url::Url::parse(&self.to_string()) {
+            Ok(x) => x,
+            Err(_) => {
+                // should be unreachable
+                return false;
+            }
+        };
+        match url.host_str() {
+            Some(host_str) => {
+                if host_str == "0.0.0.0" || host_str == "[::]" || host_str == "::" {
+                    return false;
+                }
+                else {
+                    return true;
+                }
+            },
+            None => {
+                return false;
+            }
+        }
+    }
+
+    /// Get the port. Returns 0 for unknown
+    pub fn get_port(&self) -> Option<u16> {
+        let url = match url::Url::parse(&self.to_string()) {
+            Ok(x) => x,
+            Err(_) => {
+                // unknown, but should be unreachable anyway
+                return None;
+            }
+        };
+        url.port_or_known_default()
+    }
 }
 
 #[cfg(test)]
