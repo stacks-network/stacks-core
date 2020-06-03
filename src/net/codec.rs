@@ -584,13 +584,27 @@ impl StacksMessageCodec for NeighborsData {
 impl HandshakeData {
     pub fn from_local_peer(local_peer: &LocalPeer) -> HandshakeData {
         let (addrbytes, port) = match local_peer.public_ip_address {
-            Some((ref public_addrbytes, ref public_port)) => {
-                (public_addrbytes.clone(), *public_port)
+            Some((ref public_addrbytes, ref port)) => {
+                (public_addrbytes.clone(), *port)
             },
             None => {
                 (local_peer.addrbytes.clone(), local_peer.port)
             }
         };
+
+        // transmit the empty string if our data URL compels us to bind to the anynet address
+        let data_url = 
+            if local_peer.data_url.has_routable_host() {
+                local_peer.data_url.clone()
+            }
+            else if let Some(data_port) = local_peer.data_url.get_port() {
+                // deduce from public IP
+                UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(data_port)).as_str()).unwrap()
+            }
+            else {
+                // unroutable, so don't bother
+                UrlString::try_from("").unwrap()
+            };
 
         HandshakeData {
             addrbytes: addrbytes,
@@ -598,21 +612,7 @@ impl HandshakeData {
             services: local_peer.services,
             node_public_key: StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer.private_key)),
             expire_block_height: local_peer.private_key_expire,
-            data_url: 
-                if local_peer.data_url.len() > 0 { 
-                    local_peer.data_url.clone() 
-                } 
-                else { 
-                    match local_peer.public_ip_address {
-                        Some((addrbytes, port)) => {
-                            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(port)).as_str()).unwrap()
-                        },
-                        None => {
-                            UrlString::try_from("").unwrap()
-                        }
-                    }
-                }
-
+            data_url: data_url
         }
     }
 }
