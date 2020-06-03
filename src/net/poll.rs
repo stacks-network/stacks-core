@@ -224,14 +224,27 @@ impl NetworkState {
 
     fn make_next_event_id(&self, cur_count: usize, in_use: &HashSet<usize>) -> Result<usize, net_error> {
         let mut ret = cur_count;
+
+        let mut in_use_count = 0;
+        let mut event_map_count = 0;
+
         for _ in 0..self.event_capacity {
             if self.event_map.contains_key(&ret) || in_use.contains(&ret) {
                 ret = (ret + 1) % self.event_capacity;
+
+                if in_use.contains(&ret) {
+                    in_use_count += 1;
+                }
+                else {
+                    event_map_count += 1;
+                }
             }
             else {
                 return Ok(ret);
             }
         }
+
+        debug!("Too many peers (events: {}, in_use: {})", event_map_count, in_use_count);
         return Err(net_error::TooManyPeers);
     }
 
@@ -475,5 +488,45 @@ mod test {
         let sock = NetworkState::connect(&addr).unwrap();
         let res = ns.register(server_events[0], 11, &sock);
         assert_eq!(Err(net_error::TooManyPeers), res);
+    }
+    
+    #[test]
+    fn test_register_deregister_stress() {
+        let mut ns = NetworkState::new(20).unwrap();
+        let mut count = 10;
+        let mut in_use = HashSet::new();
+        let mut events_in = vec![];
+
+        for _ in 0..20 {
+            let next_eid = ns.make_next_event_id(count, &in_use).unwrap();
+            ns.event_map.insert(next_eid, 0);
+            events_in.push(next_eid);
+            count = (next_eid + 1) % 20;
+        }
+
+        assert_eq!(ns.event_map.len(), 20);
+
+        for _ in 0..20 {
+            ns.make_next_event_id(count, &in_use).unwrap_err();
+        }
+
+        for eid in events_in.iter() {
+            ns.event_map.remove(eid);
+        }
+
+        events_in.clear();
+
+        for _ in 0..20 {
+            let next_eid = ns.make_next_event_id(count, &in_use).unwrap();
+            events_in.push(next_eid);
+            in_use.insert(next_eid);
+            count = (next_eid + 1) % 20;
+        }
+        
+        assert_eq!(ns.event_map.len(), 0);
+
+        for _ in 0..20 {
+            ns.make_next_event_id(count, &in_use).unwrap_err();
+        }
     }
 }
