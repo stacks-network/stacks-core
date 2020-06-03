@@ -475,7 +475,7 @@ impl NeighborWalk {
                                 let res = 
                                     if neighbor_from_handshake.addr != self.cur_neighbor.addr {
                                         // somehow, got a handshake from someone that _isn't_ cur_neighbor
-                                        debug!("{:?}: got unsolicited HandshakeAccept from outbound {:?} (expected {:?})", 
+                                        debug!("{:?}: got unsolicited (or bootstrapping) HandshakeAccept from outbound {:?} (expected {:?})", 
                                                &self.local_peer, 
                                                &neighbor_from_handshake.addr, 
                                                &self.cur_neighbor.addr);
@@ -1386,7 +1386,7 @@ impl PeerNetwork {
                 
                 // is the peer network still working?
                 if !self.is_connecting(*event_id) {
-                    debug!("{:?}: Failed to connect to {:?} (no longer connecting; assumed timed out)", &self.local_peer, nk);
+                    debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", &self.local_peer, *event_id, nk);
                     walk.connecting.remove(&nk);
                     return Err(net_error::PeerNotConnected);
                 }
@@ -1401,6 +1401,8 @@ impl PeerNetwork {
         }
         
         // so far so good.
+        walk.connecting.remove(&nk);
+
         // send handshake.
         let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
         
