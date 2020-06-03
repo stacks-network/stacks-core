@@ -652,12 +652,8 @@ impl PeerNetwork {
             }
         }
 
-        if self.is_registered(&neighbor) {
-            let event_id = match self.events.get(&neighbor) {
-                Some(eid) => *eid,
-                None => unreachable!()
-            };
-
+        // already connected?
+        if let Some(event_id) = self.get_event_id(&neighbor) {
             test_debug!("{:?}: already connected to {:?} as event {}", &self.local_peer, &neighbor, event_id);
             return Ok(event_id);
         }
@@ -1584,6 +1580,8 @@ impl PeerNetwork {
             if let (Some(ref mut socket), Some(ref mut convo)) = (self.sockets.get_mut(event_id), self.peers.get_mut(event_id)) {
                 while handle_list.len() > 0 {
                     let handle = handle_list.front_mut().unwrap();
+                    
+                    debug!("Flush relay handle to {:?} ({:?})", socket, convo);
                     let (num_sent, flushed) = match PeerNetwork::do_saturate_p2p_socket(convo, socket, handle) {
                         Ok(x) => x,
                         Err(e) => {
@@ -2490,7 +2488,6 @@ impl PeerNetwork {
     }
     
     /// Handle unsolicited messages propagated up to us from our ongoing ConversationP2Ps.
-    /// Right now, this is just BlocksAvailables -- update our inv state for the peer that sent it.
     /// Return messages that we couldn't handle here, but key them by neighbor, not event.
     fn handle_unsolicited_messages(&mut self, burndb: &BurnDB, mut unsolicited: HashMap<usize, Vec<StacksMessage>>) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         let mut unhandled : HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
