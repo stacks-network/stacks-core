@@ -598,7 +598,21 @@ impl HandshakeData {
             services: local_peer.services,
             node_public_key: StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer.private_key)),
             expire_block_height: local_peer.private_key_expire,
-            data_url: local_peer.data_url.clone()
+            data_url: 
+                if local_peer.data_url.len() > 0 { 
+                    local_peer.data_url.clone() 
+                } 
+                else { 
+                    match local_peer.public_ip_address {
+                        Some((addrbytes, port)) => {
+                            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(port)).as_str()).unwrap()
+                        },
+                        None => {
+                            UrlString::try_from("").unwrap()
+                        }
+                    }
+                }
+
         }
     }
 }
