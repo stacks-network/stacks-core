@@ -261,7 +261,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), download_backpressure, poll_ms)
                 .unwrap();
 
-            if network_result.has_blocks() || network_result.has_microblocks() {
+            if network_result.has_data_to_store() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
             }
 
