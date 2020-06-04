@@ -19,7 +19,7 @@ use stacks::chainstate::burn::BlockHeaderHash;
 use super::config::{EventObserverConfig, EventKeyType};
 use super::node::{ChainTip};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct EventObserver {
     endpoint: String,
 }
@@ -154,6 +154,7 @@ impl EventObserver {
     }
 }
 
+#[derive(Clone)]
 pub struct EventDispatcher {
     registered_observers: Vec<EventObserver>,
     contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
@@ -229,7 +230,7 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_new_mempool_txs(&mut self, txs: Vec<StacksTransaction>) {
+    pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().filter(
             |(obs_id, _observer)| {

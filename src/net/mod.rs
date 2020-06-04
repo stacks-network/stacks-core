@@ -1382,6 +1382,12 @@ impl NetworkResult {
         self.pushed_transactions.len() > 0 || self.uploaded_transactions.len() > 0
     }
 
+    pub fn transactions(&self) -> Vec<StacksTransaction> {
+        self.pushed_transactions.values()
+            .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
+            .chain(self.uploaded_transactions.iter().map(|x| x.clone())).collect()
+    }
+
     pub fn has_data_to_store(&self) -> bool {
         self.has_blocks() || self.has_microblocks() || self.has_transactions()
     }
