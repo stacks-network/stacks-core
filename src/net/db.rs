@@ -620,6 +620,15 @@ impl PeerDB {
         let mut rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
         Ok(rows.pop())
     }
+    
+    /// Get peer by port (used in tests where the IP address doesn't really matter)
+    #[cfg(test)]
+    pub fn get_peer_by_port(conn: &DBConn, network_id: u32, peer_port: u16) -> Result<Option<Neighbor>, db_error> {
+        let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND port = ?2".to_string();
+        let args = [&network_id as &dyn ToSql, &peer_port as &dyn ToSql];
+        let mut rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
+        Ok(rows.pop())
+    }
 
     /// Get a peer record at a particular slot
     pub fn get_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<Option<Neighbor>, db_error> {
