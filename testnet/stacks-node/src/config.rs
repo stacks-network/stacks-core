@@ -334,8 +334,14 @@ impl Config {
                         .map(|e| EventKeyType::from_string(e).unwrap())
                         .collect();
 
+                    let endpoint = if observer.endpoint.ends_with("/") {
+                        observer.endpoint
+                    } else {
+                        format!("{}/", observer.endpoint)
+                    };
+
                     observers.push(EventObserverConfig {
-                        endpoint: observer.endpoint,
+                        endpoint,
                         events_keys
                     });
                 }

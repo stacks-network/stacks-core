@@ -94,6 +94,7 @@ use mio::net as mio_net;
 
 use net::inv::*;
 use net::relay::*;
+use net::rpc::RPCHandlerArgs;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 pub enum NetworkRequest {
@@ -2219,7 +2220,7 @@ impl PeerNetwork {
     /// that sent them (i.e. keyed by their event IDs)
     pub fn run(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
                dns_client_opt: Option<&mut DNSClient>, download_backpressure: bool,
-               poll_timeout: u64, exit_at_block_height: Option<u64>) -> Result<NetworkResult, net_error> {
+               poll_timeout: u64, handler_args: &RPCHandlerArgs) -> Result<NetworkResult, net_error> {
         let mut poll_states = match self.network {
             None => {
                 test_debug!("{:?}: network not connected", &self.local_peer);
@@ -2241,7 +2242,7 @@ impl PeerNetwork {
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(
                 network_state, network.chain_view.clone(), &network.peers, burndb,
-                &network.peerdb, chainstate, mempool, http_poll_state, exit_at_block_height)?;
+                &network.peerdb, chainstate, mempool, http_poll_state, handler_args)?;
             result.consume_http_uploads(http_stacks_msgs);
             Ok(())
         })?;

@@ -1,10 +1,11 @@
 use super::{Keychain, Config, BurnchainController, BurnchainTip, EventDispatcher};
 use crate::config::HELIUM_BLOCK_LIMIT;
 
-use std::convert::TryFrom;
+use std::convert::{ TryFrom, TryInto };
 use std::{thread, thread::JoinHandle};
 use std::net::SocketAddr;
 use std::collections::VecDeque;
+use std::default::Default;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, PublicKey};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
@@ -26,7 +27,6 @@ use stacks::chainstate::stacks::{Error as ChainstateError};
 use stacks::chainstate::stacks::StacksPublicKey;
 
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer }, relay::Relayer };
 use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -34,13 +34,16 @@ use stacks::util::strings::UrlString;
 use stacks::util::hash::Hash160;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::net::NetworkResult;
-use stacks::net::PeerAddress;
+use stacks::net::{
+    db::{ PeerDB, LocalPeer }, relay::Relayer,
+    p2p::PeerNetwork, Error as NetError, PeerAddress,
+    NetworkResult, rpc::RPCHandlerArgs
+};
 use std::sync::mpsc;
 use std::sync::mpsc::{sync_channel, TrySendError, TryRecvError, SyncSender, Receiver};
+
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
-use std::convert::TryInto;
 use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
 use stacks::vm::costs::ExecutionCost;
@@ -251,6 +254,9 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     let mut results_with_data = VecDeque::new();
 
     let server_thread = thread::spawn(move || {
+        let handler_args = RPCHandlerArgs { exit_at_block_height: exit_at_block_height.as_ref(),
+                                            .. RPCHandlerArgs::default() };
+
         loop {
             let download_backpressure = results_with_data.len() > 0;
             let poll_ms = 
@@ -264,7 +270,8 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 };
 
             let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
-                                          download_backpressure, poll_ms, exit_at_block_height.clone())
+                                          download_backpressure, poll_ms,
+                                          &handler_args)
                 .unwrap();
 
             if network_result.has_data_to_store() {

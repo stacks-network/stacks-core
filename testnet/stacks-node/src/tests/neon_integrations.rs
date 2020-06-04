@@ -197,7 +197,7 @@ fn microblock_integration_test() {
 
     conf.events_observers.push(
         EventObserverConfig {
-            endpoint: format!("http://localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            endpoint: format!("http://localhost:{}/", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![ EventKeyType::AnyEvent ],
         });
 
@@ -283,6 +283,9 @@ fn microblock_integration_test() {
     let path = format!("{}/v2/info", &http_origin);
     let tip_info = client.get(&path).send().unwrap().json::<RPCPeerInfoData>().unwrap();
     assert!(tip_info.stacks_tip_height >= 3);
+
+    eprintln!("{:#?}", client.get(&path).send().unwrap().json::<serde_json::Value>().unwrap());
+
 
     let memtx_events = test_observer::get_memtxs();
     assert_eq!(memtx_events.len(), 1);

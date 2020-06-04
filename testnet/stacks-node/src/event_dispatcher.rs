@@ -34,9 +34,8 @@ pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 impl EventObserver {
 
     fn send_payload(&self, payload: &serde_json::Value, path: &str) {
-        let endpoint = format!("{}{}{}",
+        let endpoint = format!("{}{}",
                                &self.endpoint,
-                               if self.endpoint.ends_with("/") { "" } else { "/" },
                                path);
 
         let mut backoff: f64 = 1.0;

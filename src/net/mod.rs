@@ -1463,6 +1463,7 @@ pub mod test {
     use net::db::*;
     use net::neighbors::*;
     use net::p2p::*;
+    use net::rpc::RPCHandlerArgs;
     use net::poll::*;
     use net::relay::*;
     use net::Error as net_error;
@@ -1920,7 +1921,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10, None);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10, &RPCHandlerArgs::default());
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
@@ -1934,7 +1935,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10, None);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10, &RPCHandlerArgs::default());
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);

@@ -3,6 +3,7 @@ use super::{Keychain, Config, Tenure, BurnchainController, BurnchainTip, EventDi
 use std::convert::TryFrom;
 use std::{thread, time, thread::JoinHandle};
 use std::net::SocketAddr;
+use std::default::Default;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
@@ -19,7 +20,11 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::PeerDB, PeerAddress};
+use stacks::net::{
+    p2p::PeerNetwork, Error as NetError, db::PeerDB, PeerAddress,
+    NetworkResult, rpc::RPCHandlerArgs
+};
+
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
@@ -75,6 +80,10 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
               exit_at_block_height: Option<u64>, poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
+        let handler_args = RPCHandlerArgs { exit_at_block_height: exit_at_block_height.as_ref(),
+                                            .. RPCHandlerArgs::default() };
+
+
         loop {
             let burndb = match BurnDB::open(&burn_db_path, false) {
                 Ok(x) => x,
@@ -105,7 +114,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             };
 
             let net_result = this.run(&burndb, &mut chainstate, &mut mem_pool, None,
-                                      false, poll_timeout, exit_at_block_height.clone())
+                                      false, poll_timeout, &handler_args)
                 .unwrap();
             if net_result.has_transactions() {
                 event_dispatcher.process_new_mempool_txs(net_result.transactions())
