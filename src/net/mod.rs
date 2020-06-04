@@ -357,10 +357,20 @@ impl PartialEq for Error {
 
 /// Helper trait for various primitive types that make up Stacks messages
 pub trait StacksMessageCodec {
+    /// serialize implementors _should never_ error unless there is an underlying
+    ///   failure in writing to the `fd`
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error>
         where Self: Sized;
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, Error>
         where Self: Sized;
+    /// Convenience for serialization to a vec.
+    ///  this function unwraps any underlying serialization error
+    fn serialize_to_vec(&self) -> Vec<u8> where Self: Sized {
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes)
+            .expect("BUG: serialization to buffer failed.");
+        bytes
+    }
 }
 
 /// A container for an IPv4 or IPv6 address.
@@ -841,14 +851,18 @@ impl PeerHost {
 /// The data we return on GET /v2/info
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPeerInfoData {
-    peer_version: u32,
-    burn_consensus: ConsensusHash,
-    burn_block_height: u64,
-    stable_burn_consensus: ConsensusHash,
-    stable_burn_block_height: u64,
-    server_version: String,
-    network_id: u32,
-    parent_network_id: u32,
+    pub peer_version: u32,
+    pub burn_consensus: ConsensusHash,
+    pub burn_block_height: u64,
+    pub stable_burn_consensus: ConsensusHash,
+    pub stable_burn_block_height: u64,
+    pub server_version: String,
+    pub network_id: u32,
+    pub parent_network_id: u32,
+    pub stacks_tip_height: u64,
+    pub stacks_tip: BlockHeaderHash,
+    pub stacks_tip_burn_block: String,
+    pub exit_at_block_height: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -1372,6 +1386,12 @@ impl NetworkResult {
         self.pushed_transactions.len() > 0 || self.uploaded_transactions.len() > 0
     }
 
+    pub fn transactions(&self) -> Vec<StacksTransaction> {
+        self.pushed_transactions.values()
+            .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
+            .chain(self.uploaded_transactions.iter().map(|x| x.clone())).collect()
+    }
+
     pub fn has_data_to_store(&self) -> bool {
         self.has_blocks() || self.has_microblocks() || self.has_transactions()
     }
@@ -1443,6 +1463,7 @@ pub mod test {
     use net::db::*;
     use net::neighbors::*;
     use net::p2p::*;
+    use net::rpc::RPCHandlerArgs;
     use net::poll::*;
     use net::relay::*;
     use net::Error as net_error;
@@ -1900,7 +1921,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10, &RPCHandlerArgs::default());
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
@@ -1914,7 +1935,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10, &RPCHandlerArgs::default());
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);

@@ -1,16 +1,20 @@
 use super::{Keychain, Config, BurnchainController, BurnchainTip, EventDispatcher};
 use crate::config::HELIUM_BLOCK_LIMIT;
 
-use std::convert::TryFrom;
+use std::convert::{ TryFrom, TryInto };
 use std::{thread, thread::JoinHandle};
 use std::net::SocketAddr;
 use std::collections::VecDeque;
+use std::default::Default;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, PublicKey};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
-use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, TransactionAnchorMode};
+use stacks::chainstate::stacks::{
+    StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner,
+    StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload,
+    TransactionAnchorMode, StacksBlockHeader };
 use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
 use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -23,7 +27,6 @@ use stacks::chainstate::stacks::{Error as ChainstateError};
 use stacks::chainstate::stacks::StacksPublicKey;
 
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer }, relay::Relayer };
 use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -31,13 +34,16 @@ use stacks::util::strings::UrlString;
 use stacks::util::hash::Hash160;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::net::NetworkResult;
-use stacks::net::PeerAddress;
+use stacks::net::{
+    db::{ PeerDB, LocalPeer }, relay::Relayer,
+    p2p::PeerNetwork, Error as NetError, PeerAddress,
+    NetworkResult, rpc::RPCHandlerArgs
+};
 use std::sync::mpsc;
 use std::sync::mpsc::{sync_channel, TrySendError, TryRecvError, SyncSender, Receiver};
+
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
-use std::convert::TryInto;
 use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
 use stacks::vm::costs::ExecutionCost;
@@ -144,7 +150,8 @@ fn inner_process_tenure(
     for processed_block in processed_blocks.into_iter() {
         match processed_block {
             (Some((header, receipts)), _) => {
-                dispatcher_announce(&chain_state.blocks_path, dispatcher, header, receipts);
+                dispatcher_announce_block(&chain_state.blocks_path, dispatcher,
+                                          header, Some(parent_burn_header_hash), burn_db, receipts);
             },
             _ => {}
         }
@@ -228,6 +235,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
     let block_limit = config.block_limit;
+    let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
@@ -246,6 +254,9 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     let mut results_with_data = VecDeque::new();
 
     let server_thread = thread::spawn(move || {
+        let handler_args = RPCHandlerArgs { exit_at_block_height: exit_at_block_height.as_ref(),
+                                            .. RPCHandlerArgs::default() };
+
         loop {
             let download_backpressure = results_with_data.len() > 0;
             let poll_ms = 
@@ -258,10 +269,12 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                     poll_timeout
                 };
 
-            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), download_backpressure, poll_ms)
+            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
+                                          download_backpressure, poll_ms,
+                                          &handler_args)
                 .unwrap();
 
-            if network_result.has_blocks() || network_result.has_microblocks() {
+            if network_result.has_data_to_store() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
             }
 
@@ -346,7 +359,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
                         // TODO: pass the poison microblock transaction off to the miner!
                         if let Some((header_info, receipts)) = headers_and_receipts_opt {
-                            dispatcher_announce(&blocks_path, &mut event_dispatcher, header_info, receipts);
+                            dispatcher_announce_block(&blocks_path, &mut event_dispatcher, header_info, None, &mut burndb, receipts);
                             num_processed += 1;
                         }
                     }
@@ -356,14 +369,18 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
-                    let block_receipts = relayer.process_network_result(&local_peer, net_result,
+                    let net_receipts = relayer.process_network_result(&local_peer, net_result,
                                                                         &mut burndb, &mut chainstate, &mut mem_pool)
                         .expect("BUG: failure processing network results");
 
                     // TODO: extricate the poison block transaction(s) from the relayer and feed
                     // them to the miner
-                    for (stacks_header, tx_receipts) in block_receipts {
-                        dispatcher_announce(&blocks_path, &mut event_dispatcher, stacks_header, tx_receipts);
+                    for (stacks_header, tx_receipts) in net_receipts.blocks_processed {
+                        dispatcher_announce_block(&blocks_path, &mut event_dispatcher, stacks_header, None, &mut burndb, tx_receipts);
+                    }
+
+                    if net_receipts.mempool_txs_added.len() > 0 {
+                        event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
                 },
                 RelayerDirective::ProcessTenure(burn_header_hash, parent_burn_header_hash, block_header_hash) => {
@@ -458,14 +475,28 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     Ok(())
 }
 
-fn dispatcher_announce(blocks_path: &str, event_dispatcher: &mut EventDispatcher,
-                       metadata: StacksHeaderInfo, receipts: Vec<StacksTransactionReceipt>) {
-    let block = {
+fn dispatcher_announce_block(blocks_path: &str, event_dispatcher: &mut EventDispatcher,
+                             metadata: StacksHeaderInfo,
+                             parent_burn_header_hash: Option<&BurnchainHeaderHash>,
+                             burndb: &mut BurnDB,
+                             receipts: Vec<StacksTransactionReceipt>) {
+    let block: StacksBlock = {
         let block_path = StacksChainState::get_block_path(
             blocks_path, 
             &metadata.burn_header_hash, 
             &metadata.anchored_header.block_hash()).unwrap();
         StacksChainState::consensus_load(&block_path).unwrap()
+    };
+
+    let parent_index_hash = match parent_burn_header_hash {
+        Some(x) => StacksBlockHeader::make_index_block_hash(x, &block.header.parent_block),
+        None => {
+            let parent_burn_header_hash = StacksChainState::get_parent_burn_header_hash(
+                &burndb.index_conn(), &block.header.parent_block, &metadata.burn_header_hash)
+                .expect("Failed to get parent burn header hash for processed block")
+                .expect("Failed to get parent burn header hash for processed block");
+            StacksBlockHeader::make_index_block_hash(&parent_burn_header_hash, &block.header.parent_block)
+        }
     };
 
     let chain_tip = ChainTip {
@@ -474,7 +505,7 @@ fn dispatcher_announce(blocks_path: &str, event_dispatcher: &mut EventDispatcher
         receipts
     };
 
-    event_dispatcher.process_chain_tip(&chain_tip);
+    event_dispatcher.process_chain_tip(&chain_tip, &parent_index_hash);
 }
 
 impl InitializedNeonNode {
