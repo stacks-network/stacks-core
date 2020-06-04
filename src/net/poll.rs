@@ -470,26 +470,26 @@ mod test {
 
     #[test]
     fn test_register_too_many_peers() {
-        let mut ns = NetworkState::new(20).unwrap();
-        let mut server_events = vec![];
+        let mut ns = NetworkState::new(10).unwrap();
         let mut event_ids = HashSet::new();
+        let addr = format!("127.0.0.1:{}", &49019).parse::<SocketAddr>().unwrap();
+        let server_event_id = ns.bind(&addr).unwrap();
+
         for port in 49020..49030 {
             let addr = format!("127.0.0.1:{}", &port).parse::<SocketAddr>().unwrap();
-            let event_id = ns.bind(&addr).unwrap();
-            server_events.push(event_id);
-            event_ids.insert(event_id);
+            event_ids.insert(server_event_id);
             
             let sock = NetworkState::connect(&addr).unwrap();
 
             // register 10 client events
-            let event_id = ns.register(server_events[port - 49020], 11, &sock).unwrap();
+            let event_id = ns.register(server_event_id, 11, &sock).unwrap();
             assert!(!event_ids.contains(&event_id));
         }
 
         // the 21st socket should fail
-        let addr = "127.0.0.1:49020".parse::<SocketAddr>().unwrap();
+        let addr = "127.0.0.1:49031".parse::<SocketAddr>().unwrap();
         let sock = NetworkState::connect(&addr).unwrap();
-        let res = ns.register(server_events[0], 11, &sock);
+        let res = ns.register(server_event_id, 11, &sock);
         assert_eq!(Err(net_error::TooManyPeers), res);
     }
     
