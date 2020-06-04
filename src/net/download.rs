@@ -1963,7 +1963,7 @@ pub mod test {
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_overwhelmed() {
-        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed", 3220, 5,
+        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed", 3230, 5,
                                        |ref mut peer_configs| {
                                            // build initial network topology -- a star with
                                            // peers[0] at the center, with all the blocks
@@ -1985,6 +1985,67 @@ pub mod test {
                                                peer_configs[i].connection_opts.max_clients_per_host = 1;
                                                peer_configs[i].connection_opts.num_clients = 1;
                                                peer_configs[i].connection_opts.idle_timeout = 1;
+                                           }
+
+                                           for n in neighbors.drain(..) {
+                                               peer_configs[0].add_neighbor(&n);
+                                           }
+                                       },
+                                       |num_blocks, ref mut peers| {
+                                           // build up block data to replicate
+                                           let mut block_data = vec![];
+                                           for _ in 0..num_blocks {
+                                               let (burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
+                                               peers[0].next_burnchain_block(burn_ops.clone());
+                                               peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                                               for i in 1..peers.len() {
+                                                   peers[i].next_burnchain_block(burn_ops.clone());
+                                               }
+
+                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                           }
+                                           block_data
+                                       },
+                                       |_| {},
+                                       |peer| {
+                                           // check peer health
+                                           // nothing should break 
+                                           match peer.network.block_downloader {
+                                               Some(ref dl) => {
+                                                   assert_eq!(dl.broken_peers.len(), 0);
+                                                   assert_eq!(dl.dead_peers.len(), 0);
+                                               },
+                                               None => {}
+                                           }
+                                           true
+                                       },
+                                       |_| true);
+    }
+    
+    #[test]
+    #[ignore]
+    pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
+        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed_sockets", 3240, 5,
+                                       |ref mut peer_configs| {
+                                           // build initial network topology -- a star with
+                                           // peers[0] at the center, with all the blocks
+                                           assert_eq!(peer_configs.len(), 5);
+                                           let mut neighbors = vec![];
+                                           
+                                           for p in peer_configs.iter_mut() {
+                                               p.connection_opts.disable_block_advertisement = true;
+                                           }
+
+                                           let peer_0 = peer_configs[0].to_neighbor();
+
+                                           for i in 1..peer_configs.len() {
+                                               neighbors.push(peer_configs[i].to_neighbor());
+                                               peer_configs[i].add_neighbor(&peer_0);
+
+                                               // severely restrict the number of events
+                                               peer_configs[i].connection_opts.max_sockets = 10;
                                            }
 
                                            for n in neighbors.drain(..) {
