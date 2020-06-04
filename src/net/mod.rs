@@ -851,14 +851,18 @@ impl PeerHost {
 /// The data we return on GET /v2/info
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPeerInfoData {
-    peer_version: u32,
-    burn_consensus: ConsensusHash,
-    burn_block_height: u64,
-    stable_burn_consensus: ConsensusHash,
-    stable_burn_block_height: u64,
-    server_version: String,
-    network_id: u32,
-    parent_network_id: u32,
+    pub peer_version: u32,
+    pub burn_consensus: ConsensusHash,
+    pub burn_block_height: u64,
+    pub stable_burn_consensus: ConsensusHash,
+    pub stable_burn_block_height: u64,
+    pub server_version: String,
+    pub network_id: u32,
+    pub parent_network_id: u32,
+    pub stacks_tip_height: u64,
+    pub stacks_tip: BlockHeaderHash,
+    pub stacks_tip_burn_block: String,
+    pub exit_at_block_height: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -1916,7 +1920,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10, None);
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
@@ -1930,7 +1934,7 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10, None);
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);

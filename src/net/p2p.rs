@@ -2217,7 +2217,9 @@ impl PeerNetwork {
     /// -- runs the p2p and http peer main loop
     /// Returns the table of unhandled network messages to be acted upon, keyed by the neighbors
     /// that sent them (i.e. keyed by their event IDs)
-    pub fn run(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, dns_client_opt: Option<&mut DNSClient>, download_backpressure: bool, poll_timeout: u64) -> Result<NetworkResult, net_error> {
+    pub fn run(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
+               dns_client_opt: Option<&mut DNSClient>, download_backpressure: bool,
+               poll_timeout: u64, exit_at_block_height: Option<u64>) -> Result<NetworkResult, net_error> {
         let mut poll_states = match self.network {
             None => {
                 test_debug!("{:?}: network not connected", &self.local_peer);
@@ -2237,7 +2239,9 @@ impl PeerNetwork {
         let mut result = NetworkResult::new();
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
-            let http_stacks_msgs = network.http.run(network_state, network.chain_view.clone(), &network.peers, burndb, &network.peerdb, chainstate, mempool, http_poll_state)?;
+            let http_stacks_msgs = network.http.run(
+                network_state, network.chain_view.clone(), &network.peers, burndb,
+                &network.peerdb, chainstate, mempool, http_poll_state, exit_at_block_height)?;
             result.consume_http_uploads(http_stacks_msgs);
             Ok(())
         })?;

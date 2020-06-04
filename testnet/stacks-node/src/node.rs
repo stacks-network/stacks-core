@@ -72,7 +72,7 @@ pub struct Node {
 
 fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
               burn_db_path: String, stacks_chainstate_path: String, event_dispatcher: EventDispatcher,
-              poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
+              exit_at_block_height: Option<u64>, poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
         loop {
@@ -104,7 +104,8 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            let net_result = this.run(&burndb, &mut chainstate, &mut mem_pool, None, false, poll_timeout)
+            let net_result = this.run(&burndb, &mut chainstate, &mut mem_pool, None,
+                                      false, poll_timeout, exit_at_block_height.clone())
                 .unwrap();
             if net_result.has_transactions() {
                 event_dispatcher.process_new_mempool_txs(net_result.transactions())
@@ -272,6 +273,7 @@ impl Node {
         };
 
         let event_dispatcher = self.event_dispatcher.clone();
+        let exit_at_block_height = self.config.burnchain.process_exit_at_block_height.clone();
 
         let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
         let _join_handle = spawn_peer(
@@ -281,6 +283,7 @@ impl Node {
             self.config.get_burn_db_file_path(),
             self.config.get_chainstate_path(),
             event_dispatcher,
+            exit_at_block_height,
             1000).unwrap();
 
         info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);

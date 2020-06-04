@@ -10,7 +10,7 @@ use crate::{
     neon, Config, Keychain, config::InitialBalance, BitcoinRegtestController, BurnchainController,
     config::EventObserverConfig, config::EventKeyType,
 };
-use stacks::net::AccountEntryResponse;
+use stacks::net::{AccountEntryResponse, RPCPeerInfoData};
 use super::bitcoin_regtest::BitcoinCoreController;
 use std::{thread, env};
 use std::sync::Arc;
@@ -280,6 +280,10 @@ fn microblock_integration_test() {
     assert_eq!(res.nonce, 1);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 98300);
 
+    let path = format!("{}/v2/info", &http_origin);
+    let tip_info = client.get(&path).send().unwrap().json::<RPCPeerInfoData>().unwrap();
+    assert!(tip_info.stacks_tip_height >= 3);
+
     let memtx_events = test_observer::get_memtxs();
     assert_eq!(memtx_events.len(), 1);
     assert_eq!(&memtx_events[0], &format!("0x{}", &bytes_to_hex(&tx)));
@@ -288,6 +292,8 @@ fn microblock_integration_test() {
     let blocks_observed = test_observer::get_blocks();
     // we at least mined 5 blocks
     assert!(blocks_observed.len() >= 3, "Blocks observed {} should be >= 3", blocks_observed.len());
+    assert_eq!(blocks_observed.len() as u64, tip_info.stacks_tip_height);
+
     let mut prior = None;
     for block in blocks_observed.iter() {
         let parent_index_hash = block.get("parent_index_block_hash")
