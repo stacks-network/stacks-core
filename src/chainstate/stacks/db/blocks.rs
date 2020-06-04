@@ -1385,8 +1385,17 @@ impl StacksChainState {
                     
                     // check block
                     if StacksChainState::has_block_indexed(&self.blocks_path, &index_block_hash)? {
-                        test_debug!("Have anchored block {} in {}", &index_block_hash, &self.blocks_path);
-                        block_bits.push(true);
+                        // it had better _not_ be empty (empty indicates invalid)
+                        let block_path = StacksChainState::get_index_block_path(&self.blocks_path, &index_block_hash)?;
+                        let sz = StacksChainState::get_file_size(&block_path)?;
+                        if sz > 0 {
+                            test_debug!("Have anchored block {} in {}", &index_block_hash, &self.blocks_path);
+                            block_bits.push(true);
+                        }
+                        else {
+                            test_debug!("Anchored block {} is orphaned; not reporting in inventory", &index_block_hash);
+                            block_bits.push(false);
+                        }
                     }
                     else {
                         test_debug!("Do not have {} in {}", &index_block_hash, &self.blocks_path);
@@ -1400,15 +1409,25 @@ impl StacksChainState {
                     match self.get_confirmed_microblock_index_hash(&index_block_hash)? {
                         Some(microblock_index_hash) => {
                             if self.has_confirmed_microblocks_indexed(&microblock_index_hash)? {
-                                let num_mblocks = self.get_microblock_stream_length(&index_block_hash)?;
-                                if num_mblocks > 0 {
-                                    // only report this stream as "present" if there are any blocks
-                                    // in this stream.
-                                    test_debug!("Have confirmed microblocks {} in {}", &microblock_index_hash, &self.blocks_path);
-                                    microblock_bits.push(true);
+                                let mblocks_path = StacksChainState::get_index_block_path(&self.blocks_path, &microblock_index_hash)?;
+                                let sz = StacksChainState::get_file_size(&mblocks_path)?;
+                                if sz > 0 {
+                                    // state was not orphaned
+                                    let num_mblocks = self.get_microblock_stream_length(&index_block_hash)?;
+                                    if num_mblocks > 0 {
+                                        // only report this stream as "present" if there are any blocks
+                                        // in this stream.
+                                        test_debug!("Have confirmed microblocks {} in {}", &microblock_index_hash, &self.blocks_path);
+                                        microblock_bits.push(true);
+                                    }
+                                    else {
+                                        test_debug!("Do not have confirmed microblocks {} in {} -- zero-length stream", &microblock_index_hash, &self.blocks_path);
+                                        microblock_bits.push(false);
+                                    }
                                 }
                                 else {
-                                    test_debug!("Do not have confirmed microblocks {} in {} -- zero-length stream", &microblock_index_hash, &self.blocks_path);
+                                    // state was orphaned
+                                    test_debug!("Microblock stream {} is orphaned; not reporting in inventory", &microblock_index_hash);
                                     microblock_bits.push(false);
                                 }
                             }
@@ -1511,9 +1530,16 @@ impl StacksChainState {
             StacksChainState::delete_staging_microblock_data(tx, &mblock_hash)?;
         }
         
-        // store empty file in chunk store for this block
-        let block_path = StacksChainState::make_block_dir(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
-        StacksChainState::atomic_file_write(&block_path, &vec![])?;
+        // mark the block as empty if we haven't already
+        let block_path = StacksChainState::get_block_path(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
+        match fs::metadata(&block_path) {
+            Ok(_) => {
+                StacksChainState::free_block(tx.get_blocks_path(), burn_hash, anchored_block_hash);
+            },
+            Err(_) => {
+                StacksChainState::atomic_file_write(&block_path, &vec![])?;
+            }
+        }
 
         Ok(())
     }
@@ -1653,6 +1679,17 @@ impl StacksChainState {
             
             tx.execute(&update_block_children_sql, &update_block_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+
+            // mark the block as empty if we haven't already
+            let block_path = StacksChainState::get_block_path(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
+            match fs::metadata(&block_path) {
+                Ok(_) => {
+                    StacksChainState::free_block(tx.get_blocks_path(), burn_hash, anchored_block_hash);
+                },
+                Err(_) => {
+                    StacksChainState::atomic_file_write(&block_path, &vec![])?;
+                }
+            }
         }
 
         Ok(())
@@ -1728,7 +1765,7 @@ impl StacksChainState {
 
     /// How many microblocks are in a given stream?
     pub fn get_microblock_stream_length(&self, index_anchor_block_hash: &BlockHeaderHash) -> Result<u64, Error> {
-        let sql = "SELECT COUNT(microblock_hash) FROM staging_microblocks WHERE index_block_hash = ?1 AND processed = 1".to_string();
+        let sql = "SELECT COUNT(microblock_hash) FROM staging_microblocks WHERE index_block_hash = ?1 AND processed = 1 AND orphaned = 0".to_string();
         let args = [&index_anchor_block_hash as &dyn ToSql];
         let cnt = query_count(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
         Ok(cnt as u64)
@@ -1736,7 +1773,7 @@ impl StacksChainState {
 
     /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
     pub fn get_confirmed_microblock_index_hash(&mut self, index_anchor_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
-        let sql = "SELECT microblock_hash,burn_header_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 LIMIT 1";
+        let sql = "SELECT microblock_hash,burn_header_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 AND orphaned = 0 LIMIT 1";
         let args = [&index_anchor_block_hash as &dyn ToSql];
 
         let row_data_opt = self.blocks_db.query_row(sql, &args,
@@ -4990,6 +5027,51 @@ pub mod test {
                         assert!(!block_inv_all.has_ith_microblock_stream(j as u16));
                     }
                 }
+            }
+        }
+
+        // mark blocks as empty.  Should also orphan its descendent microblock stream
+        for i in 0..blocks.len() {
+            test_debug!("Mark block {} as invalid", i);
+            StacksChainState::free_block(&chainstate.blocks_path, &burn_headers[i], &blocks[i].block_hash());
+            
+            // some anchored blocks are stored (to staging)
+            let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
+            assert_eq!(block_inv_all.bitlen as usize, block_hashes.len());
+            for j in 0..(i+1) {
+                assert!(!block_inv_all.has_ith_block(j as u16), format!("Have orphaned block {} from bitvec {}", j, to_hex(&block_inv_all.block_bitvec)));
+                assert!(block_inv_all.has_ith_microblock_stream(j as u16), format!("Missing microblock {} from bitvec {}", j, to_hex(&block_inv_all.microblocks_bitvec)));
+            }
+            for j in i+1..blocks.len() {
+                assert!(block_inv_all.has_ith_block(j as u16));
+                assert!(block_inv_all.has_ith_microblock_stream(j as u16));
+            }
+        }
+        
+        // mark microblocks as empty.  Should also orphan its descendent microblock stream
+        for i in 0..blocks.len() {
+            test_debug!("Mark block {} as invalid", i);
+            let index_hash = StacksBlockHeader::make_index_block_hash(&burn_headers[i], &blocks[i].block_hash());
+            let mblock_index_hash = chainstate.get_confirmed_microblock_index_hash(&index_hash).unwrap().unwrap();
+            let mblock_path = StacksChainState::get_index_block_path(&chainstate.blocks_path, &mblock_index_hash).unwrap();
+            
+            fs::OpenOptions::new()
+                .read(false)
+                .write(true)
+                .truncate(true)
+                .open(&mblock_path)
+                .expect(&format!("FATAL: Failed to mark block path '{}' as free", &mblock_path));
+            
+            // some anchored blocks are stored (to staging)
+            let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
+            assert_eq!(block_inv_all.bitlen as usize, block_hashes.len());
+            for j in 0..(i+1) {
+                assert!(!block_inv_all.has_ith_block(j as u16), format!("Have orphaned block {} from bitvec {}", j, to_hex(&block_inv_all.block_bitvec)));
+                assert!(!block_inv_all.has_ith_microblock_stream(j as u16), format!("Have orphaned microblock {} from bitvec {}", j, to_hex(&block_inv_all.microblocks_bitvec)));
+            }
+            for j in i+1..blocks.len() {
+                assert!(!block_inv_all.has_ith_block(j as u16));
+                assert!(block_inv_all.has_ith_microblock_stream(j as u16));
             }
         }
     }
