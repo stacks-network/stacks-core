@@ -172,7 +172,7 @@ impl NetworkState {
     /// taken.
     /// Return the actual event ID used (it may be different than hint_event_id)
     pub fn register(&mut self, server_event_id: usize, hint_event_id: usize, sock: &mio_net::TcpStream) -> Result<usize, net_error> {
-        let hint_event_id = hint_event_id % self.event_capacity;
+        let hint_event_id = hint_event_id % (self.event_capacity + self.servers.len());
         if let Some(x) = self.event_map.get(&server_event_id) {
             if x != &0 {
                 // not a server event
@@ -193,6 +193,8 @@ impl NetworkState {
             else {
                 hint_event_id
             };
+
+        assert!(self.event_map.len() <= self.event_capacity + self.servers.len(), format!("BUG: event map exceeded event capacity ({} > {} + {})", self.event_map.len(), self.event_capacity, self.servers.len()));
         
         self.poll.register(sock, mio::Token(event_id), Ready::all(), PollOpt::edge())
             .map_err(|e| {
@@ -201,12 +203,13 @@ impl NetworkState {
             })?;
 
         self.event_map.insert(event_id, server_event_id);
-        test_debug!("Register socket {:?} as event {} ({}) on server {}", sock, event_id, hint_event_id, server_event_id);
+        test_debug!("Register socket {:?} as event {} ({}) on server {}.  Events total (max {}): {}", sock, event_id, hint_event_id, server_event_id, self.event_capacity, self.event_map.len());
         Ok(event_id)
     }
 
     /// Deregister a socket event
     pub fn deregister(&mut self, event_id: usize, sock: &mio_net::TcpStream) -> Result<(), net_error> {
+        assert!(self.event_map.contains_key(&event_id), "BUG: no such socket {}", event_id);
         self.poll.deregister(sock)
             .map_err(|e| {
                 error!("Failed to deregister socket {}: {:?}", event_id, &e);
@@ -218,7 +221,7 @@ impl NetworkState {
         sock.shutdown(Shutdown::Both)
             .map_err(|_e| net_error::SocketError)?;
 
-        debug!("Socket deregistered: {}, {:?}", event_id, sock);
+        debug!("Socket deregistered: {}, {:?} (Events total: {}, max: {})", event_id, sock, self.event_map.len(), self.event_capacity);
         Ok(())
     }
 
@@ -228,9 +231,9 @@ impl NetworkState {
         let mut in_use_count = 0;
         let mut event_map_count = 0;
 
-        for _ in 0..self.event_capacity {
+        for _ in 0..(self.event_capacity + self.servers.len()) {
             if self.event_map.contains_key(&ret) || in_use.contains(&ret) {
-                ret = (ret + 1) % self.event_capacity;
+                ret = (ret + 1) % (self.event_capacity + self.servers.len());
 
                 if in_use.contains(&ret) {
                     in_use_count += 1;
@@ -244,14 +247,14 @@ impl NetworkState {
             }
         }
 
-        debug!("Too many peers (events: {}, in_use: {})", event_map_count, in_use_count);
+        debug!("Too many peers (events: {}, in_use: {}, max: {})", event_map_count, in_use_count, self.event_capacity);
         return Err(net_error::TooManyPeers);
     }
 
     /// next event ID
     pub fn next_event_id(&mut self) -> Result<usize, net_error> {
         let ret = self.make_next_event_id(self.count, &HashSet::new())?;
-        self.count = (ret + 1) % self.event_capacity;
+        self.count = (ret + 1) % (self.event_capacity + self.servers.len());
         Ok(ret)
     }
 
@@ -349,13 +352,13 @@ impl NetworkState {
                             Ok(eid) => eid,
                             Err(_e) => {
                                 // no poll slots available. Close the socket and carry on.
-                                info!("Too many peers, closing {:?}", &_client_addr);
+                                info!("Too many peers, closing {:?} ({:?})", &_client_addr, &client_sock);
                                 let _ = client_sock.shutdown(Shutdown::Both);
                                 continue;
                             }
                         };
 
-                        self.count = (next_event_id + 1) % self.event_capacity;
+                        self.count = (next_event_id + 1) % (self.event_capacity + self.servers.len());
 
                         new_events.insert(next_event_id);
                         
