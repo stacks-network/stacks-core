@@ -336,7 +336,8 @@ impl HttpPeer {
                                  burndb: &BurnDB, peerdb: &PeerDB,
                                  chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
                                  event_id: usize, client_sock: &mut mio_net::TcpStream,
-                                 convo: &mut ConversationHttp) -> Result<(bool, Vec<StacksMessageType>), net_error> {
+                                 convo: &mut ConversationHttp,
+                                 handler_args: &RPCHandlerArgs) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
         let recv_res = convo.recv(client_sock);
@@ -380,7 +381,7 @@ impl HttpPeer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        let msgs = match convo.chat(chain_view, peers, burndb, peerdb, chainstate, mempool) {
+        let msgs = match convo.chat(chain_view, peers, burndb, peerdb, chainstate, mempool, handler_args) {
             Ok(msgs) => msgs,
             Err(e) => {
                 debug!("Failed to converse HTTP on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
@@ -428,7 +429,7 @@ impl HttpPeer {
     /// Return the list of events that correspond to failed conversations, as well as the list of
     /// peer network messages we'll need to forward
     fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
-                             chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> (Vec<StacksMessageType>, Vec<usize>) {
+                             chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, handler_args: &RPCHandlerArgs) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
@@ -451,7 +452,7 @@ impl HttpPeer {
                     // activity on a http socket
                     test_debug!("Process HTTP data from {:?}", convo);
                     match HttpPeer::process_http_conversation(&self.chain_view, peers, burndb, peerdb, chainstate, mempool,
-                                                              *event_id, client_sock, convo) {
+                                                              *event_id, client_sock, convo, handler_args) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {
                                 to_remove.push(*event_id);
@@ -505,8 +506,10 @@ impl HttpPeer {
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the list of messages to forward along to the peer network.
-    pub fn run(&mut self, network_state: &mut NetworkState, new_chain_view: BurnchainView, p2p_peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
-               chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, mut poll_state: NetworkPollState) -> Result<Vec<StacksMessageType>, net_error> {
+    pub fn run(&mut self, network_state: &mut NetworkState, new_chain_view: BurnchainView,
+               p2p_peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
+               chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
+               mut poll_state: NetworkPollState, handler_args: &RPCHandlerArgs) -> Result<Vec<StacksMessageType>, net_error> {
 
         // update burnchain snapshot
         self.chain_view = new_chain_view;
@@ -518,7 +521,8 @@ impl HttpPeer {
         self.process_connecting_sockets(network_state, chainstate, &mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let (stacks_msgs, error_events) = self.process_ready_sockets(&mut poll_state, p2p_peers, burndb, peerdb, chainstate, mempool);
+        let (stacks_msgs, error_events) = self.process_ready_sockets(
+            &mut poll_state, p2p_peers, burndb, peerdb, chainstate, mempool, handler_args);
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);
             self.deregister_http(network_state, error_event);

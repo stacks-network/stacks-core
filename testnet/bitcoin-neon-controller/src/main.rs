@@ -49,7 +49,23 @@ async fn main() -> http_types::Result<()> {
             Err(err) => err.duration(),
         }.as_secs() as u64;
 
-        let time_since_genesis = now - config.neon.genesis_timestamp;
+        let genesis_timestamp = if env::var("DYNAMIC_GENESIS_TIMESTAMP") == Ok("1".into()) {
+            println!("INFO: detected DYNAMIC_GENESIS_TIMESTAMP, will set the genesis timestamp to {}", now);
+            now.clone()
+        } else {
+            match std::env::var("STATIC_GENESIS_TIMESTAMP") {
+                Ok(val) =>  match val.parse::<u64>() {
+                    Ok(val) => val,
+                    Err(err) => {
+                        println!("WARN: parsing STATIC_GENESIS_TIMESTAMP failed ({:?}), falling back on {}", err, config.neon.genesis_timestamp);
+                        config.neon.genesis_timestamp
+                    },
+                },
+                _ => config.neon.genesis_timestamp
+            }
+        };
+
+        let time_since_genesis = now - genesis_timestamp;
 
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
@@ -259,10 +275,28 @@ async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile
 
     let rpc_req = RPCRequest::generate_next_block_req(blocks_count, address);
 
-    let stream = TcpStream::connect(rpc_addr).await.unwrap();
-    let body = serde_json::to_vec(&rpc_req).unwrap();
+    let stream = match TcpStream::connect(rpc_addr).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            println!("ERROR: connection failed  - {:?}", err);
+            return
+        }
+    };
+    let body = match serde_json::to_vec(&rpc_req) {
+        Ok(body) => body,
+        Err(err) => {
+            println!("ERROR: serialization failed  - {:?}", err);
+            return
+        }
+    };
     let req = build_request(&config, body);
-    client::connect(stream.clone(), req).await.unwrap();
+    match client::connect(stream.clone(), req).await {
+        Ok(_) => {},
+        Err(err) => {
+            println!("ERROR: rpc invokation failed  - {:?}", err);
+            return
+        }
+    };
 }
 
 fn build_request(config: &ConfigFile, body: Vec<u8>) -> Request {

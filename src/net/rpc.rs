@@ -76,6 +76,8 @@ use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::hash::Hash160;
 
+use crate::{version_string};
+
 use vm::{
     clarity::ClarityConnection,
     ClarityName,
@@ -96,6 +98,11 @@ use rand::prelude::*;
 use rand::thread_rng;
 
 pub const STREAM_CHUNK_SIZE : u64 = 4096;
+
+#[derive(Default)]
+pub struct RPCHandlerArgs <'a> {
+    pub exit_at_block_height: Option<&'a u64>,
+}
 
 pub struct ConversationHttp {
     network_id: u32,
@@ -135,9 +142,9 @@ impl fmt::Debug for ConversationHttp {
 }
 
 impl RPCPeerInfoData {
-    pub fn from_db(burnchain: &Burnchain, burndb: &BurnDB, peerdb: &PeerDB) -> Result<RPCPeerInfoData, net_error> {
-        let burnchain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).map_err(net_error::DBError)?;
-        let local_peer = PeerDB::get_local_peer(peerdb.conn()).map_err(net_error::DBError)?;
+    pub fn from_db(burnchain: &Burnchain, burndb: &BurnDB, peerdb: &PeerDB, exit_at_block_height: &Option<&u64>) -> Result<RPCPeerInfoData, net_error> {
+        let burnchain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn())?;
+        let local_peer = PeerDB::get_local_peer(peerdb.conn())?;
         let stable_burnchain_tip = {
             let ic = burndb.index_conn();
             let stable_height = 
@@ -148,10 +155,16 @@ impl RPCPeerInfoData {
                     burnchain_tip.block_height - (burnchain.stable_confirmations as u64)
                 };
 
-            BurnDB::get_block_snapshot_in_fork(&ic, stable_height, &burnchain_tip.burn_header_hash)
-                .map_err(net_error::DBError)?
+            BurnDB::get_block_snapshot_in_fork(&ic, stable_height, &burnchain_tip.burn_header_hash)?
                 .ok_or(net_error::DBError(db_error::NotFoundError))?
         };
+
+        let server_version = version_string(
+            option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
+            option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0"));
+        let stacks_tip_burn_block = burnchain_tip.canonical_stacks_tip_burn_hash;
+        let stacks_tip = burnchain_tip.canonical_stacks_tip_hash;
+        let stacks_tip_height = burnchain_tip.canonical_stacks_tip_height;
 
         Ok(RPCPeerInfoData {
             peer_version: burnchain.peer_version,
@@ -159,9 +172,13 @@ impl RPCPeerInfoData {
             burn_block_height: burnchain_tip.block_height,
             stable_burn_consensus: stable_burnchain_tip.consensus_hash,
             stable_burn_block_height: stable_burnchain_tip.block_height,
-            server_version: "TODO".to_string(),
+            server_version,
             network_id: local_peer.network_id,
             parent_network_id: local_peer.parent_network_id,
+            stacks_tip_height,
+            stacks_tip,
+            stacks_tip_burn_block: stacks_tip_burn_block.to_hex(),
+            exit_at_block_height: exit_at_block_height.cloned()
         })
     }
 }
@@ -297,9 +314,10 @@ impl ConversationHttp {
 
     /// Handle a GET peer info.
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
-    fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain, burndb: &BurnDB, peerdb: &PeerDB) -> Result<(), net_error> {
+    fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain,
+                                burndb: &BurnDB, peerdb: &PeerDB, handler_args: &RPCHandlerArgs) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        match RPCPeerInfoData::from_db(burnchain, burndb, peerdb) {
+        match RPCPeerInfoData::from_db(burnchain, burndb, peerdb, &handler_args.exit_at_block_height) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
                 response.send(http, fd)
@@ -659,7 +677,7 @@ impl ConversationHttp {
     /// Returns a StacksMessageType option -- it's Some(...) if we need to forward a message to the
     /// peer network (like a transaction or a block or microblock)
     pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
-                          chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Option<StacksMessageType>, net_error> {
+                          chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, handler_opts: &RPCHandlerArgs) -> Result<Option<StacksMessageType>, net_error> {
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
@@ -667,7 +685,8 @@ impl ConversationHttp {
 
         let stream_opt = match req {
             HttpRequestType::GetInfo(ref _md) => {
-                ConversationHttp::handle_getinfo(&mut self.connection.protocol, &mut reply, &req, &self.burnchain, burndb, peerdb)?;
+                ConversationHttp::handle_getinfo(&mut self.connection.protocol, &mut reply, &req, &self.burnchain,
+                                                 burndb, peerdb, handler_opts)?;
                 None
             },
             HttpRequestType::GetNeighbors(ref _md) => {
@@ -957,7 +976,7 @@ impl ConversationHttp {
     /// Make progress on in-flight requests and replies.
     /// Returns the list of transactions we'll need to forward to the peer network
     pub fn chat(&mut self, chain_view: &BurnchainView, peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
-                chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<StacksMessageType>, net_error> {
+                chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, handler_args: &RPCHandlerArgs) -> Result<Vec<StacksMessageType>, net_error> {
 
         // if we have an in-flight error, then don't take any more requests.
         if self.pending_error_response.is_some() {
@@ -982,7 +1001,8 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
-                    let msg_opt = self.handle_request(req, chain_view, peers, burndb, peerdb, chainstate, mempool)?;
+                    let msg_opt = self.handle_request(req, chain_view, peers, burndb,
+                                                      peerdb, chainstate, mempool, handler_args)?;
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
                     }
@@ -1192,7 +1212,7 @@ mod test {
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
-        convo_1.chat(&view_1, &PeerMap::new(), &mut peer_1_burndb, &peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate, &mut peer_1_mempool).unwrap();
+        convo_1.chat(&view_1, &PeerMap::new(), &mut peer_1_burndb, &peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate, &mut peer_1_mempool, &RPCHandlerArgs::default()).unwrap();
 
         peer_1.burndb = Some(peer_1_burndb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
@@ -1205,7 +1225,7 @@ mod test {
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let mut peer_2_mempool = peer_2.mempool.take().unwrap();
 
-        convo_2.chat(&view_2, &PeerMap::new(), &mut peer_2_burndb, &peer_2.network.peerdb, &mut peer_2_stacks_node.chainstate, &mut peer_2_mempool).unwrap();
+        convo_2.chat(&view_2, &PeerMap::new(), &mut peer_2_burndb, &peer_2.network.peerdb, &mut peer_2_stacks_node.chainstate, &mut peer_2_mempool, &RPCHandlerArgs::default()).unwrap();
         
         peer_2.burndb = Some(peer_2_burndb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
@@ -1222,7 +1242,7 @@ mod test {
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
-        convo_1.chat(&view_1, &PeerMap::new(), &mut peer_1_burndb, &peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate, &mut peer_1_mempool).unwrap();
+        convo_1.chat(&view_1, &PeerMap::new(), &mut peer_1_burndb, &peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate, &mut peer_1_mempool, &RPCHandlerArgs::default()).unwrap();
         
         peer_1.burndb = Some(peer_1_burndb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
@@ -1244,7 +1264,7 @@ mod test {
         let peer_server_info = RefCell::new(None);
         test_rpc("test_rpc_getinfo", 40000, 40001, 50000, 50001,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
-                     let peer_info = RPCPeerInfoData::from_db(&peer_server.config.burnchain, peer_server.burndb.as_mut().unwrap(), &peer_server.network.peerdb).unwrap();
+                     let peer_info = RPCPeerInfoData::from_db(&peer_server.config.burnchain, peer_server.burndb.as_mut().unwrap(), &peer_server.network.peerdb, &None).unwrap();
                      *peer_server_info.borrow_mut() = Some(peer_info);
                      
                      convo_client.new_getinfo()

@@ -1715,7 +1715,7 @@ pub mod tests {
                     block_header_hash: BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     new_seed: VRFSeed::from_bytes(&vec![i,i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     parent_block_ptr: (if i == 1 { 0 } else { first_block_height + (i as u64) }) as u32,
-                    parent_vtxindex: (if i == 1 { 0 } else { (2 * (i - 1)) }) as u16,
+                    parent_vtxindex: (if i == 1 { 0 } else { 2 * (i - 1) }) as u16,
                     key_block_ptr: (first_block_height + (i as u64)) as u32,
                     key_vtxindex: (2 * (i - 1) + 1) as u16,
                     memo: vec![i],
