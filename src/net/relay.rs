@@ -1909,40 +1909,62 @@ mod test {
 
                                            let done_flag = *done.borrow();
                                            if is_peer_connected(&peers[0], &peer_1_nk) {
-                                               // push blocks and microblocks in order, and push a
-                                               // transaction that can only be validated once the
-                                               // block and microblocks are processed.
-                                               let ((burn_header_hash, block, microblocks), idx) = {
-                                                    let block_data = blocks_and_microblocks.borrow();
-                                                    let mut idx = blocks_idx.borrow_mut();
-                                                    
-                                                    let ret = block_data[*idx].clone();
-                                                    *idx += 1;
-                                                    if *idx >= block_data.len() {
-                                                        *idx = 0;
-                                                    }
-                                                    (ret, *idx)
+                                               // only submit the next transaction if the previous
+                                               // one is accepted
+                                               let has_last_transaction = {
+                                                   let expected_txs : std::cell::Ref<'_, Vec<StacksTransaction>> = sent_txs.borrow();
+                                                   if let Some(tx) = (*expected_txs).last() {
+                                                       let txid = tx.txid();
+                                                       if !peers[1].mempool.as_ref().unwrap().has_tx(&txid) {
+                                                           debug!("Peer 1 still waiting for transaction {}", &txid);
+                                                           push_transaction(&mut peers[0], &peer_1_nk, vec![], (*tx).clone());
+                                                           false
+                                                       }
+                                                       else {
+                                                           true
+                                                       }
+                                                   }
+                                                   else {
+                                                       true
+                                                   }
                                                };
 
-                                               if !done_flag {
-                                                   test_debug!("Push block {}/{} and microblocks (idx = {})", &burn_header_hash, block.block_hash(), idx);
-                                                   
-                                                   let block_hash = block.block_hash();
-                                                   push_block(&mut peers[0], &peer_1_nk, vec![], burn_header_hash.clone(), block);
-                                                   push_microblocks(&mut peers[0], &peer_1_nk, vec![], burn_header_hash, block_hash, microblocks);
+                                               if has_last_transaction {
+                                                   // push blocks and microblocks in order, and push a
+                                                   // transaction that can only be validated once the
+                                                   // block and microblocks are processed.
+                                                   let ((burn_header_hash, block, microblocks), idx) = {
+                                                        let block_data = blocks_and_microblocks.borrow();
+                                                        let mut idx = blocks_idx.borrow_mut();
+                                                        
+                                                        let ret = block_data[*idx].clone();
+                                                        *idx += 1;
+                                                        if *idx >= block_data.len() {
+                                                            *idx = 0;
+                                                        }
+                                                        (ret, *idx)
+                                                   };
 
-                                                   // create a transaction against the resulting
-                                                   // (anchored) chain tip
-                                                   let tx = make_test_smart_contract_transaction(&mut peers[0], &format!("test-contract-{}", &block_hash.to_hex()[0..10]), &burn_header_hash, &block_hash);
+                                                   if !done_flag {
+                                                       test_debug!("Push block {}/{} and microblocks (idx = {})", &burn_header_hash, block.block_hash(), idx);
+                                                       
+                                                       let block_hash = block.block_hash();
+                                                       push_block(&mut peers[0], &peer_1_nk, vec![], burn_header_hash.clone(), block);
+                                                       push_microblocks(&mut peers[0], &peer_1_nk, vec![], burn_header_hash, block_hash, microblocks);
 
-                                                   // push or post 
-                                                   push_transaction(&mut peers[0], &peer_1_nk, vec![], tx.clone());
+                                                       // create a transaction against the resulting
+                                                       // (anchored) chain tip
+                                                       let tx = make_test_smart_contract_transaction(&mut peers[0], &format!("test-contract-{}", &block_hash.to_hex()[0..10]), &burn_header_hash, &block_hash);
 
-                                                   let mut expected_txs = sent_txs.borrow_mut();
-                                                   expected_txs.push(tx);
-                                               }
-                                               else {
-                                                   test_debug!("Done pushing data");
+                                                       // push or post 
+                                                       push_transaction(&mut peers[0], &peer_1_nk, vec![], tx.clone());
+
+                                                       let mut expected_txs = sent_txs.borrow_mut();
+                                                       expected_txs.push(tx);
+                                                   }
+                                                   else {
+                                                       test_debug!("Done pushing data");
+                                                   }
                                                }
                                            }
 
