@@ -595,6 +595,20 @@ If the function returns _ok_, database changes occurred.",
     example: "(contract-call? .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
 };
 
+const TRAIT_PRINCIPAL_API: SpecialAPI = SpecialAPI {
+    input_type: "Trait",
+    output_type: "principal",
+    signature: "(trait-principal .contract-name)",
+    description: "The `trait-principal` function returns the contract implementing the trait.
+The contract must explicitly use `impl-trait` for the call to be valid.",
+    example: "
+(use-trait token-a-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
+(define-public (forward-get-balance (user principal) (contract <token-a-trait>))
+  (begin
+    (ok (trait-principal contract)))) ;; returns the principal of the contract implementing <token-a-trait>
+"
+};
+
 const AT_BLOCK: SpecialAPI = SpecialAPI {
     input_type: "(buff 32), A",
     output_type: "A",
@@ -1282,6 +1296,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Keccak256 => make_for_special(&KECCAK256_API, name),
         Print => make_for_special(&PRINT_API, name),
         ContractCall => make_for_special(&CONTRACT_CALL_API, name),
+        TraitPrincipal => make_for_special(&TRAIT_PRINCIPAL_API, name),
         AsContract => make_for_special(&AS_CONTRACT_API, name),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, name),
         ConsOkay => make_for_special(&CONS_OK_API, name),

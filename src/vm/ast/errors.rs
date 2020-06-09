@@ -154,6 +154,7 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::ImplTraitBadSignature => format!("(impl-trait ...) expects a trait identifier"),
             ParseErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             ParseErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
+            // ParseErrors::TraitPrincipalExpectsPrincipal => format!("trait-principal requires a trait parameters"),
             ParseErrors::ExpressionStackDepthTooDeep => format!("AST has too deep of an expression nesting. The maximum stack depth is {}", MAX_CALL_STACK_DEPTH),
         }
     }

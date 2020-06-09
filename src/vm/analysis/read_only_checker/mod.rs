@@ -31,11 +31,11 @@ impl <'a, 'b> AnalysisPass for ReadOnlyChecker <'a, 'b> {
 }
 
 impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
-    
+
     fn new(db: &'a mut AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
-        Self { 
-            db, 
-            defined_functions: HashMap::new() 
+        Self {
+            db,
+            defined_functions: HashMap::new()
         }
     }
 
@@ -164,12 +164,13 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay | IsNone | Asserts |
             Unwrap | UnwrapErr | Match | IsErr | IsSome | TryRet |
             ToUInt | ToInt | Append | Concat | AsMaxLen |
+            TraitPrincipal |
             ListCons | GetBlockInfo | TupleGet | Len | Print | AsContract | Begin | FetchVar | GetStxBalance | GetTokenBalance | GetAssetOwner => {
                 self.check_all_read_only(args)
             },
             AtBlock => {
                 check_argument_count(2, args)?;
-                
+
                 let is_block_arg_read_only = self.check_read_only(&args[0])?;
                 let closure_read_only = self.check_read_only(&args[1])?;
                 if !closure_read_only {
@@ -196,7 +197,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             },
             Let => {
                 check_arguments_at_least(2, args)?;
-    
+
                 let binding_list = args[0].match_list()
                     .ok_or(CheckErrors::BadLetSyntax)?;
 
@@ -216,7 +217,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             },
             Map | Filter => {
                 check_argument_count(2, args)?;
-    
+
                 // note -- we do _not_ check here to make sure we're not mapping on
                 //      a special function. that check is performed by the type checker.
                 //   we're pretty directly violating type checks in this recursive step:
@@ -227,7 +228,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             },
             Fold => {
                 check_argument_count(3, args)?;
-    
+
                 // note -- we do _not_ check here to make sure we're not folding on
                 //      a special function. that check is performed by the type checker.
                 //   we're pretty directly violating type checks in this recursive step:
@@ -262,7 +263,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                     },
                     SymbolicExpressionType::Atom(_trait_reference) => {
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
-                        // which would defeat granting a static readonly stamp. 
+                        // which would defeat granting a static readonly stamp.
                         // As such dynamic dispatch is currently forbidden.
                         false
                     },

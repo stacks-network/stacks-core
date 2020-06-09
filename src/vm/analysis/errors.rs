@@ -124,7 +124,7 @@ pub enum CheckErrors {
     MaxContextDepthReached,
     UndefinedFunction(String),
     UndefinedVariable(String),
-    
+
     // argument counts
     RequiresAtLeastArguments(usize, usize),
     IncorrectArgumentCount(usize, usize),
@@ -145,6 +145,8 @@ pub enum CheckErrors {
     DefineTraitBadSignature,
     UnexpectedTraitOrFieldReference,
     TraitBasedContractCallInReadOnly,
+    TraitPrincipalExpectsTrait,
+    TraitPrincipalExpectsImplTrait,
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -320,7 +322,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NoSuchMap(map_name) => format!("use of unresolved map '{}'", map_name),
             CheckErrors::DefineFunctionBadSignature => format!("invalid function definition"),
             CheckErrors::BadFunctionName => format!("invalid function name"),
-            CheckErrors::BadMapTypeDefinition => format!("invalid map definition"), 
+            CheckErrors::BadMapTypeDefinition => format!("invalid map definition"),
             CheckErrors::PublicFunctionMustReturnResponse(found_type) => format!("public functions must return an expression of type 'response', found '{}'", found_type),
             CheckErrors::DefineVariableBadSignature => format!("invalid variable definition"),
             CheckErrors::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
@@ -366,6 +368,8 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::UnexpectedTraitOrFieldReference => format!("unexpected use of trait reference or field"),
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
+            CheckErrors::TraitPrincipalExpectsTrait => format!("trait reference expected"),
+            CheckErrors::TraitPrincipalExpectsImplTrait => format!("trait should use explicit impl-trait"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },

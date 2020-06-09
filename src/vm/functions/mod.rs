@@ -60,6 +60,7 @@ define_named_enum!(NativeFunctions {
     Print("print"),
     ContractCall("contract-call?"),
     AsContract("as-contract"),
+    TraitPrincipal("trait-principal"),
     AtBlock("at-block"),
     GetBlockInfo("get-block-info?"),
     ConsError("err"),
@@ -138,6 +139,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Print => SpecialFunction("special_print", &special_print),
             ContractCall => SpecialFunction("special_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
+            TraitPrincipal => SpecialFunction("special_trait-transaction", &special_trait_transaction),
             GetBlockInfo => SpecialFunction("special_get_block_info", &database::special_get_block_info),
             ConsSome => NativeFunction("native_some", NativeHandle::SingleArg(&options::native_some), cost_functions::SOME_CONS),
             ConsOkay => NativeFunction("native_okay", NativeHandle::SingleArg(&options::native_okay), cost_functions::OK_CONS),
@@ -366,4 +368,40 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     env.drop_memory(cost_constants::AS_CONTRACT_MEMORY);
 
     result
+}
+
+fn special_trait_transaction(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    // (trait-transaction (..))
+    // arg0 => trait
+    check_argument_count(1, args)?;
+
+    runtime_cost!(cost_functions::TRAIT_PRINCIPAL, env, 0)?;
+
+    let contract_identifier = match &args[0].expr {
+        SymbolicExpressionType::Atom(contract_ref) => {
+            // Dynamic dispatch
+            match context.callable_contracts.get(contract_ref) {
+                Some((ref contract_identifier, trait_identifier)) => {
+
+                    let contract_to_check = env.global_context.database.get_contract(contract_identifier)
+                        .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                    let contract_context_to_check = contract_to_check.contract_context;
+
+                    // Attempt to short circuit the dynamic dispatch checks:
+                    // If the contract is explicitely implementing the trait with `impl-trait`,
+                    // then we can simply rely on the analysis performed at publish time.
+                    if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier) {
+                        contract_identifier
+                    } else {
+                        return Err(CheckErrors::TraitPrincipalExpectsImplTrait.into())
+                    }
+                },
+                _ => return Err(CheckErrors::TraitPrincipalExpectsTrait.into())
+            }
+        },
+        _ => return Err(CheckErrors::TraitPrincipalExpectsTrait.into())
+    };
+
+    let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
+    Ok(contract_principal)
 }

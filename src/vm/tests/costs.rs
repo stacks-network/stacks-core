@@ -65,6 +65,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Keccak256 => "(keccak256 1)",
         Print => "(print 1)",
         ContractCall => "(contract-call? .contract-other foo-exec 1)",
+        TraitPrincipal => "(trait-principal .contract-other)",
         AsContract => "(as-contract 1)",
         GetBlockInfo => "(get-block-info? time u1)",
         ConsOkay => "(ok 1)",
