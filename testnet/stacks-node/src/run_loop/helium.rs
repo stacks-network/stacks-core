@@ -69,7 +69,7 @@ impl RunLoop {
                 info!("Initiating new chain");
                 // Sync and update node with this new block.
                 burnchain_tip = burnchain.sync();
-                self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
+                self.node.process_burnchain_state(&burnchain_tip);
                 let chain_tip = ChainTip::genesis();
 
                 // Bootstrap the chain: node will start a new tenure,
@@ -132,12 +132,12 @@ impl RunLoop {
             false => {
                 info!("Loading initiated chain data from path {}", self.config.node.working_dir);
 
-                let last_burnchain_block_processed = self.node.restore_chainstate(&burnchain_tip); // todo(ludo): should return genesis?
+                let last_burnchain_block_processed = self.node.restore_chainstate(&burnchain_tip);
 
                 if !last_burnchain_block_processed {
-                    self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
+                    self.node.process_burnchain_state(&burnchain_tip);
                 }
-                // todo(ludo): chain_tip should be restored first.
+
                 let mut first_tenure = match self.node.initiate_new_tenure() {
                     Some(res) => res,
                     None => panic!("Error while initiating genesis tenure")
@@ -228,17 +228,11 @@ impl RunLoop {
     
             leader_tenure = None;
 
-            // todo(ludo): A panic happening now will be an issue
-
             // Have each node process the new block, that can include, or not, a sortition.
             let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_tip) {
                 (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
                 (None, _) => panic!("Node should have a sortitioned block")
             };
-
-            if round_index  == 3 {
-                panic!("Let's panic");
-            }
 
             match artifacts_from_tenure {
                 // Pass if we're missing the artifacts from the current tenure.
