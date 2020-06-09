@@ -82,6 +82,7 @@ use regex::{
 };
 
 use url::{ Url, form_urlencoded };
+use percent_encoding::percent_decode_str;
 
 use deps::httparse;
 use time;
@@ -1180,8 +1181,12 @@ impl HttpRequestType {
         let url = Url::parse(&local_url)
             .map_err(|_e| net_error::DeserializeError("Http request path could not be parsed".to_string()))?;
 
+        let decoded_path = percent_decode_str(url.path())
+            .decode_utf8()
+            .map_err(|_e| net_error::DeserializeError("Http request path could not be parsed as UTF-8".to_string()))?;
+
         for (verb, regex, parser) in REQUEST_METHODS.iter() {
-            match HttpRequestType::try_parse(protocol, verb, regex, preamble, url.path(), url.query(), fd, parser)? {
+            match HttpRequestType::try_parse(protocol, verb, regex, preamble, &decoded_path, url.query(), fd, parser)? {
                 Some(request) => {
                     return Ok(request);
                 },

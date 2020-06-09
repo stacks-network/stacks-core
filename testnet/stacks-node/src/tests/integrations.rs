@@ -54,6 +54,9 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-read-only (get-exotic-data-info (height uint))
           (unwrap-panic (map-get? block-data { height: height })))
 
+        (define-read-only (get-exotic-data-info? (height uint))
+          (unwrap-panic (map-get? block-data { height: height })))
+
         (define-private (exotic-data-checks (height uint))
           (let ((block-to-check (unwrap-panic (get-block-info? id-header-hash height)))
                 (block-info (unwrap-panic (map-get? block-data ((height (- height u1)))))))
@@ -473,6 +476,29 @@ fn integration_test_get_info() {
                                                                        "(get-exotic-data-info u1)");
                 assert_eq!(result_data, expected_data);
 
+                // let's try a call with a url-encoded string.
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info",
+                                   "get-exotic-data-info%3F");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![Value::UInt(1).serialize()]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap()
+                    .json::<serde_json::Value>().unwrap();
+                assert!(res.get("cause").is_none());
+                assert!(res["okay"].as_bool().unwrap());
+
+                let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(get-exotic-data-info? u1)");
+                assert_eq!(result_data, expected_data);
+
                 // let's have a runtime error!
                 let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "get-exotic-data-info");
                 eprintln!("Test: POST {}", path);
@@ -843,13 +869,13 @@ fn bad_contract_tx_rollback() {
             },
             2 => {
                 assert_eq!(chain_tip.metadata.block_height, 3);
-                // Block #2 should have 4 txs -- coinbase + 1 transfer + 1 publish
-                assert_eq!(chain_tip.block.txs.len(), 3);
+                // Block #2 should have 4 txs -- coinbase + 2 transfer + 1 publish
+                assert_eq!(chain_tip.block.txs.len(), 4);
             },
             3 => {
                 assert_eq!(chain_tip.metadata.block_height, 4);
-                // Block #2 should have 4 txs -- coinbase + 1 transfer
-                assert_eq!(chain_tip.block.txs.len(), 2);
+                // Block #2 should have 1 txs -- coinbase
+                assert_eq!(chain_tip.block.txs.len(), 1);
             },
             _ => {},
         }

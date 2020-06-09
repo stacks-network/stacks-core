@@ -9,33 +9,97 @@ use serde_json::json;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::stacks::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
+use stacks::chainstate::stacks::StacksTransaction;
 use stacks::net::StacksMessageCodec;
 use stacks::vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
 use stacks::vm::analysis::{contract_interface_builder::build_contract_interface};
+use stacks::util::hash::{bytes_to_hex};
+use stacks::chainstate::burn::BlockHeaderHash;
 
 use super::config::{EventObserverConfig, EventKeyType};
 use super::node::{ChainTip};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct EventObserver {
     endpoint: String,
 }
 
+const STATUS_RESP_TRUE: &str = "success";
+const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
+const STATUS_RESP_POST_CONDITION: &str  = "abort_by_post_condition";
+
+pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
+pub const PATH_BLOCK_PROCESSED: &str = "new_block";
+
 impl EventObserver {
 
-    pub fn send(&mut self, filtered_events: Vec<&(Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip) {
+    fn send_payload(&self, payload: &serde_json::Value, path: &str) {
+        let endpoint = format!("{}{}",
+                               &self.endpoint,
+                               path);
+
+        let mut backoff: f64 = 1.0;
+        let mut rng = thread_rng();
+        loop {
+            let response = Client::new()
+                .post(&endpoint)
+                .json(payload)
+                .send();
+
+            match response {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        break;
+                    }
+                    error!("Event dispatcher: POST {} failed with error {:?}", self.endpoint, response);
+                },
+                Err(e) => {
+                    error!("Event dispatcher: POST {} failed with error {:?}", self.endpoint, e);
+                }
+            };
+
+            backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
+            let duration = Duration::from_millis((backoff * 1_000.0) as u64);
+            info!("Event dispatcher will retry posting in {:?}", duration);
+            sleep(duration);
+        };
+    }
+
+    fn make_new_mempool_txs_payload(transactions: Vec<StacksTransaction>) -> serde_json::Value {
+        let raw_txs = transactions.into_iter().map(|tx| {
+            serde_json::Value::String(
+                format!("0x{}", &bytes_to_hex(&tx.serialize_to_vec())))
+        }).collect();
+
+        serde_json::Value::Array(raw_txs)
+    }
+
+    fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
+    }
+
+    fn send(&mut self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip,
+            parent_index_hash: &BlockHeaderHash) {
         // Serialize events to JSON
-        let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(txid, event)|
-            event.json_serialize(txid)
+        let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(committed, txid, event)|
+            event.json_serialize(txid, *committed)
         ).collect();
 
         let mut tx_index: u32 = 0;
         let serialized_txs: Vec<serde_json::Value> = chain_tip.receipts.iter().map(|receipt| {
             let tx = &receipt.transaction;
 
-            let (success, result) = match &receipt.result {
-                Value::Response(response_data) => {
-                    (response_data.committed, response_data.data.clone())
+            let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
+                (false, Value::Response(response_data)) => {
+                    let status = if response_data.committed {
+                        STATUS_RESP_TRUE
+                    } else {
+                        STATUS_RESP_NOT_COMMITTED
+                    };
+                    (status, response_data.data.clone())
+                },
+                (true, Value::Response(response_data)) => {
+                    (STATUS_RESP_POST_CONDITION, response_data.data.clone())
                 },
                 _ => unreachable!(), // Transaction results should always be a Value::Response type
             };
@@ -62,7 +126,7 @@ impl EventObserver {
             let val = json!({
                 "txid": format!("0x{}", tx.txid()),
                 "tx_index": tx_index,
-                "success": success,
+                "status": success,
                 "raw_result": format!("0x{}", raw_result.join("")),
                 "raw_tx": format!("0x{}", raw_tx.join("")),
                 "contract_abi": contract_interface_json,
@@ -73,49 +137,28 @@ impl EventObserver {
         
         // Wrap events
         let payload = json!({
-            "block_hash": format!("0x{:?}", chain_tip.block.block_hash()),
+            "block_hash": format!("0x{}", chain_tip.block.block_hash()),
             "block_height": chain_tip.metadata.block_height,
             "burn_block_time": chain_tip.metadata.burn_header_timestamp,
-            "index_block_hash": format!("0x{:?}", chain_tip.metadata.index_block_hash()),
-            "parent_block_hash": format!("0x{:?}", chain_tip.block.header.parent_block),
-            "parent_microblock": format!("0x{:?}", chain_tip.block.header.parent_microblock),
+            "index_block_hash": format!("0x{}", chain_tip.metadata.index_block_hash()),
+            "parent_block_hash": format!("0x{}", chain_tip.block.header.parent_block),
+            "parent_index_block_hash": format!("0x{}", parent_index_hash),
+            "parent_microblock": format!("0x{}", chain_tip.block.header.parent_microblock),
             "events": serialized_events,
             "transactions": serialized_txs,
         });
 
         // Send payload
-        let mut backoff: f64 = 1.0;
-        let mut rng = thread_rng();
-        loop {
-            let response = Client::new()
-                .post(&self.endpoint)
-                .json(&payload)
-                .send();
-
-            match response {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        break;
-                    }
-                    error!("Event dispatcher: POST {:?} failed with error {:?}", self.endpoint, response);
-                },
-                Err(e) => {
-                    error!("Event dispatcher: POST {:?} failed with error {:?}", self.endpoint, e);
-                }
-            };
-
-            backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
-            let duration = Duration::from_millis((backoff * 1_000.0) as u64);
-            info!("Event dispatcher will retry posting in {:?}", duration);
-            sleep(duration);
-        };
+        self.send_payload(&payload, PATH_BLOCK_PROCESSED);
     }
 }
 
+#[derive(Clone)]
 pub struct EventDispatcher {
     registered_observers: Vec<EventObserver>,
     contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
+    mempool_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
 }
@@ -129,13 +172,14 @@ impl EventDispatcher {
             assets_observers_lookup: HashMap::new(),
             stx_observers_lookup: HashSet::new(),
             any_event_observers_lookup: HashSet::new(),
+            mempool_observers_lookup: HashSet::new(),
         }
     }
 
-    pub fn process_chain_tip(&mut self, chain_tip: &ChainTip) {
+    pub fn process_chain_tip(&mut self, chain_tip: &ChainTip, parent_index_hash: &BlockHeaderHash) {
 
         let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
-        let mut events: Vec<(Txid, &StacksTransactionEvent)> = vec![];
+        let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
         for receipt in chain_tip.receipts.iter() {
             let tx_hash = receipt.transaction.txid();
@@ -168,7 +212,7 @@ impl EventDispatcher {
                         self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
                     },
                 }
-                events.push((tx_hash, event));
+                events.push((!receipt.post_condition_aborted, tx_hash, event));
                 for o_i in &self.any_event_observers_lookup {
                     dispatch_matrix[*o_i as usize].insert(i);
                 }
@@ -178,11 +222,28 @@ impl EventDispatcher {
 
 
         for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
-            let mut filtered_events: Vec<&(Txid, &StacksTransactionEvent)> = vec![];
-            for event_id in filtered_events_ids {
-                filtered_events.push(&events[*event_id]);
-            }
-            self.registered_observers[observer_id].send(filtered_events, chain_tip);
+            let filtered_events: Vec<_> = filtered_events_ids.iter()
+                .map(|event_id| &events[*event_id]).collect();
+
+            self.registered_observers[observer_id].send(filtered_events, chain_tip, parent_index_hash);
+        }
+    }
+
+    pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
+        // lazily assemble payload only if we have observers
+        let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().filter(
+            |(obs_id, _observer)| {
+                self.mempool_observers_lookup.contains(&(*obs_id as u16)) ||
+                    self.any_event_observers_lookup.contains(&(*obs_id as u16))
+            }).collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = EventObserver::make_new_mempool_txs_payload(txs);
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_new_mempool_txs(&payload);
         }
     }
 
@@ -216,6 +277,9 @@ impl EventDispatcher {
                             v.insert(observer_indexes);
                         }
                     };
+                },
+                EventKeyType::MemPoolTransactions => {
+                    self.mempool_observers_lookup.insert(observer_index);
                 },
                 EventKeyType::STXEvent => {
                     self.stx_observers_lookup.insert(observer_index);

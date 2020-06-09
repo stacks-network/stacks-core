@@ -290,7 +290,7 @@ impl BitcoinRegtestController {
         
         let public_key = signer.get_public_key();
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, 0)?;
+        let (mut tx, utxos) = self.prepare_tx(&public_key, DUST_UTXO_LIMIT)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -311,9 +311,23 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
+        let address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
+        let identifier_output = TxOut {
+            value: DUST_UTXO_LIMIT,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_DUP)
+                .push_opcode(opcodes::All::OP_HASH160)
+                .push_slice(&address_hash)
+                .push_opcode(opcodes::All::OP_EQUALVERIFY)
+                .push_opcode(opcodes::All::OP_CHECKSIG)
+                .into_script()
+        };
+
+        tx.output.push(identifier_output);
+
         self.finalize_tx(
             &mut tx, 
-            0, 
+            DUST_UTXO_LIMIT,
             utxos,
             signer)?;
 
@@ -360,8 +374,8 @@ impl BitcoinRegtestController {
         tx.output = vec![consensus_output, burn_output];
 
         self.finalize_tx(
-            &mut tx, 
-            payload.burn_fee, 
+            &mut tx,
+            payload.burn_fee,
             utxos,
             signer)?;
 
@@ -427,9 +441,9 @@ impl BitcoinRegtestController {
             return None
         }
         let value = total_unspent - total_spent - tx_fee;
-        if value > DUST_UTXO_LIMIT {
+        if value >= DUST_UTXO_LIMIT {
             let change_output = TxOut {
-                value: total_unspent - total_spent - tx_fee,
+                value,
                 script_pubkey: Builder::new()
                     .push_opcode(opcodes::All::OP_DUP)
                     .push_opcode(opcodes::All::OP_HASH160)
@@ -492,7 +506,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn build_next_block(&self, num_blocks: u64) {
+    pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
@@ -565,7 +579,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn sync(&mut self) -> BurnchainTip {        
-        if self.config.burnchain.mode == "helium" {
+        let burnchain_tip = if self.config.burnchain.mode == "helium" {
             // Helium: this node is responsible for mining new burnchain blocks
             self.build_next_block(1);
             self.receive_blocks()
@@ -579,7 +593,18 @@ impl BurnchainController for BitcoinRegtestController {
                 }
                 sleep_ms(5000);
             }
+        };
+
+        // Evaluate process_exit_at_block_height setting
+        if let Some(cap) = self.config.burnchain.process_exit_at_block_height {
+            if burnchain_tip.block_snapshot.block_height >= cap {
+                info!("Node succesfully reached the end of the ongoing {} blocks epoch!", cap);
+                info!("This process will automatically terminate in 30s, restart your node for participating in the next epoch.");
+                sleep_ms(30000);
+                std::process::exit(0);
+            }    
         }
+        burnchain_tip
     }
 
     // returns true if the operation was submitted successfully, false otherwise 

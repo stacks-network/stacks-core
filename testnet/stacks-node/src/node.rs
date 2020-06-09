@@ -3,12 +3,16 @@ use super::{Keychain, Config, Tenure, BurnchainController, BurnchainTip, EventDi
 use std::convert::TryFrom;
 use std::{thread, time, thread::JoinHandle};
 use std::net::SocketAddr;
+use std::default::Default;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
-use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, TransactionAnchorMode};
+use stacks::chainstate::stacks::{
+    StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner,
+    StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload,
+    TransactionAnchorMode, StacksBlockHeader };
 use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
 use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -16,7 +20,11 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::PeerDB, PeerAddress};
+use stacks::net::{
+    p2p::PeerNetwork, Error as NetError, db::PeerDB, PeerAddress,
+    NetworkResult, rpc::RPCHandlerArgs
+};
+
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
@@ -67,10 +75,14 @@ pub struct Node {
 }
 
 fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
-              burn_db_path: String, stacks_chainstate_path: String, 
-              poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
+              burn_db_path: String, stacks_chainstate_path: String, event_dispatcher: EventDispatcher,
+              exit_at_block_height: Option<u64>, poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
+        let handler_args = RPCHandlerArgs { exit_at_block_height: exit_at_block_height.as_ref(),
+                                            .. RPCHandlerArgs::default() };
+
+
         loop {
             let burndb = match BurnDB::open(&burn_db_path, false) {
                 Ok(x) => x,
@@ -100,8 +112,12 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            this.run(&burndb, &mut chainstate, &mut mem_pool, None, false, poll_timeout)
+            let net_result = this.run(&burndb, &mut chainstate, &mut mem_pool, None,
+                                      false, poll_timeout, &handler_args)
                 .unwrap();
+            if net_result.has_transactions() {
+                event_dispatcher.process_new_mempool_txs(net_result.transactions())
+            }
         }
     });
     Ok(server_thread)
@@ -262,13 +278,18 @@ impl Node {
             _ => panic!("Unable to retrieve local peer")
         };
 
+        let event_dispatcher = self.event_dispatcher.clone();
+        let exit_at_block_height = self.config.burnchain.process_exit_at_block_height.clone();
+
         let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
         let _join_handle = spawn_peer(
             p2p_net, 
             &p2p_sock, 
             &rpc_sock, 
             self.config.get_burn_db_file_path(),
-            self.config.get_chainstate_path(), 
+            self.config.get_chainstate_path(),
+            event_dispatcher,
+            exit_at_block_height,
             1000).unwrap();
 
         info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
@@ -568,7 +589,7 @@ impl Node {
         // Handle events
         let receipts = processed_block.1;
         let metadata = processed_block.0;
-        let block = {
+        let block: StacksBlock = {
             let block_path = StacksChainState::get_block_path(
                 &self.chain_state.blocks_path, 
                 &metadata.burn_header_hash, 
@@ -576,13 +597,16 @@ impl Node {
             StacksChainState::consensus_load(&block_path).unwrap()
         };
 
+        let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+            parent_burn_header_hash, &block.header.parent_block);
+
         let chain_tip = ChainTip {
             metadata,
             block,
             receipts
         };
 
-        self.event_dispatcher.process_chain_tip(&chain_tip);
+        self.event_dispatcher.process_chain_tip(&chain_tip, &parent_index_hash);
 
         self.chain_tip = Some(chain_tip.clone());
 

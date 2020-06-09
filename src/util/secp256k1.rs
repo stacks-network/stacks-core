@@ -177,7 +177,7 @@ impl Secp256k1PublicKey {
         self.compressed
     }
 
-    pub fn set_compressed(&mut self, value: bool) -> () {
+    pub fn set_compressed(&mut self, value: bool) {
         self.compressed = value;
     }
 
@@ -327,7 +327,7 @@ impl Secp256k1PrivateKey {
         self.compress_public
     }
 
-    pub fn set_compress_public(&mut self, value: bool) -> () {
+    pub fn set_compress_public(&mut self, value: bool) {
         self.compress_public = value;
     }
 

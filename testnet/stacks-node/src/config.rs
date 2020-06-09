@@ -85,6 +85,49 @@ impl ConfigFile {
         }
     }
 
+    pub fn argon() -> ConfigFile {    
+        let burnchain = BurnchainConfigFile {
+            mode: Some("argon".to_string()),
+            rpc_port: Some(18443),
+            peer_port: Some(18444),
+            peer_host: Some("argon.blockstack.org".to_string()),
+            process_exit_at_block_height: Some(8640 + 300), // 1 block every 30s, 24 hours * 3 + 300 blocks initially mined for seeding faucet / miner
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@argon.blockstack.org:20444".to_string()),
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
+        let balances = vec![
+            InitialBalanceFile {
+                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                amount: 10000000000000000,
+            },
+        ];
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            mstx_balance: Some(balances),
+            ..ConfigFile::default()
+        }
+    }
+
     pub fn helium() -> ConfigFile {
         // ## Settings for local testnet, relying on a local bitcoind server
         // ## running with the following bitcoin.conf:
@@ -218,6 +261,8 @@ impl Config {
                         None => default_node_config.local_peer_seed
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
+                    mine_microblocks: node.mine_microblocks.unwrap_or(default_node_config.mine_microblocks),
+                    wait_time_for_microblocks: node.wait_time_for_microblocks.unwrap_or(default_node_config.wait_time_for_microblocks),
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -254,13 +299,14 @@ impl Config {
                     first_block: burnchain.first_block.unwrap_or(default_burnchain_config.first_block),
                     magic_bytes: default_burnchain_config.magic_bytes,
                     local_mining_public_key: burnchain.local_mining_public_key,
-                    burnchain_op_tx_fee: burnchain.burnchain_op_tx_fee.unwrap_or(default_burnchain_config.burnchain_op_tx_fee)
+                    burnchain_op_tx_fee: burnchain.burnchain_op_tx_fee.unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
+                    process_exit_at_block_height: burnchain.process_exit_at_block_height
                 }
             },
             None => default_burnchain_config
         };
 
-        let supported_modes = vec!["mocknet", "helium", "neon"];
+        let supported_modes = vec!["mocknet", "helium", "neon", "argon"];
 
         if !supported_modes.contains(&burnchain.mode.as_str())  {
             panic!("Setting burnchain.network not supported (should be: {})", supported_modes.join(", "))
@@ -288,8 +334,14 @@ impl Config {
                         .map(|e| EventKeyType::from_string(e).unwrap())
                         .collect();
 
+                    let endpoint = if observer.endpoint.ends_with("/") {
+                        observer.endpoint
+                    } else {
+                        format!("{}/", observer.endpoint)
+                    };
+
                     observers.push(EventObserverConfig {
-                        endpoint: observer.endpoint,
+                        endpoint,
                         events_keys
                     });
                 }
@@ -439,6 +491,7 @@ pub struct BurnchainConfig {
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: u64,
+    pub process_exit_at_block_height: Option<u64>
 }
 
 impl BurnchainConfig {
@@ -460,6 +513,7 @@ impl BurnchainConfig {
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
+            process_exit_at_block_height: None,
         }
     }
 
@@ -489,7 +543,8 @@ pub struct BurnchainConfigFile {
     pub first_block: Option<u64>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
-    pub burnchain_op_tx_fee: Option<u64>
+    pub burnchain_op_tx_fee: Option<u64>,
+    pub process_exit_at_block_height: Option<u64>,
 }
 
 #[derive(Clone, Default)]
@@ -504,6 +559,8 @@ pub struct NodeConfig {
     pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Option<Neighbor>,
     pub miner: bool,
+    pub mine_microblocks: bool,
+    pub wait_time_for_microblocks: u64,
 }
 
 impl NodeConfig {
@@ -535,6 +592,8 @@ impl NodeConfig {
             bootstrap_node: None,
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
+            mine_microblocks: false,
+            wait_time_for_microblocks: 0,
         }
     }
 
@@ -629,6 +688,8 @@ pub struct NodeConfigFile {
     pub bootstrap_node: Option<String>,
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
+    pub mine_microblocks: Option<bool>,
+    pub wait_time_for_microblocks: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -648,6 +709,7 @@ pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
     STXEvent,
+    MemPoolTransactions,
     AnyEvent,
 }
 
@@ -661,6 +723,10 @@ impl EventKeyType {
             return Some(EventKeyType::STXEvent);
         } 
         
+        if raw_key == "memtx" {
+            return Some(EventKeyType::MemPoolTransactions);
+        }
+
         let comps: Vec<_> = raw_key.split("::").collect();
         if comps.len() ==  1 {
             let split: Vec<_> = comps[0].split(".").collect();

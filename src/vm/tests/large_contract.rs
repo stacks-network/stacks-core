@@ -9,7 +9,7 @@ use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
 use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, ClarityDatabase};
-use vm::clarity::ClarityInstance;
+use vm::clarity::{ClarityInstance, Error as ClarityError};
 use vm::ast;
 use vm::costs::ExecutionCost;
 use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
@@ -203,9 +203,13 @@ pub fn fcall_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract_ok).unwrap();
-            conn.initialize_smart_contract(
-                // initialize the ok contract without errs, but still abort.
-                &contract_identifier, &ct_ast, &contract_ok, |_,_| true).unwrap();
+            assert!(
+                match conn.initialize_smart_contract(
+                    // initialize the ok contract without errs, but still abort.
+                    &contract_identifier, &ct_ast, &contract_ok, |_,_| true).unwrap_err() {
+                    ClarityError::AbortedByCallback(..) => true,
+                    _ => false
+                });
         });
 
         conn.as_transaction(|conn| {

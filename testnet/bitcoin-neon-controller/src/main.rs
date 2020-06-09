@@ -3,7 +3,7 @@
 use std::io::{BufReader, Read};
 use std::fs::File;
 use std::env;
-use std::thread;
+use std::thread::{self, sleep};
 use std::time::Duration;
 use std::time::{UNIX_EPOCH, SystemTime};
 
@@ -24,6 +24,8 @@ use serde::Deserialize;
 use serde_json::Deserializer;
 use toml;
 
+use rand::{Rng, thread_rng};
+
 #[async_std::main]
 async fn main() -> http_types::Result<()> {
     let argv : Vec<String> = env::args().collect();
@@ -34,12 +36,12 @@ async fn main() -> http_types::Result<()> {
     }
 
     // Generating block
-    // Baseline: 100 for miner, 100 for faucet
+    // Baseline: 150 for miner, 150 for faucet
     let config = ConfigFile::from_path(&argv[1]);
-    let mut num_blocks = 100;
+    let mut num_blocks = 0;
     let block_time = Duration::from_millis(config.neon.block_time);
 
-    if is_bootstrap_chain_required(&config).await? {
+    if is_chain_bootstrap_required(&config).await? {
         println!("Bootstrapping chain");
 
         let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -47,19 +49,47 @@ async fn main() -> http_types::Result<()> {
             Err(err) => err.duration(),
         }.as_secs() as u64;
 
-        let time_since_genesis = now - config.neon.genesis_timestamp;
-        
+        let genesis_timestamp = if env::var("DYNAMIC_GENESIS_TIMESTAMP") == Ok("1".into()) {
+            println!("INFO: detected DYNAMIC_GENESIS_TIMESTAMP, will set the genesis timestamp to {}", now);
+            now.clone()
+        } else {
+            match std::env::var("STATIC_GENESIS_TIMESTAMP") {
+                Ok(val) =>  match val.parse::<u64>() {
+                    Ok(val) => val,
+                    Err(err) => {
+                        println!("WARN: parsing STATIC_GENESIS_TIMESTAMP failed ({:?}), falling back on {}", err, config.neon.genesis_timestamp);
+                        config.neon.genesis_timestamp
+                    },
+                },
+                _ => config.neon.genesis_timestamp
+            }
+        };
+
+        let time_since_genesis = now - genesis_timestamp;
+
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
-        num_blocks += time_since_genesis / block_time.as_secs();
+        let num_blocks_required = time_since_genesis / block_time.as_secs();
+        let num_blocks_for_miner = 150 + num_blocks_required;
+        let num_blocks_for_faucet = 150;
 
-        let miner_address = config.neon.miner_address.clone();
-        generate_blocks(num_blocks, miner_address, &config).await;
-
-        // Generate 100 blocks for the neon faucet
+        // Generate blocks for the neon faucet
         let faucet_address = config.neon.faucet_address.clone();
-        generate_blocks(100, faucet_address, &config).await;
-        num_blocks += 100;
+        generate_blocks(num_blocks_for_faucet, faucet_address, &config).await;
+
+        // Generate blocks for the neon miner
+        let miner_address = config.neon.miner_address.clone();
+        generate_blocks(num_blocks_for_miner, miner_address, &config).await;
+
+        num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
+
+        // By blocking here, we ensure that the http server does not start
+        // serving requests with a bitcoin chain still being constructed.
+        while is_chain_bootstrap_required(&config).await? {
+            println!("Waiting on initial blocks to be available");
+            let backoff = Duration::from_millis(1_000);
+            sleep(backoff)
+        }
     }
 
     // Start a loop in a separate thread, generating new blocks
@@ -166,12 +196,39 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
     Ok(())
 }
 
-async fn is_bootstrap_chain_required(config: &ConfigFile) -> http_types::Result<bool> {
+async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<bool> {
 
     let req = RPCRequest::is_chain_bootstrapped();
-    let stream = TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await?;
-    let body = serde_json::to_vec(&req).unwrap();
-    let mut resp = client::connect(stream.clone(), build_request(&config, body)).await?;
+
+    let mut backoff: f64 = 1.0;
+    let mut rng = thread_rng();
+    let mut resp =  loop {
+
+        backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
+        let duration = Duration::from_millis((backoff * 1_000.0) as u64);
+
+        let stream = match TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                println!("Error while trying to connect to {}: {:?}", config.neon.bitcoind_rpc_host, e);
+                sleep(duration);
+                continue
+            }
+        };
+
+        let body = serde_json::to_vec(&req).unwrap();
+        let response = client::connect(stream, build_request(&config, body)).await;
+
+        match response {
+            Ok(response) => {
+                break response;
+            },
+            Err(e) => {
+                println!("Error: {:?}", e);
+                sleep(duration);
+            }
+        };
+    };
 
     let (res, buffer) = async_std::task::block_on(async move {
         let mut buffer = Vec::new();
@@ -218,10 +275,28 @@ async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile
 
     let rpc_req = RPCRequest::generate_next_block_req(blocks_count, address);
 
-    let stream = TcpStream::connect(rpc_addr).await.unwrap();
-    let body = serde_json::to_vec(&rpc_req).unwrap();
+    let stream = match TcpStream::connect(rpc_addr).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            println!("ERROR: connection failed  - {:?}", err);
+            return
+        }
+    };
+    let body = match serde_json::to_vec(&rpc_req) {
+        Ok(body) => body,
+        Err(err) => {
+            println!("ERROR: serialization failed  - {:?}", err);
+            return
+        }
+    };
     let req = build_request(&config, body);
-    client::connect(stream.clone(), req).await.unwrap();
+    match client::connect(stream.clone(), req).await {
+        Ok(_) => {},
+        Err(err) => {
+            println!("ERROR: rpc invokation failed  - {:?}", err);
+            return
+        }
+    };
 }
 
 fn build_request(config: &ConfigFile, body: Vec<u8>) -> Request {

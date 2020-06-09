@@ -55,7 +55,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
                 || env.contract_context.lookup_variable(name)) {
                 runtime_cost!(cost_functions::LOOKUP_VARIABLE_SIZE, env, value.size())?;
                 Ok(value.clone())
-            }  else if let Some(value) = context.callable_contracts.get(name) {
+            }  else if let Some(value) = context.lookup_callable_contract(name) {
                 let contract_identifier = &value.0;
                 Ok(Value::Principal(PrincipalData::Contract(contract_identifier.clone())))
             } else {
