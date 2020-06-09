@@ -3,8 +3,10 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use std::thread::sleep;
 
-use rand::{Rng, thread_rng};
-use reqwest::blocking::Client;
+use async_h1::{client};
+use async_std::net::{TcpStream};
+use http_types::{Method, Request, Url};
+
 use serde_json::json;
 
 use stacks::burnchains::Txid;
@@ -34,34 +36,55 @@ pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 impl EventObserver {
 
     fn send_payload(&self, payload: &serde_json::Value, path: &str) {
-        let endpoint = format!("{}{}",
-                               &self.endpoint,
-                               path);
 
-        let mut backoff: f64 = 1.0;
-        let mut rng = thread_rng();
+        let body = match serde_json::to_vec(&payload) {
+            Ok(body) => body,
+            Err(err) => {
+                println!("ERROR: serialization failed  - {:?}", err);
+                return
+            }
+        };
+
+        let url = {
+            let url = format!("{}{}", &self.endpoint, path);
+            Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
+        };
+
+        let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
+
         loop {
-            let response = Client::new()
-                .post(&endpoint)
-                .json(payload)
-                .send();
+            let body = body.clone();
+            let mut req = Request::new(Method::Post, url.clone());
+            req.append_header("Content-Type", "application/json").expect("Unable to set header");
+            req.append_header("Content-Length", format!("{}", body.len())).expect("Unable to set header");
+            req.set_body(body);
 
-            match response {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        break;
+            let response = async_std::task::block_on(async {
+                let stream = match TcpStream::connect(self.endpoint.clone()).await {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        println!("Event dispatcher: connection failed  - {:?}", err);
+                        return None;
                     }
-                    error!("Event dispatcher: POST {} failed with error {:?}", self.endpoint, response);
-                },
-                Err(e) => {
-                    error!("Event dispatcher: POST {} failed with error {:?}", self.endpoint, e);
+                };    
+    
+                match client::connect(stream, req).await {
+                    Ok(response) => Some(response),
+                    Err(err) => {
+                        println!("Event dispatcher: rpc invokation failed  - {:?}", err);
+                        return None;
+                    }
                 }
-            };
+            });
 
-            backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
-            let duration = Duration::from_millis((backoff * 1_000.0) as u64);
-            info!("Event dispatcher will retry posting in {:?}", duration);
-            sleep(duration);
+            if let Some(response) = response {
+                if response.status().is_success() {
+                    break;
+                } else {
+                    error!("Event dispatcher: POST {} failed with error {:?}", self.endpoint, response);
+                }
+            }
+            sleep(backoff);
         };
     }
 
