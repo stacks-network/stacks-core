@@ -633,14 +633,9 @@ fn test_trait_principal_no_impl(owned_env: &mut OwnedEnvironment) {
         let result_contract = target_contract.clone();
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
 
-
-        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatch").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap_err();
-        match err_result {
-            Error::Unchecked(CheckErrors::TraitPrincipalExpectsImplTrait) => {},
-            _ => {
-                panic!("{:?}", err_result)
-            }
-        }
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("dispatch").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap(),
+            Value::okay(result_contract).unwrap());
     }
 }
 

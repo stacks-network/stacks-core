@@ -371,7 +371,7 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
 }
 
 fn special_trait_principal(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    // (trait-transaction (..))
+    // (trait-principal (..))
     // arg0 => trait
     check_argument_count(1, args)?;
 
@@ -381,20 +381,12 @@ fn special_trait_principal(args: &[SymbolicExpression], env: &mut Environment, c
         SymbolicExpressionType::Atom(contract_ref) => {
             // Dynamic dispatch
             match context.callable_contracts.get(contract_ref) {
-                Some((ref contract_identifier, trait_identifier)) => {
+                Some((ref _contract_identifier, _trait_identifier)) => {
 
-                    let contract_to_check = env.global_context.database.get_contract(contract_identifier)
-                        .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-                    let contract_context_to_check = contract_to_check.contract_context;
+                    env.global_context.database.get_contract(_contract_identifier)
+                        .map_err(|_e| CheckErrors::NoSuchContract(_contract_identifier.to_string()))?;
 
-                    // Attempt to short circuit the dynamic dispatch checks:
-                    // If the contract is explicitely implementing the trait with `impl-trait`,
-                    // then we can simply rely on the analysis performed at publish time.
-                    if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier) {
-                        contract_identifier
-                    } else {
-                        return Err(CheckErrors::TraitPrincipalExpectsImplTrait.into())
-                    }
+                    _contract_identifier
                 },
                 _ => return Err(CheckErrors::TraitPrincipalExpectsTrait.into())
             }

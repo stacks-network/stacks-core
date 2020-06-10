@@ -146,7 +146,6 @@ pub enum CheckErrors {
     UnexpectedTraitOrFieldReference,
     TraitBasedContractCallInReadOnly,
     TraitPrincipalExpectsTrait,
-    TraitPrincipalExpectsImplTrait,
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -369,7 +368,6 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::TraitPrincipalExpectsTrait => format!("trait reference expected"),
-            CheckErrors::TraitPrincipalExpectsImplTrait => format!("trait should use explicit impl-trait"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },
