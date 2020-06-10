@@ -5,13 +5,8 @@ use prometheus::{Counter, Encoder, Gauge, HistogramVec, TextEncoder};
 use http_types::{
     Response, 
     StatusCode, 
-    Method, 
-    headers,
-    Request, 
-    Url
+    Body,
 };
-
-use std::thread;
 
 lazy_static! {
     pub static ref RPC_CALL_COUNTER: Counter = register_counter!(opts!(
@@ -101,7 +96,7 @@ pub fn start_serving_prometheus_metrics(prometheus_bind: String) {
             let stream = stream.expect("todo(ludo)");
             let addr = addr.clone();
     
-            task::spawn(async move {
+            task::spawn(async {
                 if let Err(err) = accept(addr, stream).await {
                     eprintln!("{}", err);
                 }
@@ -113,7 +108,18 @@ pub fn start_serving_prometheus_metrics(prometheus_bind: String) {
 async fn accept(addr: String, stream: TcpStream) -> http_types::Result<()> {
     println!("starting new connection from {}", stream.peer_addr()?);
     async_h1::accept(&addr, stream.clone(), |mut req| async {
-        Ok(Response::new(StatusCode::Ok))
+        RPC_CALL_COUNTER.inc();
+
+        let encoder = TextEncoder::new();    
+        let metric_families = prometheus::gather();
+        let mut buffer = vec![];
+        encoder.encode(&metric_families, &mut buffer).unwrap();
+
+        let mut response = Response::new(StatusCode::Ok);
+        response.append_header("Content-Type", encoder.format_type()).expect("Unable to set headers");
+        response.set_body(Body::from(buffer));
+
+        Ok(response)
     }).await?;
     Ok(())
 }
