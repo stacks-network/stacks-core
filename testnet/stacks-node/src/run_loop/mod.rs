@@ -1,6 +1,9 @@
 pub mod helium;
 pub mod neon;
 
+#[cfg(feature = "monitoring")]
+pub mod monitoring;
+
 use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
 
 use stacks::chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, TransactionPayload};

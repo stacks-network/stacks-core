@@ -6,6 +6,9 @@ extern crate serde;
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate stacks;
 
+#[cfg(feature = "monitoring")]
+#[macro_use] extern crate prometheus;
+
 pub use stacks::util;
 
 pub mod run_loop; 

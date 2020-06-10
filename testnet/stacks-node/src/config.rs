@@ -263,6 +263,7 @@ impl Config {
                     miner: node.miner.unwrap_or(default_node_config.miner),
                     mine_microblocks: node.mine_microblocks.unwrap_or(default_node_config.mine_microblocks),
                     wait_time_for_microblocks: node.wait_time_for_microblocks.unwrap_or(default_node_config.wait_time_for_microblocks),
+                    prometheus_bind: node.prometheus_bind,
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -561,6 +562,7 @@ pub struct NodeConfig {
     pub miner: bool,
     pub mine_microblocks: bool,
     pub wait_time_for_microblocks: u64,
+    pub prometheus_bind: Option<String>,
 }
 
 impl NodeConfig {
@@ -594,6 +596,7 @@ impl NodeConfig {
             miner: false,
             mine_microblocks: false,
             wait_time_for_microblocks: 0,
+            prometheus_bind: None,
         }
     }
 
@@ -690,6 +693,7 @@ pub struct NodeConfigFile {
     pub miner: Option<bool>,
     pub mine_microblocks: Option<bool>,
     pub wait_time_for_microblocks: Option<u64>,
+    pub prometheus_bind: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Default)]

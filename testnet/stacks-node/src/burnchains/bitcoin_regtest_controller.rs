@@ -42,6 +42,9 @@ use stacks::util::hash::{Hash160, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
 
+#[cfg(feature = "monitoring")]
+use crate::run_loop::monitoring::{BTC_BLOCKS_RECEIVED_COUNTER, BTC_OPS_SENT_COUNTER};
+
 pub struct BitcoinRegtestController {
     config: Config,
     indexer_config: BitcoinIndexerConfig,
@@ -319,6 +322,9 @@ impl BitcoinRegtestController {
             utxos,
             signer)?;
 
+        #[cfg(feature = "monitoring")]
+        BTC_OPS_SENT_COUNTER.inc();
+    
         info!("Miner node: submitting leader_key_register op - {}", public_key.to_hex());
 
         Some(tx)
@@ -366,6 +372,9 @@ impl BitcoinRegtestController {
             payload.burn_fee,
             utxos,
             signer)?;
+
+        #[cfg(feature = "monitoring")]
+        BTC_OPS_SENT_COUNTER.inc();
 
         info!("Miner node: submitting leader_block_commit op - {}", public_key.to_hex());
 
