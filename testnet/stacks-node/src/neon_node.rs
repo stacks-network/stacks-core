@@ -48,6 +48,12 @@ use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
 use stacks::vm::costs::ExecutionCost;
 
+#[cfg(feature = "monitoring")]
+use crate::run_loop::monitoring::{
+    STX_BLOCKS_PROCESSED_COUNTER, 
+    STX_BLOCKS_MINED_COUNTER,
+    TXS_RECEIVED_COUNTER};
+
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -361,6 +367,9 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         if let Some((header_info, receipts)) = headers_and_receipts_opt {
                             dispatcher_announce_block(&blocks_path, &mut event_dispatcher, header_info, None, &mut burndb, receipts);
                             num_processed += 1;
+
+                            #[cfg(feature = "monitoring")]
+                            STX_BLOCKS_PROCESSED_COUNTER.inc();        
                         }
                     }
                     if num_processed == 0 {
@@ -379,7 +388,11 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         dispatcher_announce_block(&blocks_path, &mut event_dispatcher, stacks_header, None, &mut burndb, tx_receipts);
                     }
 
-                    if net_receipts.mempool_txs_added.len() > 0 {
+                    let mempool_txs_added = net_receipts.mempool_txs_added.len();
+                    if mempool_txs_added > 0 {
+                        #[cfg(feature = "monitoring")]
+                        TXS_RECEIVED_COUNTER.inc_by(mempool_txs_added);
+
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
                 },
@@ -396,6 +409,9 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             info!("Won sortition! stacks_header={}, burn_header={}",
                                   block_header_hash,
                                   mined_burn_hh);
+
+                            #[cfg(feature = "monitoring")]
+                            STX_BLOCKS_MINED_COUNTER.inc();
 
                             match inner_process_tenure(&mined_block, &burn_header_hash, &parent_block_burn_hash,
                                                        &mut burndb, &mut chainstate, &mut event_dispatcher) {

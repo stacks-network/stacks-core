@@ -147,6 +147,9 @@ impl BitcoinRegtestController {
         let (block_snapshot, state_transition) = loop {
             match burnchain.sync_with_indexer(&mut burnchain_indexer) {
                 Ok(x) => {
+                    #[cfg(feature = "monitoring")]
+                    BTC_BLOCKS_RECEIVED_COUNTER.inc();
+
                     break x;
                 }
                 Err(e) => {
