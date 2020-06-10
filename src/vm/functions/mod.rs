@@ -139,7 +139,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Print => SpecialFunction("special_print", &special_print),
             ContractCall => SpecialFunction("special_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
-            TraitPrincipal => SpecialFunction("special_trait-transaction", &special_trait_transaction),
+            TraitPrincipal => SpecialFunction("special_trait-principal", &special_trait_principal),
             GetBlockInfo => SpecialFunction("special_get_block_info", &database::special_get_block_info),
             ConsSome => NativeFunction("native_some", NativeHandle::SingleArg(&options::native_some), cost_functions::SOME_CONS),
             ConsOkay => NativeFunction("native_okay", NativeHandle::SingleArg(&options::native_okay), cost_functions::OK_CONS),
@@ -370,7 +370,7 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     result
 }
 
-fn special_trait_transaction(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+fn special_trait_principal(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     // (trait-transaction (..))
     // arg0 => trait
     check_argument_count(1, args)?;
