@@ -279,8 +279,8 @@ fn check_trait_principal(checker: &mut TypeChecker, args: &[SymbolicExpression],
 
         runtime_cost!(cost_functions::TRAIT_PRINCIPAL, checker, 1)?;
 
-        /* let trait_signature =*/ checker.contract_context.get_trait(&trait_id.name)
-            .ok_or(CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
+        checker.contract_context.get_trait(&trait_id.name)
+            .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
 
         Ok(TypeSignature::PrincipalType)
     } else {
