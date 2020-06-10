@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::io::{BufReader, Read};
 use std::fs::File;
-use std::net::ToSocketAddrs;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 use rand::RngCore;
 
@@ -524,6 +524,12 @@ impl BurnchainConfig {
             false => "http://"
         };
         format!("{}{}:{}", scheme, self.peer_host, self.rpc_port)
+    }
+
+    pub fn get_rpc_socket_addr(&self) -> SocketAddr {
+        let mut addrs_iter = format!("{}:{}", self.peer_host, self.rpc_port).to_socket_addrs().unwrap();
+        let sock_addr = addrs_iter.next().unwrap();
+        sock_addr
     }
 }
 

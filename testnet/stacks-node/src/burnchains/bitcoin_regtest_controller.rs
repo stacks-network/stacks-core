@@ -946,7 +946,7 @@ impl BitcoinRPCRequest {
         request.set_body(body);
 
         let mut response = async_std::task::block_on(async move {
-            let stream = match TcpStream::connect(config.burnchain.get_rpc_url()).await {
+            let stream = match TcpStream::connect(config.burnchain.get_rpc_socket_addr()).await {
                 Ok(stream) => stream,
                 Err(err) => {
                     return Err(RPCError::Network(
