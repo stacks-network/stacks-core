@@ -70,6 +70,8 @@ impl BitcoinIndexer {
         let magic = network_id_to_bytes(self.runtime.network_id);
 
         self.with_socket(|ref mut sock| {
+            // abort faster!
+            sock.set_read_timeout(Some(std::time::Duration::from_secs(5)));
             // read the message off the wire
             let mut decoder = RawDecoder::new(sock);
 
