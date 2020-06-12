@@ -267,12 +267,12 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     Ok(expected_sig.returns)
 }
 
-fn check_trait_principal(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_contract_of(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
 
     let trait_instance = match &args[0].expr {
         SymbolicExpressionType::Atom(trait_instance) => trait_instance,
-        _ => return Err(CheckError::new(CheckErrors::TraitPrincipalExpectsTrait))
+        _ => return Err(CheckError::new(CheckErrors::ContractOfExpectsTrait))
     };
 
     let trait_id = match context.lookup_trait_reference_type(trait_instance) {
@@ -280,7 +280,7 @@ fn check_trait_principal(checker: &mut TypeChecker, args: &[SymbolicExpression],
         _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into())
     };
 
-    runtime_cost!(cost_functions::TRAIT_PRINCIPAL, checker, 1)?;
+    runtime_cost!(cost_functions::CONTRACT_OF, checker, 1)?;
 
     checker.contract_context.get_trait(&trait_id.name)
         .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
@@ -433,7 +433,7 @@ impl TypedNativeFunction {
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
-            TraitPrincipal => Special(SpecialNativeFunction(&check_trait_principal)),
+            ContractOf => Special(SpecialNativeFunction(&check_contract_of)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
             ConsSome => Special(SpecialNativeFunction(&options::check_special_some)),
             ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),

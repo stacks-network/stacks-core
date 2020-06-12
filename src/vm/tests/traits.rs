@@ -28,8 +28,8 @@ fn test_all() {
         test_bad_call_with_trait,
         test_good_call_with_trait,
         test_good_call_2_with_trait,
-        test_trait_principal_value,
-        test_trait_principal_no_impl,
+        test_contract_of_value,
+        test_contract_of_no_impl,
         test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs,
         test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions,
         ];
@@ -544,38 +544,23 @@ fn test_good_call_2_with_trait(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-<<<<<<< HEAD
 fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions(owned_env: &mut OwnedEnvironment) {
-    let contract_defining_trait = 
+    let contract_defining_trait =
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
-        (define-public (wrapped-get-1 (contract <trait-1>)) 
+        (define-public (wrapped-get-1 (contract <trait-1>))
             (contract-call? contract get-1 u0))
         (print (wrapped-get-1 .target-contract))";
     let target_contract =
         "(impl-trait .contract-defining-trait.trait-1)
         (define-public (get-1 (x uint)) (ok u1))";
-=======
-fn test_trait_principal_value(owned_env: &mut OwnedEnvironment) {
-    let contract_defining_trait =
-        "(define-trait trait-1 (
-            (get-1 (uint) (response uint uint))))";
-    let dispatching_contract =
-        "(use-trait trait-1 .defun.trait-1)
-        (define-public (wrapped-get-1 (contract <trait-1>))
-            (ok (trait-principal contract)))";
-    let impl_contract =
-        "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u99))";
->>>>>>> implement trait-transaction, resolves #1663
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
     {
         let mut env = owned_env.get_exec_environment(None);
-<<<<<<< HEAD
         env.initialize_contract(QualifiedContractIdentifier::local("contract-defining-trait").unwrap(), contract_defining_trait).unwrap();
         env.initialize_contract(QualifiedContractIdentifier::local("target-contract").unwrap(), target_contract).unwrap();
         env.initialize_contract(QualifiedContractIdentifier::local("dispatching-contract").unwrap(), dispatching_contract).unwrap();
@@ -589,7 +574,23 @@ fn test_trait_principal_value(owned_env: &mut OwnedEnvironment) {
             Value::okay(Value::UInt(1)).unwrap());
     }
 }
-=======
+
+fn test_contract_of_value(owned_env: &mut OwnedEnvironment) {
+    let contract_defining_trait =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract =
+        "(use-trait trait-1 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (ok (contract-of contract)))";
+    let impl_contract =
+        "(impl-trait .defun.trait-1)
+        (define-public (get-1 (x uint)) (ok u99))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
         env.initialize_contract(QualifiedContractIdentifier::local("defun").unwrap(), contract_defining_trait).unwrap();
         env.initialize_contract(QualifiedContractIdentifier::local("dispatch").unwrap(), dispatching_contract).unwrap();
         env.initialize_contract(QualifiedContractIdentifier::local("implem").unwrap(), impl_contract).unwrap();
@@ -606,14 +607,14 @@ fn test_trait_principal_value(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-fn test_trait_principal_no_impl(owned_env: &mut OwnedEnvironment) {
+fn test_contract_of_no_impl(owned_env: &mut OwnedEnvironment) {
     let contract_defining_trait =
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract =
         "(use-trait trait-1 .defun.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>))
-            (ok (trait-principal contract)))";
+            (ok (contract-of contract)))";
     let impl_contract =
         // (impl-trait .defun.trait-1)
         "
@@ -638,6 +639,3 @@ fn test_trait_principal_no_impl(owned_env: &mut OwnedEnvironment) {
             Value::okay(result_contract).unwrap());
     }
 }
-
-
->>>>>>> implement trait-transaction, resolves #1663

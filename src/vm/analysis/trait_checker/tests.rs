@@ -841,14 +841,13 @@ fn test_good_call_2_with_trait() {
 }
 
 #[test]
-<<<<<<< HEAD
 fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions() {
-    let contract_defining_trait_src = 
+    let contract_defining_trait_src =
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract_src =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
-        (define-public (wrapped-get-1 (contract <trait-1>)) 
+        (define-public (wrapped-get-1 (contract <trait-1>))
             (contract-call? contract get-1 u0))
         (print (wrapped-get-1 .target-contract))";
     let target_contract_src =
@@ -875,12 +874,12 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
 
 #[test]
 fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions() {
-    let contract_defining_trait_src = 
+    let contract_defining_trait_src =
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract_src =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
-        (define-public (wrapped-get-1 (contract <trait-1>)) 
+        (define-public (wrapped-get-1 (contract <trait-1>))
             (contract-call? contract get-1 u0))
         (let ((p .target-contract))
             (print (wrapped-get-1 p)))";
@@ -905,15 +904,21 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
     }).unwrap_err();
     match err.err {
         CheckErrors::TypeError(_, _) => {},
-=======
-fn test_trait_principal_good() {
+        _ => {
+            panic!("{:?}", err)
+        }
+    }
+}
+
+#[test]
+fn test_contract_of_good() {
     let contract_defining_trait =
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract =
         "(use-trait trait-2 .defun.trait-1)
         (define-public (wrapped-get-1 (contract <trait-2>))
-            (ok (trait-principal contract)))";
+            (ok (contract-of contract)))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -925,18 +930,17 @@ fn test_trait_principal_good() {
         type_check(&def_contract_id, &mut c1, db, true).unwrap();
         type_check(&disp_contract_id, &mut c2, db, true)
     }).unwrap();
-
 }
 
 #[test]
-fn test_trait_principal_wrong_type() {
+fn test_contract_of_wrong_type() {
     let contract_defining_trait =
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract =
         "(use-trait trait-2 .defun.trait-1)
         (define-public (wrapped-get-1 (contract principal))
-            (ok (trait-principal contract)))";
+            (ok (contract-of contract)))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -951,13 +955,8 @@ fn test_trait_principal_wrong_type() {
     match err.err {
         CheckErrors::TypeError(_, _) => {},
         CheckErrors::TraitReferenceUnknown(_) => {},
->>>>>>> implement trait-transaction, resolves #1663
         _ => {
             panic!("{:?}", err)
         }
     }
-<<<<<<< HEAD
-=======
-
->>>>>>> implement trait-transaction, resolves #1663
 }

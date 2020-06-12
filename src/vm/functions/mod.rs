@@ -60,7 +60,7 @@ define_named_enum!(NativeFunctions {
     Print("print"),
     ContractCall("contract-call?"),
     AsContract("as-contract"),
-    TraitPrincipal("trait-principal"),
+    ContractOf("contract-of"),
     AtBlock("at-block"),
     GetBlockInfo("get-block-info?"),
     ConsError("err"),
@@ -139,7 +139,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Print => SpecialFunction("special_print", &special_print),
             ContractCall => SpecialFunction("special_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
-            TraitPrincipal => SpecialFunction("special_trait-principal", &special_trait_principal),
+            ContractOf => SpecialFunction("special_contract-of", &special_contract_of),
             GetBlockInfo => SpecialFunction("special_get_block_info", &database::special_get_block_info),
             ConsSome => NativeFunction("native_some", NativeHandle::SingleArg(&options::native_some), cost_functions::SOME_CONS),
             ConsOkay => NativeFunction("native_okay", NativeHandle::SingleArg(&options::native_okay), cost_functions::OK_CONS),
@@ -370,18 +370,18 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     result
 }
 
-fn special_trait_principal(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    // (trait-principal (..))
+fn special_contract_of(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    // (contract-of (..))
     // arg0 => trait
     check_argument_count(1, args)?;
 
-    runtime_cost!(cost_functions::TRAIT_PRINCIPAL, env, 0)?;
+    runtime_cost!(cost_functions::CONTRACT_OF, env, 0)?;
 
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(_contract_ref) => {
             _contract_ref
         },
-        _ => return Err(CheckErrors::TraitPrincipalExpectsTrait.into())
+        _ => return Err(CheckErrors::ContractOfExpectsTrait.into())
     };
 
     let contract_identifier = match context.callable_contracts.get(contract_ref) {
@@ -391,7 +391,7 @@ fn special_trait_principal(args: &[SymbolicExpression], env: &mut Environment, c
 
             _contract_identifier
         },
-        _ => return Err(CheckErrors::TraitPrincipalExpectsTrait.into())
+        _ => return Err(CheckErrors::ContractOfExpectsTrait.into())
     };
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
