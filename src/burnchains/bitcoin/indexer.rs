@@ -307,7 +307,10 @@ impl BitcoinIndexer {
     /// to None.
     fn reconnect_peer(&mut self) -> Result<(), btc_error> {
         match net::TcpStream::connect((self.config.peer_host.as_str(), self.config.peer_port)) {
-            Ok(s) => {
+            Ok(mut s) => {
+                //// abort faster!
+                //s.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                
                 self.runtime.sock = Some(s);
                 Ok(())
             },

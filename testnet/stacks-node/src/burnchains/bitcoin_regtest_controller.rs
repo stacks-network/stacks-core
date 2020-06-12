@@ -136,6 +136,7 @@ impl BitcoinRegtestController {
     fn receive_blocks(&mut self) -> BurnchainTip {
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
 
+        let t = Instant::now();
         let (block_snapshot, state_transition) = loop {
             match burnchain.sync_with_indexer(&mut burnchain_indexer) {
                 Ok(x) => {
@@ -188,7 +189,13 @@ impl BitcoinRegtestController {
             }
         };
 
-        debug!("Done receiving blocks");
+
+        let elapsed = Instant::now().duration_since(t);
+        if elapsed.as_secs() > 5 {
+            warn!("Done receiving blocks, took {}s", elapsed.as_secs_f32());
+        } else {
+            info!("Done receiving blocks, took {}s", elapsed.as_secs_f32());
+        }
         rest
     }
 
