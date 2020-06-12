@@ -377,19 +377,19 @@ fn special_trait_principal(args: &[SymbolicExpression], env: &mut Environment, c
 
     runtime_cost!(cost_functions::TRAIT_PRINCIPAL, env, 0)?;
 
-    let contract_identifier = match &args[0].expr {
-        SymbolicExpressionType::Atom(contract_ref) => {
-            // Dynamic dispatch
-            match context.callable_contracts.get(contract_ref) {
-                Some((ref _contract_identifier, _trait_identifier)) => {
+    let contract_ref = match &args[0].expr {
+        SymbolicExpressionType::Atom(_contract_ref) => {
+            _contract_ref
+        },
+        _ => return Err(CheckErrors::TraitPrincipalExpectsTrait.into())
+    };
 
-                    env.global_context.database.get_contract(_contract_identifier)
-                        .map_err(|_e| CheckErrors::NoSuchContract(_contract_identifier.to_string()))?;
+    let contract_identifier = match context.callable_contracts.get(contract_ref) {
+        Some((ref _contract_identifier, _trait_identifier)) => {
+            env.global_context.database.get_contract(_contract_identifier)
+                .map_err(|_e| CheckErrors::NoSuchContract(_contract_identifier.to_string()))?;
 
-                    _contract_identifier
-                },
-                _ => return Err(CheckErrors::TraitPrincipalExpectsTrait.into())
-            }
+            _contract_identifier
         },
         _ => return Err(CheckErrors::TraitPrincipalExpectsTrait.into())
     };

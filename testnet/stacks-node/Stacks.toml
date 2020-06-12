@@ -27,7 +27,7 @@ rpc_bind = "127.0.0.1:20443"
 # commit_anchor_block_within = 3000
 
 ## Settings for public testnet, relying on a remote bitcoind server
-## hosted by blockstack 
+## hosted by blockstack
 ##
 # [burnchain]
 # chain = "bitcoin"
@@ -59,13 +59,38 @@ amount = 100000000
 
 [[mstx_balance]]
 # Private key: 052cc5b8f25b1e44a65329244066f76c8057accd5316c889f476d0ea0329632c01
-address = "ST3CECAKJ4BH08JYY7W53MC81BYDT4YDA5M7S5F53" 
+address = "ST3CECAKJ4BH08JYY7W53MC81BYDT4YDA5M7S5F53"
 amount = 100000000
 
 [[mstx_balance]]
 # Private key: 9aef533e754663a453984b69d36f109be817e9940519cc84979419e2be00864801
-address = "ST31HHVBKYCYQQJ5AQ25ZHA6W2A548ZADDQ6S16GP" 
+address = "ST31HHVBKYCYQQJ5AQ25ZHA6W2A548ZADDQ6S16GP"
 amount = 100000000
+
+# alice
+[[mstx_balance]]
+address = "ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA"
+amount = 1000000
+
+# bob
+[[mstx_balance]]
+address = "STF4HK0PN8S7B8CBN564KY6VAH5D0P2J8WDGEZAH"
+amount = 1000000
+
+# zoe
+[[mstx_balance]]
+address = "STTDTHHX9SY4S2EH74G7VZ6BAJ9WPYYBK5NCB7T8"
+amount = 1000000
+
+# contracts
+[[mstx_balance]]
+address = "ST32N7A3G9P7J0VZ2JCJCG5DMB1TDWY8Q08KQ3B99"
+amount = 2000000
+
+# friedger contracts
+[[mstx_balance]]
+address = "ST398K1WZTBVY6FE2YEHM6HP20VSNVSSPJTW0D53M"
+amount = 2000000
 
 ## Event dispatcher
 ## The stacks blockchain can be observed by sidecar processes, notified through TCP socket, of events such as:

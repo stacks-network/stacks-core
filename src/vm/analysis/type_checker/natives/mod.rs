@@ -270,23 +270,22 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 fn check_trait_principal(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
 
-    if let SymbolicExpressionType::Atom(trait_instance) = &args[0].expr {
-        // Dynamic dispatch
-        let trait_id = match context.lookup_trait_reference_type(trait_instance) {
-            Some(trait_id) => trait_id,
-            _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into())
-        };
+    let trait_instance = match &args[0].expr {
+        SymbolicExpressionType::Atom(trait_instance) => trait_instance,
+        _ => return Err(CheckError::new(CheckErrors::TraitPrincipalExpectsTrait))
+    };
 
-        runtime_cost!(cost_functions::TRAIT_PRINCIPAL, checker, 1)?;
+    let trait_id = match context.lookup_trait_reference_type(trait_instance) {
+        Some(trait_id) => trait_id,
+        _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into())
+    };
 
-        checker.contract_context.get_trait(&trait_id.name)
-            .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
+    runtime_cost!(cost_functions::TRAIT_PRINCIPAL, checker, 1)?;
 
-        Ok(TypeSignature::PrincipalType)
-    } else {
-        Err(CheckError::new(CheckErrors::TraitPrincipalExpectsTrait))
-    }
+    checker.contract_context.get_trait(&trait_id.name)
+        .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
 
+    Ok(TypeSignature::PrincipalType)
 }
 
 fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

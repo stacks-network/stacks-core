@@ -599,8 +599,7 @@ const TRAIT_PRINCIPAL_API: SpecialAPI = SpecialAPI {
     input_type: "Trait",
     output_type: "principal",
     signature: "(trait-principal .contract-name)",
-    description: "The `trait-principal` function returns the contract implementing the trait.
-The contract must explicitly use `impl-trait` for the call to be valid.",
+    description: "The `trait-principal` function returns the principal of the contract implementing the trait.",
     example: "
 (use-trait token-a-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
 (define-public (forward-get-balance (user principal) (contract <token-a-trait>))

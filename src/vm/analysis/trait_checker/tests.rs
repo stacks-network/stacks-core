@@ -921,8 +921,6 @@ fn test_trait_principal_good() {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    println!("c2: {:?}", c2);
-
     db.execute(|db| {
         type_check(&def_contract_id, &mut c1, db, true).unwrap();
         type_check(&disp_contract_id, &mut c2, db, true)
@@ -945,8 +943,6 @@ fn test_trait_principal_wrong_type() {
     let mut c2 = parse(&disp_contract_id, dispatching_contract).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
-
-    println!("c2: {:?}", c2);
 
     let err = db.execute(|db| {
         type_check(&def_contract_id, &mut c1, db, true).unwrap();
