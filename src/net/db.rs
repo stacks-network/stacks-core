@@ -28,7 +28,7 @@ use std::fs;
 use std::convert::From;
 use std::convert::TryFrom;
 
-use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_count};
+use util::db::{FromRow, FromColumn, u64_to_sql, query_row, query_rows, query_count};
 use util::db::Error as db_error;
 use util::db::DBConn;
 use util::db::tx_begin_immediate;
@@ -617,8 +617,7 @@ impl PeerDB {
     pub fn get_peer(conn: &DBConn, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<Option<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3".to_string();
         let args = [&network_id as &dyn ToSql, &peer_addr.to_bin() as &dyn ToSql, &peer_port as &dyn ToSql];
-        let mut rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
-        Ok(rows.pop())
+        query_row::<Neighbor, _>(conn, &qry, &args)
     }
     
     /// Get peer by port (used in tests where the IP address doesn't really matter)
@@ -626,16 +625,14 @@ impl PeerDB {
     pub fn get_peer_by_port(conn: &DBConn, network_id: u32, peer_port: u16) -> Result<Option<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND port = ?2".to_string();
         let args = [&network_id as &dyn ToSql, &peer_port as &dyn ToSql];
-        let mut rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
-        Ok(rows.pop())
+        query_row::<Neighbor, _>(conn, &qry, &args)
     }
 
     /// Get a peer record at a particular slot
     pub fn get_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<Option<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND slot = ?2".to_string();
         let args = [&network_id as &dyn ToSql, &slot as &dyn ToSql];
-        let mut rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
-        Ok(rows.pop())
+        query_row::<Neighbor, _>(conn, &qry, &args)
     }
 
     /// Is a peer blacklisted?
