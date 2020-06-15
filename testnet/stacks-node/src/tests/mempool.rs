@@ -273,15 +273,12 @@ fn mempool_setup_chainstate() {
             conf.node.seed = vec![0x00];
 
             let mut keychain = Keychain::default(conf.node.seed.clone());
-            for i in 0..4 {
-                let microblock_secret_key = keychain.rotate_microblock_keypair(i);
-                let mut microblock_pubkey = Secp256k1PublicKey::from_private(&microblock_secret_key);
-                microblock_pubkey.set_compressed(true);
-                let pubkey_hash = StacksBlockHeader::pubkey_hash(&microblock_pubkey);
-                if pubkey_hash == *micro_pubkh {
-                    secret_key = Some(microblock_secret_key);
-                    break;
-                }
+            let microblock_secret_key = keychain.rotate_microblock_keypair(4);
+            let mut microblock_pubkey = Secp256k1PublicKey::from_private(&microblock_secret_key);
+            microblock_pubkey.set_compressed(true);
+            let pubkey_hash = StacksBlockHeader::pubkey_hash(&microblock_pubkey);
+            if pubkey_hash == *micro_pubkh {
+                secret_key = Some(microblock_secret_key);
             }
 
             let secret_key = secret_key.expect("Failed to find the microblock secret key");

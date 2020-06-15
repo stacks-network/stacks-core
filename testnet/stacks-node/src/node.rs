@@ -644,22 +644,16 @@ impl Node {
                                 key: &RegisteredKey,
                                 burnchain_tip: &BurnchainTip,
                                 vrf_seed: VRFSeed) -> BlockstackOperationType {
-
-        println!("1 -> {:?}", burnchain_tip);
         let winning_tx_vtindex = match (burnchain_tip.get_winning_tx_index(), burnchain_tip.block_snapshot.total_burn) {
             (Some(winning_tx_id), _) => winning_tx_id,
             (None, 0) => 0,
             _ => unreachable!()
         };
-        println!("2");
-
 
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
             true => (0, 0), // parent_block_ptr and parent_vtxindex should both be 0 on block #1
             false => (burnchain_tip.block_snapshot.block_height as u32, winning_tx_vtindex as u16)
         };
-
-        println!("3");
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             block_header_hash,
