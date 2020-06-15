@@ -29,6 +29,7 @@ fn test_all() {
         test_good_call_with_trait,
         test_good_call_2_with_trait,
         test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs,
+        test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions,
         ];
     for test in to_test.iter() {
         with_memory_environment(test, false);
@@ -541,3 +542,33 @@ fn test_good_call_2_with_trait(owned_env: &mut OwnedEnvironment) {
     }
 }
 
+fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions(owned_env: &mut OwnedEnvironment) {
+    let contract_defining_trait = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract =
+        "(use-trait trait-1 .contract-defining-trait.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))
+        (print (wrapped-get-1 .target-contract))";
+    let target_contract =
+        "(impl-trait .contract-defining-trait.trait-1)
+        (define-public (get-1 (x uint)) (ok u1))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract(QualifiedContractIdentifier::local("contract-defining-trait").unwrap(), contract_defining_trait).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("target-contract").unwrap(), target_contract).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("dispatching-contract").unwrap(), dispatching_contract).unwrap();
+    }
+
+    {
+        let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap(),
+            Value::okay(Value::UInt(1)).unwrap());
+    }
+}
