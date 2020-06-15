@@ -486,13 +486,13 @@ impl HttpPeer {
             match convo.try_flush(chainstate) {
                 Ok(_) => {},
                 Err(_e) => {
-                    info!("Broken connection {:?}: {:?}", convo, &_e);
+                    info!("Broken HTTP connection {:?}: {:?}", convo, &_e);
                     close.push(*event_id);
                 }
             }
             if convo.is_drained() && !convo.is_keep_alive() {
                 // did some work, but nothing more to do and we're not keep-alive
-                test_debug!("Close drained connection {:?}", convo);
+                debug!("Close drained HTTP connection {:?}", convo);
                 close.push(*event_id);
             }
         }
