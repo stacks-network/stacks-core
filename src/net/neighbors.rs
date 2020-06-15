@@ -64,7 +64,7 @@ use rand::thread_rng;
 #[cfg(test)] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 0;
 #[cfg(not(test))] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 600;      // don't reach out to a frontier neighbor more than once every 10 minutes
 
-pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 30;      // number of seconds an outstanding request for neighbors can take
+pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 30;      // default number of seconds an outstanding request for neighbors can take
 
 pub const NUM_INITIAL_WALKS : u64 = 10;     // how many unthrottled walks should we do when this peer starts up
 pub const WALK_RETRY_COUNT : u64 = 10;      // how many unthrottled walks should we attempt when the peer starts up
@@ -159,8 +159,8 @@ impl Neighbor {
     /// upper bound.
     pub fn degree(&self) -> u64 {
         let mut rng = thread_rng();
-        let min = if self.in_degree < self.out_degree { self.in_degree } else { self.out_degree };
-        let max = if self.in_degree >= self.out_degree { self.in_degree } else { self.out_degree };
+        let min = cmp::min(self.in_degree, self.out_degree);
+        let max = cmp::max(self.in_degree, self.out_degree);
         let res = rng.gen_range(min, max+1) as u64;
         if res == 0 {
             1
@@ -2213,7 +2213,6 @@ mod test {
             match peer_1.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    // assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -2222,7 +2221,6 @@ mod test {
             match peer_2.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    // assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -2880,7 +2878,6 @@ mod test {
                 match peer_1.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        // assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -2889,7 +2886,6 @@ mod test {
                 match peer_2.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        // assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -3252,7 +3248,6 @@ mod test {
                 match peer_1.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        // assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -3261,7 +3256,6 @@ mod test {
                 match peer_2.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        // assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
