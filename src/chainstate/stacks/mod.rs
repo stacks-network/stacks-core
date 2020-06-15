@@ -138,6 +138,7 @@ pub enum Error {
     InvalidChainstateDB,
     BlockTooBigError,
     BlockCostExceeded,
+    NoTransactionsToMine,
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
     CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
@@ -172,6 +173,7 @@ impl fmt::Display for Error {
             Error::ReadError(ref e) => fmt::Display::fmt(e, f),
             Error::WriteError(ref e) => fmt::Display::fmt(e, f),
             Error::MemPoolError(ref s) => fmt::Display::fmt(s, f),
+            Error::NoTransactionsToMine => write!(f, "No transactions to mine"),
         }
     }
 }
@@ -198,6 +200,7 @@ impl error::Error for Error {
             Error::ReadError(ref e) => Some(e),
             Error::WriteError(ref e) => Some(e),
             Error::MemPoolError(ref _s) => None,
+            Error::NoTransactionsToMine => None,
         }
     }
 }

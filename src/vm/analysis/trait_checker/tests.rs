@@ -411,6 +411,28 @@ fn test_passing_trait_reference_instances() {
 }
 
 #[test]
+fn test_passing_nested_trait_reference_instances() {
+    let dispatching_contract_src =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (value bool) (contract <trait-1>))
+            (let ((amount u0))
+              (internal-get-1 contract)))
+        (define-public (internal-get-1 (contract <trait-1>))
+            (ok u1))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
+    }).unwrap();
+}
+
+#[test]
 fn test_dynamic_dispatch_collision_trait() {
     let contract_defining_trait_src = 
         "(define-trait trait-1 (

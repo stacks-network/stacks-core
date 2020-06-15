@@ -83,6 +83,11 @@ pub struct RelayerStats {
     next_priority: u64
 }
 
+pub struct ProcessedNetReceipts {
+    pub blocks_processed: Vec<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
+    pub mempool_txs_added: Vec<StacksTransaction>
+}
+
 /// Private trait for keeping track of messages that can be relayed, so we can identify the peers
 /// who frequently send us duplicates.
 pub trait RelayPayload {
@@ -839,6 +844,23 @@ impl Relayer {
         self.p2p.advertize_blocks(available)
     }
 
+    pub fn broadcast_block(&mut self, burn_header_hash: BurnchainHeaderHash, block: StacksBlock) -> Result<(), net_error> {
+        let blocks_data = BlocksData {
+            blocks: vec![(burn_header_hash, block)]
+        };
+        self.p2p.broadcast_message(vec![], StacksMessageType::Blocks(blocks_data))
+    }
+
+    pub fn broadcast_microblock(&mut self,
+                                block_header_hash: &BlockHeaderHash,
+                                block_burn_header_hash: &BurnchainHeaderHash,
+                                microblock: StacksMicroblock) -> Result<(), net_error> {
+        self.p2p.broadcast_message(vec![], StacksMessageType::Microblocks(
+            MicroblocksData { index_anchor_block:
+                              StacksBlockHeader::make_index_block_hash(block_burn_header_hash, block_header_hash),
+                              microblocks: vec![ microblock ] }))
+    }
+
     /// Given a network result, consume and store all data.
     /// * Add all blocks and microblocks to staging.
     /// * Forward BlocksAvailable messages to neighbors for newly-discovered anchored blocks
@@ -849,8 +871,8 @@ impl Relayer {
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
     pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB)
-                                  -> Result<Vec<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, net_error> {
-        let receipts = match Relayer::process_new_blocks(network_result, burndb, chainstate) {
+                                  -> Result<ProcessedNetReceipts, net_error> {
+        let blocks_processed = match Relayer::process_new_blocks(network_result, burndb, chainstate) {
             Ok((new_blocks, new_confirmed_microblocks, mut new_microblocks, bad_block_neighbors, receipts)) => {
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
@@ -900,19 +922,26 @@ impl Relayer {
 
         // store all transactions, and forward the novel ones to neighbors
         test_debug!("{:?}: Process {} transaction(s)", &_local_peer, network_result.pushed_transactions.len());
-        let mut new_txs = Relayer::process_transactions(network_result, burndb, chainstate, mempool)?;
+        let new_txs = Relayer::process_transactions(network_result, burndb, chainstate, mempool)?;
 
         if new_txs.len() > 0 {
             debug!("{:?}: Send {} transactions to neighbors", &_local_peer, new_txs.len());
         }
 
-        for (relayers, tx) in new_txs.drain(..) {
+        let mut mempool_txs_added = vec![];
+        for (relayers, tx) in new_txs.into_iter() {
             debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
+            mempool_txs_added.push(tx.clone());
             let msg = StacksMessageType::Transaction(tx);
             if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
                 warn!("Failed to broadcast transaction: {:?}", &e);
             }
         }
+
+        let receipts = ProcessedNetReceipts {
+            blocks_processed,
+            mempool_txs_added
+        };
 
         Ok(receipts)
     }

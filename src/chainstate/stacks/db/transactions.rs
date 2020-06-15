@@ -100,6 +100,7 @@ impl StacksTransactionReceipt {
             events: vec![StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data))],
             result: Value::okay_true(),
             stx_burned: 0,
+            post_condition_aborted: false,
             contract_analysis: None,
             transaction: tx,
             execution_cost: cost
@@ -109,6 +110,19 @@ impl StacksTransactionReceipt {
     pub fn from_contract_call(tx: StacksTransaction, events: Vec<StacksTransactionEvent>, result: Value, burned: u128, cost: ExecutionCost) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx,
+            post_condition_aborted: false,
+            events,
+            result,
+            stx_burned: burned,
+            contract_analysis: None,
+            execution_cost: cost
+        }
+    }
+
+    pub fn from_condition_aborted_contract_call(tx: StacksTransaction, events: Vec<StacksTransactionEvent>, result: Value, burned: u128, cost: ExecutionCost) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx,
+            post_condition_aborted: true,
             events,
             result,
             stx_burned: burned,
@@ -121,6 +135,19 @@ impl StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx,
             events,
+            post_condition_aborted: false,
+            result: Value::okay_true(),
+            stx_burned: burned,
+            contract_analysis: Some(analysis),
+            execution_cost: cost
+        }
+    }
+
+    pub fn from_condition_aborted_smart_contract(tx: StacksTransaction, events: Vec<StacksTransactionEvent>, burned: u128, analysis: ContractAnalysis, cost: ExecutionCost) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx,
+            events,
+            post_condition_aborted: true,
             result: Value::okay_true(),
             stx_burned: burned,
             contract_analysis: Some(analysis),
@@ -132,6 +159,7 @@ impl StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx,
             events: vec![],
+            post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: 0,
             contract_analysis: None,
@@ -143,6 +171,7 @@ impl StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx,
             events: vec![],
+            post_condition_aborted: false,
             result: Value::err_none(),
             stx_burned: 0,
             contract_analysis: None,
@@ -181,6 +210,21 @@ impl From<TransactionNonceMismatch> for MemPoolRejection {
 }
 
 impl StacksChainState {
+    /// Get the payer account
+    fn get_payer_account<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction) -> StacksAccount {
+        // who's paying the fee?
+        let payer_account =
+            if let Some(sponsor_address) = tx.sponsor_address() {
+                let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
+                payer_account
+            } else {
+                let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
+                origin_account
+            };
+
+        payer_account
+    }
+
     /// Check the account nonces for the supplied stacks transaction,
     ///   returning the origin and payer accounts if valid.
     pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction) -> Result<(StacksAccount, StacksAccount), TransactionNonceMismatch> {
@@ -519,6 +563,15 @@ impl StacksChainState {
                                 info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
                                 Ok((Value::err_none(), AssetMap::new(), vec![]))
                             },
+                            clarity_error::AbortedByCallback(value, assets, events) => {
+                                let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
+                                    tx.clone(),
+                                    events,
+                                    value.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
+                                    assets.get_stx_burned_total(),
+                                    total_cost);
+                                return Ok(receipt);
+                            },
                             // log this for now
                             clarity_error::CostError(ref cost, ref budget) => {
                                 warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
@@ -612,6 +665,11 @@ impl StacksChainState {
                                 warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
                                 Err(e)
                             },
+                            clarity_error::AbortedByCallback(_, assets, events) => {
+                                let receipt = StacksTransactionReceipt::from_condition_aborted_smart_contract(
+                                    tx.clone(), events, assets.get_stx_burned_total(), contract_analysis, total_cost);
+                                return Ok(receipt);
+                            },
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
                                 info!("Runtime error {:?} on instantiating {}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
@@ -669,10 +727,15 @@ impl StacksChainState {
         let tx_receipt = StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
 
         // pay fee borne by runtime costs.
-        // TODO: this is the fee *rate*, not the absolute fee.  This code is broken until we have
+        // NOTE: the fee must be paid _after_ we run the payload, because we will (eventually) be
+        // debiting the account a fee equal to its transaction's runtime cost (which can only be
+        // determined by running the code).  Hence, we need to refresh the payer account after the
+        // transaction body runs.
+        // TODO: this field is the fee *rate*, not the absolute fee.  This code is broken until we have
         // the true block reward system built.
+        let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
         let fee = tx.get_fee_rate();
-        StacksChainState::pay_transaction_fee(&mut transaction, fee, &payer_account)?;
+        StacksChainState::pay_transaction_fee(&mut transaction, fee, &new_payer_account)?;
 
         // update the account nonces
         StacksChainState::update_account_nonce(&mut transaction, &origin_account);
@@ -3171,5 +3234,58 @@ pub mod test {
         }
     }
 
+    #[test]
+    fn process_smart_contract_fee_check() {
+        let contract = r#"
+        (define-public (send-stx (amount uint) (recipient principal))
+            (stx-transfer? amount tx-sender recipient))
+        "#;
+        
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+
+        let balances = vec![(addr.clone(), 1000000000)];
+
+        let mut chainstate = instantiate_chainstate_with_balances(false, 0x80000000, "process-smart-contract-fee_check", balances);
+
+        let mut tx_contract_create = StacksTransaction::new(TransactionVersion::Testnet,
+                                                            auth.clone(),
+                                                            TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
+
+        tx_contract_create.chain_id = 0x80000000;
+        tx_contract_create.set_fee_rate(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract_create);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_contract_tx = signer.get_tx().unwrap();
+
+        let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
+                                                          auth.clone(),
+                                                          TransactionPayload::new_contract_call(
+                                                              addr.clone(), 
+                                                              "hello-world", 
+                                                              "send-stx", vec![Value::UInt(1000000000), Value::Principal(PrincipalData::from(StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap()))]).unwrap());
+
+        tx_contract_call.chain_id = 0x80000000;
+        tx_contract_call.set_fee_rate(1);
+        tx_contract_call.set_origin_nonce(1);
+        tx_contract_call.post_condition_mode = TransactionPostConditionMode::Allow;
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract_call);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_contract_call_tx = signer.get_tx().unwrap();
+
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_contract_tx).unwrap();
+        let err = StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx).unwrap_err();
+        conn.commit_block();
+
+        eprintln!("{:?}", &err);
+        assert_eq!(fee, 0);
+        if let Error::InvalidFee = err {} else { assert!(false) };
+    }
     // TODO: test poison microblock
 }

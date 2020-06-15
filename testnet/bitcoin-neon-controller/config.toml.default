@@ -12,5 +12,6 @@ whitelisted_rpc_calls = [
     "importaddress",
     "sendrawtransaction",
     "getrawtransaction",
-    "scantxoutset"
+    "scantxoutset",
+    "getrawmempool",
 ]

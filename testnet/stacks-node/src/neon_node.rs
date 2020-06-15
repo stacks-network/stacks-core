@@ -1,29 +1,32 @@
 use super::{Keychain, Config, BurnchainController, BurnchainTip, EventDispatcher};
 use crate::config::HELIUM_BLOCK_LIMIT;
 
-use std::convert::TryFrom;
+use std::convert::{ TryFrom, TryInto };
 use std::{thread, thread::JoinHandle};
 use std::net::SocketAddr;
 use std::collections::VecDeque;
+use std::default::Default;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, PublicKey};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
-use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, TransactionAnchorMode};
+use stacks::chainstate::stacks::{
+    StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner,
+    StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload,
+    TransactionAnchorMode, StacksBlockHeader };
 use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
 use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
     LeaderKeyRegisterOp,
     BlockstackOperationType,
 };
-use stacks::chainstate::stacks::{StacksBlockBuilder};
+use stacks::chainstate::stacks::{StacksBlockBuilder, miner::StacksMicroblockBuilder};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::stacks::{Error as ChainstateError};
 use stacks::chainstate::stacks::StacksPublicKey;
 
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer }, relay::Relayer };
 use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -31,15 +34,19 @@ use stacks::util::strings::UrlString;
 use stacks::util::hash::Hash160;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::net::NetworkResult;
-use stacks::net::PeerAddress;
+use stacks::net::{
+    db::{ PeerDB, LocalPeer }, relay::Relayer,
+    p2p::PeerNetwork, Error as NetError, PeerAddress,
+    NetworkResult, rpc::RPCHandlerArgs
+};
 use std::sync::mpsc;
 use std::sync::mpsc::{sync_channel, TrySendError, TryRecvError, SyncSender, Receiver};
+
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
-use std::convert::TryInto;
 use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
+use stacks::vm::costs::ExecutionCost;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
@@ -50,6 +57,14 @@ struct RegisteredKey {
     block_height: u16,
     op_vtxindex: u16,
     vrf_public_key: VRFPublicKey,
+}
+
+struct AssembledAnchorBlock {
+    parent_block_burn_hash: BurnchainHeaderHash,
+    my_burn_hash: BurnchainHeaderHash,
+    anchored_block: StacksBlock,
+    consumed_execution: ExecutionCost,
+    bytes_so_far: u64
 }
 
 enum RelayerDirective {
@@ -66,7 +81,8 @@ pub struct InitializedNeonNode {
     burnchain_signer: BurnchainSigner,
     last_burn_block: Option<BlockSnapshot>,
     active_keys: Vec<RegisteredKey>,
-    is_miner: bool
+    sleep_before_tenure: u64,
+    is_miner: bool,
 }
 
 pub struct NeonGenesisNode {
@@ -75,16 +91,30 @@ pub struct NeonGenesisNode {
     event_dispatcher: EventDispatcher,
 }
 
+#[cfg(test)]
+type BlocksProcessedCounter = std::sync::Arc<std::sync::atomic::AtomicU64>;
+
+#[cfg(not(test))]
+type BlocksProcessedCounter = ();
+
+#[cfg(test)]
+fn bump_processed_counter(blocks_processed: &BlocksProcessedCounter) {
+    blocks_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(not(test))]
+fn bump_processed_counter(_blocks_processed: &BlocksProcessedCounter) {
+}
+
 /// Process artifacts from the tenure.
 /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
 fn inner_process_tenure(
     anchored_block: &StacksBlock, 
     burn_header_hash: &BurnchainHeaderHash, 
     parent_burn_header_hash: &BurnchainHeaderHash, 
-    microblocks: Vec<StacksMicroblock>, 
     burn_db: &mut BurnDB,
     chain_state: &mut StacksChainState,
-    dispatcher: &mut EventDispatcher) -> Result<(StacksHeaderInfo, Vec<StacksTransactionReceipt>), ChainstateError> {
+    dispatcher: &mut EventDispatcher) -> Result<(), ChainstateError> {
     {
         let ic = burn_db.index_conn();
 
@@ -96,17 +126,6 @@ fn inner_process_tenure(
             &anchored_block,
             // this actually needs to be it's _parents_ burn header hash.
             &parent_burn_header_hash)?;
-
-        // Preprocess the microblocks
-        for microblock in microblocks.iter() {
-            let res = chain_state.preprocess_streamed_microblock(
-                &burn_header_hash, 
-                &anchored_block.block_hash(), 
-                microblock)?;
-            if !res {
-                warn!("Unhandled error while pre-processing microblock {}", microblock.header.block_hash());
-            }
-        }
     }
 
     let mut processed_blocks = vec![];
@@ -123,22 +142,21 @@ fn inner_process_tenure(
         }
     }
 
-    // todo(ludo): yikes but good enough in the context of helium:
-    // we only expect 1 block.
-    let processed_block = match processed_blocks.get(0) {
-        Some(x) => x.clone().0.unwrap(),
-        None => {
-            warn!("Chainstate expected to process a new block, but we didn't");
-            return Err(ChainstateError::InvalidStacksBlock("Could not process expected block".into()));
+    if processed_blocks.len() == 0 {
+        warn!("Chainstate expected to process a new block, but we didn't");
+        return Err(ChainstateError::InvalidStacksBlock("Could not process expected block".into()));
+    }
+
+    for processed_block in processed_blocks.into_iter() {
+        match processed_block {
+            (Some((header, receipts)), _) => {
+                dispatcher_announce_block(&chain_state.blocks_path, dispatcher,
+                                          header, Some(parent_burn_header_hash), burn_db, receipts);
+            },
+            _ => {}
         }
-    };
-
-    // Handle events
-    let receipts = processed_block.1;
-    let metadata = processed_block.0;
-
-    dispatcher_announce(&chain_state.blocks_path, dispatcher, metadata.clone(), receipts.clone());
-    Ok((metadata, receipts))
+    }
+    Ok(())
 }
 
 fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64) -> StacksTransaction {
@@ -217,6 +235,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
     let block_limit = config.block_limit;
+    let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
@@ -235,6 +254,9 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     let mut results_with_data = VecDeque::new();
 
     let server_thread = thread::spawn(move || {
+        let handler_args = RPCHandlerArgs { exit_at_block_height: exit_at_block_height.as_ref(),
+                                            .. RPCHandlerArgs::default() };
+
         loop {
             let download_backpressure = results_with_data.len() > 0;
             let poll_ms = 
@@ -247,7 +269,9 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                     poll_timeout
                 };
 
-            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), download_backpressure, poll_ms)
+            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
+                                          download_backpressure, poll_ms,
+                                          &handler_args)
                 .unwrap();
 
             if network_result.has_data_to_store() {
@@ -285,7 +309,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                        config: Config, mut keychain: Keychain,
                        burn_db_path: String, stacks_chainstate_path: String, 
                        relay_channel: Receiver<RelayerDirective>,
-                       mut event_dispatcher: EventDispatcher) -> Result<(), NetError> {
+                       mut event_dispatcher: EventDispatcher,
+                       blocks_processed: BlocksProcessedCounter) -> Result<(), NetError> {
     // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
     //   no other codepaths should be writing once this is spawned.
     //
@@ -303,11 +328,10 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
         .map_err(NetError::DBError)?;
 
-    // parent_burn_header_hash
-    // block_hash
-    // mined_on_burn_header_hash
-    let mut last_mined_block: Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> = None;
+    let mut last_mined_block: Option<AssembledAnchorBlock> = None;
     let burn_fee_cap = config.burnchain.burn_fee_cap;
+    let mine_microblocks = config.node.mine_microblocks;
+
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config);
 
     let blocks_path = chainstate.blocks_path.clone();
@@ -335,7 +359,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
                         // TODO: pass the poison microblock transaction off to the miner!
                         if let Some((header_info, receipts)) = headers_and_receipts_opt {
-                            dispatcher_announce(&blocks_path, &mut event_dispatcher, header_info, receipts);
+                            dispatcher_announce_block(&blocks_path, &mut event_dispatcher, header_info, None, &mut burndb, receipts);
                             num_processed += 1;
                         }
                     }
@@ -343,41 +367,90 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         // out of blocks to process.
                         block_on_recv = true;
                     }
-                }
+                },
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
-                    let block_receipts = relayer.process_network_result(&local_peer, net_result,
+                    let net_receipts = relayer.process_network_result(&local_peer, net_result,
                                                                         &mut burndb, &mut chainstate, &mut mem_pool)
                         .expect("BUG: failure processing network results");
 
                     // TODO: extricate the poison block transaction(s) from the relayer and feed
                     // them to the miner
-                    for (stacks_header, tx_receipts) in block_receipts {
-                        dispatcher_announce(&blocks_path, &mut event_dispatcher, stacks_header, tx_receipts);
+                    for (stacks_header, tx_receipts) in net_receipts.blocks_processed {
+                        dispatcher_announce_block(&blocks_path, &mut event_dispatcher, stacks_header, None, &mut burndb, tx_receipts);
+                    }
+
+                    if net_receipts.mempool_txs_added.len() > 0 {
+                        event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
                 },
                 RelayerDirective::ProcessTenure(burn_header_hash, parent_burn_header_hash, block_header_hash) => {
-                    if let Some((parent_burn_hh, mined_block, mined_burn_hh)) = last_mined_block.take() {
+                    if let Some(my_mined) = last_mined_block.take() {
+                        let AssembledAnchorBlock {
+                            parent_block_burn_hash,
+                            anchored_block: mined_block,
+                            my_burn_hash: mined_burn_hh,
+                            consumed_execution,
+                            bytes_so_far } = my_mined;
                         if mined_block.block_hash() == block_header_hash && parent_burn_header_hash == mined_burn_hh {
                             // we won!
                             info!("Won sortition! stacks_header={}, burn_header={}",
                                   block_header_hash,
                                   mined_burn_hh);
 
-                            let (stacks_header, _) = 
-                                match inner_process_tenure(&mined_block, &burn_header_hash, &parent_burn_hh,
-                                                           vec![], // no microblocks for now...
-                                                           &mut burndb, &mut chainstate, &mut event_dispatcher) {
-                                    Ok(x) => x,
-                                    Err(e) => {
-                                        warn!("Error processing my tenure, bad block produced: {}", e);
-                                        continue;
-                                    }
-                                };
+                            match inner_process_tenure(&mined_block, &burn_header_hash, &parent_block_burn_hash,
+                                                       &mut burndb, &mut chainstate, &mut event_dispatcher) {
+                                Ok(x) => x,
+                                Err(e) => {
+                                    warn!("Error processing my tenure, bad block produced: {}", e);
+                                    continue;
+                                }
+                            };
 
-                            let blocks_available = Relayer::load_blocks_available_data(&burndb, vec![stacks_header.burn_header_hash])
+                            // advertize _and_ push blocks for now
+                            let blocks_available = Relayer::load_blocks_available_data(&burndb, vec![burn_header_hash.clone()])
                                 .expect("Failed to obtain block information for a block we mined.");
                             if let Err(e) = relayer.advertize_blocks(blocks_available) {
                                 warn!("Failed to advertise new block: {}", e);
+                            }
+                            if let Err(e) = relayer.broadcast_block(burn_header_hash.clone(), mined_block) {
+                                warn!("Failed to push new block: {}", e);
+                            }
+
+                            // should we broadcast microblocks?
+                            if mine_microblocks {
+                                let mint_result = InitializedNeonNode::relayer_mint_microblocks(
+                                    &burn_header_hash, &block_header_hash, &mut chainstate, &keychain,
+                                    consumed_execution, bytes_so_far, &mem_pool);
+                                let mined_microblock = match mint_result {
+                                    Ok(mined_microblock) => mined_microblock,
+                                    Err(e) => {
+                                        warn!("Failed to mine microblock: {}", e);
+                                        continue;
+                                    }
+                                };
+                                // preprocess the microblock locally
+                                match chainstate.preprocess_streamed_microblock(
+                                    &burn_header_hash, &block_header_hash, &mined_microblock) {
+                                    Ok(res) => {
+                                        if !res {
+                                            warn!("Unhandled error while pre-processing microblock {}",
+                                                  mined_microblock.header.block_hash());
+                                            continue
+                                        }
+                                    },
+                                    Err(e) => {
+                                        error!("Error while pre-processing microblock {}: {}",
+                                               mined_microblock.header.block_hash(), e);
+                                        continue
+                                    },
+                                }
+                                // successfully preprocessed microblock. broadcast to peers
+                                let microblock_hash = mined_microblock.header.block_hash();
+                                if let Err(e) = relayer.broadcast_microblock(&block_header_hash, &mined_burn_hh,
+                                                                             mined_microblock) {
+                                    error!("Failure trying to broadcast microblock {}: {}",
+                                           microblock_hash, e);
+                                }
                             }
                         } else {
                             warn!("Did not win sortition, my blocks [burn_hash= {}, block_hash= {}], their blocks [par_burn_hash= {}, burn_hash= {}, block_hash ={}]",
@@ -389,9 +462,11 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
                         registered_key, &mut chainstate, &burndb, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller);
+                    bump_processed_counter(&blocks_processed);
                 },
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
-                    rotate_vrf_and_register(&mut keychain, last_burn_block, &mut bitcoin_controller)
+                    rotate_vrf_and_register(&mut keychain, last_burn_block, &mut bitcoin_controller);
+                    bump_processed_counter(&blocks_processed);
                 }
             }
         }
@@ -400,14 +475,28 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     Ok(())
 }
 
-fn dispatcher_announce(blocks_path: &str, event_dispatcher: &mut EventDispatcher,
-                       metadata: StacksHeaderInfo, receipts: Vec<StacksTransactionReceipt>) {
-    let block = {
+fn dispatcher_announce_block(blocks_path: &str, event_dispatcher: &mut EventDispatcher,
+                             metadata: StacksHeaderInfo,
+                             parent_burn_header_hash: Option<&BurnchainHeaderHash>,
+                             burndb: &mut BurnDB,
+                             receipts: Vec<StacksTransactionReceipt>) {
+    let block: StacksBlock = {
         let block_path = StacksChainState::get_block_path(
             blocks_path, 
             &metadata.burn_header_hash, 
             &metadata.anchored_header.block_hash()).unwrap();
         StacksChainState::consensus_load(&block_path).unwrap()
+    };
+
+    let parent_index_hash = match parent_burn_header_hash {
+        Some(x) => StacksBlockHeader::make_index_block_hash(x, &block.header.parent_block),
+        None => {
+            let parent_burn_header_hash = StacksChainState::get_parent_burn_header_hash(
+                &burndb.index_conn(), &block.header.parent_block, &metadata.burn_header_hash)
+                .expect("Failed to get parent burn header hash for processed block")
+                .expect("Failed to get parent burn header hash for processed block");
+            StacksBlockHeader::make_index_block_hash(&parent_burn_header_hash, &block.header.parent_block)
+        }
     };
 
     let chain_tip = ChainTip {
@@ -416,13 +505,13 @@ fn dispatcher_announce(blocks_path: &str, event_dispatcher: &mut EventDispatcher
         receipts
     };
 
-    event_dispatcher.process_chain_tip(&chain_tip);
+    event_dispatcher.process_chain_tip(&chain_tip, &parent_index_hash);
 }
 
 impl InitializedNeonNode {
     fn new(config: Config, keychain: Keychain, event_dispatcher: EventDispatcher,
-           last_burn_block: Option<BurnchainTip>, registered_key: Option<RegisteredKey>,
-           miner: bool) -> InitializedNeonNode {
+           last_burn_block: Option<BurnchainTip>,
+           miner: bool, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let burndb = BurnDB::open(&config.get_burn_db_file_path(), false)
@@ -492,11 +581,14 @@ impl InitializedNeonNode {
         let burnchain_signer = keychain.get_burnchain_signer();
         let relayer = Relayer::from_p2p(&mut p2p_net);
 
+        let sleep_before_tenure = config.node.wait_time_for_microblocks;
+
         spawn_miner_relayer(relayer, local_peer,
                             config.clone(), keychain,
                             config.get_burn_db_file_path(),
                             config.get_chainstate_path(),
-                            relay_recv, event_dispatcher)
+                            relay_recv, event_dispatcher,
+                            blocks_processed.clone())
             .expect("Failed to initialize mine/relay thread");
 
         spawn_peer(p2p_net, &p2p_sock, &rpc_sock,
@@ -511,17 +603,15 @@ impl InitializedNeonNode {
 
         let is_miner = miner;
 
-        let mut active_keys = vec![];
-        if let Some(key) = registered_key {
-            active_keys.push(key);
-        }
+        let active_keys = vec![];
 
         InitializedNeonNode {
             relay_channel: relay_send,
             last_burn_block,
             burnchain_signer,
             is_miner,
-            active_keys
+            sleep_before_tenure,
+            active_keys,
         }
     }
 
@@ -535,6 +625,10 @@ impl InitializedNeonNode {
 
         if let Some(burnchain_tip) = self.last_burn_block.clone() {
             if let Some(key) = self.active_keys.pop() {
+                // sleep a little before building the anchor block, to give any broadcasted 
+                //   microblocks time to propagate.
+                info!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
+                thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
                 self.relay_channel
                     .send(RelayerDirective::RunTenure(key, burnchain_tip))
                     .is_ok()
@@ -572,6 +666,29 @@ impl InitializedNeonNode {
         true
     }
 
+    fn relayer_mint_microblocks(mined_block_bhh: &BurnchainHeaderHash,
+                                mined_block_shh: &BlockHeaderHash,
+                                chain_state: &mut StacksChainState,
+                                keychain: &Keychain,
+                                consumed_execution: ExecutionCost,
+                                bytes_so_far: u64,
+                                mem_pool: &MemPoolDB) -> Result<StacksMicroblock, ChainstateError> {
+        let mut microblock_miner = StacksMicroblockBuilder::new(mined_block_shh.clone(),
+                                                                mined_block_bhh.clone(),
+                                                                chain_state,
+                                                                consumed_execution,
+                                                                bytes_so_far)?;
+        let mblock_key = keychain.get_microblock_key()
+            .expect("Miner attempt to mine microblocks without a microblock key");
+        let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&mblock_key).to_bytes());
+
+        let mblock = microblock_miner.mine_next_microblock(mem_pool, &mblock_key, &mblock_pubkey_hash)?;
+
+        info!("Minted microblock with {} transactions", mblock.txs.len());
+
+        Ok(mblock)
+    }
+
     // return stack's parent's burn header hash,
     //        the anchored block,
     //        the burn header hash of the burnchain tip
@@ -582,7 +699,7 @@ impl InitializedNeonNode {
                           keychain: &mut Keychain,
                           mem_pool: &mut MemPoolDB,
                           burn_fee_cap: u64,
-                          bitcoin_controller: &mut BitcoinRegtestController) -> Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> {
+                          bitcoin_controller: &mut BitcoinRegtestController) -> Option<AssembledAnchorBlock> {
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = keychain.generate_proof(
             &registered_key.vrf_public_key, 
@@ -656,7 +773,7 @@ impl InitializedNeonNode {
         
         let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
-        let anchored_block = match StacksBlockBuilder::build_anchored_block(
+        let (anchored_block, consumed_execution, bytes_so_far) = match StacksBlockBuilder::build_anchored_block(
             chain_state, mem_pool, &stacks_parent_header, parent_block_total_burn,
             vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()) {
             Ok(block) => block,
@@ -666,11 +783,9 @@ impl InitializedNeonNode {
             }
         };
 
-        if parent_block_total_burn == 0 {
-            info!("Genesis block assembled: {}", anchored_block.block_hash());
-        } else {
-            info!("Stacks block assembled: {}", anchored_block.block_hash());
-        }
+        info!("{} block assembled: {}, with {} txs",
+              if parent_block_total_burn == 0 { "Genesis" } else { "Stacks" },
+              anchored_block.block_hash(), anchored_block.txs.len() );
 
         // let's commit
         let op = inner_generate_block_commit_op(
@@ -687,7 +802,13 @@ impl InitializedNeonNode {
 
         rotate_vrf_and_register(keychain, &burn_block, bitcoin_controller);
 
-        Some((parent_burn_hash, anchored_block, burn_block.burn_header_hash))
+        Some(AssembledAnchorBlock {
+            parent_block_burn_hash: parent_burn_hash,
+            my_burn_hash: burn_block.burn_header_hash,
+            consumed_execution,
+            anchored_block,
+            bytes_so_far
+        })
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -779,21 +900,21 @@ impl NeonGenesisNode {
         }
     }
 
-    pub fn into_initialized_leader_node(self, burnchain_tip: BurnchainTip) -> InitializedNeonNode {
+    pub fn into_initialized_leader_node(self, burnchain_tip: BurnchainTip, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
 
         InitializedNeonNode::new(config, keychain, event_dispatcher, Some(burnchain_tip),
-                                 None, true)
+                                 true, blocks_processed)
     }
 
-    pub fn into_initialized_node(self, burnchain_tip: BurnchainTip) -> InitializedNeonNode {
+    pub fn into_initialized_node(self, burnchain_tip: BurnchainTip, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
 
         InitializedNeonNode::new(config, keychain, event_dispatcher, Some(burnchain_tip),
-                                 None, false)
+                                 false, blocks_processed)
     }
 }
