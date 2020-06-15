@@ -195,8 +195,8 @@ pub enum Error {
     AlreadyConnected(usize),
     /// Message already in progress
     InProgress,
-    /// Peer is blacklisted
-    Blacklisted,
+    /// Peer is denied
+    Denied,
     /// Data URL is not known
     NoDataUrl,
     /// Peer is transmitting too fast
@@ -252,7 +252,7 @@ impl fmt::Display for Error {
             Error::TooManyPeers => write!(f, "Too many peer connections open"),
             Error::AlreadyConnected(ref _id) => write!(f, "Peer already connected"),
             Error::InProgress => write!(f, "Message already in progress"),
-            Error::Blacklisted => write!(f, "Peer is blacklisted"),
+            Error::Denied => write!(f, "Peer is denied"),
             Error::NoDataUrl => write!(f, "No data URL available"),
             Error::PeerThrottled => write!(f, "Peer is transmitting too fast"),
             Error::LookupError(ref s) => fmt::Display::fmt(s, f),
@@ -304,7 +304,7 @@ impl error::Error for Error {
             Error::TooManyPeers => None,
             Error::AlreadyConnected(ref _id) => None,
             Error::InProgress => None,
-            Error::Blacklisted => None,
+            Error::Denied => None,
             Error::NoDataUrl => None,
             Error::PeerThrottled => None,
             Error::LookupError(ref _s) => None,
@@ -1335,8 +1335,8 @@ pub struct Neighbor {
     pub expire_block: u64,
     pub last_contact_time: u64,     // time when we last authenticated with this peer via a Handshake
     
-    pub whitelisted: i64,       // whitelist deadline (negative == "forever")
-    pub blacklisted: i64,       // blacklist deadline (negative == "forever")
+    pub allowed: i64,       // allow deadline (negative == "forever")
+    pub denied: i64,       // deny deadline (negative == "forever")
 
     pub asn: u32,               // AS number
     pub org: u32,               // organization identifier
@@ -1346,12 +1346,12 @@ pub struct Neighbor {
 }
 
 impl Neighbor {
-    pub fn is_whitelisted(&self) -> bool {
-        self.whitelisted < 0 || (self.whitelisted as u64) > get_epoch_time_secs()
+    pub fn is_allowed(&self) -> bool {
+        self.allowed < 0 || (self.allowed as u64) > get_epoch_time_secs()
     }
 
-    pub fn is_blacklisted(&self) -> bool {
-        self.blacklisted < 0 || (self.blacklisted as u64) > get_epoch_time_secs()
+    pub fn is_denied(&self) -> bool {
+        self.denied < 0 || (self.denied as u64) > get_epoch_time_secs()
     }
 }
 
@@ -1360,11 +1360,11 @@ pub const NUM_NEIGHBORS : usize = 32;
 // maximum number of unconfirmed microblocks can get streamed to us
 pub const MAX_MICROBLOCKS_UNCONFIRMED : usize = 1024;
 
-// how long a peer will be blacklisted for if it misbehaves
-#[cfg(test)] pub const BLACKLIST_BAN_DURATION : u64 = 30;           // seconds
-#[cfg(not(test))] pub const BLACKLIST_BAN_DURATION : u64 = 86400;   // seconds (1 day)
+// how long a peer will be denied for if it misbehaves
+#[cfg(test)] pub const DENY_BAN_DURATION : u64 = 30;           // seconds
+#[cfg(not(test))] pub const DENY_BAN_DURATION : u64 = 86400;   // seconds (1 day)
 
-pub const BLACKLIST_MIN_BAN_DURATION : u64 = 2;
+pub const DENY_MIN_BAN_DURATION : u64 = 2;
 
 /// Result of doing network work
 pub struct NetworkResult {
@@ -1715,8 +1715,8 @@ pub mod test {
         pub http_port: u16,
         pub asn: u32,
         pub org: u32,
-        pub whitelisted: i64,
-        pub blacklisted: i64,
+        pub allowed: i64,
+        pub denied: i64,
         pub data_url: UrlString,
         pub test_name: String,
         pub initial_balances: Vec<(PrincipalData, u64)>,
@@ -1744,8 +1744,8 @@ pub mod test {
                 http_port: 32001,
                 asn: 0,
                 org: 0,
-                whitelisted: 0,
-                blacklisted: 0,
+                allowed: 0,
+                denied: 0,
                 data_url: "".into(),
                 test_name: "".into(),
                 initial_balances: vec![],
@@ -1791,8 +1791,8 @@ pub mod test {
 
                 // not known yet
                 last_contact_time: 0,
-                whitelisted: self.whitelisted,
-                blacklisted: self.blacklisted,
+                allowed: self.allowed,
+                denied: self.denied,
                 asn: self.asn,
                 org: self.org,
                 in_degree: 0,

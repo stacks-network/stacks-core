@@ -630,26 +630,26 @@ impl PeerNetwork {
     
     /// Connect to a peer.
     /// Idempotent -- will not re-connect if already connected.
-    /// Fails if the peer is blacklisted.
+    /// Fails if the peer is denied.
     pub fn connect_peer(&mut self, neighbor: &NeighborKey) -> Result<usize, net_error> {
-        self.connect_peer_blacklist_checks(neighbor, true)
+        self.connect_peer_deny_checks(neighbor, true)
     }
 
-    /// Connect to a peer, optionally checking our blacklist information.
+    /// Connect to a peer, optionally checking our deny information.
     /// Idempotent -- will not re-connect if already connected.
-    /// Fails if the peer is blacklisted.
-    fn connect_peer_blacklist_checks(&mut self, neighbor: &NeighborKey, check_blacklisted: bool) -> Result<usize, net_error> {
-        if check_blacklisted {
+    /// Fails if the peer is denied.
+    fn connect_peer_deny_checks(&mut self, neighbor: &NeighborKey, check_denied: bool) -> Result<usize, net_error> {
+        if check_denied {
             // don't talk to our bind address
             if self.is_bound(neighbor) {
                 debug!("{:?}: do not connect to myself at {:?}", &self.local_peer, neighbor);
-                return Err(net_error::Blacklisted);
+                return Err(net_error::Denied);
             }
 
-            // don't talk if blacklisted
-            if PeerDB::is_peer_blacklisted(&self.peerdb.conn(), neighbor.network_id, &neighbor.addrbytes, neighbor.port)? {
-                debug!("{:?}: Neighbor {:?} is blacklisted; will not connect", &self.local_peer, neighbor);
-                return Err(net_error::Blacklisted);
+            // don't talk if denied
+            if PeerDB::is_peer_denied(&self.peerdb.conn(), neighbor.network_id, &neighbor.addrbytes, neighbor.port)? {
+                debug!("{:?}: Neighbor {:?} is denied; will not connect", &self.local_peer, neighbor);
+                return Err(net_error::Denied);
             }
         }
 
@@ -881,7 +881,7 @@ impl PeerNetwork {
         num_dispatched
     }
 
-    /// Process ban requests.  Update the blacklist in the peer database.  Return the vec of event IDs to disconnect from.
+    /// Process ban requests.  Update the deny in the peer database.  Return the vec of event IDs to disconnect from.
     fn process_bans(&mut self) -> Result<Vec<usize>, net_error> {
         if cfg!(test) && self.connection_opts.disable_network_bans {
              return Ok(vec![]);
@@ -894,8 +894,8 @@ impl PeerNetwork {
                 Some(convo) => {
                     match Neighbor::from_conversation(&tx, convo)? {
                         Some(neighbor) => {
-                            if neighbor.is_whitelisted() {
-                                debug!("Misbehaving neighbor {:?} is whitelisted; will not punish", &neighbor.addr);
+                            if neighbor.is_allowed() {
+                                debug!("Misbehaving neighbor {:?} is allowed; will not punish", &neighbor.addr);
                                 continue;
                             }
                             (convo.to_neighbor_key(), Some(neighbor))
@@ -916,26 +916,26 @@ impl PeerNetwork {
             let now = get_epoch_time_secs();
             let penalty = 
                 if let Some(neighbor_info) = neighbor_info_opt {
-                    if neighbor_info.blacklisted < 0 || (neighbor_info.blacklisted as u64) < now + BLACKLIST_MIN_BAN_DURATION {
-                        now + BLACKLIST_MIN_BAN_DURATION
+                    if neighbor_info.denied < 0 || (neighbor_info.denied as u64) < now + DENY_MIN_BAN_DURATION {
+                        now + DENY_MIN_BAN_DURATION
                     }
                     else {
                         // already recently penalized; make ban length grow exponentially
-                        if ((neighbor_info.blacklisted as u64) - now) * 2 < BLACKLIST_BAN_DURATION {
-                            now + ((neighbor_info.blacklisted as u64) - now) * 2
+                        if ((neighbor_info.denied as u64) - now) * 2 < DENY_BAN_DURATION {
+                            now + ((neighbor_info.denied as u64) - now) * 2
                         }
                         else {
-                            now + BLACKLIST_BAN_DURATION
+                            now + DENY_BAN_DURATION
                         }
                     }
                 }
                 else {
-                    now + BLACKLIST_BAN_DURATION
+                    now + DENY_BAN_DURATION
                 };
 
             debug!("Ban peer {:?} for {}s until {}", &neighbor_key, penalty - now, penalty);
 
-            PeerDB::set_blacklist_peer(&mut tx, neighbor_key.network_id, &neighbor_key.addrbytes, neighbor_key.port, penalty)?;
+            PeerDB::set_deny_peer(&mut tx, neighbor_key.network_id, &neighbor_key.addrbytes, neighbor_key.port, penalty)?;
         }
 
         tx.commit()?;
@@ -986,17 +986,17 @@ impl PeerNetwork {
             // don't talk to our bind address 
             if self.is_bound(neighbor_key) {
                 debug!("{:?}: do not register myself at {:?}", &self.local_peer, neighbor_key);
-                return Err(net_error::Blacklisted);
+                return Err(net_error::Denied);
             }
 
-            // blacklisted?
-            if PeerDB::is_peer_blacklisted(&self.peerdb.conn(), neighbor_key.network_id, &neighbor_key.addrbytes, neighbor_key.port)? {
-                info!("{:?}: Peer {:?} is blacklisted; dropping", &self.local_peer, neighbor_key);
-                return Err(net_error::Blacklisted);
+            // denied?
+            if PeerDB::is_peer_denied(&self.peerdb.conn(), neighbor_key.network_id, &neighbor_key.addrbytes, neighbor_key.port)? {
+                info!("{:?}: Peer {:?} is denied; dropping", &self.local_peer, neighbor_key);
+                return Err(net_error::Denied);
             }
         }
         else {
-            debug!("{:?}: skip blacklist check for verifying my IP address (event {})", &self.local_peer, event_id);
+            debug!("{:?}: skip deny check for verifying my IP address (event {})", &self.local_peer, event_id);
         }
         
         // already connected?
@@ -1495,7 +1495,7 @@ impl PeerNetwork {
         let mut safe : HashSet<usize> = HashSet::new();
         let now = get_epoch_time_secs();
 
-        // don't prune whitelisted peers 
+        // don't prune allowed peers 
         for (nk, event_id) in self.events.iter() {
             let neighbor = match PeerDB::get_peer(self.peerdb.conn(), self.local_peer.network_id, &nk.addrbytes, nk.port) {
                 Ok(neighbor_opt) => {
@@ -1511,8 +1511,8 @@ impl PeerNetwork {
                     return;
                 }
             };
-            if neighbor.whitelisted < 0 || (neighbor.whitelisted as u64) > now {
-                test_debug!("{:?}: event {} is whitelisted: {:?}", &self.local_peer, event_id, &nk);
+            if neighbor.allowed < 0 || (neighbor.allowed as u64) > now {
+                test_debug!("{:?}: event {} is allowed: {:?}", &self.local_peer, event_id, &nk);
                 safe.insert(*event_id);
             }
         }
@@ -1785,7 +1785,7 @@ impl PeerNetwork {
                 port: public_ip.1
             };
 
-            let event_id = match self.connect_peer_blacklist_checks(&public_nk, false) {
+            let event_id = match self.connect_peer_deny_checks(&public_nk, false) {
                 Ok(eid) => eid,
                 Err(net_error::AlreadyConnected(eid)) => eid,   // weird if this happens, but you never know
                 Err(e) => {
@@ -2831,8 +2831,8 @@ mod test {
             public_key: Secp256k1PublicKey::from_hex("02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3").unwrap(),
             expire_block: 23456,
             last_contact_time: 1552509642,
-            whitelisted: -1,
-            blacklisted: -1,
+            allowed: -1,
+            denied: -1,
             asn: 34567,
             org: 45678,
             in_degree: 1,

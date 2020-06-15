@@ -91,8 +91,8 @@ impl Neighbor {
             public_key: pubk.clone(),
             expire_block: expire_block,
             last_contact_time: 0,
-            whitelisted: 0,
-            blacklisted: 0,
+            allowed: 0,
+            denied: 0,
             asn: 0,
             org: 0,
             in_degree: 1,
@@ -746,9 +746,9 @@ impl NeighborWalk {
                     let replaced_neighbor_slot_opt = NeighborWalk::find_replaced_neighbor_slot(tx, &neighbor_from_handshake.addr)?;
                     match replaced_neighbor_slot_opt {
                         Some(slot) => {
-                            // if this peer isn't whitelisted or blacklisted, then consider
+                            // if this peer isn't allowed or denied, then consider
                             // replacing.  Otherwise, keep the local configuration's preference.
-                            if !neighbor_from_handshake.is_blacklisted() && !neighbor_from_handshake.is_whitelisted() {
+                            if !neighbor_from_handshake.is_denied() && !neighbor_from_handshake.is_allowed() {
                                 self.neighbor_replacements.insert(neighbor_from_handshake.addr.clone(), neighbor_from_handshake.clone());
                                 self.replaced_neighbors.insert(neighbor_from_handshake.addr.clone(), slot);
                             }
@@ -1315,8 +1315,8 @@ impl NeighborWalk {
                 let replaced_opt = PeerDB::get_peer_at(&mut tx, self.local_peer.network_id, *slot)?;
                 match replaced_opt {
                     Some(replaced) => {
-                        if PeerDB::is_address_blacklisted(&mut tx, &replacement.addr.addrbytes)? {
-                            debug!("{:?}: Will not replace {:?} with {:?} -- is blacklisted", &self.local_peer, &replaced.addr, &replacement.addr);
+                        if PeerDB::is_address_denied(&mut tx, &replacement.addr.addrbytes)? {
+                            debug!("{:?}: Will not replace {:?} with {:?} -- is denied", &self.local_peer, &replaced.addr, &replacement.addr);
                         }
                         else {
                             debug!("{:?}: Replace {:?} with {:?}", &self.local_peer, &replaced.addr, &replacement.addr);
@@ -1507,10 +1507,10 @@ impl PeerNetwork {
         let pb = self.walk_pingbacks.get(&addr).unwrap().clone();
         let nk = NeighborKey::from_neighbor_address(pb.peer_version, pb.network_id, &addr);
 
-        // don't proceed if blacklisted
-        if PeerDB::is_peer_blacklisted(&self.peerdb.conn(), nk.network_id, &nk.addrbytes, nk.port)? {
-            debug!("{:?}: pingback neighbor {:?} is blacklisted", &self.local_peer, &nk);
-            return Err(net_error::Blacklisted);
+        // don't proceed if denied
+        if PeerDB::is_peer_denied(&self.peerdb.conn(), nk.network_id, &nk.addrbytes, nk.port)? {
+            debug!("{:?}: pingback neighbor {:?} is denied", &self.local_peer, &nk);
+            return Err(net_error::Denied);
         }
 
         // (this will be ignored by the neighbor walk)
@@ -2360,11 +2360,11 @@ mod test {
     
     #[test]
     #[ignore]
-    fn test_step_walk_1_neighbor_blacklisted() {
+    fn test_step_walk_1_neighbor_denied() {
         let mut peer_1_config = TestPeerConfig::from_port(31994);
         let mut peer_2_config = TestPeerConfig::from_port(31996);
 
-        // peer 1 crawls peer 2, but peer 1 has blacklisted peer 2
+        // peer 1 crawls peer 2, but peer 1 has denied peer 2
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
 
         peer_1_config.connection_opts.walk_retry_count = 10;
@@ -2377,7 +2377,7 @@ mod test {
 
         {
             let mut tx = peer_1.network.peerdb.tx_begin().unwrap();
-            PeerDB::add_blacklist_cidr(&mut tx, &PeerAddress::from_ipv4(127,0,0,1), 128).unwrap();
+            PeerDB::add_deny_cidr(&mut tx, &PeerAddress::from_ipv4(127,0,0,1), 128).unwrap();
             tx.commit().unwrap();
         }
 
@@ -2966,8 +2966,8 @@ mod test {
         let mut peer_1_config = TestPeerConfig::from_port(32500);
         let mut peer_2_config = TestPeerConfig::from_port(32502);
 
-        peer_1_config.whitelisted = -1;
-        peer_2_config.whitelisted = -1;
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -3066,9 +3066,9 @@ mod test {
         let mut peer_2_config = TestPeerConfig::from_port(32512);
         let mut peer_3_config = TestPeerConfig::from_port(32514);
 
-        peer_1_config.whitelisted = -1;
-        peer_2_config.whitelisted = -1;
-        peer_3_config.whitelisted = -1;
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
+        peer_3_config.allowed = -1;
 
         peer_1_config.connection_opts.disable_pingbacks = true;
         peer_2_config.connection_opts.disable_pingbacks = true;
@@ -3210,8 +3210,8 @@ mod test {
         let mut peer_1_config = TestPeerConfig::from_port(32600);
         let mut peer_2_config = TestPeerConfig::from_port(32602);
 
-        peer_1_config.whitelisted = -1;
-        peer_2_config.whitelisted = -1;
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
             
         // turn off features we don't use
         peer_1_config.connection_opts.disable_inv_sync = true;
@@ -3398,8 +3398,8 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_walk_ring_whitelist_15() {
-        // all initial peers are whitelisted
+    fn test_walk_ring_allow_15() {
+        // all initial peers are allowed
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3407,12 +3407,12 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 32800, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = -1;      // always whitelisted
-            conf.blacklisted = 0;
+            conf.allowed = -1;      // always allowed
+            conf.denied = 0;
 
             conf.connection_opts.timeout = 100000;
             conf.connection_opts.handshake_timeout = 100000;
-            conf.connection_opts.disable_natpunch = true;   // breaks whitelist checks
+            conf.connection_opts.disable_natpunch = true;   // breaks allow checks
 
             peer_configs.push(conf);
         }
@@ -3423,7 +3423,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_walk_ring_15_plain() {
-        // initial peers are neither white- nor blacklisted
+        // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3431,8 +3431,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 32900, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
 
             peer_configs.push(conf);
         }
@@ -3443,7 +3443,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_walk_ring_15_pingback() {
-        // initial peers are neither white- nor blacklisted
+        // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3451,8 +3451,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 32950, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             conf.connection_opts.disable_pingbacks = true;
             conf.connection_opts.disable_inbound_walks = false;
 
@@ -3478,8 +3478,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33000, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             if i == 0 {
                 conf.asn = 1;
                 conf.org = 1;
@@ -3568,7 +3568,7 @@ mod test {
     
     #[test]
     #[ignore]
-    fn test_walk_line_whitelisted_15() {
+    fn test_walk_line_allowed_15() {
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3576,12 +3576,12 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33100, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = -1;
-            conf.blacklisted = 0;
+            conf.allowed = -1;
+            conf.denied = 0;
             
             conf.connection_opts.timeout = 100000;
             conf.connection_opts.handshake_timeout = 100000;
-            conf.connection_opts.disable_natpunch = true;   // breaks whitelist checks
+            conf.connection_opts.disable_natpunch = true;   // breaks allow checks
 
             peer_configs.push(conf);
         }
@@ -3592,7 +3592,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_walk_line_15_plain() {
-        // initial peers are neither white- nor blacklisted
+        // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3600,8 +3600,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33200, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
 
             peer_configs.push(conf);
         }
@@ -3624,8 +3624,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33300, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             if i == 0 {
                 conf.asn = 1;
                 conf.org = 1;
@@ -3666,7 +3666,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_walk_line_15_pingback() {
-        // initial peers are neither white- nor blacklisted
+        // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3674,8 +3674,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33350, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
 
@@ -3703,7 +3703,7 @@ mod test {
         //
         // 0 <--> 1 <--> 2 <--> ... <--> NEIGHBOR_COUNT
         //
-        // all initial peers are whitelisted
+        // all initial peers are allowed
         let mut peers = vec![];
 
         let PEER_COUNT = peer_configs.len();
@@ -3742,19 +3742,19 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_walk_star_whitelisted_15() {
+    fn test_walk_star_allowed_15() {
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33400, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = -1;      // always whitelisted
-            conf.blacklisted = 0;
+            conf.allowed = -1;      // always allowed
+            conf.denied = 0;
             
             conf.connection_opts.timeout = 100000;
             conf.connection_opts.handshake_timeout = 100000;
-            conf.connection_opts.disable_natpunch = true;   // breaks whitelist checks
+            conf.connection_opts.disable_natpunch = true;   // breaks allow checks
 
             peer_configs.push(conf);
         }
@@ -3771,8 +3771,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33500, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
 
             peer_configs.push(conf);
         }
@@ -3789,8 +3789,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33550, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
             conf.connection_opts.soft_max_neighbors_per_org = PEER_COUNT as u64;
@@ -3816,8 +3816,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33600, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             if i == 0 {
                 conf.asn = 1;
                 conf.org = 1;
@@ -3973,8 +3973,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33250, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             conf.connection_opts.disable_pingbacks = true;
             conf.connection_opts.disable_inbound_walks = false;
             conf.connection_opts.walk_inbound_ratio = 2;
@@ -4011,8 +4011,8 @@ mod test {
             }
 
             let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-            let num_whitelisted = all_neighbors.iter().fold(0, |mut sum, ref n2| {sum += if n2.whitelisted < 0 { 1 } else { 0 }; sum});
-            test_debug!("Neighbor {} (all={}, outbound={}) (total neighbors = {}, total whitelisted = {}): outbound={:?} all={:?}", i, neighbor_index.len(), outbound_neighbor_index.len(), all_neighbors.len(), num_whitelisted, &outbound_neighbor_index, &neighbor_index);
+            let num_allowed = all_neighbors.iter().fold(0, |mut sum, ref n2| {sum += if n2.allowed < 0 { 1 } else { 0 }; sum});
+            test_debug!("Neighbor {} (all={}, outbound={}) (total neighbors = {}, total allowed = {}): outbound={:?} all={:?}", i, neighbor_index.len(), outbound_neighbor_index.len(), all_neighbors.len(), num_allowed, &outbound_neighbor_index, &neighbor_index);
         }
         test_debug!("\n");
     }
@@ -4086,8 +4086,8 @@ mod test {
     {
         let PEER_COUNT = peers.len();
 
-        let mut initial_whitelisted : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
-        let mut initial_blacklisted : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
+        let mut initial_allowed : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
+        let mut initial_denied : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
 
         for i in 0..PEER_COUNT {
             // turn off components we don't need
@@ -4096,17 +4096,17 @@ mod test {
             let nk = peers[i].config.to_neighbor().addr.clone();
             for j in 0..peers[i].config.initial_neighbors.len() {
                 let initial = &peers[i].config.initial_neighbors[j];
-                if initial.whitelisted < 0 {
-                    if !initial_whitelisted.contains_key(&nk) {
-                        initial_whitelisted.insert(nk.clone(), vec![]);
+                if initial.allowed < 0 {
+                    if !initial_allowed.contains_key(&nk) {
+                        initial_allowed.insert(nk.clone(), vec![]);
                     }
-                    initial_whitelisted.get_mut(&nk).unwrap().push(initial.addr.clone());
+                    initial_allowed.get_mut(&nk).unwrap().push(initial.addr.clone());
                 }
-                if initial.blacklisted < 0 {
-                    if !initial_blacklisted.contains_key(&nk) {
-                        initial_blacklisted.insert(nk.clone(), vec![]);
+                if initial.denied < 0 {
+                    if !initial_denied.contains_key(&nk) {
+                        initial_denied.insert(nk.clone(), vec![]);
                     }
-                    initial_blacklisted.get_mut(&nk).unwrap().push(initial.addr.clone());
+                    initial_denied.get_mut(&nk).unwrap().push(initial.addr.clone());
                 }
             }
         }
@@ -4132,12 +4132,12 @@ mod test {
                 let _ = peers[i].step();
                 let nk = peers[i].config.to_neighbor().addr;
                 
-                // whitelisted peers are still connected 
-                match initial_whitelisted.get(&nk) {
+                // allowed peers are still connected 
+                match initial_allowed.get(&nk) {
                     Some(ref peer_list) => {
                         for pnk in peer_list.iter() {
                             if !peers[i].network.events.contains_key(&pnk.clone()) {
-                                error!("{:?}: Perma-whitelisted peer {:?} not connected anymore", &nk, &pnk);
+                                error!("{:?}: Perma-allowed peer {:?} not connected anymore", &nk, &pnk);
                                 assert!(false);
                             }
                         }
@@ -4145,12 +4145,12 @@ mod test {
                     None => {}
                 };
 
-                // blacklisted peers are never connected 
-                match initial_blacklisted.get(&nk) {
+                // denied peers are never connected 
+                match initial_denied.get(&nk) {
                     Some(ref peer_list) => {
                         for pnk in peer_list.iter() {
                             if peers[i].network.events.contains_key(&pnk.clone()) {
-                                error!("{:?}: Perma-blacklisted peer {:?} connected", &nk, &pnk);
+                                error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
                                 assert!(false);
                             }
                         }
