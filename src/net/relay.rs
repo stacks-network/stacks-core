@@ -37,6 +37,7 @@ use net::p2p::*;
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::events::StacksTransactionReceipt;
 
 use core::mempool::*;
@@ -486,12 +487,12 @@ impl Relayer {
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
     /// process_new_blocks().  Make sure the messages don't get too big.
-    fn make_microblocksdata_messages(mut new_microblocks: HashMap<BlockHeaderHash, (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>)>) -> Vec<(Vec<RelayData>, MicroblocksData)> {
-        let mut mblocks_data : HashMap<BlockHeaderHash, Vec<(Vec<RelayData>, MicroblocksData)>> = HashMap::new();
-        let mut mblocks_sizes : HashMap<BlockHeaderHash, usize> = HashMap::new();
+    fn make_microblocksdata_messages(new_microblocks: HashMap<StacksBlockId, (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>)>) -> Vec<(Vec<RelayData>, MicroblocksData)> {
+        let mut mblocks_data : HashMap<StacksBlockId, Vec<(Vec<RelayData>, MicroblocksData)>> = HashMap::new();
+        let mut mblocks_sizes : HashMap<StacksBlockId, usize> = HashMap::new();
 
-        for (anchored_block_hash, (relayers, mut mblocks_map)) in new_microblocks.drain() {
-            for (_, mblock) in mblocks_map.drain() {
+        for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
+            for (_, mblock) in mblocks_map.into_iter() {
                 if mblocks_data.get(&anchored_block_hash).is_none() {
                     mblocks_data.insert(anchored_block_hash.clone(), vec![]);
                 }
@@ -657,7 +658,7 @@ impl Relayer {
     /// Return the list of MicroblockData messages we need to broadcast to our neighbors, as well
     /// as the list of neighbors we need to ban because they sent us invalid microblocks.
     fn preprocess_pushed_microblocks(network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
-        let mut new_microblocks : HashMap<BlockHeaderHash, (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>)> = HashMap::new();
+        let mut new_microblocks : HashMap<StacksBlockId, (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>)> = HashMap::new();
         let mut bad_neighbors = vec![];
 
         // process unconfirmed microblocks pushed to us.
@@ -680,16 +681,17 @@ impl Relayer {
                         Ok(_) => {
                             if need_relay {
                                 // we didn't have this block before, so relay it.
-                                // Group by anchored block hash, so we can convert them into
+                                // Group by index block hash, so we can convert them into
                                 // MicroblocksData messages later.  Group microblocks by block
                                 // hash, so we don't send dups.
-                                if let Some((_, mblocks_map)) = new_microblocks.get_mut(&anchored_block_hash) {
+                                let index_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &anchored_block_hash);
+                                if let Some((_, mblocks_map)) = new_microblocks.get_mut(&index_hash) {
                                     mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
                                 }
                                 else {
                                     let mut mblocks_map = HashMap::new();
                                     mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
-                                    new_microblocks.insert(anchored_block_hash.clone(), ((*mblock_relayers).clone(), mblocks_map));
+                                    new_microblocks.insert(index_hash, ((*mblock_relayers).clone(), mblocks_map));
                                 }
                             }
                         }

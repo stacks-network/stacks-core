@@ -6,6 +6,9 @@ use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
+use chainstate::stacks::{
+    StacksBlockId, StacksAddress
+};
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::db::{StacksHeaderInfo, MinerPaymentSchedule};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
@@ -20,7 +23,6 @@ use vm::database::structures::{
 };
 use vm::database::RollbackWrapper;
 use util::db::{DBConn, FromRow};
-use chainstate::stacks::StacksAddress;
 use vm::costs::CostOverflowingMath;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
@@ -51,14 +53,14 @@ pub struct ClarityDatabase<'a> {
 }
 
 pub trait HeadersDB {
-    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash>;
-    fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash>;
-    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed>;
-    fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64>;
-    fn get_miner_address(&self, id_bhh: &BlockHeaderHash) -> Option<StacksAddress>;
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BlockHeaderHash>;
+    fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash>;
+    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
+    fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
 }
 
-fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<StacksHeaderInfo> {
+fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
     conn.query_row("SELECT * FROM block_headers WHERE index_block_hash = ?",
                    [id_bhh].iter(),
                    |x| StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database"))
@@ -66,7 +68,7 @@ fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<Sta
         .expect("Unexpected SQL failure querying block header table")
 }
 
-fn get_miner_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<MinerPaymentSchedule> {
+fn get_miner_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<MinerPaymentSchedule> {
     conn.query_row("SELECT * FROM payments WHERE index_block_hash = ? AND miner = 1",
                    [id_bhh].iter(),
                    |x| MinerPaymentSchedule::from_row(x).expect("Bad payment info in database"))
@@ -75,46 +77,46 @@ fn get_miner_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<MinerPaymen
 }
 
 impl HeadersDB for DBConn {
-    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
         get_stacks_header_info(self, id_bhh)
             .map(|x| x.anchored_header.block_hash())
     }
     
-    fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+    fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         get_stacks_header_info(self, id_bhh)
             .map(|x| x.burn_header_hash)
     }
 
-    fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64> {
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_info(self, id_bhh)
             .map(|x| x.burn_header_timestamp)
     }
 
-    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         get_stacks_header_info(self, id_bhh)
             .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
     }
 
-    fn get_miner_address(&self, id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+    fn get_miner_address(&self, id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
         get_miner_info(self, id_bhh)
             .map(|x| x.address)
     }
 }
 
 impl HeadersDB for &dyn HeadersDB {
-    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
         (*self).get_stacks_block_header_hash_for_block(id_bhh)
     }
-    fn get_burn_header_hash_for_block(&self, bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+    fn get_burn_header_hash_for_block(&self, bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
     }
-    fn get_vrf_seed_for_block(&self, bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(&self, bhh: &StacksBlockId) -> Option<VRFSeed> {
         (*self).get_vrf_seed_for_block(bhh)
     }
-    fn get_burn_block_time_for_block(&self, bhh: &BlockHeaderHash) -> Option<u64> {
+    fn get_burn_block_time_for_block(&self, bhh: &StacksBlockId) -> Option<u64> {
         (*self).get_burn_block_time_for_block(bhh)
     }
-    fn get_miner_address(&self, bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+    fn get_miner_address(&self, bhh: &StacksBlockId)  -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
     }
 }
@@ -124,19 +126,19 @@ pub struct NullHeadersDB {}
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
 
 impl HeadersDB for NullHeadersDB {
-    fn get_burn_header_hash_for_block(&self, _bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+    fn get_burn_header_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         None
     }
-    fn get_vrf_seed_for_block(&self, _bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
     }
-    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
         None
     }
-    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+    fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
         None
     }
-    fn get_miner_address(&self, _id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+    fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
         None
     }
 }
@@ -168,7 +170,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.rollback();
     }
 
-    pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+    pub fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
         self.store.set_block_hash(bhh)
     }
 
@@ -184,7 +186,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.get_value(key, expected)
     }
 
-    pub fn get_with_proof <T> (&mut self, key: &str) -> Option<(T, TrieMerkleProof)> where T: ClarityDeserializable<T> {
+    pub fn get_with_proof <T> (&mut self, key: &str) -> Option<(T, TrieMerkleProof<StacksBlockId>)> where T: ClarityDeserializable<T> {
         self.store.get_with_proof(key)
     }
 
@@ -284,7 +286,7 @@ impl <'a> ClarityDatabase <'a> {
 // Get block information
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn get_index_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
+    pub fn get_index_block_header_hash(&mut self, block_height: u32) -> StacksBlockId {
         self.store.get_block_header_hash(block_height)
         // the caller is responsible for ensuring that the block_height given
         //  is < current_block_height, so this should _always_ return a value.

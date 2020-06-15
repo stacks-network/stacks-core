@@ -112,7 +112,7 @@ pub struct StacksChainState {
     clarity_state: ClarityInstance,
     pub headers_db: DBConn,
     pub blocks_db: DBConn,
-    pub headers_state_index: MARF,
+    pub headers_state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String,
     pub root_path: String,
@@ -164,7 +164,7 @@ pub struct DBConfig {
 }
 
 impl StacksHeaderInfo {
-    pub fn index_block_hash(&self) -> BlockHeaderHash {
+    pub fn index_block_hash(&self) -> StacksBlockId {
         self.anchored_header.index_block_hash(&self.burn_header_hash)
     }
     pub fn genesis_block_header_info(root_hash: TrieHash) -> StacksHeaderInfo {
@@ -222,7 +222,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     }
 }
 
-pub type StacksDBTx<'a> = IndexDBTx<'a, ()>;
+pub type StacksDBTx<'a> = IndexDBTx<'a, (), StacksBlockId>;
 
 pub struct BlocksDBTx<'a> {
     pub tx: DBTx<'a>,
@@ -286,7 +286,7 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_block();
     }
 
-    pub fn commit_mined_block(self, block_hash: &BlockHeaderHash) -> ExecutionCost {
+    pub fn commit_mined_block(self, block_hash: &StacksBlockId) -> ExecutionCost {
         self.block.commit_mined_block(block_hash)
             .get_total()
     }
@@ -330,7 +330,7 @@ impl<'a> ChainstateTx<'a> {
 /// Opaque structure for streaming block and microblock data from disk
 #[derive(Debug, PartialEq, Clone)]
 pub struct BlockStreamData {
-    block_hash: BlockHeaderHash,        // index block hash of the block or microblock stream head
+    block_hash: StacksBlockId,        // index block hash of the block or microblock stream head
     rowid: Option<i64>,                 // used when reading a blob out of staging
     offset: u64,                        // offset into whatever is being read (the blob, or the file in the chunk store)
     total_bytes: u64,                   // total number of bytes read.
@@ -567,12 +567,12 @@ impl StacksChainState {
         Ok(conn)
     }
     
-    pub fn open_index(marf_path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF, Error> {
+    pub fn open_index(marf_path: &str, miner_tip: Option<&StacksBlockId>) -> Result<MARF<StacksBlockId>, Error> {
         test_debug!("Open MARF index at {}, set miner tip = {:?}", marf_path, miner_tip);
         let marf = MARF::from_path(marf_path, miner_tip).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
         Ok(marf)
     }
-   
+
     /// Idempotent `mkdir -p`
     fn mkdirs(path: &PathBuf) -> Result<String, Error> {
         match fs::metadata(path) {
@@ -867,7 +867,7 @@ impl StacksChainState {
         Ok((chainstate_tx, clarity_instance))
     }
 
-    pub fn clarity_eval_read_only(&mut self, parent_id_bhh: &BlockHeaderHash,
+    pub fn clarity_eval_read_only(&mut self, parent_id_bhh: &StacksBlockId,
                                   contract: &QualifiedContractIdentifier, code: &str) -> Value {
         let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, contract, code);
         result.unwrap()
@@ -907,7 +907,7 @@ impl StacksChainState {
         result
     }
 
-    fn get_parent_index_block(parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> BlockHeaderHash {
+    fn get_parent_index_block(parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> StacksBlockId {
         if *parent_block == BOOT_BLOCK_HASH {
             // begin boot block
             test_debug!("Begin processing boot block");
@@ -952,7 +952,7 @@ impl StacksChainState {
     }
 
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
-    pub fn get_index_hash(burn_hash: &BurnchainHeaderHash, header: &StacksBlockHeader) -> BlockHeaderHash {
+    pub fn get_index_hash(burn_hash: &BurnchainHeaderHash, header: &StacksBlockHeader) -> StacksBlockId {
         if burn_hash == &FIRST_BURNCHAIN_BLOCK_HASH {
             // TrieFileStorage::block_sentinel()
             StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)

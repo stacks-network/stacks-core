@@ -65,6 +65,7 @@ use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::burn::BlockSnapshot;
 
+use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::Error as chainstate_error;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::StacksBlockHeader;
@@ -109,14 +110,14 @@ pub struct BlockRequestKey {
     pub data_url: UrlString,
     pub burn_block_hash: BurnchainHeaderHash,
     pub anchor_block_hash: BlockHeaderHash,
-    pub index_block_hash: BlockHeaderHash,
+    pub index_block_hash: StacksBlockId,
     pub child_block_header: Option<StacksBlockHeader>,      // only used if asking for a microblock; used to confirm the stream's continuity
     pub sortition_height: u64,
 }
 
 
 impl BlockRequestKey {
-    pub fn new(neighbor: NeighborKey, data_url: UrlString, burn_block_hash: BurnchainHeaderHash, anchor_block_hash: BlockHeaderHash, index_block_hash: BlockHeaderHash, child_block_header: Option<StacksBlockHeader>, sortition_height: u64) -> BlockRequestKey {
+    pub fn new(neighbor: NeighborKey, data_url: UrlString, burn_block_hash: BurnchainHeaderHash, anchor_block_hash: BlockHeaderHash, index_block_hash: StacksBlockId, child_block_header: Option<StacksBlockHeader>, sortition_height: u64) -> BlockRequestKey {
         BlockRequestKey {
             neighbor: neighbor,
             data_url: data_url,
@@ -193,8 +194,8 @@ pub struct BlockDownloader {
 
     /// set of blocks and microblocks we have successfully downloaded (even if they haven't been
     /// stored yet)
-    blocks_downloaded: HashSet<BlockHeaderHash>,
-    microblocks_downloaded: HashSet<BlockHeaderHash>
+    blocks_downloaded: HashSet<StacksBlockId>,
+    microblocks_downloaded: HashSet<StacksBlockId>
 }
 
 impl BlockDownloader {
@@ -1114,7 +1115,7 @@ impl PeerNetwork {
     /// handling the request.
     fn begin_request<F>(network: &mut PeerNetwork, dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>, request_name: &str, request_keys: &mut VecDeque<BlockRequestKey>, chainstate: &mut StacksChainState, request_factory: F) -> Option<(BlockRequestKey, usize)> 
     where
-        F: Fn(PeerHost, BlockHeaderHash) -> HttpRequestType
+        F: Fn(PeerHost, StacksBlockId) -> HttpRequestType
     {
         loop {
             match request_keys.pop_front() {

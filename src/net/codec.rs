@@ -521,7 +521,7 @@ impl StacksMessageCodec for MicroblocksData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R)-> Result<MicroblocksData, net_error> {
-        let index_anchor_block : BlockHeaderHash = read_next(fd)?;
+        let index_anchor_block = read_next(fd)?;
         let microblocks : Vec<StacksMicroblock> = {
             // loose upper-bound
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);

@@ -16,6 +16,7 @@ use vm::{eval, is_reserved};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use chainstate::stacks::events::*;
+use chainstate::stacks::StacksBlockId;
 
 use serde::Serialize;
 
@@ -661,7 +662,7 @@ impl <'a,'b> Environment <'a,'b> {
         }
     }
 
-    pub fn evaluate_at_block(&mut self, bhh: BlockHeaderHash, closure: &SymbolicExpression, local: &LocalContext) -> Result<Value> {
+    pub fn evaluate_at_block(&mut self, bhh: StacksBlockId, closure: &SymbolicExpression, local: &LocalContext) -> Result<Value> {
         self.global_context.begin_read_only();
 
         let result = self.global_context.database.set_block_hash(bhh)

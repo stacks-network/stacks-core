@@ -58,7 +58,8 @@ use net::HTTP_REQUEST_ID_RESERVED;
 use chainstate::burn::BlockHeaderHash;
 use burnchains::{ Txid, Address };
 use chainstate::stacks::{
-    StacksAddress, StacksTransaction, StacksBlock, StacksMicroblock, StacksPublicKey
+    StacksAddress, StacksTransaction, StacksBlock, StacksMicroblock, StacksPublicKey,
+    StacksBlockId
 };
 
 use util::log;
@@ -1349,7 +1350,7 @@ impl HttpRequestType {
             .ok_or(net_error::DeserializeError("Failed to match path to block hash group".to_string()))?
             .as_str();
 
-        let block_hash = BlockHeaderHash::from_hex(block_hash_str)
+        let block_hash = StacksBlockId::from_hex(block_hash_str)
             .map_err(|_e| net_error::DeserializeError("Failed to parse block hash".to_string()))?;
 
         Ok(HttpRequestType::GetBlock(HttpRequestMetadata::from_preamble(preamble), block_hash))
@@ -1365,7 +1366,7 @@ impl HttpRequestType {
             .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
             .as_str();
 
-        let block_hash = BlockHeaderHash::from_hex(block_hash_str)
+        let block_hash = StacksBlockId::from_hex(block_hash_str)
             .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
 
         Ok(HttpRequestType::GetMicroblocksIndexed(HttpRequestMetadata::from_preamble(preamble), block_hash))
@@ -1381,7 +1382,7 @@ impl HttpRequestType {
             .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
             .as_str();
 
-        let block_hash = BlockHeaderHash::from_hex(block_hash_str)
+        let block_hash = StacksBlockId::from_hex(block_hash_str)
             .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
 
         Ok(HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_preamble(preamble), block_hash))
@@ -1402,7 +1403,7 @@ impl HttpRequestType {
             .ok_or(net_error::DeserializeError("Failed to match path to microblock minimum sequence group".to_string()))?
             .as_str();
             
-        let block_hash = BlockHeaderHash::from_hex(block_hash_str)
+        let block_hash = StacksBlockId::from_hex(block_hash_str)
             .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
 
         let min_seq = min_seq_str.parse::<u16>().map_err(|_e| net_error::DeserializeError("Failed to parse microblock minimum sequence".to_string()))?;
@@ -3128,8 +3129,8 @@ mod test {
 
         let tests = vec![
             HttpRequestType::GetNeighbors(http_request_metadata_ip.clone()),
-            HttpRequestType::GetBlock(http_request_metadata_dns.clone(), BlockHeaderHash([2u8; 32])),
-            HttpRequestType::GetMicroblocksIndexed(http_request_metadata_ip.clone(), BlockHeaderHash([3u8; 32])),
+            HttpRequestType::GetBlock(http_request_metadata_dns.clone(), StacksBlockId([2u8; 32])),
+            HttpRequestType::GetMicroblocksIndexed(http_request_metadata_ip.clone(), StacksBlockId([3u8; 32])),
             HttpRequestType::PostTransaction(http_request_metadata_dns.clone(), make_test_transaction()),
             HttpRequestType::OptionsPreflight(http_request_metadata_ip.clone(), "/".to_string()),
         ];
