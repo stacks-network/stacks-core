@@ -651,6 +651,9 @@ impl PeerDB {
                 return Ok(false);
             }
             None => {
+                if PeerDB::is_address_blacklisted(conn, &peer_addr)? {
+                    return Ok(true);
+                }
                 return Ok(false);
             }
         }
@@ -834,14 +837,7 @@ impl PeerDB {
 
         let mut ret = vec![];
         for row_res in rows_res_iter {
-            match row_res {
-                Ok(x) => {
-                    ret.push(x);
-                }
-                Err(_) => {
-                    continue;
-                }
-            }
+            ret.push(row_res?);
         }
 
         Ok(ret)
