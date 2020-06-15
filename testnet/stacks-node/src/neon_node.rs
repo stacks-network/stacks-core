@@ -391,7 +391,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     let mempool_txs_added = net_receipts.mempool_txs_added.len();
                     if mempool_txs_added > 0 {
                         #[cfg(feature = "monitoring")]
-                        TXS_RECEIVED_COUNTER.inc_by(mempool_txs_added);
+                        TXS_RECEIVED_COUNTER.inc_by(mempool_txs_added as i64);
 
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
