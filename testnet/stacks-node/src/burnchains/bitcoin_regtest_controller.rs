@@ -43,7 +43,7 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
 
 #[cfg(feature = "monitoring")]
-use crate::run_loop::monitoring::{BTC_BLOCKS_RECEIVED_COUNTER, BTC_OPS_SENT_COUNTER};
+use stacks::monitoring::{BTC_BLOCKS_RECEIVED_COUNTER, BTC_OPS_SENT_COUNTER};
 
 pub struct BitcoinRegtestController {
     config: Config,

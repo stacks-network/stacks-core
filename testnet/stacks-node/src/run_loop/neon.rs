@@ -12,7 +12,7 @@ use stacks::burnchains::bitcoin::{BitcoinNetworkType,
 use super::RunLoopCallbacks;
 
 #[cfg(feature = "monitoring")]
-use super::monitoring::start_serving_prometheus_metrics;
+use crate::monitoring::start_serving_prometheus_metrics;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]

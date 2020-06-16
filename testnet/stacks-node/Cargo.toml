@@ -18,7 +18,6 @@ async-h1 = "1.1"
 async-std = { version = "<1.6", features = ["attributes"] }
 http-types = "1.0"
 base64 = "0.12.0"
-prometheus = { version = "0.9", optional = true }
 
 [dev-dependencies]
 warp = "0.2"
@@ -30,5 +29,5 @@ name = "stacks-node"
 path = "src/main.rs"
 
 [features]
-monitoring = ["prometheus"]
+monitoring = ["stacks/monitoring"]
 default = []

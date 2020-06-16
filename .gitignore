@@ -72,3 +72,4 @@ node_modules
 tarpaulin-report.html
 osxcross
 osxcross*.tar.xz
+testnet/stacks-node/target

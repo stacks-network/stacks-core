@@ -49,7 +49,7 @@ use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
 use stacks::vm::costs::ExecutionCost;
 
 #[cfg(feature = "monitoring")]
-use crate::run_loop::monitoring::{
+use crate::stacks::monitoring::{
     STX_BLOCKS_PROCESSED_COUNTER, 
     STX_BLOCKS_MINED_COUNTER,
     TXS_RECEIVED_COUNTER};
