@@ -840,3 +840,72 @@ fn test_good_call_2_with_trait() {
     }).unwrap();
 }
 
+#[test]
+fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions() {
+    let contract_defining_trait_src = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract_src =
+        "(use-trait trait-1 .contract-defining-trait.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))
+        (print (wrapped-get-1 .target-contract))";
+    let target_contract_src =
+        "(impl-trait .contract-defining-trait.trait-1)
+        (define-public (get-1 (x uint)) (ok u1))";
+
+    let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+    let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
+
+    let mut contract_defining_trait = parse(&contract_defining_trait_id, contract_defining_trait_src).unwrap();
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut target_contract = parse(&target_contract_id, target_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    db.execute(|db| {
+        type_check(&contract_defining_trait_id, &mut contract_defining_trait, db, true)?;
+        type_check(&target_contract_id, &mut target_contract, db, true)?;
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
+    }).unwrap();
+}
+
+
+#[test]
+fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions() {
+    let contract_defining_trait_src = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract_src =
+        "(use-trait trait-1 .contract-defining-trait.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))
+        (let ((p .target-contract))
+            (print (wrapped-get-1 p)))";
+    let target_contract_src =
+        "(impl-trait .contract-defining-trait.trait-1)
+        (define-public (get-1 (x uint)) (ok u1))";
+
+    let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+    let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
+
+    let mut contract_defining_trait = parse(&contract_defining_trait_id, contract_defining_trait_src).unwrap();
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut target_contract = parse(&target_contract_id, target_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db.execute(|db| {
+        type_check(&contract_defining_trait_id, &mut contract_defining_trait, db, true)?;
+        type_check(&target_contract_id, &mut target_contract, db, true)?;
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::TypeError(_, _) => {},
+        _ => {
+            panic!("{:?}", err)
+        }
+    }
+}
