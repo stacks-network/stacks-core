@@ -11,8 +11,9 @@ use vm::analysis;
 use vm::costs::{LimitedCostTracker, ExecutionCost, CostTracker};
 
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::index::{TrieHash, MarfTrieId};
 use chainstate::stacks::events::StacksTransactionEvent;
 
 use std::error;
@@ -163,7 +164,7 @@ impl ClarityInstance {
         ClarityInstance { datastore: Some(datastore), block_limit }
     }
 
-    pub fn begin_block<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
+    pub fn begin_block<'a> (&'a mut self, current: &StacksBlockId, next: &StacksBlockId,
                             header_db: &'a dyn HeadersDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
@@ -182,7 +183,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn read_only_connection<'a>(&'a mut self, at_block: &BlockHeaderHash, header_db: &'a dyn HeadersDB) -> ClarityReadOnlyConnection<'a> {
+    pub fn read_only_connection<'a>(&'a mut self, at_block: &StacksBlockId, header_db: &'a dyn HeadersDB) -> ClarityReadOnlyConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -198,7 +199,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
+    pub fn eval_read_only(&mut self, at_block: &StacksBlockId, header_db: &dyn HeadersDB,
                           contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
         self.datastore.as_mut().unwrap()
             .set_chain_tip(at_block);
@@ -325,7 +326,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// block hash than the one opened (i.e. since the caller
     /// may not have known the "real" block hash at the 
     /// time of opening).
-    pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) -> LimitedCostTracker {
+    pub fn commit_to_block(mut self, final_bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore.commit_to(final_bhh);
 
@@ -340,7 +341,7 @@ impl <'a> ClarityBlockConnection <'a> {
     ///    before this saves, it updates the metadata headers in
     ///    the sidestore so that they don't get stepped on after
     ///    a miner re-executes a constructed block.
-    pub fn commit_mined_block(mut self, bhh: &BlockHeaderHash) -> LimitedCostTracker {
+    pub fn commit_mined_block(mut self, bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit mined Clarity datastore to {}", bhh);
         self.datastore.commit_mined_block(bhh);
 
@@ -374,7 +375,7 @@ impl <'a> ClarityBlockConnection <'a> {
     }
 
     /// Get the inner MARF
-    pub fn get_marf(&mut self) -> &mut MARF {
+    pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
         self.datastore.get_marf()
     }
 }
@@ -639,8 +640,8 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
@@ -667,8 +668,8 @@ mod tests {
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             {
@@ -724,8 +725,8 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
             
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -755,8 +756,8 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -790,8 +791,8 @@ mod tests {
         let sender = StandardPrincipalData::transient().into();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             let contract = "
@@ -908,7 +909,7 @@ mod tests {
         };
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &StacksBlockId([0; 32]),
                                                         &NULL_HEADER_DB);
 
             conn.as_transaction(|clarity_tx| {
@@ -948,8 +949,8 @@ mod tests {
         let sender = StandardPrincipalData::transient().into();
 
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
                                                         &NULL_HEADER_DB);
 
             let contract = "
@@ -978,8 +979,8 @@ mod tests {
                                                        runtime: 100 };
 
         {
-            let mut conn = clarity_instance.begin_block(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                                                        &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId([0 as u8; 32]),
+                                                        &StacksBlockId([1 as u8; 32]),
                                                         &NULL_HEADER_DB);
             assert!(
                 match conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "do-expand", &[],

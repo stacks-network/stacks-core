@@ -53,6 +53,7 @@ use chainstate::stacks::index::{
     MARFValue, 
     MARF_VALUE_ENCODED_SIZE,
     BlockMap,
+    MarfTrieId
 };
 
 use chainstate::stacks::index::Error as Error;
@@ -343,18 +344,18 @@ impl TriePtr {
 /// were walked.  In particular, it's useful for figuring out where to insert a new node, and which
 /// nodes to visit when updating the root node hash.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TrieCursor {
+pub struct TrieCursor <T: MarfTrieId> {
     pub path: TriePath,             // the path to walk
     pub index: usize,               // index into the path
     pub node_path_index: usize,     // index into the currently-visited node's compressed path
     pub nodes: Vec<TrieNodeType>,   // list of nodes this cursor visits
     pub node_ptrs: Vec<TriePtr>,    // list of ptr branches this cursor has taken
-    pub block_hashes: Vec<BlockHeaderHash>,  // list of Tries we've visited.  block_hashes[i] corresponds to node_ptrs[i]
+    pub block_hashes: Vec<T>,  // list of Tries we've visited.  block_hashes[i] corresponds to node_ptrs[i]
     pub last_error: Option<CursorError>,    // last error encountered while walking (used to make sure the client calls the right "recovery" method)
 }
 
-impl TrieCursor {
-    pub fn new(path: &TriePath, root_ptr: TriePtr) -> TrieCursor {
+impl <T: MarfTrieId> TrieCursor <T> {
+    pub fn new(path: &TriePath, root_ptr: TriePtr) -> TrieCursor<T> {
         TrieCursor {
             path: path.clone(),
             index: 0,
@@ -430,7 +431,7 @@ impl TrieCursor {
     /// record the back-pointer that was followed.  Once the back-pointer has been followed,
     /// caller should call walk_backptr_step_finish().  This is specifically relevant to the MARF,
     /// not to the individual tries.
-    pub fn walk(&mut self, node: &TrieNodeType, block_hash: &BlockHeaderHash) -> Result<Option<TriePtr>, CursorError> {
+    pub fn walk(&mut self, node: &TrieNodeType, block_hash: &T) -> Result<Option<TriePtr>, CursorError> {
         // can only be called if we called the appropriate "repair" method or if there is no error
         assert!(self.last_error.is_none());
 
@@ -514,7 +515,7 @@ impl TrieCursor {
 
     /// Replace the last-visited node and ptr within this trie.  Used when doing a copy-on-write or
     /// promoting a node, so the cursor state accurately reflects the nodes and tries visited.
-    pub fn repair_retarget(&mut self, node: &TrieNodeType, ptr: &TriePtr, hash: &BlockHeaderHash) -> () {
+    pub fn repair_retarget(&mut self, node: &TrieNodeType, ptr: &TriePtr, hash: &T) -> () {
         // this can only be called if we failed to walk to a node (this method _should not_ be
         // called if we walked to a backptr).
         if Some(CursorError::ChrNotFound) != self.last_error && Some(CursorError::PathDiverged) != self.last_error {
@@ -537,7 +538,7 @@ impl TrieCursor {
     /// next_node should be the node walked to.
     /// ptr is the ptr we'll be walking from, off of next_node.
     /// block_hash is the block where next_node came from.
-    pub fn repair_backptr_step_backptr(&mut self, next_node: &TrieNodeType, ptr: &TriePtr, block_hash: BlockHeaderHash) -> () {
+    pub fn repair_backptr_step_backptr(&mut self, next_node: &TrieNodeType, ptr: &TriePtr, block_hash: T) -> () {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
         if Some(CursorError::ChrNotFound) == self.last_error || Some(CursorError::PathDiverged) == self.last_error {
@@ -556,7 +557,7 @@ impl TrieCursor {
     
     /// Record that we landed on a non-backptr from a backptr.
     /// ptr is a non-backptr that refers to the node we landed on.
-    pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: BlockHeaderHash) -> () {
+    pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: T) -> () {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
         if Some(CursorError::ChrNotFound) == self.last_error || Some(CursorError::PathDiverged) == self.last_error {

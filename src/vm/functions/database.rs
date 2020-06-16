@@ -11,7 +11,7 @@ use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterRes
 use vm::costs::{cost_functions, constants as cost_constants, CostTracker, MemoryConsumer};
 use vm::{eval, LocalContext, Environment};
 use vm::callables::{DefineType};
-use chainstate::burn::{BlockHeaderHash};
+use chainstate::stacks::StacksBlockId;
 
 pub fn special_contract_call(args: &[SymbolicExpression],
                              env: &mut Environment,
@@ -196,7 +196,7 @@ pub fn special_at_block(args: &[SymbolicExpression],
             if data.len() != 32 {
                 return Err(RuntimeErrorType::BadBlockHash(data).into())
             } else {
-                BlockHeaderHash::from(data.as_slice())
+                StacksBlockId::from(data.as_slice())
             }
         },
         x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into())

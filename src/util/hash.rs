@@ -166,6 +166,9 @@ impl Sha512Trunc256Sum {
     pub fn from_data(data: &[u8]) -> Sha512Trunc256Sum {
         Sha512Trunc256Sum::from(Sha512Trunc256::digest(data).as_slice())
     }
+    pub fn from_hasher(hasher: Sha512Trunc256) -> Sha512Trunc256Sum {
+        Sha512Trunc256Sum::from(hasher.result().as_slice())
+    }
 }
 
 impl MerkleHashFunc for Hash160 {

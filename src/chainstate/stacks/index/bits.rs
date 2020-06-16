@@ -37,6 +37,7 @@ use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
     BlockMap,
+    MarfTrieId,
 };
 
 use chainstate::stacks::index::node::{
@@ -231,7 +232,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
 }
 
 #[inline]
-pub fn get_nodetype_hash_bytes<M: BlockMap>(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &mut M) -> TrieHash {
+pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &mut M) -> TrieHash {
     match node {
         TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
         TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),
@@ -283,7 +284,7 @@ pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<
 }
 
 /// Read the root hash from a TrieFileStorage instance
-pub fn read_root_hash(s: &mut TrieFileStorage) -> Result<TrieHash, Error> {
+pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieFileStorage<T>) -> Result<TrieHash, Error> {
     let ptr = s.root_trieptr();
     Ok(s.read_node_hash_bytes(&ptr)?)
 }

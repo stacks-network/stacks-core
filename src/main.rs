@@ -208,7 +208,7 @@ fn main() {
             process::exit(1);
         }
         
-        let marf_bhh = BlockHeaderHash::from_hex(marf_tip).expect("Bad MARF block hash");
+        let marf_bhh = StacksBlockId::from_hex(marf_tip).expect("Bad MARF block hash");
         let mut marf = MARF::from_path(&marf_path, None).expect("Failed to open MARF");
         let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
 

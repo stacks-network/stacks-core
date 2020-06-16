@@ -66,6 +66,7 @@ use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::*;
 use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::MARFValue;
@@ -423,7 +424,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
 pub struct BurnDB {
     pub conn: Connection,
     pub readwrite: bool,
-    pub marf: MARF,
+    pub marf: MARF<BurnchainHeaderHash>,
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
 }
@@ -433,17 +434,16 @@ pub struct BurnDBTxContext {
     pub first_block_height: u64,
 }
 
-pub type BurnDBTx<'a> = IndexDBTx<'a, BurnDBTxContext>;
-pub type BurnDBConn<'a> = IndexDBConn<'a, BurnDBTxContext>;
+pub type BurnDBTx<'a> = IndexDBTx<'a, BurnDBTxContext, BurnchainHeaderHash>;
+pub type BurnDBConn<'a> = IndexDBConn<'a, BurnDBTxContext, BurnchainHeaderHash>;
 
 fn burndb_get_ancestor_block_hash<'a>(iconn: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BurnchainHeaderHash>, db_error> {
     if block_height < iconn.context.first_block_height {
         return Ok(None);
     }
     
-    let tip_bhh = BlockHeaderHash::from(tip_block_hash.clone());
     let first_block_height = iconn.context.first_block_height;
-    match iconn.get_ancestor_block_hash(block_height - first_block_height, &tip_bhh)? {
+    match iconn.get_ancestor_block_hash(block_height - first_block_height, &tip_block_hash)? {
         Some(bhh) => {
             Ok(Some(BurnchainHeaderHash::from(bhh)))
         },
@@ -461,7 +461,7 @@ impl BurnDB {
         let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash, first_burn_header_timestamp);
         
         assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
-        assert_eq!(first_snapshot.parent_burn_header_hash.as_bytes(), TrieFileStorage::block_sentinel().as_bytes());
+        assert_eq!(first_snapshot.parent_burn_header_hash, BurnchainHeaderHash::sentinel());
 
         for row_text in BURNDB_SETUP {
             tx.execute(row_text, NO_PARAMS).map_err(db_error::SqliteError)?;
@@ -665,7 +665,7 @@ impl BurnDB {
         &self.conn
     }
 
-    pub fn open_index(index_path: &str) -> Result<MARF, db_error> {
+    pub fn open_index(index_path: &str) -> Result<MARF<BurnchainHeaderHash>, db_error> {
         test_debug!("Open index at {}", index_path);
         let marf = MARF::from_path(index_path, None).map_err(|_e| db_error::Corruption)?;
         Ok(marf)
@@ -1027,10 +1027,7 @@ impl BurnDB {
 
     /// Get a value from the fork index
     fn index_value_get<'a>(ic: &BurnDBConn<'a>, burn_header_hash: &BurnchainHeaderHash, key: &String) -> Result<Option<String>, db_error> {
-        let mut header_hash_bytes = [0u8; 32];
-        header_hash_bytes.copy_from_slice(burn_header_hash.as_bytes());
-        let header_hash = BlockHeaderHash(header_hash_bytes);
-        ic.get_indexed(&header_hash, key)
+        ic.get_indexed(burn_header_hash, key)
     }
 
     /// Record fork information to the index and calculate the new fork index root hash.
@@ -1047,10 +1044,8 @@ impl BurnDB {
             assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
         }
 
-        // convert from burn header hash to block header hash (it's safe since theyr'e both
-        // 32-byte hashes)
-        let parent_header = BlockHeaderHash::from(snapshot.parent_burn_header_hash.clone());
-        let header = BlockHeaderHash::from(snapshot.burn_header_hash.clone());
+        let parent_header = &snapshot.parent_burn_header_hash;
+        let header = &snapshot.burn_header_hash;
 
         // data we want to store
         let mut keys = vec![];
@@ -1088,7 +1083,7 @@ impl BurnDB {
         values.append(&mut block_arrival_values);
 
         // store each indexed field
-        tx.put_indexed_begin(&parent_header, &header)?;
+        tx.put_indexed_begin(parent_header, header)?;
         let root_hash = tx.put_indexed_all(&keys, &values)?;
         tx.indexed_commit()?;
         Ok(root_hash)
