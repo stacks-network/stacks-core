@@ -953,7 +953,6 @@ fn test_contract_of_wrong_type() {
         type_check(&disp_contract_id, &mut c2, db, true)
     }).unwrap_err();
     match err.err {
-        CheckErrors::TypeError(_, _) => {},
         CheckErrors::TraitReferenceUnknown(_) => {},
         _ => {
             panic!("{:?}", err)

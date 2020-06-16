@@ -378,18 +378,18 @@ fn special_contract_of(args: &[SymbolicExpression], env: &mut Environment, conte
     runtime_cost!(cost_functions::CONTRACT_OF, env, 0)?;
 
     let contract_ref = match &args[0].expr {
-        SymbolicExpressionType::Atom(_contract_ref) => {
-            _contract_ref
+        SymbolicExpressionType::Atom(contract_ref) => {
+            contract_ref
         },
         _ => return Err(CheckErrors::ContractOfExpectsTrait.into())
     };
 
     let contract_identifier = match context.callable_contracts.get(contract_ref) {
-        Some((ref _contract_identifier, _trait_identifier)) => {
-            env.global_context.database.get_contract(_contract_identifier)
-                .map_err(|_e| CheckErrors::NoSuchContract(_contract_identifier.to_string()))?;
+        Some((ref contract_identifier, _trait_identifier)) => {
+            env.global_context.database.get_contract(contract_identifier)
+                .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-            _contract_identifier
+            contract_identifier
         },
         _ => return Err(CheckErrors::ContractOfExpectsTrait.into())
     };
