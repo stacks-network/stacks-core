@@ -937,25 +937,115 @@ fn test_contract_of_wrong_type() {
     let contract_defining_trait =
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
-    let dispatching_contract =
+    let dispatching_contract_principal =
         "(use-trait trait-2 .defun.trait-1)
         (define-public (wrapped-get-1 (contract principal))
             (ok (contract-of contract)))";
+    let dispatching_contract_int =
+        "(use-trait trait-2 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract int))
+            (ok (contract-of contract)))";
+    let dispatching_contract_uint =
+        "(use-trait trait-2 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract uint))
+            (ok (contract-of contract)))";
+    let dispatching_contract_bool =
+        "(use-trait trait-2 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract bool))
+            (ok (contract-of contract)))";
+    let dispatching_contract_list =
+        "(use-trait trait-2 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract (list 10 uint)))
+            (ok (contract-of contract)))";
+    let dispatching_contract_buff =
+        "(use-trait trait-2 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract (buff 10)))
+            (ok (contract-of contract)))";
+    let dispatching_contract_tuple =
+        "(use-trait trait-2 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract (tuple (index uint) (value int))))
+            (ok (contract-of contract)))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
-    let mut c2 = parse(&disp_contract_id, dispatching_contract).unwrap();
+    let mut c_trait = parse(&def_contract_id, contract_defining_trait).unwrap();
+    let mut c_principal = parse(&disp_contract_id, dispatching_contract_principal).unwrap();
+    let mut c_int = parse(&disp_contract_id, dispatching_contract_int).unwrap();
+    let mut c_uint = parse(&disp_contract_id, dispatching_contract_uint).unwrap();
+    let mut c_bool = parse(&disp_contract_id, dispatching_contract_bool).unwrap();
+    let mut c_list = parse(&disp_contract_id, dispatching_contract_list).unwrap();
+    let mut c_buff = parse(&disp_contract_id, dispatching_contract_buff).unwrap();
+    let mut c_tuple = parse(&disp_contract_id, dispatching_contract_tuple).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    let err = db.execute(|db| {
-        type_check(&def_contract_id, &mut c1, db, true).unwrap();
-        type_check(&disp_contract_id, &mut c2, db, true)
+    let err_principal = db.execute(|db| {
+        type_check(&def_contract_id, &mut c_trait, db, true).unwrap();
+        type_check(&disp_contract_id, &mut c_principal, db, true)
     }).unwrap_err();
-    match err.err {
+    match err_principal.err {
         CheckErrors::TraitReferenceUnknown(_) => {},
         _ => {
-            panic!("{:?}", err)
+            panic!("{:?}", err_principal)
+        }
+    }
+    let err_int = db.execute(|db| {
+        type_check(&def_contract_id, &mut c_trait, db, true).unwrap();
+        type_check(&disp_contract_id, &mut c_int, db, true)
+    }).unwrap_err();
+    match err_int.err {
+        CheckErrors::TraitReferenceUnknown(_) => {},
+        _ => {
+            panic!("{:?}", err_int)
+        }
+    }
+    let err_uint = db.execute(|db| {
+        type_check(&def_contract_id, &mut c_trait, db, true).unwrap();
+        type_check(&disp_contract_id, &mut c_int, db, true)
+    }).unwrap_err();
+    match err_uint.err {
+        CheckErrors::TraitReferenceUnknown(_) => {},
+        _ => {
+            panic!("{:?}", err_uint)
+        }
+    }
+    let err_bool = db.execute(|db| {
+        type_check(&def_contract_id, &mut c_trait, db, true).unwrap();
+        type_check(&disp_contract_id, &mut c_int, db, true)
+    }).unwrap_err();
+    match err_bool.err {
+        CheckErrors::TraitReferenceUnknown(_) => {},
+        _ => {
+            panic!("{:?}", err_bool)
+        }
+    }
+    let err_list = db.execute(|db| {
+        type_check(&def_contract_id, &mut c_trait, db, true).unwrap();
+        type_check(&disp_contract_id, &mut c_int, db, true)
+    }).unwrap_err();
+    match err_list.err {
+        CheckErrors::TraitReferenceUnknown(_) => {},
+        _ => {
+            panic!("{:?}", err_list)
+        }
+    }
+    let err_buff = db.execute(|db| {
+        type_check(&def_contract_id, &mut c_trait, db, true).unwrap();
+        type_check(&disp_contract_id, &mut c_int, db, true)
+    }).unwrap_err();
+    match err_buff.err {
+        CheckErrors::TraitReferenceUnknown(_) => {},
+        _ => {
+            panic!("{:?}", err_buff)
+        }
+    }
+    let err_tuple = db.execute(|db| {
+        type_check(&def_contract_id, &mut c_trait, db, true).unwrap();
+        type_check(&disp_contract_id, &mut c_int, db, true)
+    }).unwrap_err();
+    match err_tuple.err {
+        CheckErrors::TraitReferenceUnknown(_) => {},
+        _ => {
+            panic!("{:?}", err_tuple)
         }
     }
 }
