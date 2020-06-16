@@ -67,31 +67,6 @@ amount = 100000000
 address = "ST31HHVBKYCYQQJ5AQ25ZHA6W2A548ZADDQ6S16GP"
 amount = 100000000
 
-# alice
-[[mstx_balance]]
-address = "ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA"
-amount = 1000000
-
-# bob
-[[mstx_balance]]
-address = "STF4HK0PN8S7B8CBN564KY6VAH5D0P2J8WDGEZAH"
-amount = 1000000
-
-# zoe
-[[mstx_balance]]
-address = "STTDTHHX9SY4S2EH74G7VZ6BAJ9WPYYBK5NCB7T8"
-amount = 1000000
-
-# contracts
-[[mstx_balance]]
-address = "ST32N7A3G9P7J0VZ2JCJCG5DMB1TDWY8Q08KQ3B99"
-amount = 2000000
-
-# friedger contracts
-[[mstx_balance]]
-address = "ST398K1WZTBVY6FE2YEHM6HP20VSNVSSPJTW0D53M"
-amount = 2000000
-
 ## Event dispatcher
 ## The stacks blockchain can be observed by sidecar processes, notified through TCP socket, of events such as:
 ## - print
