@@ -154,8 +154,9 @@ impl PeerBlocksInv {
     /// Merge a blocksinv into our knowledge of what blocks exist for this neighbor.
     /// block_height corresponds to bitvec[0] & 0x01
     /// bitlen = number of sortitions represented by this inv.
+    /// If clear_bits is true, then any 0-bits in the given bitvecs will be set as well as 1-bits.
     /// returns the number of bits set in each bitvec
-    pub fn merge_blocks_inv(&mut self, block_height: u64, bitlen: u16, block_bitvec: Vec<u8>, microblocks_bitvec: Vec<u8>) -> (usize, usize) {
+    pub fn merge_blocks_inv(&mut self, block_height: u64, bitlen: u16, block_bitvec: Vec<u8>, microblocks_bitvec: Vec<u8>, clear_bits: bool) -> (usize, usize) {
         assert!(block_height >= self.first_block_height);
         let sortition_height = block_height - self.first_block_height;
 
@@ -195,6 +196,11 @@ impl PeerBlocksInv {
 
                 self.block_inv[set_idx] |= 1 << set_bit;
             }
+            else if clear_bits {
+                // unset
+                self.block_inv[set_idx] &= !(1 << set_bit);
+            }
+
             if microblock_set {
                 if self.microblocks_inv[set_idx] & (1 << set_bit) == 0 {
                     // new 
@@ -203,6 +209,11 @@ impl PeerBlocksInv {
 
                 self.microblocks_inv[set_idx] |= 1 << set_bit;
             }
+            else if clear_bits {
+                // unset
+                self.microblocks_inv[set_idx] &= !(1 << set_bit);
+            }
+
             insert_index += 1;
         }
 
@@ -217,14 +228,14 @@ impl PeerBlocksInv {
     /// Set a block's bit as available.
     /// Return whether or not the block bit was flipped to 1.
     pub fn set_block_bit(&mut self, block_height: u64) -> bool {
-        let (new_blocks, _) = self.merge_blocks_inv(block_height, 1, vec![0x01], vec![0x00]);
+        let (new_blocks, _) = self.merge_blocks_inv(block_height, 1, vec![0x01], vec![0x00], false);
         new_blocks != 0
     }
     
     /// Set a confirmed microblock stream's bit as available.
     /// Return whether or not the bit was flipped to 1.
     pub fn set_microblocks_bit(&mut self, block_height: u64) -> bool {
-        let (_, new_mblocks) = self.merge_blocks_inv(block_height, 1, vec![0x00], vec![0x01]);
+        let (_, new_mblocks) = self.merge_blocks_inv(block_height, 1, vec![0x00], vec![0x01], false);
         new_mblocks != 0
     }
 
@@ -1117,7 +1128,7 @@ impl PeerNetwork {
                                 let target_height = *inv_state.getblocksinv_target_heights.get(&nk).expect(&format!("BUG: no target height for request to {:?}", &nk));
 
                                 debug!("{:?}: got blocksinv at block height {} from {:?}: {:?}", &self.local_peer, target_height, &nk, &blocks_inv);
-                                let (new_blocks, new_microblocks) = nk_stats.inv.merge_blocks_inv(target_height, blocks_inv.bitlen, blocks_inv.block_bitvec, blocks_inv.microblocks_bitvec);
+                                let (new_blocks, new_microblocks) = nk_stats.inv.merge_blocks_inv(target_height, blocks_inv.bitlen, blocks_inv.block_bitvec, blocks_inv.microblocks_bitvec, true);
                                 debug!("{:?}: {:?} has {} new blocks and {} new microblocks (total {} blocks, {} microblocks): {:?}", 
                                        &self.local_peer, &nk, new_blocks, new_microblocks, nk_stats.inv.num_blocks(), nk_stats.inv.num_microblock_streams(), &nk_stats.inv);
 
@@ -1274,7 +1285,7 @@ mod test {
         
         // merge below, aligned
         let mut peer_inv_below = peer_inv.clone();
-        let (new_blocks, new_microblocks) = peer_inv_below.merge_blocks_inv(12345, 16, vec![0x11, 0x22], vec![0x11, 0x22]);
+        let (new_blocks, new_microblocks) = peer_inv_below.merge_blocks_inv(12345, 16, vec![0x11, 0x22], vec![0x11, 0x22], false);
         assert_eq!(new_blocks, 4);
         assert_eq!(new_microblocks, 4);
         assert_eq!(peer_inv_below.num_sortitions, 32);
@@ -1283,7 +1294,7 @@ mod test {
 
         // merge below, overlapping, aligned
         let mut peer_inv_below_overlap = peer_inv.clone();
-        let (new_blocks, new_microblocks) = peer_inv_below_overlap.merge_blocks_inv(12345 + 8, 16, vec![0x11, 0x22], vec![0x11, 0x22]);
+        let (new_blocks, new_microblocks) = peer_inv_below_overlap.merge_blocks_inv(12345 + 8, 16, vec![0x11, 0x22], vec![0x11, 0x22], false);
         assert_eq!(new_blocks, 4);
         assert_eq!(new_microblocks, 4);
         assert_eq!(peer_inv_below_overlap.num_sortitions, 32);
@@ -1292,7 +1303,7 @@ mod test {
 
         // merge equal, overlapping, aligned
         let mut peer_inv_equal = peer_inv.clone();
-        let (new_blocks, new_microblocks) = peer_inv_equal.merge_blocks_inv(12345 + 16, 16, vec![0x11, 0x22], vec![0x11, 0x22]);
+        let (new_blocks, new_microblocks) = peer_inv_equal.merge_blocks_inv(12345 + 16, 16, vec![0x11, 0x22], vec![0x11, 0x22], false);
         assert_eq!(new_blocks, 0);
         assert_eq!(new_microblocks, 0);
         assert_eq!(peer_inv_equal.num_sortitions, 32);
@@ -1301,7 +1312,7 @@ mod test {
 
         // merge above, overlapping, aligned
         let mut peer_inv_above_overlap = peer_inv.clone();
-        let (new_blocks, new_microblocks) = peer_inv_above_overlap.merge_blocks_inv(12345 + 24, 16, vec![0x11, 0x22], vec![0x11, 0x22]);
+        let (new_blocks, new_microblocks) = peer_inv_above_overlap.merge_blocks_inv(12345 + 24, 16, vec![0x11, 0x22], vec![0x11, 0x22], false);
         assert_eq!(new_blocks, 2);
         assert_eq!(new_microblocks, 2);
         assert_eq!(peer_inv_above_overlap.num_sortitions, 40);
@@ -1310,7 +1321,7 @@ mod test {
 
         // merge above, non-overlapping, aligned
         let mut peer_inv_above = peer_inv.clone();
-        let (new_blocks, new_microblocks) = peer_inv_above.merge_blocks_inv(12345 + 32, 16, vec![0x11, 0x22], vec![0x11, 0x22]);
+        let (new_blocks, new_microblocks) = peer_inv_above.merge_blocks_inv(12345 + 32, 16, vec![0x11, 0x22], vec![0x11, 0x22], false);
         assert_eq!(peer_inv_above.num_sortitions, 48);
         assert_eq!(new_blocks, 4);
         assert_eq!(new_microblocks, 4);
@@ -1320,7 +1331,7 @@ mod test {
         // try merging unaligned
         let mut peer_inv = PeerBlocksInv::new(vec![0x00, 0x00, 0x00, 0x00], vec![0x00, 0x00, 0x00, 0x00], 32, 12345);
         for i in 0..32 {
-            let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + i, 1, vec![0x01], vec![0x01]);
+            let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + i, 1, vec![0x01], vec![0x01], false);
             assert_eq!(new_blocks, 1);
             assert_eq!(new_microblocks, 1);
             assert_eq!(peer_inv.num_sortitions, 32);
@@ -1337,7 +1348,7 @@ mod test {
         // try merging unaligned, with multiple blocks
         let mut peer_inv = PeerBlocksInv::new(vec![0x00, 0x00, 0x00, 0x00], vec![0x00, 0x00, 0x00, 0x00], 32, 12345);
         for i in 0..16 {
-            let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + i, 32, vec![0x01, 0x00, 0x01, 0x00], vec![0x01, 0x00, 0x01, 0x00]);
+            let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + i, 32, vec![0x01, 0x00, 0x01, 0x00], vec![0x01, 0x00, 0x01, 0x00], false);
             assert_eq!(new_blocks, 2);
             assert_eq!(new_microblocks, 2);
             assert_eq!(peer_inv.num_sortitions, 32 + i);
@@ -1359,7 +1370,113 @@ mod test {
 
         // merge 0's grows the bitvec
         let mut peer_inv = PeerBlocksInv::new(vec![0x00, 0x00, 0x00, 0x00], vec![0x00, 0x00, 0x00, 0x00], 32, 12345);
-        let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + 24, 16, vec![0x00, 0x00], vec![0x00, 0x00]);
+        let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + 24, 16, vec![0x00, 0x00], vec![0x00, 0x00], false);
+        assert_eq!(new_blocks, 0);
+        assert_eq!(new_microblocks, 0);
+        assert_eq!(peer_inv.num_sortitions, 40);
+        assert_eq!(peer_inv.block_inv, vec![0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(peer_inv.microblocks_inv, vec![0x00, 0x00, 0x00, 0x00, 0x00]);
+    }
+    
+    #[test]
+    fn peerblocksinv_merge_clear_bits() {
+        let peer_inv = PeerBlocksInv::new(vec![0x00, 0x00, 0x55, 0x77], vec![0x00, 0x00, 0x55, 0x77], 32, 12345);
+        
+        // merge below, aligned
+        let mut peer_inv_below = peer_inv.clone();
+        let (new_blocks, new_microblocks) = peer_inv_below.merge_blocks_inv(12345, 16, vec![0x11, 0x22], vec![0x11, 0x22], true);
+        assert_eq!(new_blocks, 4);
+        assert_eq!(new_microblocks, 4);
+        assert_eq!(peer_inv_below.num_sortitions, 32);
+        assert_eq!(peer_inv_below.block_inv, vec![0x11, 0x22, 0x55, 0x77]);
+        assert_eq!(peer_inv_below.microblocks_inv, vec![0x11, 0x22, 0x55, 0x77]);
+
+        // merge below, overlapping, aligned
+        let mut peer_inv_below_overlap = peer_inv.clone();
+        let (new_blocks, new_microblocks) = peer_inv_below_overlap.merge_blocks_inv(12345 + 8, 16, vec![0x11, 0x22], vec![0x11, 0x22], true);
+        assert_eq!(new_blocks, 4);
+        assert_eq!(new_microblocks, 4);
+        assert_eq!(peer_inv_below_overlap.num_sortitions, 32);
+        assert_eq!(peer_inv_below_overlap.block_inv, vec![0x00, 0x11, 0x22, 0x77]);
+        assert_eq!(peer_inv_below_overlap.microblocks_inv, vec![0x00, 0x11, 0x22, 0x77]);
+
+        // merge equal, overlapping, aligned
+        let mut peer_inv_equal = peer_inv.clone();
+        let (new_blocks, new_microblocks) = peer_inv_equal.merge_blocks_inv(12345 + 16, 16, vec![0x11, 0x22], vec![0x11, 0x22], true);
+        assert_eq!(new_blocks, 0);
+        assert_eq!(new_microblocks, 0);
+        assert_eq!(peer_inv_equal.num_sortitions, 32);
+        assert_eq!(peer_inv_equal.block_inv, vec![0x00, 0x00, 0x11, 0x22]);
+        assert_eq!(peer_inv_equal.microblocks_inv, vec![0x00, 0x00, 0x11, 0x22]);
+
+        // merge above, overlapping, aligned
+        let mut peer_inv_above_overlap = peer_inv.clone();
+        let (new_blocks, new_microblocks) = peer_inv_above_overlap.merge_blocks_inv(12345 + 24, 16, vec![0x11, 0x22], vec![0x11, 0x22], true);
+        assert_eq!(new_blocks, 2);
+        assert_eq!(new_microblocks, 2);
+        assert_eq!(peer_inv_above_overlap.num_sortitions, 40);
+        assert_eq!(peer_inv_above_overlap.block_inv, vec![0x00, 0x00, 0x55, 0x11, 0x22]);
+        assert_eq!(peer_inv_above_overlap.microblocks_inv, vec![0x00, 0x00, 0x55, 0x11, 0x22]);
+
+        // merge above, non-overlapping, aligned
+        let mut peer_inv_above = peer_inv.clone();
+        let (new_blocks, new_microblocks) = peer_inv_above.merge_blocks_inv(12345 + 32, 16, vec![0x11, 0x22], vec![0x11, 0x22], true);
+        assert_eq!(peer_inv_above.num_sortitions, 48);
+        assert_eq!(new_blocks, 4);
+        assert_eq!(new_microblocks, 4);
+        assert_eq!(peer_inv_above.block_inv, vec![0x00, 0x00, 0x55, 0x77, 0x11, 0x22]);
+        assert_eq!(peer_inv_above.microblocks_inv, vec![0x00, 0x00, 0x55, 0x77, 0x11, 0x22]);
+
+        // try merging unaligned
+        let mut peer_inv = PeerBlocksInv::new(vec![0x00, 0x00, 0x00, 0x00], vec![0x00, 0x00, 0x00, 0x00], 32, 12345);
+        for i in 0..32 {
+            let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + i, 1, vec![0x01], vec![0x01], true);
+            assert_eq!(new_blocks, 1);
+            assert_eq!(new_microblocks, 1);
+            assert_eq!(peer_inv.num_sortitions, 32);
+            for j in 0..i+1 {
+                assert!(peer_inv.has_ith_block(12345 + j));
+                assert!(peer_inv.has_ith_microblock_stream(12345 + j));
+            }
+            for j in i+1..32 {
+                assert!(!peer_inv.has_ith_block(12345 + j));
+                assert!(!peer_inv.has_ith_microblock_stream(12345 + j));
+            }
+        }
+        
+        // try merging unaligned, with multiple blocks
+        let mut peer_inv = PeerBlocksInv::new(vec![0x00, 0x00, 0x00, 0x00], vec![0x00, 0x00, 0x00, 0x00], 32, 12345);
+        for i in 0..16 {
+            let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + i, 32, vec![0x01, 0x00, 0x01, 0x00], vec![0x01, 0x00, 0x01, 0x00], true);
+            assert_eq!(new_blocks, 2);
+            assert_eq!(new_microblocks, 2);
+            assert_eq!(peer_inv.num_sortitions, 32 + i);
+            for j in 0..i {
+                assert!(peer_inv.has_ith_block(12345 + j));
+                assert!(!peer_inv.has_ith_block(12345 + j + 16));
+                
+                assert!(peer_inv.has_ith_microblock_stream(12345 + j));
+                assert!(!peer_inv.has_ith_microblock_stream(12345 + j + 16));
+            }
+
+            assert!(peer_inv.has_ith_block(12345 + i));
+            assert!(peer_inv.has_ith_block(12345 + i + 16));
+            
+            assert!(peer_inv.has_ith_microblock_stream(12345 + i));
+            assert!(peer_inv.has_ith_microblock_stream(12345 + i + 16));
+
+            for j in i+1..16 {
+                assert!(!peer_inv.has_ith_block(12345 + j));
+                assert!(!peer_inv.has_ith_block(12345 + j + 16));
+                
+                assert!(!peer_inv.has_ith_microblock_stream(12345 + j));
+                assert!(!peer_inv.has_ith_microblock_stream(12345 + j + 16));
+            }
+        }
+
+        // merge 0's grows the bitvec
+        let mut peer_inv = PeerBlocksInv::new(vec![0x00, 0x00, 0x00, 0x00], vec![0x00, 0x00, 0x00, 0x00], 32, 12345);
+        let (new_blocks, new_microblocks) = peer_inv.merge_blocks_inv(12345 + 24, 16, vec![0x00, 0x00], vec![0x00, 0x00], true);
         assert_eq!(new_blocks, 0);
         assert_eq!(new_microblocks, 0);
         assert_eq!(peer_inv.num_sortitions, 40);

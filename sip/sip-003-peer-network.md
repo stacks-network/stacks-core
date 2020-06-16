@@ -634,6 +634,33 @@ pub struct PongData {
 }
 ```
 
+**NatPunchRequest**
+
+Type identifier: 14
+
+Structure:
+
+```
+/// a 4-byte nonce unique to this request
+u32
+```
+
+**NatPunchReply**
+
+Type identifier: 15
+
+Structure:
+
+```
+pub struct NatPunchData {
+   /// The public IP address, as reported by the remote peer
+   pub addrbytes: PeerAddress,
+   /// The public port
+   pub port: u16,
+   /// The nonce from the paired NatPunchRequest
+   pub nonce: u32,
+}
+
 Notes:
 * The `nonce` field in a `PongData` should match the `nonce` field sent by the
   corresponding `Ping`.
@@ -763,6 +790,34 @@ again.
 
 When executing a handshake, a peer should _not_ include any other peers in the
 `relayers` vector except for itself.  The `relayers` field will be ignored.
+
+### Learning the public IP address
+
+Before the peer can participate in the control plane, it must know its
+publicly-routable IP address so it can exchange it with its remote neighbors.
+This is necessary, since other neighbors-of-neighbors will learn this peer's
+public IP address from its remote neighbors, and thus must have a publicly-routable
+address if they are going to handshake with it.
+
+The peer may take an operator-given public IP address.  If no public IP address
+is given, the peer will learn the IP address using the `NatPunchRequest` and
+`NatPunchReply` messages as follows:
+
+1. The peer sends a `NatPunchRequest` to a randomly-chosen neighbor it has
+   already handshaked with.  It uses a random nonce value.
+2. The remote neighbor replies with a (signed) `NatPunchReply` message, with its
+   `addrbytes` and `port` set to what it believes the public IP is (based on the
+   underlying socket's peer address).
+3. The peer, upon receipt and authentication of the `NatPunchReply`, will
+   confirm the public IP address by attempting to connect to itself.  To do so,
+   it sends a `NatPunchRequest` to the public IP address it learned (with a
+   random nonce).
+4. If the peer successfully connects to itself via the public IP address, it
+   will send a `NatPunchReply` back to itself with the nonce used in step 3.
+5. Upon receipt of the `NatPunchReply`, the peer will have confirmed its public
+   IP address, and will send it in all future `HandshakeAccept` messages.  It
+   will periodically re-learn its IP address, if it was not given by the
+   operator.
 
 ### Checking a Peer's Liveness
 

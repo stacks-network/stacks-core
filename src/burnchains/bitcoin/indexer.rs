@@ -24,6 +24,8 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use rand::{Rng, thread_rng};
 use std::path::{PathBuf};
+use std::time;
+use std::net::Shutdown;
 
 use tini::Ini;
 
@@ -308,11 +310,31 @@ impl BitcoinIndexer {
     fn reconnect_peer(&mut self) -> Result<(), btc_error> {
         match net::TcpStream::connect((self.config.peer_host.as_str(), self.config.peer_port)) {
             Ok(s) => {
+                // Disable Nagle algorithm
+                s.set_nodelay(true)
+                    .map_err(|_e| {
+                        test_debug!("Failed to set TCP_NODELAY: {:?}", &_e);
+                        btc_error::ConnectionError
+                    })?;
+
+                match self.runtime.sock.take() {
+                    Some(s) => {
+                        let _ = s.shutdown(Shutdown::Both);
+                    },
+                    None => {}
+                }
+
                 self.runtime.sock = Some(s);
                 Ok(())
             },
             Err(_e) => {
-                self.runtime.sock = None;
+                let s = self.runtime.sock.take();
+                match s {
+                    Some(s) => {
+                        let _ = s.shutdown(Shutdown::Both);
+                    }
+                    None => {}
+                }
                 Err(btc_error::ConnectionError)
             }
         }
@@ -578,6 +600,17 @@ impl BitcoinIndexer {
         assert_eq!(hdr_reorg, hdr_canonical);
 
         Ok(new_tip)
+    }
+}
+
+impl Drop for BitcoinIndexer {
+    fn drop(&mut self) {
+        match self.runtime.sock {
+            Some(ref mut s) => {
+                let _ = s.shutdown(Shutdown::Both);
+            },
+            None => {}
+        }
     }
 }
 

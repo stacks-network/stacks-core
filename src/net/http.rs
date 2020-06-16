@@ -55,7 +55,6 @@ use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::HTTP_REQUEST_ID_RESERVED;
 
-use chainstate::burn::BlockHeaderHash;
 use burnchains::{ Txid, Address };
 use chainstate::stacks::{
     StacksAddress, StacksTransaction, StacksBlock, StacksMicroblock, StacksPublicKey,
@@ -2443,7 +2442,6 @@ mod test {
     use net::RPCNeighbor;
     use net::RPCNeighborsInfo;
 
-    use chainstate::burn::BlockHeaderHash;
     use burnchains::Txid;
     use chainstate::stacks::test::make_codec_test_block;
     use chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
@@ -3145,8 +3143,8 @@ mod test {
         // all of these should parse
         let expected_http_preambles = vec![
             HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/v2/neighbors".to_string(), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
-            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port(), http_request_metadata_dns.keep_alive),
-            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/blocks/{}", StacksBlockId([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port(), http_request_metadata_dns.keep_alive),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/microblocks/{}", StacksBlockId([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
             post_transaction_preamble,
             HttpRequestPreamble::new(HttpVersion::Http11, "OPTIONS".to_string(), format!("/"), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
         ];

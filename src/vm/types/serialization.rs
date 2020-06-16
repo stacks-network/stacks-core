@@ -510,10 +510,6 @@ impl Value {
 
     pub fn try_deserialize_bytes(bytes: &Vec<u8>, expected: &TypeSignature) -> Result<Value, SerializationError> {
         Value::deserialize_read(&mut bytes.as_slice(), Some(expected))
-            .map_err(|e| match e {
-                SerializationError::IOError(e) => panic!("Should not have received IO Error: {:?}", e),
-                _ => e
-            })
     }
 
     pub fn try_deserialize_hex(hex: &str, expected: &TypeSignature) -> Result<Value, SerializationError> {
@@ -524,10 +520,6 @@ impl Value {
     
     pub fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, SerializationError> {
         Value::deserialize_read(&mut bytes.as_slice(), None)
-            .map_err(|e| match e {
-                SerializationError::IOError(e) => panic!("Should not have received IO Error: {:?}", e),
-                _ => e
-            })
     }
 
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {

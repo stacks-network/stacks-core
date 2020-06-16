@@ -28,19 +28,20 @@ use std::fs;
 use std::convert::From;
 use std::convert::TryFrom;
 
-use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_count};
+use util::db::{FromRow, FromColumn, u64_to_sql, query_row, query_rows, query_count};
 use util::db::Error as db_error;
 use util::db::DBConn;
 use util::db::tx_begin_immediate;
 
 use util;
 use util::log;
-use util::hash::{to_hex, hex_bytes, Hash160, Sha512Trunc256Sum, Sha256Sum};
+use util::hash::{to_hex, to_bin, hex_bytes, bin_bytes, Hash160, Sha512Trunc256Sum, Sha256Sum};
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 use util::macros::is_big_endian;
 
 use chainstate::stacks::StacksPublicKey;
+use chainstate::stacks::StacksPrivateKey;
 
 use rand::RngCore;
 use rand::Rng;
@@ -65,12 +66,22 @@ pub const PEERDB_VERSION : &'static str = "23.0.0.0";
 
 const NUM_SLOTS : usize = 8;
 
+impl PeerAddress {
+    pub fn to_bin(&self) -> String {
+        to_bin(&self.0)
+    }
+}
+
 impl FromColumn<PeerAddress> for PeerAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
-        let addrbytes_hex : String = row.get(column_name);
-        let addrbytes = hex_bytes(&addrbytes_hex)
+        let addrbytes_bin : String = row.get(column_name);
+        if addrbytes_bin.len() != 128 {
+            error!("Unparsable peer address {}", addrbytes_bin);
+            return Err(db_error::ParseError);
+        }
+        let addrbytes = bin_bytes(&addrbytes_bin)
             .map_err(|_e| {
-                error!("Unparseable peer address {}", addrbytes_hex);
+                error!("Unparseable peer address {}", addrbytes_bin);
                 db_error::ParseError
             })?;
 
@@ -97,18 +108,21 @@ pub struct LocalPeer {
     pub addrbytes: PeerAddress,
     pub port: u16,
     pub services: u16,
-    pub data_url: UrlString
+    pub data_url: UrlString,
+
+    // filled in and curated at runtime
+    pub public_ip_address: Option<(PeerAddress, u16)>
 }
 
 impl fmt::Display for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "local.{:x}://{:?}", self.network_id, &self.addrbytes.to_socketaddr(self.port))
+        write!(f, "local.{:x}://(bind={:?})(pub={:?})", self.network_id, &self.addrbytes.to_socketaddr(self.port), &self.public_ip_address.map(|(ref addrbytes, ref port)| addrbytes.to_socketaddr(*port)))
     }
 }
 
 impl fmt::Debug for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "local.{:x}://{:?}", self.network_id, &self.addrbytes.to_socketaddr(self.port))
+        write!(f, "local.{:x}://(bind={:?})(pub={:?})", self.network_id, &self.addrbytes.to_socketaddr(self.port), &self.public_ip_address.map(|(ref addrbytes, ref port)| addrbytes.to_socketaddr(*port)))
     }
 }
 
@@ -135,7 +149,8 @@ impl LocalPeer {
             addrbytes: addr,
             port: port,
             services: services as u16,
-            data_url: data_url
+            data_url: data_url,
+            public_ip_address: None
         }
     }
 
@@ -185,7 +200,8 @@ impl FromRow<LocalPeer> for LocalPeer {
             addrbytes: addrbytes,
             port: port,
             services: services,
-            data_url: data_url
+            data_url: data_url,
+            public_ip_address: None
         })
     }
 }
@@ -217,8 +233,8 @@ impl FromRow<Neighbor> for Neighbor {
         let last_contact_time = u64::from_column(row, "last_contact_time")?;
         let asn : u32 = row.get("asn");
         let org : u32 = row.get("org");
-        let whitelisted : i64 = row.get("whitelisted");
-        let blacklisted : i64 = row.get("blacklisted");
+        let allowed : i64 = row.get("allowed");
+        let denied : i64 = row.get("denied");
         let in_degree : u32 = row.get("in_degree");
         let out_degree : u32 = row.get("out_degree");
 
@@ -234,8 +250,8 @@ impl FromRow<Neighbor> for Neighbor {
             last_contact_time: last_contact_time,
             asn: asn,
             org: org,
-            whitelisted: whitelisted,
-            blacklisted: blacklisted,
+            allowed: allowed,
+            denied: denied,
             in_degree: in_degree,
             out_degree: out_degree,
         })
@@ -262,8 +278,8 @@ const PEERDB_SETUP : &'static [&'static str]= &[
         last_contact_time INTEGER NOT NULL,
         asn INTEGER NOT NULL,
         org INTEGER NOT NULL,
-        whitelisted INTEGER NOT NULL,
-        blacklisted INTEGER NOT NULL,
+        allowed INTEGER NOT NULL,
+        denied INTEGER NOT NULL,
         in_degree INTEGER NOT NULL,
         out_degree INTEGER NOT NULL,
 
@@ -272,6 +288,9 @@ const PEERDB_SETUP : &'static [&'static str]= &[
 
         PRIMARY KEY(slot)
     );"#,
+    r#"
+    CREATE INDEX peer_address_index ON frontier(network_id,addrbytes,port);
+    "#,
     r#"
     CREATE TABLE asn4(
         prefix INTEGER NOT NULL,
@@ -296,7 +315,17 @@ const PEERDB_SETUP : &'static [&'static str]= &[
         port INTEGER NOT NULL,
         services INTEGER NOT NULL,
         data_url TEXT NOT NULL
-    );"#
+    );"#,
+    r#"
+    CREATE TABLE allowed_prefixes(
+        prefix TEXT NOT NULL,
+        mask INTEGER NOT NULL
+    );"#,
+    r#"
+    CREATE TABLE denied_prefixes(
+        prefix TEXT NOT NULL,
+        mask INTEGER NOT NULL
+    );"#,
 ];
 
 pub struct PeerDB {
@@ -324,7 +353,7 @@ impl PeerDB {
             &to_hex(&localpeer.nonce),
             &to_hex(&localpeer.private_key.to_bytes()),
             &u64_to_sql(key_expires)?,
-            &to_hex(localpeer.addrbytes.as_bytes()),
+            &to_bin(localpeer.addrbytes.as_bytes()),
             &localpeer.port,
             &localpeer.services,
             &localpeer.data_url.as_str()];
@@ -363,6 +392,36 @@ impl PeerDB {
             Ok(_) => Ok(()),
             Err(e) => Err(db_error::SqliteError(e))
         }
+    }
+
+    fn reset_denies<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
+        tx.execute("UPDATE frontier SET denied = 0", NO_PARAMS).map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+    
+    fn reset_allows<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
+        tx.execute("UPDATE frontier SET allowed = -1", NO_PARAMS).map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
+    fn refresh_denies<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
+        PeerDB::reset_denies(tx)?;
+        let deny_cidrs = PeerDB::get_denied_cidrs(tx)?;
+        for (prefix, mask) in deny_cidrs.into_iter() {
+            debug!("Refresh deny {}/{}", &prefix, mask);
+            PeerDB::apply_cidr_filter(tx, &prefix, mask, "denied", i64::max_value())?;
+        }
+        Ok(())
+    }
+    
+    fn refresh_allows<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
+        PeerDB::reset_allows(tx)?;
+        let allow_cidrs = PeerDB::get_allowed_cidrs(tx)?;
+        for (prefix, mask) in allow_cidrs.into_iter() {
+            debug!("Refresh allow {}/{}", &prefix, mask);
+            PeerDB::apply_cidr_filter(tx, &prefix, mask, "allowed", i64::max_value())?;
+        }
+        Ok(())
     }
 
     /// Open the burn database at the given path.  Open read-only or read/write.
@@ -421,6 +480,13 @@ impl PeerDB {
             }
         } else {
             db.update_local_peer(network_id, parent_network_id, data_url, p2p_port)?;
+            
+            {
+                let mut tx = db.tx_begin()?;
+                PeerDB::refresh_allows(&mut tx)?;
+                PeerDB::refresh_denies(&mut tx)?;
+                tx.commit()?;
+            }
         }
         Ok(db)
     }
@@ -469,7 +535,7 @@ impl PeerDB {
 
     /// Set the local IP address and port 
     pub fn set_local_ipaddr<'a>(tx: &mut Transaction<'a>, addrbytes: &PeerAddress, port: u16) -> Result<(), db_error> {
-        tx.execute("UPDATE local_peer SET addrbytes = ?1, port = ?2", &[&to_hex(&addrbytes.as_bytes().to_vec()), &port as &dyn ToSql])
+        tx.execute("UPDATE local_peer SET addrbytes = ?1, port = ?2", &[&to_bin(&addrbytes.as_bytes().to_vec()), &port as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -550,31 +616,42 @@ impl PeerDB {
     /// Panics if the peer was inserted twice -- this shouldn't happen.
     pub fn get_peer(conn: &DBConn, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<Option<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3".to_string();
-        let args = [&network_id as &dyn ToSql, &peer_addr.to_hex() as &dyn ToSql, &peer_port as &dyn ToSql];
-        let rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
-
-        match rows.len() {
-            0 => Ok(None),
-            1 => Ok(Some(rows[0].clone())),
-            _ => {
-                // if this happens, it's a bug 
-                panic!("FATAL: multiple entries for peer {}:{:?}:{}", network_id, &peer_addr, peer_port);
-            }
-        }
+        let args = [&network_id as &dyn ToSql, &peer_addr.to_bin() as &dyn ToSql, &peer_port as &dyn ToSql];
+        query_row::<Neighbor, _>(conn, &qry, &args)
+    }
+    
+    /// Get peer by port (used in tests where the IP address doesn't really matter)
+    #[cfg(test)]
+    pub fn get_peer_by_port(conn: &DBConn, network_id: u32, peer_port: u16) -> Result<Option<Neighbor>, db_error> {
+        let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND port = ?2".to_string();
+        let args = [&network_id as &dyn ToSql, &peer_port as &dyn ToSql];
+        query_row::<Neighbor, _>(conn, &qry, &args)
     }
 
     /// Get a peer record at a particular slot
     pub fn get_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<Option<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND slot = ?2".to_string();
         let args = [&network_id as &dyn ToSql, &slot as &dyn ToSql];
-        let rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
+        query_row::<Neighbor, _>(conn, &qry, &args)
+    }
 
-        match rows.len() {
-            0 => Ok(None),
-            1 => Ok(Some(rows[0].clone())),
-            _ => {
-                // if this happens, it's a bug
-                panic!("FATAL: multiple peers with the same slot {}", slot);
+    /// Is a peer denied?
+    pub fn is_peer_denied(conn: &DBConn, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<bool, db_error> {
+        match PeerDB::get_peer(conn, network_id, peer_addr, peer_port)? {
+            Some(neighbor) => {
+                if neighbor.is_denied() {
+                    return Ok(true);
+                }
+                if PeerDB::is_address_denied(conn, &neighbor.addr.addrbytes)? {
+                    return Ok(true);
+                }
+                return Ok(false);
+            }
+            None => {
+                if PeerDB::is_address_denied(conn, &peer_addr)? {
+                    return Ok(true);
+                }
+                return Ok(false);
             }
         }
     }
@@ -584,20 +661,20 @@ impl PeerDB {
         let neighbor_args : &[&dyn ToSql] = &[
             &neighbor.addr.peer_version,
             &neighbor.addr.network_id,
-            &to_hex(neighbor.addr.addrbytes.as_bytes()),
+            &to_bin(neighbor.addr.addrbytes.as_bytes()),
             &neighbor.addr.port,
             &to_hex(&neighbor.public_key.to_bytes_compressed()),
             &u64_to_sql(neighbor.expire_block)?,
             &u64_to_sql(neighbor.last_contact_time)?,
             &neighbor.asn,
             &neighbor.org,
-            &neighbor.whitelisted,
-            &neighbor.blacklisted,
+            &neighbor.allowed,
+            &neighbor.denied,
             &neighbor.in_degree,
             &neighbor.out_degree,
             &slot];
 
-        tx.execute("INSERT OR REPLACE INTO frontier (peer_version, network_id, addrbytes, port, public_key, expire_block_height, last_contact_time, asn, org, whitelisted, blacklisted, in_degree, out_degree, slot) \
+        tx.execute("INSERT OR REPLACE INTO frontier (peer_version, network_id, addrbytes, port, public_key, expire_block_height, last_contact_time, asn, org, allowed, denied, in_degree, out_degree, slot) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", neighbor_args)
             .map_err(db_error::SqliteError)?;
 
@@ -607,28 +684,72 @@ impl PeerDB {
     /// Remove a peer from the peer database 
     pub fn drop_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<(), db_error> {
         tx.execute("DELETE FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
-                   &[&network_id as &dyn ToSql, &peer_addr.to_hex() as &dyn ToSql, &peer_port as &dyn ToSql])
+                   &[&network_id as &dyn ToSql, &peer_addr.to_bin() as &dyn ToSql, &peer_port as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
     }
 
-    /// Set/unset whitelist flag for a peer
+    /// Set/unset allow flag for a peer
     /// Pass -1 for "always"
-    pub fn set_whitelist_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16, whitelist_deadline: i64) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET whitelisted = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4",
-                   &[&whitelist_deadline as &dyn ToSql, &network_id, &peer_addr.to_hex(), &peer_port])
+    pub fn set_allow_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16, allow_deadline: i64) -> Result<(), db_error> {
+        let num_updated = tx.execute("UPDATE frontier SET allowed = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4",
+                   &[&allow_deadline as &dyn ToSql, &network_id, &peer_addr.to_bin(), &peer_port])
             .map_err(db_error::SqliteError)?;
+
+        if num_updated == 0 {
+            // we're preemptively allowing
+            let nk = NeighborKey {
+                peer_version: 0,
+                network_id: network_id,
+                addrbytes: peer_addr.clone(),
+                port: peer_port,
+            };
+            let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
+            let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
+
+            empty_neighbor.allowed = allow_deadline as i64;
+
+            debug!("Preemptively allow peer {:?}", &nk);
+            if !PeerDB::try_insert_peer(tx, &empty_neighbor)? {
+                let mut slots = PeerDB::peer_slots(tx, network_id, peer_addr, peer_port)?;
+                let slot = slots.pop().expect("BUG: no slots");
+                warn!("Forcing replacement of peer at slot {} for allowed peer {:?}", slot, &empty_neighbor.addr);
+                PeerDB::insert_or_replace_peer(tx, &empty_neighbor, slot)?;
+            }
+        }
 
         Ok(())
     }
 
-    /// Set/unset blacklist flag for a peer
+    /// Set/unset deny flag for a peer
     /// negative values aren't allowed
-    pub fn set_blacklist_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16, blacklist_deadline: u64) -> Result<(), db_error> {
-        let args : &[&dyn ToSql] = &[&u64_to_sql(blacklist_deadline)?, &network_id, &peer_addr.to_hex(), &peer_port];
-        tx.execute("UPDATE frontier SET blacklisted = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4", args)
+    pub fn set_deny_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16, deny_deadline: u64) -> Result<(), db_error> {
+        let args : &[&dyn ToSql] = &[&u64_to_sql(deny_deadline)?, &network_id, &peer_addr.to_bin(), &peer_port];
+        let num_updated = tx.execute("UPDATE frontier SET denied = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4", args)
             .map_err(db_error::SqliteError)?;
+
+        if num_updated == 0 {
+            // we're preemptively denying
+            let nk = NeighborKey {
+                peer_version: 0,
+                network_id: network_id,
+                addrbytes: peer_addr.clone(),
+                port: peer_port,
+            };
+            let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
+            let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
+
+            empty_neighbor.denied = deny_deadline as i64;
+            
+            debug!("Preemptively deny peer {:?}", &nk);
+            if !PeerDB::try_insert_peer(tx, &empty_neighbor)? {
+                let mut slots = PeerDB::peer_slots(tx, network_id, peer_addr, peer_port)?;
+                let slot = slots.pop().expect("BUG: no slots");
+                warn!("Forcing replacement of peer at slot {} for denied peer {:?}", slot, &empty_neighbor.addr);
+                PeerDB::insert_or_replace_peer(tx, &empty_neighbor, slot)?;
+            }
+        }
 
         Ok(())
     }
@@ -642,15 +763,15 @@ impl PeerDB {
             &u64_to_sql(neighbor.last_contact_time)?,
             &neighbor.asn,
             &neighbor.org,
-            &neighbor.whitelisted,
-            &neighbor.blacklisted,
+            &neighbor.allowed,
+            &neighbor.denied,
             &neighbor.in_degree,
             &neighbor.out_degree,
             &neighbor.addr.network_id,
-            &to_hex(neighbor.addr.addrbytes.as_bytes()),
+            &to_bin(neighbor.addr.addrbytes.as_bytes()),
             &neighbor.addr.port];
 
-        tx.execute("UPDATE frontier SET peer_version = ?1, public_key = ?2, expire_block_height = ?3, last_contact_time = ?4, asn = ?5, org = ?6, whitelisted = ?7, blacklisted = ?8, in_degree = ?9, out_degree = ?10 \
+        tx.execute("UPDATE frontier SET peer_version = ?1, public_key = ?2, expire_block_height = ?3, last_contact_time = ?4, asn = ?5, org = ?6, allowed = ?7, denied = ?8, in_degree = ?9, out_degree = ?10 \
                     WHERE network_id = ?11 AND addrbytes = ?12 AND port = ?13", args)
             .map_err(db_error::SqliteError)?;
 
@@ -684,38 +805,137 @@ impl PeerDB {
         return Ok(false);
     }
 
-    /// Get random neighbors, optionally always including whitelisted neighbors
-    pub fn get_random_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64, always_include_whitelisted: bool) -> Result<Vec<Neighbor>, db_error> {
+    /// Add a cidr prefix
+    fn add_cidr_prefix<'a>(tx: &mut Transaction<'a>, table: &str, prefix: &PeerAddress, mask: u32) -> Result<(), db_error> {
+        let args : &[&dyn ToSql] = &[&prefix.to_bin(), &mask];
+        tx.execute(&format!("INSERT OR REPLACE INTO {} (prefix, mask) VALUES (?1, ?2)", table), args).map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
+    /// Remove a cidr prefix
+    fn remove_cidr_prefix<'a>(tx: &mut Transaction<'a>, table: &str, prefix: &PeerAddress, mask: u32) -> Result<(), db_error> {
+        let args : &[&dyn ToSql] = &[&prefix.to_bin(), &mask];
+        tx.execute(&format!("DELETE FROM {} WHERE prefix = ?1 AND mask = ?2", table), args).map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
+    /// Get all cidr prefixes from a given table
+    fn get_cidr_prefixes(conn: &DBConn, table: &str) -> Result<Vec<(PeerAddress, u32)>, db_error> {
+        let sql_query = format!("SELECT prefix, mask FROM {}", table);
+        let mut stmt = conn.prepare(&sql_query)?;
+        let rows_res_iter = stmt.query_and_then(NO_PARAMS,
+            |row| {
+                let prefix = PeerAddress::from_column(row, "prefix")?;
+                let mask : u32 = row.get("mask");
+                let res : Result<(PeerAddress, u32), db_error> = Ok((prefix, mask));
+                res
+            })
+            .map_err(db_error::SqliteError)?;
+
+        let mut ret = vec![];
+        for row_res in rows_res_iter {
+            ret.push(row_res?);
+        }
+
+        Ok(ret)
+    }
+
+    /// Get all deny CIDR prefixes
+    pub fn get_denied_cidrs(conn: &DBConn) -> Result<Vec<(PeerAddress, u32)>, db_error> {
+        PeerDB::get_cidr_prefixes(conn, "denied_prefixes")
+    }
+    
+    /// Get all allow CIDR prefixes
+    pub fn get_allowed_cidrs(conn: &DBConn) -> Result<Vec<(PeerAddress, u32)>, db_error> {
+        PeerDB::get_cidr_prefixes(conn, "allowed_prefixes")
+    }
+
+    /// Check to see if an address is denied by one of the CIDR deny rows
+    pub fn is_address_denied(conn: &DBConn, addr: &PeerAddress) -> Result<bool, db_error> {
+        let denied_rows = PeerDB::get_denied_cidrs(conn)?;
+        let addr_int = u128::from_be_bytes(addr.as_bytes().to_owned());
+
+        for (prefix, mask) in denied_rows.into_iter() {
+            let addr_mask = !((1u128 << (128 - mask)) - 1);
+            let mask_int = u128::from_be_bytes(prefix.as_bytes().to_owned()) & addr_mask;
+            if mask_int == (addr_int & addr_mask) {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Convert a prefix address and mask to its hex representation
+    fn cidr_prefix_to_string(prefix: &PeerAddress, mask: u32) -> String {
+        assert!(mask > 0 && mask <= 128);
+        let s = to_bin(&(u128::from_be_bytes(prefix.as_bytes().to_owned()) & !((1u128 << (128 - mask)) - 1)).to_be_bytes());
+        s
+    }
+
+    /// Update the given column to be equal to the given value for all addresses that match the given
+    /// CIDR prefix
+    fn apply_cidr_filter<'a>(tx: &mut Transaction<'a>, prefix: &PeerAddress, mask: u32, column: &str, value: i64) -> Result<(), db_error> {
+        assert!(mask > 0 && mask <= 128);
+        let prefix_txt = PeerDB::cidr_prefix_to_string(prefix, mask);
+        let args : &[&dyn ToSql] = &[&value, &mask, &prefix_txt];
+        tx.execute(&format!("UPDATE frontier SET {} = ?1 WHERE SUBSTR(addrbytes,1,?2) = SUBSTR(?3,1,?2)", column), args)
+            .map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+    
+    /// Set a allowed CIDR prefix
+    pub fn add_allow_cidr<'a>(tx: &mut Transaction<'a>, prefix: &PeerAddress, mask: u32) -> Result<(), db_error> {
+        assert!(mask > 0 && mask <= 128);
+        PeerDB::add_cidr_prefix(tx, "allowed_prefixes", prefix, mask)?;
+        
+        debug!("Apply allow {}/{}", &prefix, mask);
+        PeerDB::apply_cidr_filter(tx, prefix, mask, "allowed", -1)?;
+        Ok(())
+    }
+
+    /// Set a denied CIDR prefix
+    pub fn add_deny_cidr<'a>(tx: &mut Transaction<'a>, prefix: &PeerAddress, mask: u32) -> Result<(), db_error> {
+        assert!(mask > 0 && mask <= 128);
+        PeerDB::add_cidr_prefix(tx, "denied_prefixes", prefix, mask)?;
+        
+        debug!("Apply deny {}/{}", &prefix, mask);
+        PeerDB::apply_cidr_filter(tx, prefix, mask, "denied", i64::max_value())?;
+        Ok(())
+    }
+
+    /// Get random neighbors, optionally always including allowed neighbors
+    pub fn get_random_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64, always_include_allowed: bool) -> Result<Vec<Neighbor>, db_error> {
         let mut ret = vec![];
 
         // UTC time 
         let now_secs = util::get_epoch_time_secs();
 
-        if always_include_whitelisted {
-            // always include whitelisted neighbors, freshness be damned
-            let whitelist_qry = "SELECT * FROM frontier WHERE network_id = ?1 AND blacklisted < ?2 AND (whitelisted < 0 OR ?3 < whitelisted)".to_string();
-            let whitelist_args : &[&dyn ToSql] = &[&network_id, &u64_to_sql(now_secs)?, &u64_to_sql(now_secs)?];
-            let mut whitelist_rows = query_rows::<Neighbor, _>(conn, &whitelist_qry, whitelist_args)?;
+        if always_include_allowed {
+            // always include allowed neighbors, freshness be damned
+            let allow_qry = "SELECT * FROM frontier WHERE network_id = ?1 AND denied < ?2 AND (allowed < 0 OR ?3 < allowed)".to_string();
+            let allow_args : &[&dyn ToSql] = &[&network_id, &u64_to_sql(now_secs)?, &u64_to_sql(now_secs)?];
+            let mut allow_rows = query_rows::<Neighbor, _>(conn, &allow_qry, allow_args)?;
 
-            if whitelist_rows.len() >= (count as usize) {
+            if allow_rows.len() >= (count as usize) {
                 // return a random subset 
-                let whitelist_slice = whitelist_rows.as_mut_slice();
-                whitelist_slice.shuffle(&mut thread_rng());
-                return Ok(whitelist_slice[0..(count as usize)].to_vec());
+                let allow_slice = allow_rows.as_mut_slice();
+                allow_slice.shuffle(&mut thread_rng());
+                return Ok(allow_slice[0..(count as usize)].to_vec());
             }
 
-            ret.append(&mut whitelist_rows);
+            ret.append(&mut allow_rows);
         }
 
-        // fill in with non-whitelisted, randomly-chosen, fresh peers 
+        // fill in with non-allowed, randomly-chosen, fresh peers 
         let random_peers_qry = 
-            if always_include_whitelisted {
-                "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
-                 (whitelisted >= 0 AND whitelisted <= ?4) ORDER BY RANDOM() LIMIT ?5".to_string()
+            if always_include_allowed {
+                "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND denied < ?3 AND \
+                 (allowed >= 0 AND allowed <= ?4) ORDER BY RANDOM() LIMIT ?5".to_string()
             }
             else {
-                "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
-                 (whitelisted < 0 OR (whitelisted >= 0 AND whitelisted <= ?4)) ORDER BY RANDOM() LIMIT ?5".to_string()
+                "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND denied < ?3 AND \
+                 (allowed < 0 OR (allowed >= 0 AND allowed <= ?4)) ORDER BY RANDOM() LIMIT ?5".to_string()
             };
 
         let random_peers_args : &[&dyn ToSql] = &[&network_id, &u64_to_sql(block_height)?, &u64_to_sql(now_secs)?, &u64_to_sql(now_secs)?, &(count - (ret.len() as u32))];
@@ -726,15 +946,15 @@ impl PeerDB {
     }
 
     /// Get an randomized initial set of peers.
-    /// -- always include all whitelisted neighbors
-    /// -- never include blacklisted neighbors
-    /// -- for neighbors that are neither whitelisted nor blacklisted, sample them randomly as long as they're fresh.
+    /// -- always include all allowed neighbors
+    /// -- never include denied neighbors
+    /// -- for neighbors that are neither allowed nor denied, sample them randomly as long as they're fresh.
     pub fn get_initial_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64) -> Result<Vec<Neighbor>, db_error> {
         PeerDB::get_random_neighbors(conn, network_id, count, block_height, true)
     }
 
     /// Get a randomized set of peers for walking the peer graph.
-    /// -- selects peers at random even if not whitelisted 
+    /// -- selects peers at random even if not allowed 
     pub fn get_random_walk_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64) -> Result<Vec<Neighbor>, db_error> {
         PeerDB::get_random_neighbors(conn, network_id, count, block_height, false)
     }
@@ -834,8 +1054,8 @@ mod test {
             public_key: Secp256k1PublicKey::from_hex("02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3").unwrap(),
             expire_block: 23456,
             last_contact_time: 1552509642,
-            whitelisted: -1,
-            blacklisted: -1,
+            allowed: -1,
+            denied: -1,
             asn: 34567,
             org: 45678,
             in_degree: 1,
@@ -884,8 +1104,8 @@ mod test {
             public_key: Secp256k1PublicKey::from_hex("02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3").unwrap(),
             expire_block: 23456,
             last_contact_time: 1552509642,
-            whitelisted: -1,
-            blacklisted: -1,
+            allowed: -1,
+            denied: -1,
             asn: 34567,
             org: 45678,
             in_degree: 1,
@@ -929,8 +1149,8 @@ mod test {
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
                 last_contact_time: (1552509642 + (i as u64)) as u64,
-                whitelisted: (now_secs + 600) as i64,
-                blacklisted: -1,
+                allowed: (now_secs + 600) as i64,
+                denied: -1,
                 asn: (34567 + i) as u32,
                 org: (45678 + i) as u32,
                 in_degree: 1,
@@ -949,8 +1169,8 @@ mod test {
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
                 last_contact_time: (1552509642 + (i as u64)) as u64,
-                whitelisted: 0,
-                blacklisted: -1,
+                allowed: 0,
+                denied: -1,
                 asn: (34567 + i) as u32,
                 org: (45678 + i) as u32,
                 in_degree: 1,
@@ -989,7 +1209,7 @@ mod test {
         assert!(are_present(&n15_fresh[10..15].to_vec(), &initial_neighbors[10..20].to_vec()));
         for n in &n15_fresh[10..15] {
             assert!(n.expire_block > 23456 + 14);
-            assert!(n.whitelisted == 0);
+            assert!(n.allowed == 0);
         }
     }
 
@@ -1055,5 +1275,203 @@ mod test {
         let asn4_missing_addr = PeerAddress([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x02,0x04,0x13,0x10]);
         let asn_missing_opt = PeerDB::asn4_lookup(db.conn(), &asn4_missing_addr).unwrap();
         assert_eq!(asn_missing_opt, None);
+    }
+
+    #[test]
+    fn test_peer_preemptive_deny_allow() {
+        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &vec![]).unwrap();
+        {
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::set_deny_peer(&mut tx, 0x9abcdef0, &PeerAddress([0x1; 16]), 12345, 10000000).unwrap();
+            PeerDB::set_allow_peer(&mut tx, 0x9abcdef0, &PeerAddress([0x2; 16]), 12345, 20000000).unwrap();
+            tx.commit().unwrap();
+        }
+    
+        let peer_denied = PeerDB::get_peer(db.conn(), 0x9abcdef0, &PeerAddress([0x1; 16]), 12345).unwrap().unwrap();
+        let peer_allowed = PeerDB::get_peer(db.conn(), 0x9abcdef0, &PeerAddress([0x2; 16]), 12345).unwrap().unwrap();
+
+        assert_eq!(peer_denied.denied, 10000000);
+        assert_eq!(peer_allowed.allowed, 20000000);
+    }
+
+    #[test]
+    fn test_peer_cidr_lists() {
+        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &vec![]).unwrap();
+        {
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::add_cidr_prefix(&mut tx, "denied_prefixes", &PeerAddress([0x1; 16]), 64).unwrap();
+            PeerDB::add_cidr_prefix(&mut tx, "allowed_prefixes", &PeerAddress([0x2; 16]), 96).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let deny_cidrs = PeerDB::get_denied_cidrs(db.conn()).unwrap();
+        let allow_cidrs = PeerDB::get_allowed_cidrs(db.conn()).unwrap();
+
+        assert_eq!(deny_cidrs, vec![(PeerAddress([0x1; 16]), 64)]);
+        assert_eq!(allow_cidrs, vec![(PeerAddress([0x2; 16]), 96)]);
+    }
+    
+    #[test]
+    fn test_peer_is_denied() {
+        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &vec![]).unwrap();
+        {
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::add_deny_cidr(&mut tx, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]), 64).unwrap();
+            PeerDB::add_deny_cidr(&mut tx, &PeerAddress([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x11,0x22,0x33,0x44]), 128).unwrap();
+            tx.commit().unwrap();
+        }
+
+        assert!(PeerDB::is_address_denied(db.conn(), &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01])).unwrap());
+        assert!(PeerDB::is_address_denied(db.conn(), &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x80,0x00,0x00,0x00,0x00,0x00,0x00,0x01])).unwrap());
+        assert!(!PeerDB::is_address_denied(db.conn(), &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x05,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01])).unwrap());
+        assert!(!PeerDB::is_address_denied(db.conn(), &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x08,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01])).unwrap());
+        assert!(PeerDB::is_address_denied(db.conn(), &PeerAddress([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x11,0x22,0x33,0x44])).unwrap());
+        assert!(!PeerDB::is_address_denied(db.conn(), &PeerAddress([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x11,0x22,0x33,0x45])).unwrap());
+    }
+
+    #[test]
+    fn test_peer_deny_allow_cidr() {
+        let neighbor_1 = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
+                port: 12345,
+            },
+            public_key: Secp256k1PublicKey::from_hex("02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3").unwrap(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            allowed: 12345,
+            denied: 67890,
+            asn: 34567,
+            org: 45678,
+            in_degree: 1,
+            out_degree: 1
+        };
+        
+        let neighbor_2 = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress([0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f]),
+                port: 12345,
+            },
+            public_key: Secp256k1PublicKey::from_hex("02287c1f1b280b5dde764b146976f6bad3fb485a3df9b1ad2d8ddc5719e7e91ff2").unwrap(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            allowed: 12345,
+            denied: 67890,
+            asn: 34567,
+            org: 45678,
+            in_degree: 1,
+            out_degree: 1
+        };
+        
+        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &vec![neighbor_1.clone(), neighbor_2.clone()]).unwrap();
+
+        let n1 = PeerDB::get_peer(db.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().unwrap();
+        assert_eq!(n1.allowed, 12345);
+        assert_eq!(n1.denied, 67890);
+
+        {
+            // ban peer 1 by banning a prefix
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::add_deny_cidr(&mut tx, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]), 64).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let n1 = PeerDB::get_peer(db.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().unwrap();
+        let n2 = PeerDB::get_peer(db.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().unwrap();
+        assert_eq!(n1.allowed, 12345);
+        assert_eq!(n1.denied, i64::max_value());
+        assert_eq!(n2.allowed, 12345);
+        assert_eq!(n2.denied, 67890);
+
+        {
+            // unban peer 1 by unbanning a (different) prefix
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::add_allow_cidr(&mut tx, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]), 48).unwrap();
+            tx.commit().unwrap();
+        }
+        
+        let n1 = PeerDB::get_peer(db.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().unwrap();
+        let n2 = PeerDB::get_peer(db.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().unwrap();
+
+        assert_eq!(n1.allowed, -1);
+        assert_eq!(n1.denied, i64::max_value());
+        assert_eq!(n2.allowed, 12345);
+        assert_eq!(n2.denied, 67890);
+    }
+    
+    #[test]
+    fn test_peer_refresh_cidr() {
+        let neighbor_1 = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
+                port: 12345,
+            },
+            public_key: Secp256k1PublicKey::from_hex("02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3").unwrap(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            allowed: 1234,
+            denied: 5678,
+            asn: 34567,
+            org: 45678,
+            in_degree: 1,
+            out_degree: 1
+        };
+        
+        let neighbor_2 = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress([0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f]),
+                port: 12345,
+            },
+            public_key: Secp256k1PublicKey::from_hex("02287c1f1b280b5dde764b146976f6bad3fb485a3df9b1ad2d8ddc5719e7e91ff2").unwrap(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            allowed: 1234,
+            denied: 5678,
+            asn: 34567,
+            org: 45678,
+            in_degree: 1,
+            out_degree: 1
+        };
+
+        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &vec![neighbor_1.clone(), neighbor_2.clone()]).unwrap();
+        {
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::add_cidr_prefix(&mut tx, "denied_prefixes", &PeerAddress([0x00; 16]), 8).unwrap();
+            PeerDB::add_cidr_prefix(&mut tx, "allowed_prefixes", &PeerAddress([0x01; 16]), 8).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let n1 = PeerDB::get_peer(db.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().unwrap();
+        let n2 = PeerDB::get_peer(db.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().unwrap();
+
+        assert_eq!(n1.denied, 5678);
+        assert_eq!(n2.denied, 5678);
+
+        assert_eq!(n1.allowed, 1234);
+        assert_eq!(n2.allowed, 1234);
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::refresh_denies(&mut tx).unwrap();
+            PeerDB::refresh_allows(&mut tx).unwrap();
+            tx.commit().unwrap();
+        }
+        
+        let n1 = PeerDB::get_peer(db.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().unwrap();
+        let n2 = PeerDB::get_peer(db.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().unwrap();
+
+        assert_eq!(n1.denied, i64::max_value());
+        assert_eq!(n2.denied, 0);     // refreshed; no longer denied 
+
+        assert_eq!(n1.allowed, -1);
+        assert_eq!(n2.allowed, -1);
     }
 }

@@ -578,11 +578,44 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
     }
 }
 
+/// Convert a binary-encoded string to its corresponding bytes
+pub fn bin_bytes(s: &str) -> Result<Vec<u8>, HexError> {
+    let mut v = Vec::with_capacity(s.len() / 8 + 1);
+    let mut next = 0u8;
+    for (i, c) in s.chars().rev().enumerate() {
+        if c != '0' && c != '1' {
+            return Err(HexError::BadCharacter(c));
+        }
+        if c == '1' {
+            next |= 1 << (i % 8);
+        }
+        if i % 8 == 7 {
+            v.push(next);
+            next = 0;
+        }
+    }
+    if s.len() % 8 != 0 {
+        v.push(next);
+    }
+    v.reverse();
+    Ok(v)
+}
+
+
 /// Convert a slice of u8 to a hex string
 pub fn to_hex(s: &[u8]) -> String {
     let mut r = String::with_capacity(s.len() * 2);
     for b in s.iter() {
         write!(r, "{:02x}", b).unwrap();
+    }
+    return r;
+}
+
+/// Convert a slice of u8 into a binary string
+pub fn to_bin(s: &[u8]) -> String {
+    let mut r = String::with_capacity(s.len() * 8);
+    for b in s.iter() {
+        write!(r, "{:08b}", b).unwrap();
     }
     return r;
 }
@@ -598,6 +631,8 @@ mod test {
     use super::MerklePath;
     use super::DoubleSha256;
     use super::hex_bytes;
+    use super::to_bin;
+    use super::bin_bytes;
     use super::MerkleHashFunc;
 
     struct MerkleTreeFixture {
@@ -731,5 +766,24 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_bin_str_roundtrip() {
+        assert_eq!(to_bin(&[42]), "00101010");
+        assert_eq!(bin_bytes("00101010").unwrap(), vec![42]);
+        assert_eq!(bin_bytes("101010").unwrap(), vec![42]);
+        assert_eq!(bin_bytes("000101010").unwrap(), vec![0, 42]);
+        assert_eq!(bin_bytes("1000101010").unwrap(), vec![2, 42]);
+
+        assert_eq!(to_bin(&[255, 255]), "1111111111111111");
+        assert_eq!(bin_bytes("1111111111111111").unwrap(), vec![255, 255]);
+
+        assert_eq!(to_bin(&[127, 0, 0, 1]), "01111111000000000000000000000001");
+        assert_eq!(bin_bytes("01111111000000000000000000000001").unwrap(), vec![127, 0, 0, 1]);
+        assert_eq!(bin_bytes("1111111000000000000000000000001").unwrap(), vec![127, 0, 0, 1]);
+
+        assert_eq!(bin_bytes("").unwrap().len(), 0);
+        assert!(bin_bytes("2").is_err());
     }
 }

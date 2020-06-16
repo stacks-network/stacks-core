@@ -53,7 +53,7 @@ use net::MAX_MESSAGE_LEN;
 
 use net::inv::INV_SYNC_INTERVAL;
 use net::download::BLOCK_DOWNLOAD_INTERVAL;
-use net::neighbors::{ NEIGHBOR_WALK_INTERVAL, NEIGHBOR_REQUEST_TIMEOUT };
+use net::neighbors::{NUM_INITIAL_WALKS, WALK_RETRY_COUNT, NEIGHBOR_WALK_INTERVAL, NEIGHBOR_REQUEST_TIMEOUT};
 
 use util::strings::UrlString;
 
@@ -334,6 +334,8 @@ pub struct ConnectionOptions {
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
     pub neighbor_request_timeout: u64,
+    pub num_initial_walks: u64,
+    pub walk_retry_count: u64,
     pub walk_interval: u64,
     pub walk_inbound_ratio: u64,
     pub inv_sync_interval: u64,
@@ -347,6 +349,10 @@ pub struct ConnectionOptions {
     pub max_microblocks_push_bandwidth: u64,
     pub max_transaction_push_bandwidth: u64,
     pub max_sockets: usize,
+    pub public_ip_address: Option<(PeerAddress, u16)>,
+    pub public_ip_request_timeout: u64,
+    pub public_ip_timeout: u64,
+    pub public_ip_max_retries: u64,
     
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -358,6 +364,7 @@ pub struct ConnectionOptions {
     pub disable_block_advertisement: bool,
     pub disable_pingbacks: bool,
     pub disable_inbound_walks: bool,
+    pub disable_natpunch: bool
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -380,7 +387,9 @@ impl std::default::Default for ConnectionOptions {
             soft_max_neighbors_per_host: 10,     // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them,
-            neighbor_request_timeout: NEIGHBOR_REQUEST_TIMEOUT, // how long a p2p request to a neighbor is allowed to take
+            neighbor_request_timeout: NEIGHBOR_REQUEST_TIMEOUT,     // how long to wait for a neighbor request
+            num_initial_walks: NUM_INITIAL_WALKS,
+            walk_retry_count: WALK_RETRY_COUNT,
             walk_interval: NEIGHBOR_WALK_INTERVAL,              // how often to do a neighbor walk.
             walk_inbound_ratio: 2,                              // walk inbound neighbors twice as often as outbound by default
             inv_sync_interval: INV_SYNC_INTERVAL,               // how often to synchronize block inventories
@@ -396,6 +405,10 @@ impl std::default::Default for ConnectionOptions {
             max_microblocks_push_bandwidth: 0,     // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0,      // infinite upload bandwidth allowed
             max_sockets: 800,               // maximum number of client sockets we'll ever register
+            public_ip_address: None,        // resolve it at runtime by default
+            public_ip_request_timeout: 60,  // how often we can attempt to look up our public IP address
+            public_ip_timeout: 3600,        // re-learn the public IP ever hour, if it's not given
+            public_ip_max_retries: 3,       // maximum number of retries before self-throttling for $public_ip_timeout
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -407,6 +420,7 @@ impl std::default::Default for ConnectionOptions {
             disable_block_advertisement: false,
             disable_pingbacks: false,
             disable_inbound_walks: false,
+            disable_natpunch: false,
         }
     }
 }
@@ -1712,8 +1726,8 @@ mod test {
             public_key: pubkey.clone(),
             expire_block: 23456,
             last_contact_time: 1552509642,
-            whitelisted: -1,
-            blacklisted: -1,
+            allowed: -1,
+            denied: -1,
             asn: 34567,
             org: 45678,
             in_degree: 0,
@@ -1802,8 +1816,8 @@ mod test {
             public_key: pubkey.clone(),
             expire_block: 23456,
             last_contact_time: 1552509642,
-            whitelisted: -1,
-            blacklisted: -1,
+            allowed: -1,
+            denied: -1,
             asn: 34567,
             org: 45678,
             in_degree: 0,
@@ -1907,8 +1921,8 @@ mod test {
             public_key: pubkey.clone(),
             expire_block: 23456,
             last_contact_time: 1552509642,
-            whitelisted: -1,
-            blacklisted: -1,
+            allowed: -1,
+            denied: -1,
             asn: 34567,
             org: 45678,
             in_degree: 0,
