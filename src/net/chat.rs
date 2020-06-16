@@ -1068,6 +1068,9 @@ impl ConversationP2P {
     /// Handle an inbound authenticated p2p data-plane message.
     /// Return the message if not handled
     fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &BurnDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, msg: StacksMessage) -> Result<Option<StacksMessage>, net_error> {
+        #[cfg(feature = "monitoring")]
+        crate::monitoring::P2P_DATA_PLAN_MSG_RECEIVED_COUNTER.inc();
+
         let res = match msg.payload {
             StacksMessageType::GetNeighbors => self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble),
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(local_peer, burndb, chainstate, chain_view, &msg.preamble, get_blocks_inv),
@@ -1094,6 +1097,9 @@ impl ConversationP2P {
                 }
             },
             StacksMessageType::Transaction(_) => {
+                #[cfg(feature = "monitoring")]
+                crate::monitoring::TXS_RECEIVED_COUNTER.inc();
+
                 // not handled here, but do some accounting -- we can't receive too many
                 // unconfirmed transactions per second
                 match self.validate_transaction_push(local_peer, chain_view, &msg.preamble, msg.relayers.clone())? {
@@ -1252,6 +1258,9 @@ impl ConversationP2P {
     /// Handle an inbound authenticated p2p control-plane message
     /// Return true if we should consume it (i.e. it's not something to forward along), as well as the message we'll send as a reply (if any)
     fn handle_authenticated_control_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burnchain_view: &BurnchainView, msg: &mut StacksMessage) -> Result<(Option<StacksMessage>, bool), net_error> {
+        #[cfg(feature = "monitoring")]
+        crate::monitoring::P2P_CONTROL_PLAN_MSG_RECEIVED_COUNTER.inc();
+
         let mut consume = false;
 
         // already have public key; match payload

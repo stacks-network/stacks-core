@@ -133,6 +133,9 @@ macro_rules! warn {
                 Err(_) => (0, 0)
             };
             eprintln!("WARN [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
+
+            #[cfg(feature = "monitoring")]
+            crate::monitoring::ERRORS_EMITTED_COUNTER.inc();
         }
     })
 }
@@ -148,6 +151,9 @@ macro_rules! error {
                 Err(_) => (0, 0)
             };
             eprintln!("ERROR [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
+
+            #[cfg(feature = "monitoring")]
+            crate::monitoring::ERRORS_EMITTED_COUNTER.inc();
         }
     })
 }

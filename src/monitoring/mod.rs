@@ -1,4 +1,4 @@
-use prometheus::{IntCounter, Gauge, HistogramVec, TextEncoder};
+use prometheus::IntCounter;
 
 lazy_static! {
     pub static ref RPC_CALL_COUNTER: IntCounter = register_int_counter!(opts!(
@@ -7,21 +7,9 @@ lazy_static! {
         labels! {"handler" => "all",}
     )).unwrap();
 
-    pub static ref P2P_CONTROL_PLAN_MSG_SENT_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_p2p_control_plan_msg_sent_total",
-        "Total number of messages sent to p2p control plan.",
-        labels! {"handler" => "all",}
-    )).unwrap();
-
     pub static ref P2P_CONTROL_PLAN_MSG_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_p2p_control_plan_msg_received_total",
         "Total number of messages received from p2p control plan.",
-        labels! {"handler" => "all",}
-    )).unwrap();
-
-    pub static ref P2P_DATA_PLAN_MSG_SENT_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_p2p_data_plan_msg_sent_total",
-        "Total number of messages sent to p2p data plan.",
         labels! {"handler" => "all",}
     )).unwrap();
 
