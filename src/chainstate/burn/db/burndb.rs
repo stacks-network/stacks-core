@@ -1672,7 +1672,6 @@ impl BurnDB {
     /// Returns up to num_headers prior block header hashes.
     /// The list of hashes will be in ascending order -- the lowest-height block is item 0.
     /// The last hash will be the hash for the given consensus hash.
-    /// TODO: this is broken AF
     pub fn get_stacks_header_hashes<'a>(ic: &BurnDBConn<'a>, num_headers: u64, tip_consensus_hash: &ConsensusHash, cache: Option<&BlockHeaderCache>) -> Result<Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)>, db_error> {
         let mut ret = vec![];
         let tip_snapshot = match BurnDB::get_block_snapshot_consensus(ic, tip_consensus_hash)? {
