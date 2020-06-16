@@ -873,7 +873,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
 
 
 #[test]
-fn test_dynamic_dispatch_pass_binded_principal_as_trait_in_user_defined_functions() {
+fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions() {
     let contract_defining_trait_src = 
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
