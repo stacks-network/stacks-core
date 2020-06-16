@@ -35,7 +35,7 @@ pub fn start_serving_prometheus_metrics(prometheus_bind: String) {
 
 async fn accept(addr: String, stream: TcpStream) -> http_types::Result<()> {
     println!("starting new connection from {}", stream.peer_addr()?);
-    async_h1::accept(&addr, stream.clone(), |mut req| async {
+    async_h1::accept(&addr, stream.clone(), |_| async {
         let encoder = TextEncoder::new();    
         let metric_families = gather();
         let mut buffer = vec![];
