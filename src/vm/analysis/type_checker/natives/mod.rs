@@ -5,7 +5,7 @@ use vm::types::{BUFF_32, BUFF_20, BUFF_64, TypeSignature, TupleTypeSignature,
                 BlockInfoProperty, Value, PrincipalData, MAX_VALUE_SIZE, FunctionArg,
                 FunctionType, FixedFunction, FunctionSignature};
 use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count,
-            check_arguments_at_least}; 
+            check_arguments_at_least};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use std::convert::TryFrom;
 
@@ -52,12 +52,12 @@ fn check_special_at_block(checker: &mut TypeChecker, args: &[SymbolicExpression]
 
 fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(1, args)?;
-        
+
     let mut typed_args = checker.type_check_all(args, context)?;
-    
+
     let last_return = typed_args.pop()
         .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-    
+
     Ok(last_return)
 }
 
@@ -72,12 +72,12 @@ fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &st
 
 fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
-    
+
     let field_to_get = args[0].match_atom()
         .ok_or(CheckErrors::BadTupleFieldName)?;
-        
+
     let argument_type = checker.type_check(&args[1], context)?;
-    
+
     if let TypeSignature::TupleType(tuple_type_sig) = argument_type {
         inner_handle_tuple_get(&tuple_type_sig, field_to_get, checker)
     } else if let TypeSignature::OptionalType(value_type_sig) = argument_type {
@@ -95,7 +95,7 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 
 pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(1, args)?;
-    
+
     let mut tuple_type_data = Vec::new();
 
     runtime_cost!(cost_functions::ANALYSIS_CHECK_TUPLE_CONS, checker, args.len())?;
@@ -108,10 +108,10 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
                 Ok(())
             })
     })?;
-    
+
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
         .map_err(|_| CheckErrors::BadTupleConstruction)?;
-    
+
     Ok(TypeSignature::TupleType(tuple_signature))
 }
 
@@ -120,7 +120,7 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 
     let binding_list = args[0].match_list()
         .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
-    
+
     let mut out_context = context.extend()?;
 
     runtime_cost!(cost_functions::ANALYSIS_CHECK_LET, checker, args.len())?;
@@ -136,18 +136,18 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
         out_context.variable_types.insert(var_name.clone(), typed_result);
         Ok(())
     })?;
-    
+
     let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
-    
+
     let last_return = typed_args.pop()
         .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-    
+
     Ok(last_return)
 }
 
 fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], _context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
-    
+
     let var_name = args[0].match_atom()
         .ok_or(CheckError::new(CheckErrors::BadMapName))?;
 
@@ -161,12 +161,12 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
 
 fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
-    
+
     let var_name = args[0].match_atom()
         .ok_or(CheckErrors::BadMapName)?;
-        
+
     let value_type = checker.type_check(&args[1], context)?;
-    
+
     let expected_value_type = checker.contract_context.get_persisted_variable_type(var_name)
         .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
 
@@ -197,11 +197,11 @@ fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], 
 
 fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(3, args)?;
-    
+
     checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
 
     let arg_types = checker.type_check_all(&args[1..], context)?;
-    
+
     let expr1 = &arg_types[0];
     let expr2 = &arg_types[1];
 
@@ -267,6 +267,27 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     Ok(expected_sig.returns)
 }
 
+fn check_contract_of(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(1, args)?;
+
+    let trait_instance = match &args[0].expr {
+        SymbolicExpressionType::Atom(trait_instance) => trait_instance,
+        _ => return Err(CheckError::new(CheckErrors::ContractOfExpectsTrait))
+    };
+
+    let trait_id = match context.lookup_trait_reference_type(trait_instance) {
+        Some(trait_id) => trait_id,
+        _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into())
+    };
+
+    runtime_cost!(cost_functions::CONTRACT_OF, checker, 1)?;
+
+    checker.contract_context.get_trait(&trait_id.name)
+        .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
+
+    Ok(TypeSignature::PrincipalType)
+}
+
 fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
 
@@ -316,7 +337,7 @@ impl TypedNativeFunction {
                                                 .expect("FAIL: ClarityName failed to accept default arg name"))],
                     returns: TypeSignature::IntType }))),
             Not =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction { 
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(TypeSignature::BoolType, ClarityName::try_from("value".to_owned())
                                                 .expect("FAIL: ClarityName failed to accept default arg name"))],
                     returns: TypeSignature::BoolType }))),
@@ -350,7 +371,7 @@ impl TypedNativeFunction {
                          TypeSignature::UIntType,
                          TypeSignature::IntType],
                     BUFF_32.clone()))),
-            GetStxBalance => 
+            GetStxBalance =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![
                         FunctionArg::new(TypeSignature::PrincipalType,
@@ -412,6 +433,7 @@ impl TypedNativeFunction {
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
+            ContractOf => Special(SpecialNativeFunction(&check_contract_of)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
             ConsSome => Special(SpecialNativeFunction(&options::check_special_some)),
             ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
