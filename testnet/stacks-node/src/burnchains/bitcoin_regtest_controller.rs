@@ -42,8 +42,10 @@ use stacks::util::hash::{Hash160, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
 
-#[cfg(feature = "monitoring")]
-use stacks::monitoring::{BTC_BLOCKS_RECEIVED_COUNTER, BTC_OPS_SENT_COUNTER};
+use stacks::monitoring::{
+    increment_btc_blocks_received_counter, 
+    increment_btc_ops_sent_counter
+};
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -147,9 +149,7 @@ impl BitcoinRegtestController {
         let (block_snapshot, state_transition) = loop {
             match burnchain.sync_with_indexer(&mut burnchain_indexer) {
                 Ok(x) => {
-                    #[cfg(feature = "monitoring")]
-                    BTC_BLOCKS_RECEIVED_COUNTER.inc();
-
+                    increment_btc_blocks_received_counter();
                     break x;
                 }
                 Err(e) => {
@@ -325,8 +325,7 @@ impl BitcoinRegtestController {
             utxos,
             signer)?;
 
-        #[cfg(feature = "monitoring")]
-        BTC_OPS_SENT_COUNTER.inc();
+        increment_btc_ops_sent_counter();
     
         info!("Miner node: submitting leader_key_register op - {}", public_key.to_hex());
 
@@ -376,8 +375,7 @@ impl BitcoinRegtestController {
             utxos,
             signer)?;
 
-        #[cfg(feature = "monitoring")]
-        BTC_OPS_SENT_COUNTER.inc();
+        increment_btc_ops_sent_counter();
 
         info!("Miner node: submitting leader_block_commit op - {}", public_key.to_hex());
 

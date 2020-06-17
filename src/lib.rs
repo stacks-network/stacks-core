@@ -48,7 +48,7 @@ extern crate percent_encoding;
 #[macro_use]
 extern crate assert_json_diff;
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 #[macro_use] pub extern crate prometheus;
 
 #[macro_use]
@@ -68,7 +68,6 @@ pub mod vm;
 
 pub mod clarity;
 
-#[cfg(feature = "monitoring")]
 pub mod monitoring;
 
 // set via _compile-time_ envars

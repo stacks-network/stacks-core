@@ -11,7 +11,7 @@ use stacks::burnchains::bitcoin::{BitcoinNetworkType,
 
 use super::RunLoopCallbacks;
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 use crate::monitoring::start_serving_prometheus_metrics;
 
 /// Coordinating a node running in neon mode.
@@ -119,7 +119,7 @@ impl RunLoop {
         info!("Begin run loop");
         self.bump_blocks_processed();
 
-        #[cfg(feature = "monitoring")]
+        #[cfg(feature = "prometheus")]
         {
             let prometheus_bind = self.config.node.prometheus_bind.clone();
             if let Some(prometheus_bind) = prometheus_bind {

@@ -8,7 +8,7 @@ extern crate serde;
 
 pub use stacks::util;
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 pub mod monitoring;
 
 pub mod run_loop; 

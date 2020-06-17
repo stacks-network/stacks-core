@@ -67,6 +67,7 @@ use chainstate::stacks::db::{
 use chainstate::stacks::Error as chain_error;
 use chainstate::stacks::*;
 use burnchains::*;
+use monitoring::increment_rpc_calls_counter;
 
 use rusqlite::{DatabaseName, NO_PARAMS};
 
@@ -679,8 +680,7 @@ impl ConversationHttp {
     pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
                           chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, handler_opts: &RPCHandlerArgs) -> Result<Option<StacksMessageType>, net_error> {
 
-        #[cfg(feature = "monitoring")]
-        crate::monitoring::RPC_CALL_COUNTER.inc();
+        increment_rpc_calls_counter();
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;

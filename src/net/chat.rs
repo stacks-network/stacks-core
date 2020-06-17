@@ -57,6 +57,11 @@ use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksPublicKey;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
+use monitoring::{
+    increment_p2p_control_plan_msg_received_counter,
+    increment_p2p_data_plan_msg_received_counter,
+    increment_txs_received_counter,
+};
 
 use std::net::SocketAddr;
 
@@ -1068,8 +1073,7 @@ impl ConversationP2P {
     /// Handle an inbound authenticated p2p data-plane message.
     /// Return the message if not handled
     fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &BurnDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, msg: StacksMessage) -> Result<Option<StacksMessage>, net_error> {
-        #[cfg(feature = "monitoring")]
-        crate::monitoring::P2P_DATA_PLAN_MSG_RECEIVED_COUNTER.inc();
+        increment_p2p_control_plan_msg_received_counter();
 
         let res = match msg.payload {
             StacksMessageType::GetNeighbors => self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble),
@@ -1097,8 +1101,7 @@ impl ConversationP2P {
                 }
             },
             StacksMessageType::Transaction(_) => {
-                #[cfg(feature = "monitoring")]
-                crate::monitoring::TXS_RECEIVED_COUNTER.inc();
+                increment_txs_received_counter();
 
                 // not handled here, but do some accounting -- we can't receive too many
                 // unconfirmed transactions per second
@@ -1258,8 +1261,7 @@ impl ConversationP2P {
     /// Handle an inbound authenticated p2p control-plane message
     /// Return true if we should consume it (i.e. it's not something to forward along), as well as the message we'll send as a reply (if any)
     fn handle_authenticated_control_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burnchain_view: &BurnchainView, msg: &mut StacksMessage) -> Result<(Option<StacksMessage>, bool), net_error> {
-        #[cfg(feature = "monitoring")]
-        crate::monitoring::P2P_CONTROL_PLAN_MSG_RECEIVED_COUNTER.inc();
+        increment_p2p_data_plan_msg_received_counter();
 
         let mut consume = false;
 

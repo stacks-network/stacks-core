@@ -3,7 +3,10 @@ use async_std::prelude::*;
 use async_std::task;
 use stacks::prometheus::{Encoder, TextEncoder, gather};
 
-pub use stacks::monitoring::{ERRORS_EMITTED_COUNTER, WARNING_EMITTED_COUNTER};
+pub use stacks::monitoring::{
+    increment_warning_emitted_counter, 
+    increment_errors_emitted_counter
+};
 
 use http_types::{
     Response, 
