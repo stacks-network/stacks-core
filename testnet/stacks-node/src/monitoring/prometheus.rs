@@ -3,19 +3,14 @@ use async_std::prelude::*;
 use async_std::task;
 use stacks::prometheus::{Encoder, TextEncoder, gather};
 
-pub use stacks::monitoring::{
-    increment_warning_emitted_counter, 
-    increment_errors_emitted_counter
-};
-
 use http_types::{
     Response, 
     StatusCode, 
     Body,
 };
 
-pub fn start_serving_prometheus_metrics(prometheus_bind: String) {
-    let addr = prometheus_bind.clone();
+pub fn start_serving_prometheus_metrics(bind_address: String) {
+    let addr = bind_address.clone();
 
     async_std::task::block_on(async {
         let listener = TcpListener::bind(addr).await.expect("todo(ludo)");
