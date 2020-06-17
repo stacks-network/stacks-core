@@ -84,7 +84,7 @@ fn test_simple_map_append() {
     }
 
     assert_eq!(
-        execute("(append (append (list) 1) u2)").unwrap_err(),
+        execute("(append (append (list) 1) 2u)").unwrap_err(),
         CheckErrors::TypeValueError(IntType, Value::UInt(2)).into());
 }
 
@@ -123,7 +123,7 @@ fn test_simple_list_concat() {
     }
 
     assert_eq!(
-        execute("(concat (list 1) (list u4 u8))").unwrap_err(),
+        execute("(concat (list 1) (list 4u 8u))").unwrap_err(),
         CheckErrors::TypeError(IntType, UIntType).into());
 
     assert_eq!(
@@ -165,9 +165,9 @@ fn test_simple_buff_concat() {
 #[test]
 fn test_simple_buff_assert_max_len() {
     let tests = [
-        "(as-max-len? \"123\" u3)",
-        "(as-max-len? \"123\" u2)",
-        "(as-max-len? \"123\" u5)"];
+        "(as-max-len? \"123\" 3u)",
+        "(as-max-len? \"123\" 2u)",
+        "(as-max-len? \"123\" 5u)"];
 
     let expected = [
         Value::some(Value::buff_from(vec![49, 50, 51]).unwrap()).unwrap(),
@@ -187,7 +187,7 @@ fn test_simple_buff_assert_max_len() {
         CheckErrors::TypeError(UIntType, IntType).into());
 
     assert_eq!(
-        execute("(as-max-len? 1 u3)").unwrap_err(),
+        execute("(as-max-len? 1 3u)").unwrap_err(),
         CheckErrors::ExpectedListOrBuffer(IntType).into());
 
     assert_eq!(
@@ -198,9 +198,9 @@ fn test_simple_buff_assert_max_len() {
 #[test]
 fn test_simple_list_assert_max_len() {
     let tests = [
-    "(as-max-len? (list 1 2 3) u3)",
-    "(as-max-len? (list 1 2 3) u2)",
-    "(as-max-len? (list 1 2 3) u5)"];
+    "(as-max-len? (list 1 2 3) 3u)",
+    "(as-max-len? (list 1 2 3) 2u)",
+    "(as-max-len? (list 1 2 3) 5u)"];
 
     let expected = [
         Value::some(Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap()).unwrap(),
@@ -313,10 +313,10 @@ fn test_simple_folds_buffer() {
          (fold get-len \"blockstack\" 0)",
         "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
             (if (< (get cursor acc) (get limit acc))
-                (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
-                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
+                (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) 10u))))
+                    (tuple (limit (get limit acc)) (cursor (+ 1u (get cursor acc))) (data data))) 
                 acc))
-        (get data (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
+        (get data (fold slice \"0123456789\" (tuple (limit 5u) (cursor 0u) (data \"\"))))"];
 
     let expected = [
         Value::Int(10),

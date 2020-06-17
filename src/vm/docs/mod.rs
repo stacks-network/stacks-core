@@ -116,14 +116,14 @@ const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(to-uint i)",
     description: "Tries to convert the `int` argument to a `uint`. Will cause a runtime error and abort if the supplied argument is negative.",
-    example: "(to-uint 238) ;; Returns u238"
+    example: "(to-uint 238) ;; Returns 238u"
 };
 
 const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(to-int u)",
     description: "Tries to convert the `uint` argument to an `int`. Will cause a runtime error and abort if the supplied argument is >= `pow(2, 127)`",
-    example: "(to-int u238) ;; Returns 238"
+    example: "(to-int 238u) ;; Returns 238"
 };
 
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -166,7 +166,7 @@ const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(mod i1 i2)",
     description: "Returns the integer remainder from integer dividing `i1` by `i2`. In the event of a division by zero, throws a runtime error.",
-    example: "(mod 2 3) ;; Returns 0
+    example: "(mod 2 3) ;; Returns 2
 (mod 5 2) ;; Returns 1
 (mod 7 1) ;; Returns 0
 "
@@ -302,10 +302,12 @@ const EQUALS_API: SpecialAPI = SpecialAPI {
     input_type: "A, A, ...",
     output_type: "bool",
     signature: "(is-eq v1 v2...)",
-    description: "Compares the inputted values, returning `true` if they are all equal. Note that _unlike_ the `(and ...)` function, `(is-eq ...)` will _not_ short-circuit.",
+    description: "Compares the inputted values, returning `true` if they are all equal. Note that 
+_unlike_ the `(and ...)` function, `(is-eq ...)` will _not_ short-circuit. All values supplied to
+is-eq _must_ be the same type.",
     example: "(is-eq 1 1) ;; Returns true
-(is-eq 1 false) ;; Returns false
-(is-eq \"abc\" 234 234) ;; Returns false
+(is-eq true false) ;; Returns false
+(is-eq \"abc\" 234 234) ;; Throws type error
 "
 };
 
@@ -337,7 +339,8 @@ const FETCH_VAR_API: SpecialAPI = SpecialAPI {
     signature: "(var-get var-name)",
     description: "The `var-get` function looks up and returns an entry from a contract's data map.
 The value is looked up using `var-name`.",
-    example: "(var-get cursor) ;; Returns cursor"
+    example: "(define-data-var cursor int 6)
+(var-get cursor) ;; Returns 6"
 };
 
 const SET_VAR_API: SpecialAPI = SpecialAPI {
@@ -346,7 +349,11 @@ const SET_VAR_API: SpecialAPI = SpecialAPI {
     signature: "(var-set var-name expr1)",
     description: "The `var-set` function sets the value associated with the input variable to the
 inputted value.",
-    example: "(var-set cursor (+ cursor 1)) ;; Returns true"
+    example: "
+(define-data-var cursor int 6)
+(var-get cursor) ;; Returns 6
+(var-set cursor (+ (var-get cursor) 1)) ;; Returns true
+(var-get cursor) ;; Returns 7"
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
@@ -355,7 +362,7 @@ const MAP_API: SpecialAPI = SpecialAPI {
     signature: "(map func list)",
     description: "The `map` function applies the input function `func` to each element of the
 input list, and outputs a list containing the _outputs_ from those function applications.",
-    example: "(map not (list true false true false)) ;; Returns false true false true"
+    example: "(map not (list true false true false)) ;; Returns (false true false true)"
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
@@ -378,9 +385,12 @@ value returned by the successive applications. Note that the first argument is n
 has to be a literal function name.",
     example: "(fold * (list 2 2 2) 1) ;; Returns 8
 (fold * (list 2 2 2) 0) ;; Returns 0
-(fold - (list 3 7 11) 2) ;; Returns 5 by calculating (- 11 (- 7 (- 3 2)))
-(fold concat \"cdef\" \"ab\")   ;; Returns \"fedcab\"
-(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\""
+;; calculates (- 11 (- 7 (- 3 2)))
+(fold - (list 3 7 11) 2) ;; Returns 5 
+(fold concat \"cdef\" \"ab\")   ;; Returns 0x666564636162
+                                ;; hex form of \"fedcab\"  
+(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns 0x656663646162
+                                            ;; hex form of \"efcdab\""
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -389,7 +399,8 @@ const CONCAT_API: SpecialAPI = SpecialAPI {
     signature: "(concat buff-a buff-b)",
     description: "The `concat` function takes two buffers or two lists with the same entry type,
 and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
-    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
+    example: "(concat \"hello \" \"world\") ;; Returns 0x68656c6c6f20776f726c64
+                                            ;; hex form of \"hello world\""
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
@@ -398,20 +409,20 @@ const APPEND_API: SpecialAPI = SpecialAPI {
     signature: "(append (list 1 2 3 4) 5)",
     description: "The `append` function takes a list and another value with the same entry type,
 or a buffer and another buffer of length 1 and outputs a buffer or a list of the same type with max_len += 1.",
-    example: "(append (list 1 2 3 4) 5) ;; Returns (list 1 2 3 4 5)"
+    example: "(append (list 1 2 3 4) 5) ;; Returns (1 2 3 4 5)"
 };
 
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list, uint",
     output_type: "(optional buff|list)",
-    signature: "(as-max-len? buffer u10)",
+    signature: "(as-max-len? buffer 10u)",
     description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
 or buffer of length M and outputs that same list or buffer, but typed with max length N.
 
 This function returns an optional type with the resulting iterable. If the input iterable is less than
 or equal to the supplied max-len, it returns `(some <iterable>)`, otherwise it returns `none`.",
-    example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (list 2 2 2))
-(as-max-len? (list 1 2 3) u2) ;; Returns none"
+    example: "(as-max-len? (list 2 2 2) 3u) ;; Returns (some (2 2 2))
+(as-max-len? (list 1 2 3) 2u) ;; Returns none"
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
@@ -419,8 +430,8 @@ const LEN_API: SpecialAPI = SpecialAPI {
     output_type: "uint",
     signature: "(len buffer)",
     description: "The `len` function returns the length of a given buffer or list.",
-    example: "(len \"blockstack\") ;; Returns 10
-(len (list 1 2 3 4 5)) ;; Returns 5
+    example: "(len \"blockstack\") ;; Returns 10u
+(len (list 1 2 3 4 5)) ;; Returns 5u
 "
 };
 
@@ -430,7 +441,7 @@ const LIST_API: SpecialAPI = SpecialAPI {
     signature: "(list expr1 expr2 expr3 ...)",
     description: "The `list` function constructs a list composed of the inputted values. Each
 supplied value must be of the same type.",
-    example: "(list (+ 1 2) 4 5) ;; Returns [3 4 5]",
+    example: "(list (+ 1 2) 4 5) ;; Returns (3 4 5)",
 };
 
 const BEGIN_API: SpecialAPI = SpecialAPI {
@@ -459,8 +470,10 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(unwrap-panic (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))
-(unwrap-panic (map-get? names-map ((name \"blockstack\")))) ;; Same command, using a shorthand for constructing the tuple
+    example: "(define-map names-map ((name (buff 10))) ((id int)))
+(map-set names-map { name: \"blockstack\" } { id: 1337 })
+(map-get? names-map (tuple (name \"blockstack\"))) ;; Returns (some (tuple (id 1337 )))
+(map-get? names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -474,7 +487,8 @@ with the key, the function overwrites that existing association.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
+    example: "(define-map names-map ((name (buff 10))) ((id int)))
+(map-set names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -490,8 +504,9 @@ this key in the data map, the function returns `false`.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
-(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns false
+    example: "(define-map names-map ((name (buff 10))) ((id int)))
+(map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
+(map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns false
 (map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -503,8 +518,10 @@ const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-delete` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns true
-(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns false
+    example: "(define-map names-map ((name (buff 10))) ((id int)))
+(map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
+(map-delete names-map { name: \"blockstack\" }) ;; Returns true
+(map-delete names-map { name: \"blockstack\" }) ;; Returns false
 (map-delete names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -527,9 +544,11 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
 the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
-    example: "(get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
+    example: "(define-map names-map ((name (buff 12))) ((id int)))
+(map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
+(get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
 (get id (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
-(get id (map-get? names-map (tuple (name \"non-existent\")))) ;; Returns (none)
+(get id (map-get? names-map (tuple (name \"non-existent\")))) ;; Returns none
 "
 };
 
@@ -592,7 +611,9 @@ const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
 You _may not_ use this function to call a public function defined in the current contract. If the public
 function returns _err_, any database changes resulting from calling `contract-call?` are aborted.
 If the function returns _ok_, database changes occurred.",
-    example: "(contract-call? .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
+    example: "
+;; instantiate the sample-contracts/tokens.clar contract first!
+(contract-call? .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u19) ;; Returns (ok u1)"
 };
 
 const AT_BLOCK: SpecialAPI = SpecialAPI {
@@ -1147,15 +1168,15 @@ type defined using `define-fungible-token` by debiting the `sender` principal.
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err u1)` -- `sender` does not have enough balance to transfer
-`(err u2)` -- `sender` and `recipient` are the same principal
-`(err u3)` -- amount to send is non-positive
+`(err 1u)` -- `sender` does not have enough balance to transfer
+`(err 2u)` -- `sender` and `recipient` are the same principal
+`(err 3u)` -- amount to send is non-positive
 ",
     example: "
 (define-fungible-token stackaroo)
-(ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
-(ft-transfer? stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u1)
+(ft-mint? stackaroo 100u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(ft-transfer? stackaroo 50u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
+(ft-transfer? stackaroo 60u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u1)
 "
 };
 
@@ -1170,9 +1191,9 @@ must be of the type specified in that definition.
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err u1)` -- `sender` does not own the asset
-`(err u2)` -- `sender` and `recipient` are the same principal
-`(err u3)` -- asset identified by asset-identifier does not exist
+`(err 1u)` -- `sender` does not own the asset
+`(err 2u)` -- `sender` and `recipient` are the same principal
+`(err 3u)` -- asset identified by asset-identifier does not exist
 ",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
@@ -1364,7 +1385,7 @@ fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
     }
 }
 
-pub fn make_json_api_reference() -> String {
+fn make_all_api_reference() -> ReferenceAPIs {
     let mut functions: Vec<_> = NativeFunctions::ALL.iter()
         .map(|x| make_api_reference(x))
         .collect();
@@ -1381,7 +1402,11 @@ pub fn make_json_api_reference() -> String {
         }
     }
 
-    let api_out = ReferenceAPIs { functions, keywords };
+    ReferenceAPIs { functions, keywords }
+}
+
+pub fn make_json_api_reference() -> String {
+    let api_out = make_all_api_reference();
     format!("{}", serde_json::to_string(&api_out)
             .expect("Failed to serialize documentation"))
 }
@@ -1389,11 +1414,90 @@ pub fn make_json_api_reference() -> String {
 #[cfg(test)]
 mod test {
     use super::make_json_api_reference;
+    use super::make_all_api_reference;
+    use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext, MemoryBackingStore,
+              LimitedCostTracker, GlobalContext, Error, contexts::OwnedEnvironment };
+
+    fn docs_execute(program: &str) {
+        let mut marf = MemoryBackingStore::new();
+        // first, load the samples for contract-call
+        {
+            let conn = marf.as_clarity_db();
+            let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+            let mut env = OwnedEnvironment::new(conn);
+            env.initialize_contract(contract_id, 
+                                    &std::fs::read_to_string("sample-contracts/tokens.clar", ).unwrap()).unwrap();
+        }
+
+        // second, execute the program, iterating at each ";; Returns" comment
+        // there are maybe more rust-y ways of doing this, but this is the simplest.
+        let mut segments = vec![];
+        let mut current_segment: String = "".into();
+        for line in program.lines() {
+            current_segment.push_str(line);
+            current_segment.push_str("\n");
+            if line.contains(";;") && line.contains("Returns ") {
+                segments.push(current_segment);
+                current_segment = "".into();
+            }
+        }
+        if current_segment.len() > 0 {
+            segments.push(current_segment);
+        }
+
+        let conn = marf.as_clarity_db();
+        let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
+        let mut contract_context = ContractContext::new(contract_id.clone());
+        let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
+
+        eprintln!("{}\n =====", program);
+
+        for segment in segments.iter() {
+            let expected = if segment.contains("Returns ") {
+                let expects_start = segment.rfind("Returns ").unwrap() + "Returns ".len();
+                Some(segment[expects_start..].trim().to_string())
+            } else {
+                None
+            };
+
+            eprintln!("{}", segment);
+
+            let result = global_context.execute(|g| {
+                let parsed = ast::build_ast(&contract_id, segment, &mut ())?
+                    .expressions;
+                eval_all(&parsed, &mut contract_context, g)
+            }).unwrap();
+
+            if let Some(expected) = expected {
+                assert_eq!(expected, result.unwrap().to_string());
+            }
+        }
+    }
+
 
     #[test]
     fn ensure_docgen_runs() {
         // add a test to make sure that we don't inadvertently break
         //  docgen in a panic-y way.
         make_json_api_reference();
+    }
+
+    #[test]
+    fn test_examples() {
+        let apis = make_all_api_reference();
+        for func_api in apis.functions.iter() {
+            let example = &func_api.example;
+            let without_throws: String = example.lines()
+                .filter(|x| !x.contains(";; Throws"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let the_throws = example.lines()
+                .filter(|x| x.contains(";; Throws"));
+            docs_execute(&without_throws);
+            for expect_err in the_throws {
+                eprintln!("{}", expect_err);
+                execute(expect_err).unwrap_err();
+            }
+        }
     }
 }

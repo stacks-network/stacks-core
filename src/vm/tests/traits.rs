@@ -41,9 +41,9 @@ fn test_dynamic_dispatch_by_defining_trait(owned_env: &mut OwnedEnvironment) {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
-        "(define-public (get-1 (x uint)) (ok u1))";
+        "(define-public (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -67,12 +67,12 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(owned_env: &mut OwnedEnvironme
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
-            (let ((amount u0))
+            (let ((amount 0u))
               (internal-get-1 contract)))
         (define-public (internal-get-1 (contract <trait-1>))
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
-    "(define-public (get-1 (x uint)) (ok u1))";
+    "(define-public (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -98,9 +98,9 @@ fn test_dynamic_dispatch_pass_trait(owned_env: &mut OwnedEnvironment) {
         (define-public (wrapped-get-1 (contract <trait-1>))
               (internal-get-1 contract))
         (define-public (internal-get-1 (contract <trait-1>))
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
-    "(define-public (get-1 (x uint)) (ok u1))";
+    "(define-public (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -126,8 +126,8 @@ fn test_dynamic_dispatch_intra_contract_call(owned_env: &mut OwnedEnvironment) {
     let dispatching_contract =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))
-        (define-public (get-1 (x uint)) (ok u1))";
+            (contract-call? contract get-1 0u))
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -157,10 +157,10 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(owned_env: &mut OwnedEnv
     let dispatching_contract =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
         "(impl-trait .contract-defining-trait.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -188,11 +188,11 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(owned_env: &mu
     let dispatching_contract =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
         "(impl-trait .contract-defining-trait.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))
-        (define-public (get-2 (x uint)) (ok u2))";
+        (define-public (get-1 (x uint)) (ok 1u))
+        (define-public (get-2 (x uint)) (ok 2u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -219,9 +219,9 @@ fn test_dynamic_dispatch_by_importing_trait(owned_env: &mut OwnedEnvironment) {
     let dispatching_contract =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
          (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
-        "(define-public (get-1 (x uint)) (ok u1))";
+        "(define-public (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -257,9 +257,9 @@ fn test_dynamic_dispatch_including_nested_trait(owned_env: &mut OwnedEnvironment
     let target_contract =
         "(use-trait trait-a .contract-defining-nested-trait.trait-a)
         (define-public (get-1 (nested-contract <trait-a>))
-            (contract-call? nested-contract get-a u0))";
+            (contract-call? nested-contract get-a 0u))";
     let target_nested_contract =
-        "(define-public (get-a (x uint)) (ok u99))";
+        "(define-public (get-a (x uint)) (ok 99u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -287,9 +287,9 @@ fn test_dynamic_dispatch_mismatched_args(owned_env: &mut OwnedEnvironment) {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
-        "(define-public (get-1 (x int)) (ok u1))";
+        "(define-public (get-1 (x int)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -317,7 +317,7 @@ fn test_dynamic_dispatch_mismatched_returned(owned_env: &mut OwnedEnvironment) {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
         "(define-public (get-1 (x uint)) (ok 1))";
 
@@ -349,7 +349,7 @@ fn test_reentrant_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
         (define-public (wrapped-get-1 (contract <trait-1>)) 
             (internal-get-1 contract))
         (define-private (internal-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
         "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .target-contract))";
 
@@ -379,9 +379,9 @@ fn test_readwrite_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-read-only (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
-        "(define-read-only (get-1 (x uint)) (ok u1))";
+        "(define-read-only (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -410,9 +410,9 @@ fn test_readwrite_violation_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-read-only (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract =
-        "(define-public (get-1 (x uint)) (ok u1))";
+        "(define-public (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -444,10 +444,10 @@ fn test_bad_call_with_trait(owned_env: &mut OwnedEnvironment) {
     let dispatching_contract =
         "(use-trait trait-1 .defun.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let impl_contract =
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u99))";
+        (define-public (get-1 (x uint)) (ok 99u))";
     let caller_contract =
         "(define-constant contract .implem)
         (define-public (foo-bar)
@@ -478,10 +478,10 @@ fn test_good_call_with_trait(owned_env: &mut OwnedEnvironment) {
     let dispatching_contract =
         "(use-trait trait-1 .defun.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let impl_contract =
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u99))";
+        (define-public (get-1 (x uint)) (ok 99u))";
     let caller_contract =
         "(define-public (foo-bar)
         (contract-call? .dispatch wrapped-get-1 .implem))"; 
@@ -512,10 +512,10 @@ fn test_good_call_2_with_trait(owned_env: &mut OwnedEnvironment) {
     let dispatching_contract =
         "(use-trait trait-1 .defun.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let impl_contract =
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u99))";
+        (define-public (get-1 (x uint)) (ok 99u))";
     let caller_contract =
         "(use-trait trait-2 .defun.trait-1)
         (define-public (foo-bar (contract <trait-2>))

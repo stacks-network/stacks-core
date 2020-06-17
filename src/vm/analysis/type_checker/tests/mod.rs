@@ -28,16 +28,16 @@ fn buff_type(size: u32) -> TypeSignature {
 
 #[test]
 fn test_get_block_info(){
-    let good = ["(get-block-info? time u1)",
-                "(get-block-info? time (* u2 u3))",
-                "(get-block-info? vrf-seed u1)",
-                "(get-block-info? header-hash u1)",
-                "(get-block-info? burnchain-header-hash u1)",
-                "(get-block-info? miner-address u1)"];
+    let good = ["(get-block-info? time 1u)",
+                "(get-block-info? time (* 2u 3u))",
+                "(get-block-info? vrf-seed 1u)",
+                "(get-block-info? header-hash 1u)",
+                "(get-block-info? burnchain-header-hash 1u)",
+                "(get-block-info? miner-address 1u)"];
     let expected = [ "(optional uint)", "(optional uint)", "(optional (buff 32))",
                        "(optional (buff 32))", "(optional (buff 32))", "(optional principal)" ];
 
-    let bad = ["(get-block-info? none u1)",
+    let bad = ["(get-block-info? none 1u)",
                "(get-block-info? time true)",
                "(get-block-info? time 1)",
                "(get-block-info? time)"];
@@ -135,20 +135,20 @@ fn test_impl_trait(){
 
 #[test]
 fn test_stx_ops(){
-    let good = ["(stx-burn? u10 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
-                "(stx-transfer? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
+    let good = ["(stx-burn? 10u 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
+                "(stx-transfer? 10u tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
                 "(stx-get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"];
     let expected = [ "(response bool uint)", "(response bool uint)", "uint" ];
 
     let bad = [
-        "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? 4u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        "(stx-transfer? u4 u3  'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true)",
-        "(stx-burn? u4)",
+        "(stx-transfer? 4u 3u  'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? 4u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true)",
+        "(stx-burn? 4u)",
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        "(stx-burn? u4 true)",
-        "(stx-burn? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-burn? 4u true)",
+        "(stx-burn? 4u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-get-balance true)",
         "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
     ];
@@ -184,24 +184,24 @@ fn test_destructuring_opts(){
         "(match (some 1) inner-value (+ 1 inner-value) (/ 1 0))",
         "(define-private (foo) (if (> 1 0) (ok 1) (err 8)))
          (match (foo) ok-val (+ 1 ok-val) err-val (/ err-val 0))",
-        "(define-private (t1 (x uint)) (if (> x u1) (ok x) (err false)))
+        "(define-private (t1 (x uint)) (if (> x 1u) (ok x) (err false)))
          (define-private (t2 (x uint))
-           (if (> x u4)
+           (if (> x 4u)
                (err true)
-               (ok (+ u2 (try! (t1 x))))))
-         (t2 u3)",
-        "(define-private (t1 (x uint)) (if (> x u1) (ok x) (err false)))
+               (ok (+ 2u (try! (t1 x))))))
+         (t2 3u)",
+        "(define-private (t1 (x uint)) (if (> x 1u) (ok x) (err false)))
          (define-private (t2 (x uint))
-           (if (> x u4)
+           (if (> x 4u)
                (err true)
-               (ok (> u2 (try! (t1 x))))))
-         (t2 u3)",
-        "(define-private (t1 (x uint)) (if (> x u1) (some x) none))
+               (ok (> 2u (try! (t1 x))))))
+         (t2 3u)",
+        "(define-private (t1 (x uint)) (if (> x 1u) (some x) none))
          (define-private (t2 (x uint))
-           (if (> x u4)
+           (if (> x 4u)
                (some false)
-               (some (> u2 (try! (t1 x))))))
-         (t2 u3)",
+               (some (> 2u (try! (t1 x))))))
+         (t2 3u)",
     ];
 
     let expected = [
@@ -233,8 +233,8 @@ fn test_destructuring_opts(){
          CheckErrors::CouldNotDetermineMatchTypes),
         ("(match (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
          CheckErrors::CouldNotDetermineMatchTypes),
-        ("(define-private (foo) (if (> 1 0) (ok 1) (err u8)))
-         (match (foo) ok-val (+ 1 ok-val) err-val (/ err-val u0))",
+        ("(define-private (foo) (if (> 1 0) (ok 1) (err 8u)))
+         (match (foo) ok-val (+ 1 ok-val) err-val (/ err-val 0u))",
          CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::UIntType)),
         ("(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
          CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::BoolType)),
@@ -264,17 +264,17 @@ fn test_destructuring_opts(){
              x (+ x 2)
              5))",
          CheckErrors::NameAlreadyUsed("x".to_string())),
-        ("(define-private (t1 (x uint)) (if (> x u1) (ok x) (err false)))
+        ("(define-private (t1 (x uint)) (if (> x 1u) (ok x) (err false)))
          (define-private (t2 (x uint))
-           (if (> x u4)
-               (err u3)
-               (ok (+ u2 (try! (t1 x))))))",
+           (if (> x 4u)
+               (err 3u)
+               (ok (+ 2u (try! (t1 x))))))",
          CheckErrors::ReturnTypesMustMatch(
              TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType).unwrap(),
              TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType).unwrap())),
-        ("(define-private (t1 (x uint)) (if (> x u1) (ok x) (err false)))
+        ("(define-private (t1 (x uint)) (if (> x 1u) (ok x) (err false)))
          (define-private (t2 (x uint))
-           (> u2 (try! (t1 x))))",
+           (> 2u (try! (t1 x))))",
          CheckErrors::ReturnTypesMustMatch(
              TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType).unwrap(),
              TypeSignature::BoolType)),
@@ -302,10 +302,10 @@ fn test_destructuring_opts(){
 
 #[test]
 fn test_at_block(){
-    let good = [("(at-block (sha256 u0) u1)", "uint")];
+    let good = [("(at-block (sha256 0u) 1u)", "uint")];
 
-    let bad = [("(at-block (sha512 u0) u1)", CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone())),
-               ("(at-block (sha256 u0) u1 u2)", CheckErrors::IncorrectArgumentCount(2, 3))];
+    let bad = [("(at-block (sha512 0u) 1u)", CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone())),
+               ("(at-block (sha256 0u) 1u 2u)", CheckErrors::IncorrectArgumentCount(2, 3))];
 
     for (good_test, expected) in good.iter() {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -368,13 +368,13 @@ fn test_simple_arithmetic_checks() {
 
 #[test]
 fn test_simple_hash_checks() {
-    let good = ["(hash160 u1)",
+    let good = ["(hash160 1u)",
                 "(hash160 1)",
-                "(sha512 u10)",
+                "(sha512 10u)",
                 "(sha512 10)",
-                "(sha512/256 u10)",
+                "(sha512/256 10u)",
                 "(sha512/256 10)",
-                "(sha256 (keccak256 u1))",
+                "(sha256 (keccak256 1u))",
                 "(sha256 (keccak256 1))"];
     let expected = ["(buff 20)", "(buff 20)", "(buff 64)", "(buff 64)", "(buff 32)", "(buff 32)", "(buff 32)", "(buff 32)" ];
 
@@ -383,7 +383,7 @@ fn test_simple_hash_checks() {
                      "(sha512 false)",
                      "(sha512/256 false)",
                      "(keccak256 (list 1 2 3))"];
-    let invalid_args = ["(sha256 u1 u2 u3)", "(sha512 u1 u2 u3)", "(sha512/256 u1 u2 u3)"];
+    let invalid_args = ["(sha256 1u 2u 3u)", "(sha512 1u 2u 3u)", "(sha512/256 1u 2u 3u)"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -511,7 +511,7 @@ fn test_asserts() {
 #[test]
 fn test_lists() {
     let good = [
-        "(map hash160 (list u1 u2 u3 u4 u5))",
+        "(map hash160 (list 1u 2u 3u 4u 5u))",
         "(map hash160 (list 1 2 3 4 5))",
         "(list (list 1 2) (list 3 4) (list 5 1 7))",
         "(filter not (list false true false))",
@@ -533,12 +533,12 @@ fn test_lists() {
 
     let bad = [
         "(fold and (list true false) 2)",
-        "(fold hash160 (list u1 u2 u3 u4) u2)",
+        "(fold hash160 (list 1u 2u 3u 4u) 2u)",
         "(fold hash160 (list 1 2 3 4) 2)",
         "(fold >= (list 1 2 3 4) 2)",
         "(list (list 1 2) (list true) (list 5 1 7))",
         "(list 1 2 3 true false 4 5 6)",
-        "(filter hash160 (list u1 u2 u3 u4))",
+        "(filter hash160 (list 1u 2u 3u 4u))",
         "(filter hash160 (list 1 2 3 4))",
         "(filter not (list 1 2 3 4))",
         "(filter not (list 1 2 3 4) 1)",
@@ -546,7 +546,7 @@ fn test_lists() {
         "(map if (list 1 2 3 4 5))",
         "(map mod (list 1 2 3 4 5))",
         "(map - (list true false true false))",
-        "(map hash160 (+ u1 u2))",
+        "(map hash160 (+ 1u 2u))",
         "(len 1)"];
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
@@ -599,7 +599,7 @@ fn test_buff() {
         "(map if (list 1 2 3 4 5))",
         "(map mod (list 1 2 3 4 5))",
         "(map - (list true false true false))",
-        "(map hash160 (+ u1 u2))",
+        "(map hash160 (+ 1u 2u))",
         "(len 1)"];
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
@@ -629,14 +629,14 @@ fn test_buff() {
 #[test]
 fn test_buff_fold() {
     let good = [
-        "(define-private (get-len (x (buff 1)) (acc uint)) (+ acc u1))
-        (fold get-len \"101010\" u0)",
+        "(define-private (get-len (x (buff 1)) (acc uint)) (+ acc 1u))
+        (fold get-len \"101010\" 0u)",
         "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
             (if (< (get cursor acc) (get limit acc))
-                (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
-                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
+                (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) 10u))))
+                    (tuple (limit (get limit acc)) (cursor (+ 1u (get cursor acc))) (data data)))
                 acc))
-        (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\")))"];
+        (fold slice \"0123456789\" (tuple (limit 5u) (cursor 0u) (data \"\")))"];
     let expected = ["uint", "(tuple (cursor uint) (data (buff 10)) (limit uint))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -659,7 +659,7 @@ fn test_buff_map() {
 #[test]
 fn test_native_as_max_len() {
     let good = [
-        "(as-max-len? (list 1 2 3 4) u5)"];
+        "(as-max-len? (list 1 2 3 4) 5u)"];
     let expected = ["(optional (list 5 int))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -670,9 +670,9 @@ fn test_native_as_max_len() {
 #[test]
 fn test_buff_as_max_len() {
     let tests = [
-        "(as-max-len? \"12345\" u5)",
-        "(as-max-len? \"12345\" u8)",
-        "(as-max-len? \"12345\" u4)"];
+        "(as-max-len? \"12345\" 5u)",
+        "(as-max-len? \"12345\" 8u)",
+        "(as-max-len? \"12345\" 4u)"];
     let expected = [
         "(optional (buff 5))",
         "(optional (buff 8))",
@@ -687,7 +687,7 @@ fn test_buff_as_max_len() {
 fn test_native_append() {
     let good = [
         "(append (list 2 3) 4)",
-        "(append (list u0) u0)"];
+        "(append (list 0u) 0u)"];
     let expected = ["(list 3 int)", "(list 2 uint)"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -695,9 +695,9 @@ fn test_native_append() {
     }
 
     let bad = [
-        "(append (list 2 3) u4)",
-        "(append (list u0) 1)",
-        "(append (list u0))"];
+        "(append (list 2 3) 4u)",
+        "(append (list 0u) 1)",
+        "(append (list 0u))"];
 
     let bad_expected = [
         CheckErrors::TypeError(IntType, UIntType),
@@ -720,9 +720,9 @@ fn test_native_concat() {
     }
 
     let bad = [
-        "(concat (list 2 3) (list u4))",
-        "(concat (list u0) (list 1))",
-        "(concat (list u0))"];
+        "(concat (list 2 3) (list 4u))",
+        "(concat (list 0u) (list 1))",
+        "(concat (list 0u))"];
 
     let bad_expected = [
         CheckErrors::TypeError(IntType, UIntType),
@@ -885,12 +885,12 @@ fn test_function_order_tuples() {
 #[test]
 fn test_simple_uints() {
     let good = [
-        "(define-private (foo (x uint)) (+ x u1))
-         (foo u2)",
+        "(define-private (foo (x uint)) (+ x 1u))
+         (foo 2u)",
         "(define-private (foo (x uint)) (+ x x))
-         (foo (foo u0))",
-        "(+ u10 (to-uint 15))",
-        "(- 10 (to-int u1))",
+         (foo (foo 0u))",
+        "(+ 10u (to-uint 15))",
+        "(- 10 (to-int 1u))",
     ];
 
     let expected = [
@@ -900,7 +900,7 @@ fn test_simple_uints() {
         "int"
     ];
 
-    let bad = ["(> u1 1)", "(to-uint true)", "(to-int false)"];
+    let bad = ["(> 1u 1)", "(to-uint true)", "(to-int false)"];
 
     let bad_expected = [ CheckErrors::TypeError(UIntType, IntType),
                          CheckErrors::TypeError(IntType, BoolType),
@@ -914,6 +914,15 @@ fn test_simple_uints() {
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
     }
+}
+
+#[test]
+fn test_old_uint() {
+    let bad = ["(> 1u 1)", "(to-uint true)", "(to-int false)"];
+
+    let err = mem_type_check("(+ u11 1u)").unwrap_err();
+    assert_eq!(err.err, CheckErrors::UndefinedVariable("u11".into()));
+    assert!(err.diagnostic.suggestion.unwrap().contains("11u"));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 (define-constant burn-address 'SP000000000000000000002Q6VF78)
 (define-private (price-function (name uint))
-  (if (< name u100000) u1000 u100))
+  (if (< name 100000u) 1000u 100u))
          
 (define-map name-map 
   ((name uint)) ((owner principal)))
@@ -17,7 +17,7 @@
                      (tuple (name-hash name-hash))
                      (tuple (paid name-price)
                             (buyer tx-sender)))
-             (ok u0))
+             (ok 0u))
       (err "token payment failed.")))
 
 (define-public (register 
@@ -46,6 +46,6 @@
                         (tuple (owner recipient-principal)))
               (map-delete preorder-map
                         (tuple (name-hash (hash160 (xor name salt))))))
-            (ok u0)
+            (ok 0u)
             (err "failed to insert new name entry"))
         (err "invalid name register"))))

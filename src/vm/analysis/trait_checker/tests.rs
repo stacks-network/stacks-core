@@ -13,9 +13,9 @@ fn test_dynamic_dispatch_by_defining_trait() {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract_src =
-        "(define-public (get-1 (x uint)) (ok u1))";
+        "(define-public (get-1 (x uint)) (ok 1u))";
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
@@ -41,7 +41,7 @@ fn test_incomplete_impl_trait_1() {
             (get-3 (uint) (response uint uint))))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -69,8 +69,8 @@ fn test_incomplete_impl_trait_2() {
             (get-3 (uint) (response uint uint))))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))
-        (define-public (get-2 (x uint)) (ok u1))";    
+        (define-public (get-1 (x uint)) (ok 1u))
+        (define-public (get-2 (x uint)) (ok 1u))";    
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -96,7 +96,7 @@ fn test_impl_trait_arg_admission_1() {
             (get-1 ((list 10 uint)) (response uint uint))))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x (list 5 uint))) (ok u1))";
+        (define-public (get-1 (x (list 5 uint))) (ok 1u))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -122,7 +122,7 @@ fn test_impl_trait_arg_admission_2() {
             (get-1 ((list 5 uint)) (response uint uint))))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x (list 15 uint))) (ok u1))";
+        (define-public (get-1 (x (list 15 uint))) (ok 1u))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -142,7 +142,7 @@ fn test_impl_trait_arg_admission_3() {
             (get-1 ((list 5 uint)) (response uint uint))))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x (list 5 uint))) (ok u1))";
+        (define-public (get-1 (x (list 5 uint))) (ok 1u))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -164,9 +164,9 @@ fn test_complete_impl_trait() {
             (get-3 (uint) (response uint uint))))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))
-        (define-public (get-2 (x uint)) (ok u1))
-        (define-public (get-3 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))
+        (define-public (get-2 (x uint)) (ok 1u))
+        (define-public (get-3 (x uint)) (ok 1u))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -188,9 +188,9 @@ fn test_complete_impl_trait_mixing_readonly() {
             (get-3 (uint) (response uint uint))))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))
-        (define-read-only (get-2 (x uint)) (ok u1))
-        (define-read-only (get-3 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))
+        (define-read-only (get-2 (x uint)) (ok 1u))
+        (define-read-only (get-3 (x uint)) (ok 1u))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -209,9 +209,9 @@ fn test_get_trait_reference_from_tuple() {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (wrapped-contract (tuple (contract <trait-1>)))) 
-            (contract-call? (get contract wrapped-contract) get-1 u0))";
+            (contract-call? (get contract wrapped-contract) get-1 0u))";
     let target_contract_src =
-        "(define-public (get-1 (x uint)) (ok u1))";
+        "(define-public (get-1 (x uint)) (ok 1u))";
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
@@ -240,8 +240,8 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait() {
             (get-1 (uint) (response uint uint))))
         (impl-trait .dispatching-contract.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))
-        (define-public (get-1 (x uint)) (ok u1))";
+            (contract-call? contract get-1 0u))
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
@@ -335,9 +335,9 @@ fn test_dynamic_dispatch_unknown_method() {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-2 u0))";
+            (contract-call? contract get-2 0u))";
     let target_contract_src =
-        "(define-public (get-1 (x uint)) (ok u1))";
+        "(define-public (get-1 (x uint)) (ok 1u))";
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
@@ -365,9 +365,9 @@ fn test_nested_literal_implicitly_compliant() {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let nested_target_contract_src =
-        "(define-public (get-1 (x uint)) (ok u1))";
+        "(define-public (get-1 (x uint)) (ok 1u))";
     let target_contract_src =
         "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .nested-target-contract))";
 
@@ -397,7 +397,7 @@ fn test_passing_trait_reference_instances() {
         (define-public (wrapped-get-1 (contract <trait-1>)) 
             (internal-get-1 contract))
         (define-public (internal-get-1 (contract <trait-1>))
-            (ok u1))";
+            (ok 1u))";
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
@@ -416,10 +416,10 @@ fn test_passing_nested_trait_reference_instances() {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (value bool) (contract <trait-1>))
-            (let ((amount u0))
+            (let ((amount 0u))
               (internal-get-1 contract)))
         (define-public (internal-get-1 (contract <trait-1>))
-            (ok u1))";
+            (ok 1u))";
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
@@ -442,7 +442,7 @@ fn test_dynamic_dispatch_collision_trait() {
         (define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
 
     let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
@@ -465,7 +465,7 @@ fn test_dynamic_dispatch_collision_defined_trait() {
         (define-trait trait-1 (
             (get-1 (int) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
@@ -489,7 +489,7 @@ fn test_dynamic_dispatch_collision_imported_trait() {
         "(use-trait trait-1 .contract-defining-trait.trait-1)
         (use-trait trait-1 .contract-defining-trait.trait-2)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
 
     let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
@@ -512,10 +512,10 @@ fn test_dynamic_dispatch_importing_non_existant_trait() {
     let dispatching_contract_src =
         "(use-trait trait-1 .contract-defining-trait.trait-2)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract_src =
         "(impl-trait .contract-defining-trait.trait-2)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
@@ -548,10 +548,10 @@ fn test_dynamic_dispatch_importing_trait() {
     let dispatching_contract_src =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract_src =
         "(impl-trait .contract-defining-trait.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
@@ -587,9 +587,9 @@ fn test_dynamic_dispatch_including_nested_trait() {
     let target_contract_src =
         "(use-trait trait-X .contract-defining-nested-trait.trait-a)
         (define-public (get-1 (nested-contract <trait-X>))
-            (contract-call? nested-contract get-a u0))";
+            (contract-call? nested-contract get-a 0u))";
     let target_nested_contract_src =
-        "(define-public (get-a (x uint)) (ok u99))";
+        "(define-public (get-a (x uint)) (ok 99u))";
 
     let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
@@ -632,7 +632,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait() {
     let target_contract_src =
         "(use-trait trait-a .contract-defining-nested-trait.trait-a)
         (define-public (get-1 (nested-contract <trait-a>))
-            (contract-call? nested-contract get-a u0))";
+            (contract-call? nested-contract get-a 0u))";
     let target_nested_contract_src =
         "(define-public (get-a (x uint)) (ok u99))";
 
@@ -671,10 +671,10 @@ fn test_dynamic_dispatch_mismatched_args() {
         "(define-trait trait-1 (
             (get-1 (int) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract_src =
         "(impl-trait .dispatching-contract.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
@@ -702,7 +702,7 @@ fn test_dynamic_dispatch_mismatched_returns() {
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let target_contract_src =
         "(impl-trait .dispatching-contract.trait-1)
         (define-public (get-1 (x uint)) (ok \"buffer\"))";
@@ -735,10 +735,10 @@ fn test_bad_call_with_trait() {
     let dispatching_contract =
         "(use-trait trait-1 .defun.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
     let caller_contract = // Should error.
         "(define-constant contract .implem)
          (define-public (foo-bar)
@@ -775,10 +775,10 @@ fn test_good_call_with_trait() {
     let dispatching_contract =
         "(use-trait trait-1 .defun.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
     let caller_contract =
         "(define-public (foo-bar)
            (contract-call? .dispatch wrapped-get-1 .implem))"; 
@@ -811,10 +811,10 @@ fn test_good_call_2_with_trait() {
     let dispatching_contract =
         "(use-trait trait-2 .defun.trait-1)
         (define-public (wrapped-get-1 (contract <trait-2>)) 
-            (contract-call? contract get-1 u0))";
+            (contract-call? contract get-1 0u))";
     let impl_contract = 
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
     let caller_contract =
         "(use-trait trait-2 .defun.trait-1)
          (define-public (foo-bar (contract <trait-2>))

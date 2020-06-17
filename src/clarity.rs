@@ -679,7 +679,7 @@ mod test {
         eprintln!("execute tokens");
         invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
-                                 "(+ u900 u100)".to_string()]);
+                                 "(+ 900u 100u)".to_string()]);
 
         eprintln!("eval tokens");
         invoke_command("test", &["eval".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(), 

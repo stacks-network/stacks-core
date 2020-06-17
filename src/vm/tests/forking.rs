@@ -210,9 +210,9 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
            (ft-get-balance stackaroos p))
          (define-public (destroy (x uint))
            (if (< (ft-get-balance stackaroos tx-sender) x)
-               (err u30)
+               (err 30u)
                (ft-transfer? stackaroos x tx-sender burn-address)))
-         (ft-mint? stackaroos u10 {})", p1_str);
+         (ft-mint? stackaroos 10u {})", p1_str);
 
     eprintln!("Initializing contract...");
 

@@ -4,8 +4,13 @@ use vm::types::{TypeSignature, TupleTypeSignature, Value};
 use vm::costs::{ExecutionCost, CostErrors};
 use std::error;
 use std::fmt;
+use regex::Regex;
 
 pub type CheckResult <T> = Result<T, CheckError>;
+
+lazy_static! {
+    static ref OLD_UNSIGNED_REGEX: Regex = Regex::new(r"u(\d+)").unwrap();
+}
 
 #[derive(Debug, PartialEq)]
 pub enum CheckErrors {
@@ -378,6 +383,14 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::BadLetSyntax => Some(format!("'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)")),
             CheckErrors::TraitReferenceUnknown(_) => Some(format!("traits should be either defined, with define-trait, or imported, with use-trait.")),
             CheckErrors::NoSuchBlockInfoProperty(_) => Some(format!("properties available: time, header-hash, burnchain-header-hash, vrf-seed")),
+            CheckErrors::UndefinedVariable(var_name) => {
+                if let Some(digits) = OLD_UNSIGNED_REGEX.captures(var_name) {
+                    Some(format!("if you meant to use an unsigned integer literal, these literals are expressed like: {}u",
+                                 &digits[1]))
+                } else {
+                    None
+                }
+            },
             _ => None
         }
     }

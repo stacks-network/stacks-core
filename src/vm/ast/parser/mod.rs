@@ -108,7 +108,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[}]", TokenType::RCurly),
         LexMatcher::new("<(?P<value>([[:word:]]|[-])+)>", TokenType::TraitReferenceLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
-        LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
+        LexMatcher::new("(?P<value>[[:digit:]]+)u", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new(&format!(r#"'(?P<value>{}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
                                  *CONTRACT_PRINCIPAL_REGEX, MAX_STRING_LEN), TokenType::FullyQualifiedFieldIdentifierLiteral),

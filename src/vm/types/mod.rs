@@ -391,7 +391,7 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Int(int) => write!(f, "{}", int),
-            Value::UInt(int) => write!(f, "u{}", int),
+            Value::UInt(int) => write!(f, "{}u", int),
             Value::Bool(boolean) => write!(f, "{}", boolean),
             Value::Buffer(vec_bytes) => write!(f, "0x{}", &vec_bytes),
             Value::Tuple(data) => write!(f, "{}", data),

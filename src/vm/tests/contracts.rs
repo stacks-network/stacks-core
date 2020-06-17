@@ -37,11 +37,11 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
 
 const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance uint)))
          (define-read-only (my-get-token-balance (account principal))
-            (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
+            (default-to 0u (get balance (map-get? tokens (tuple (account account))))))
          (define-read-only (explode (account principal))
              (map-delete tokens (tuple (account account))))
          (define-private (token-credit! (account principal) (amount uint))
-            (if (<= amount u0)
+            (if (<= amount 0u)
                 (err \"must be positive\")
                 (let ((current-amount (my-get-token-balance account)))
                   (begin
@@ -50,7 +50,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
                     (ok 0)))))
          (define-public (token-transfer (to principal) (amount uint))
           (let ((balance (my-get-token-balance tx-sender)))
-             (if (or (> amount balance) (<= amount u0))
+             (if (or (> amount balance) (<= amount 0u))
                  (err \"not enough balance\")
                  (begin
                    (map-set tokens (tuple (account tx-sender))
@@ -58,14 +58,14 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
                    (token-credit! to amount)))))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (print (token-transfer (print original-sender) u1)))))                     
+             (as-contract (print (token-transfer (print original-sender) 1u)))))                     
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
-                (token-credit! .tokens u4))";
+         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000u)
+                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 200u)
+                (token-credit! .tokens 4u))";
 
 
 fn get_principal() -> Value {
@@ -77,14 +77,14 @@ fn get_principal() -> Value {
 fn test_get_block_info_eval() {
 
     let contracts = [
-        "(define-private (test-func) (get-block-info? time u1))",
+        "(define-private (test-func) (get-block-info? time 1u))",
         "(define-private (test-func) (get-block-info? time block-height))",
-        "(define-private (test-func) (get-block-info? time u100000))",
+        "(define-private (test-func) (get-block-info? time 100000u))",
         "(define-private (test-func) (get-block-info? time (- 1)))",
         "(define-private (test-func) (get-block-info? time true))",
-        "(define-private (test-func) (get-block-info? header-hash u1))",
-        "(define-private (test-func) (get-block-info? burnchain-header-hash u1))",
-        "(define-private (test-func) (get-block-info? vrf-seed u1))",
+        "(define-private (test-func) (get-block-info? header-hash 1u))",
+        "(define-private (test-func) (get-block-info? burnchain-header-hash 1u))",
+        "(define-private (test-func) (get-block-info? vrf-seed 1u))",
     ];
 
     let expected = [
@@ -348,7 +348,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let names_contract =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name int))
-           (if (< name 100000) u1000 u100))
+           (if (< name 100000) 1000u 100u))
 
          (define-map name-map
            ((name int)) ((owner principal)))
@@ -689,7 +689,7 @@ fn test_as_max_len() {
     fn test(owned_env: &mut OwnedEnvironment) {
         let contract = "(define-data-var token-ids (list 10 uint) (list))
                         (var-set token-ids 
-                           (unwrap! (as-max-len? (append (var-get token-ids) u1) u10) (err 10)))";
+                           (unwrap! (as-max-len? (append (var-get token-ids) 1u) 10u) (err 10)))";
 
         owned_env.initialize_contract(QualifiedContractIdentifier::local("contract").unwrap(), &contract).unwrap();
     }

@@ -287,9 +287,9 @@ fn test_simple_arithmetic_functions() {
          "(>= 1 1)",
          "(pow 2 16)",
          "(pow 2 32)",
-         "(+ (pow u2 u127) (- (pow u2 u127) u1))",
-         "(+ (to-uint 127) u10)",
-         "(to-int (- (pow u2 u127) u1))",
+         "(+ (pow 2u 127u) (- (pow 2u 127u) 1u))",
+         "(+ (to-uint 127) 10u)",
+         "(to-int (- (pow 2u 127u) 1u))",
          "(- (pow 2 32))"];
 
     let expectations = [
@@ -365,12 +365,12 @@ fn test_arithmetic_errors() {
 #[test]
 fn test_unsigned_arithmetic() {
     let tests = [
-        "(- u10)",
-        "(- u10 u11)",
-        "(> u10 80)",
-        "(+ u10 80)",
+        "(- 10u)",
+        "(- 10u 11u)",
+        "(> 10u 80)",
+        "(+ 10u 80)",
         "(to-uint -10)",
-        "(to-int (pow u2 u127))",
+        "(to-int (pow 2u 127u))",
     ];
 
     let expectations: &[Error] = &[
@@ -433,10 +433,10 @@ fn test_options_errors() {
 #[test]
 fn test_stx_ops_errors() {
     let tests = [
-        "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? 4u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        "(stx-transfer? u4 u3 u2)",
-        "(stx-burn? u4)",
+        "(stx-transfer? 4u 3u 2u)",
+        "(stx-burn? 4u)",
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     ];
 
@@ -505,7 +505,7 @@ fn test_option_destructs() {
         "(match (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
         "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
         "(match 2 ok-val (/ ok-val 0) (+ 3 7))",
-        "(try! (err u1))",
+        "(try! (err 1u))",
         "(try! (ok 3))",
         "(try! none)",
         "(try! (some true))",

@@ -14,31 +14,31 @@ const SIMPLE_TOKENS: &str =
          (define-read-only (my-get-token-balance (account principal))
             (let ((balance
                   (get balance (map-get? tokens (tuple (account account))))))
-              (default-to u0 balance)))
+              (default-to 0u balance)))
 
          (define-private (token-credit! (account principal) (amount uint))
-            (if (<= amount u0)
+            (if (<= amount 0u)
                 (err 1)
                 (let ((current-amount (my-get-token-balance account)))
                   (begin
                     (map-set tokens (tuple (account account))
                                        (tuple (balance (+ amount current-amount))))
-                    (ok u0)))))
+                    (ok 0u)))))
          (define-public (token-transfer (to principal) (amount uint))
           (let ((balance (my-get-token-balance tx-sender)))
-             (if (or (> amount balance) (<= amount u0))
+             (if (or (> amount balance) (<= amount 0u))
                  (err 2)
                  (begin
                    (map-set tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u300))";
+         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000u)
+                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300u))";
 
 const SIMPLE_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
-           (if (< name u100000) u1000 u100))
+           (if (< name 100000u) 1000u 100u))
          
          (define-map name-map 
            ((name uint)) ((owner principal)))

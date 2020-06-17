@@ -18,19 +18,19 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
             (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (ft-transfer? stackaroos u1 tx-sender original-sender))))
+             (as-contract (ft-transfer? stackaroos 1u tx-sender original-sender))))
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
-               (err u8)))
-         (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (ft-mint? stackaroos u4 .tokens))";
+               (err 8u)))
+         (begin (ft-mint? stackaroos 10000u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+                (ft-mint? stackaroos 200u 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+                (ft-mint? stackaroos 4u .tokens))";
 
 const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
-           (if (< name u100000) u1000 u100))
+           (if (< name 100000u) 1000u 100u))
 
          (define-non-fungible-token names uint)
          (define-map preorder-map
@@ -56,7 +56,7 @@ const ASSET_NAMES: &str =
            (let ((preorder-entry
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
-                                  (tuple (name-hash (hash160 (xor name salt))))) (err u5)))
+                                  (tuple (name-hash (hash160 (xor name salt))))) (err 5u)))
                  (name-entry
                    (nft-get-owner? names name)))
              (if (and
@@ -71,9 +71,9 @@ const ASSET_NAMES: &str =
                     (is-ok (nft-mint? names name recipient-principal))
                     (map-delete preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
-                    (ok u0)
-                    (err u3))
-                  (err u4))))";
+                    (ok 0u)
+                    (err 3u))
+                  (err 4u))))";
 
 #[test]
 fn test_names_tokens_contracts() {
@@ -99,33 +99,33 @@ fn test_bad_asset_usage() {
     use vm::analysis::type_check;
 
     let bad_scripts = ["(ft-get-balance stackoos tx-sender)",
-                       "(ft-get-balance u1234 tx-sender)",
+                       "(ft-get-balance 1234u tx-sender)",
                        "(ft-get-balance 1234 tx-sender)",
-                       "(ft-get-balance stackaroos u100)",
+                       "(ft-get-balance stackaroos 100u)",
                        "(ft-get-balance stackaroos 100)",
-                       "(nft-get-owner? u1234 \"abc\")",
+                       "(nft-get-owner? 1234u \"abc\")",
                        "(nft-get-owner? stackoos \"abc\")",
-                       "(nft-get-owner? stacka-nfts u1234 )",
+                       "(nft-get-owner? stacka-nfts 1234u )",
                        "(nft-get-owner? stacka-nfts \"123456789012345\" )",
-                       "(nft-mint? u1234 \"abc\" tx-sender)",
+                       "(nft-mint? 1234u \"abc\" tx-sender)",
                        "(nft-mint? stackoos \"abc\" tx-sender)",
-                       "(nft-mint? stacka-nfts u1234 tx-sender)",
+                       "(nft-mint? stacka-nfts 1234u tx-sender)",
                        "(nft-mint? stacka-nfts \"123456789012345\" tx-sender)",
-                       "(nft-mint? stacka-nfts \"abc\" u2)",
-                       "(ft-mint? stackoos u1 tx-sender)",
-                       "(ft-mint? u1234 u1 tx-sender)",
-                       "(ft-mint? stackaroos u2 u100)",
+                       "(nft-mint? stacka-nfts \"abc\" 2u)",
+                       "(ft-mint? stackoos 1u tx-sender)",
+                       "(ft-mint? 1234u 1u tx-sender)",
+                       "(ft-mint? stackaroos 2u 100u)",
                        "(ft-mint? stackaroos true tx-sender)",
-                       "(nft-transfer? u1234 \"a\" tx-sender tx-sender)",
+                       "(nft-transfer? 1234u \"a\" tx-sender tx-sender)",
                        "(nft-transfer? stackoos    \"a\" tx-sender tx-sender)",
-                       "(nft-transfer? stacka-nfts \"a\" u2 tx-sender)",
-                       "(nft-transfer? stacka-nfts \"a\" tx-sender u2)",
-                       "(nft-transfer? stacka-nfts u2 tx-sender tx-sender)",
-                       "(ft-transfer? stackoos u1 tx-sender tx-sender)",
-                       "(ft-transfer? u1234 u1 tx-sender tx-sender)",
-                       "(ft-transfer? stackaroos u2 u100 tx-sender)",
+                       "(nft-transfer? stacka-nfts \"a\" 2u tx-sender)",
+                       "(nft-transfer? stacka-nfts \"a\" tx-sender 2u)",
+                       "(nft-transfer? stacka-nfts 2u tx-sender tx-sender)",
+                       "(ft-transfer? stackoos 1u tx-sender tx-sender)",
+                       "(ft-transfer? 1234u 1u tx-sender tx-sender)",
+                       "(ft-transfer? stackaroos 2u 100u tx-sender)",
                        "(ft-transfer? stackaroos true tx-sender tx-sender)",
-                       "(ft-transfer? stackaroos u2 tx-sender u100)",
+                       "(ft-transfer? stackaroos 2u tx-sender 100u)",
                        "(define-fungible-token stackaroos true)",
                        "(define-non-fungible-token stackaroos integer)",
                        "(ft-mint? stackaroos 100 tx-sender)",

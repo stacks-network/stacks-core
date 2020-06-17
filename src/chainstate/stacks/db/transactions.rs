@@ -1665,8 +1665,8 @@ pub mod test {
         (define-public (send-stackaroos (recipient principal))
           (begin
              (as-contract  ;; used to test post-conditions on contract principal
-               (begin (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
-                      (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
+               (begin (unwrap-panic (ft-mint? stackaroos 100u tx-sender))
+                      (unwrap-panic (ft-transfer? stackaroos 100u tx-sender recipient))
                       (ok true))
              )
            )
@@ -1682,7 +1682,7 @@ pub mod test {
         )
         (define-public (user-send-stackaroos (recipient principal))
           (begin
-             (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
+             (unwrap-panic (ft-transfer? stackaroos 100u tx-sender recipient))
              (ok true))
         )
         (define-public (user-send-name (name (buff 50)) (recipient principal))
@@ -1695,15 +1695,15 @@ pub mod test {
              (as-contract  ;; used to test post-conditions on contract principal
                (begin (unwrap-panic (nft-mint? names name tx-sender))
                       (unwrap-panic (nft-transfer? names name tx-sender recipient))
-                      (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
-                      (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
+                      (unwrap-panic (ft-mint? stackaroos 100u tx-sender))
+                      (unwrap-panic (ft-transfer? stackaroos 100u tx-sender recipient))
                       (ok true))
              )
           )
         )
         (define-public (user-send-stackaroos-and-name (name (buff 50)) (recipient principal))
            (begin
-             (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
+             (unwrap-panic (ft-transfer? stackaroos 100u tx-sender recipient))
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
              (ok true))
         )
@@ -2111,8 +2111,8 @@ pub mod test {
         (define-public (send-stackaroos (recipient principal))
           (begin
              (as-contract  ;; used to test post-conditions on contract principal
-               (begin (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
-                      (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
+               (begin (unwrap-panic (ft-mint? stackaroos 100u tx-sender))
+                      (unwrap-panic (ft-transfer? stackaroos 100u tx-sender recipient))
                       (ok true))
              )
            )
@@ -2128,7 +2128,7 @@ pub mod test {
         )
         (define-public (user-send-stackaroos (recipient principal))
           (begin
-             (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
+             (unwrap-panic (ft-transfer? stackaroos 100u tx-sender recipient))
              (ok true))
         )
         (define-public (user-send-name (name (buff 50)) (recipient principal))
@@ -2141,15 +2141,15 @@ pub mod test {
              (as-contract  ;; used to test post-conditions on contract principal
                (begin (unwrap-panic (nft-mint? names name tx-sender))
                       (unwrap-panic (nft-transfer? names name tx-sender recipient))
-                      (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
-                      (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
+                      (unwrap-panic (ft-mint? stackaroos 100u tx-sender))
+                      (unwrap-panic (ft-transfer? stackaroos 100u tx-sender recipient))
                       (ok true))
              )
           )
         )
         (define-public (user-send-stackaroos-and-name (name (buff 50)) (recipient principal))
            (begin
-             (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
+             (unwrap-panic (ft-transfer? stackaroos 100u tx-sender recipient))
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
              (ok true))
         )

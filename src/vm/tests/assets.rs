@@ -16,19 +16,19 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
             (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (ft-transfer? stackaroos u1 tx-sender original-sender))))
+             (as-contract (ft-transfer? stackaroos 1u tx-sender original-sender))))
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (ft-mint? stackaroos u4 .tokens))";
+         (begin (ft-mint? stackaroos 10000u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+                (ft-mint? stackaroos 200u 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+                (ft-mint? stackaroos 4u .tokens))";
 
 const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name int))
-           (if (< name 100000) u1000 u100))
+           (if (< name 100000) 1000u 100u))
 
          (define-non-fungible-token names int)
          (define-map preorder-map
@@ -46,32 +46,32 @@ const ASSET_NAMES: &str =
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
-                 (ok 0) (err u2))
-               (if (is-eq xfer-result (err u1)) ;; not enough balance
-                   (err u1) (err u3)))))
+                 (ok 0) (err 2u))
+               (if (is-eq xfer-result (err 1u)) ;; not enough balance
+                   (err 1u) (err 3u)))))
 
          (define-public (force-mint (name int))
            (nft-mint? names name tx-sender))
          (define-public (try-bad-transfers)
            (begin
-             (contract-call? .tokens my-token-transfer burn-address u50000)
-             (contract-call? .tokens my-token-transfer burn-address u1000)
-             (contract-call? .tokens my-token-transfer burn-address u1)
-             (err u0)))
+             (contract-call? .tokens my-token-transfer burn-address 50000u)
+             (contract-call? .tokens my-token-transfer burn-address 1000u)
+             (contract-call? .tokens my-token-transfer burn-address 1u)
+             (err 0u)))
          (define-public (try-bad-transfers-but-ok)
            (begin
-             (contract-call? .tokens my-token-transfer burn-address u50000)
-             (contract-call? .tokens my-token-transfer burn-address u1000)
-             (contract-call? .tokens my-token-transfer burn-address u1)
-             (ok 0)))
+             (contract-call? .tokens my-token-transfer burn-address 50000u)
+             (contract-call? .tokens my-token-transfer burn-address 1000u)
+             (contract-call? .tokens my-token-transfer burn-address 1u)
+             (ok 0u)))
          (define-public (transfer (name int) (recipient principal))
            (let ((transfer-name-result (nft-transfer? names name tx-sender recipient))
-                 (token-to-contract-result (contract-call? .tokens my-token-transfer .names u1))
-                 (contract-to-burn-result (as-contract (contract-call? .tokens my-token-transfer burn-address u1))))
+                 (token-to-contract-result (contract-call? .tokens my-token-transfer .names 1u))
+                 (contract-to-burn-result (as-contract (contract-call? .tokens my-token-transfer burn-address 1u))))
              (begin (unwrap! transfer-name-result transfer-name-result)
                     (unwrap! token-to-contract-result token-to-contract-result)
                     (unwrap! contract-to-burn-result contract-to-burn-result)
-                    (ok 0))))
+                    (ok 0u))))
          (define-public (register 
                         (recipient-principal principal)
                         (name int)
@@ -79,7 +79,7 @@ const ASSET_NAMES: &str =
            (let ((preorder-entry
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
-                                  (tuple (name-hash (hash160 (xor name salt))))) (err u5)))
+                                  (tuple (name-hash (hash160 (xor name salt))))) (err 5u)))
                  (name-entry
                    (nft-get-owner? names name)))
              (if (and
@@ -95,8 +95,8 @@ const ASSET_NAMES: &str =
                     (map-delete preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
-                    (err u3))
-                  (err u4))))";
+                    (err 3u))
+                  (err 4u))))";
 
 fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_identifier: &QualifiedContractIdentifier,
                        tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
@@ -467,13 +467,13 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
     let bad_0 = "(define-fungible-token stackaroos (- 5))";
     let bad_1 = "(define-fungible-token stackaroos true)";
 
-    let contract = "(define-fungible-token stackaroos u5)
+    let contract = "(define-fungible-token stackaroos 5u)
          (define-read-only (get-balance (account principal))
             (ft-get-balance stackaroos account))
          (define-public (transfer (to principal) (amount uint))
             (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
-            (ft-mint? stackaroos u2 tx-sender))
+            (ft-mint? stackaroos 2u tx-sender))
          (define-public (gated-faucet (x bool))
             (begin (faucet)
                    (if x (ok 1) (err 0))))";
