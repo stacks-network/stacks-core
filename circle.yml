@@ -113,7 +113,7 @@ workflows:
                 - master
                 - /.*net.*/
                 - /.*marf.*/
-                - feature/ignore-slow-serial-tests
+                - feature/clarity-ints
       - push-docker-tags:
           requires:
             - unit_tests
@@ -122,4 +122,3 @@ workflows:
             branches:
               only:
                 - master
-                - feature/docker-deploy

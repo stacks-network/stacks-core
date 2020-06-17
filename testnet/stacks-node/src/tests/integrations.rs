@@ -30,16 +30,16 @@ const GET_INFO_CONTRACT: &'static str = "
            (vrf-seed (buff 32))
            (burn-block-time uint)
            (stacks-miner principal)))
-        (define-private (test-1) (get-block-info? time u1))
+        (define-private (test-1) (get-block-info? time 1u))
         (define-private (test-2) (get-block-info? time block-height))
-        (define-private (test-3) (get-block-info? time u100000))
+        (define-private (test-3) (get-block-info? time 100000u))
         (define-private (test-4 (x uint)) (get-block-info? header-hash x))
-        (define-private (test-5) (get-block-info? header-hash (- block-height u1)))
-        (define-private (test-6) (get-block-info? burnchain-header-hash u1))
-        (define-private (test-7) (get-block-info? vrf-seed u1))
-        (define-private (test-8) (get-block-info? miner-address u1))
+        (define-private (test-5) (get-block-info? header-hash (- block-height 1u)))
+        (define-private (test-6) (get-block-info? burnchain-header-hash 1u))
+        (define-private (test-7) (get-block-info? vrf-seed 1u))
+        (define-private (test-8) (get-block-info? miner-address 1u))
         (define-private (test-9) (get-block-info? miner-address block-height))
-        (define-private (test-10) (get-block-info? miner-address u100000))
+        (define-private (test-10) (get-block-info? miner-address 100000u))
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
           (get id-hash (map-get? block-data ((height height))))))
@@ -59,23 +59,23 @@ const GET_INFO_CONTRACT: &'static str = "
 
         (define-private (exotic-data-checks (height uint))
           (let ((block-to-check (unwrap-panic (get-block-info? id-header-hash height)))
-                (block-info (unwrap-panic (map-get? block-data ((height (- height u1)))))))
-            (and (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? id-header-hash (- block-height u1)))))
+                (block-info (unwrap-panic (map-get? block-data ((height (- height 1u)))))))
+            (and (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? id-header-hash (- block-height 1u)))))
                         (print (get id-hash block-info)))
-                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? header-hash (- block-height u1)))))
-                        (print (unwrap-panic (get-block-info? header-hash (- height u1))))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? header-hash (- block-height 1u)))))
+                        (print (unwrap-panic (get-block-info? header-hash (- height 1u))))
                         (print (get stacks-hash block-info)))
-                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? vrf-seed (- block-height u1)))))
-                        (print (unwrap-panic (get-block-info? vrf-seed (- height u1))))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? vrf-seed (- block-height 1u)))))
+                        (print (unwrap-panic (get-block-info? vrf-seed (- height 1u))))
                         (print (get vrf-seed block-info)))
-                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? burnchain-header-hash (- block-height u1)))))
-                        (print (unwrap-panic (get-block-info? burnchain-header-hash (- height u1))))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? burnchain-header-hash (- block-height 1u)))))
+                        (print (unwrap-panic (get-block-info? burnchain-header-hash (- height 1u))))
                         (print (get btc-hash block-info)))
-                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? time (- block-height u1)))))
-                        (print (unwrap-panic (get-block-info? time (- height u1))))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? time (- block-height 1u)))))
+                        (print (unwrap-panic (get-block-info? time (- height 1u))))
                         (print (get burn-block-time block-info)))
-                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? miner-address (- block-height u1)))))
-                        (print (unwrap-panic (get-block-info? miner-address (- height u1))))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? miner-address (- block-height 1u)))))
+                        (print (unwrap-panic (get-block-info? miner-address (- height 1u))))
                         (print (get stacks-miner block-info))))))
 
         (define-private (inner-update-info (height uint))
@@ -90,8 +90,8 @@ const GET_INFO_CONTRACT: &'static str = "
 
         (define-public (update-info)
           (begin
-            (inner-update-info (- block-height u2))
-            (inner-update-info (- block-height u1))))
+            (inner-update-info (- block-height 2u))
+            (inner-update-info (- block-height 1u))))
        ";
 
 
@@ -199,7 +199,7 @@ fn integration_test_get_info() {
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-1)"),
-                    Value::some(Value::UInt(headers[0].burn_header_timestamp as u128)).unwrap());
+                    Value::some(Value::UInt(headers[0].burn_header_timestamp.into())).unwrap());
                 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
@@ -213,7 +213,7 @@ fn integration_test_get_info() {
                 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        bhh, &contract_identifier, "(test-4 u1)"),
+                        bhh, &contract_identifier, "(test-4 1u)"),
                     Value::some(parent_val.clone()).unwrap());
 
                 assert_eq!(
@@ -261,16 +261,16 @@ fn integration_test_get_info() {
                 let bhh = &chain_tip.metadata.index_block_hash();
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    bhh, &contract_identifier, "(exotic-block-height u1)"));
+                    bhh, &contract_identifier, "(exotic-block-height 1u)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    bhh, &contract_identifier, "(exotic-block-height u2)"));
+                    bhh, &contract_identifier, "(exotic-block-height 2u)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    bhh, &contract_identifier, "(exotic-block-height u3)"));
+                    bhh, &contract_identifier, "(exotic-block-height 3u)"));
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    bhh, &contract_identifier, "(exotic-data-checks u2)"));
+                    bhh, &contract_identifier, "(exotic-data-checks 2u)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    bhh, &contract_identifier, "(exotic-data-checks u3)"));
+                    bhh, &contract_identifier, "(exotic-data-checks 3u)"));
 
                 let client = reqwest::blocking::Client::new();
                 let path = format!("{}/v2/map_entry/{}/{}/{}",
@@ -286,7 +286,7 @@ fn integration_test_get_info() {
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info 1u))");
                 assert!(res.get("proof").is_some());
 
                 assert_eq!(result_data, expected_data);
@@ -320,7 +320,7 @@ fn integration_test_get_info() {
                 assert!(res.get("proof").is_none());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info 1u))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
 
                 assert_eq!(result_data, expected_data);
@@ -341,7 +341,7 @@ fn integration_test_get_info() {
                 assert!(res.get("proof").is_some());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
-                                                                       "(some (get-exotic-data-info u1))");
+                                                                       "(some (get-exotic-data-info 1u))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
 
                 assert_eq!(result_data, expected_data);
@@ -473,7 +473,7 @@ fn integration_test_get_info() {
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
-                                                                       "(get-exotic-data-info u1)");
+                                                                       "(get-exotic-data-info 1u)");
                 assert_eq!(result_data, expected_data);
 
                 // let's try a call with a url-encoded string.
@@ -496,7 +496,7 @@ fn integration_test_get_info() {
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
-                                                                       "(get-exotic-data-info? u1)");
+                                                                       "(get-exotic-data-info? 1u)");
                 assert_eq!(result_data, expected_data);
 
                 // let's have a runtime error!
@@ -588,7 +588,7 @@ fn integration_test_get_info() {
 const FAUCET_CONTRACT: &'static str = "
   (define-public (spout)
     (let ((recipient tx-sender))
-      (print (as-contract (stx-transfer? u1 .faucet recipient)))))
+      (print (as-contract (stx-transfer? 1u .faucet recipient)))))
 ";
 
 #[test]
