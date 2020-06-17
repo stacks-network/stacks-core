@@ -85,7 +85,7 @@ criterion = "0.3"
 [features]
 developer-mode = []
 default = ["developer-mode"]
-prometheus = ["prometheus"]
+monitoring = ["prometheus"]
 
 [target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
 sha2-asm = "0.5.3"

@@ -29,5 +29,5 @@ name = "stacks-node"
 path = "src/main.rs"
 
 [features]
-prometheus = ["stacks/prometheus"]
+monitoring = ["stacks/monitoring"]
 default = []
