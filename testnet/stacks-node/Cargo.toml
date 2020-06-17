@@ -29,5 +29,5 @@ name = "stacks-node"
 path = "src/main.rs"
 
 [features]
-monitoring = ["stacks/monitoring"]
+monitoring_prom = ["stacks/monitoring_prom"]
 default = []

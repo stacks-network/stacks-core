@@ -48,7 +48,7 @@ extern crate percent_encoding;
 #[macro_use]
 extern crate assert_json_diff;
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "monitoring_prom")]
 #[macro_use] pub extern crate prometheus;
 
 #[macro_use]

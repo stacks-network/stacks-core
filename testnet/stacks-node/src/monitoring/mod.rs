@@ -3,10 +3,10 @@ pub use stacks::monitoring::{
     increment_errors_emitted_counter
 };
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
 pub fn start_serving_monitoring_metrics(bind_address: String) {
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "monitoring_prom")]
     prometheus::start_serving_prometheus_metrics(bind_address);
 }
