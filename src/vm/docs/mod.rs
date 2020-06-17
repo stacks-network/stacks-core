@@ -371,7 +371,7 @@ const FILTER_API: SpecialAPI = SpecialAPI {
     signature: "(filter func list)",
     description: "The `filter` function applies the input function `func` to each element of the
 input list, and returns the same list with any elements removed for which the `func` returned `false`.",
-    example: "(filter not (list true false true false)) ;; Returns (list false false)"
+    example: "(filter not (list true false true false)) ;; Returns (false false)"
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
@@ -472,7 +472,7 @@ If there is no value associated with that key in the data map, the function retu
 it returns `(some value)`.",
     example: "(define-map names-map ((name (buff 10))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
-(map-get? names-map (tuple (name \"blockstack\"))) ;; Returns (some (tuple (id 1337 )))
+(map-get? names-map (tuple (name \"blockstack\"))) ;; Returns (some (tuple (id 1337)))
 (map-get? names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -613,7 +613,7 @@ function returns _err_, any database changes resulting from calling `contract-ca
 If the function returns _ok_, database changes occurred.",
     example: "
 ;; instantiate the sample-contracts/tokens.clar contract first!
-(contract-call? .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u19) ;; Returns (ok u1)"
+(as-contract (contract-call? .tokens mint! 19u)) ;; Returns (ok 19u)"
 };
 
 const AT_BLOCK: SpecialAPI = SpecialAPI {
@@ -629,8 +629,10 @@ property. This hash uniquely identifies Stacks blocks and is unique across Stack
 
 The function returns the result of evaluating `expr`.
 ",
-    example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
-(at-block (get-block-info? id-header-hash (- block-height u10)) (var-get data))"
+    example: "
+(define-data-var data int 1)
+(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 block-height) ;; Returns 0u
+(at-block (get-block-info? id-header-hash 0) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
 };
 
 
@@ -638,9 +640,9 @@ const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "A",
     signature: "(as-contract expr)",
-    description: "The `as-contract` function switches the current context's `tx-origin` value to the _contract's_
+    description: "The `as-contract` function switches the current context's `tx-sender` value to the _contract's_
 principal and executes `expr` with that context. It returns the resulting value of `expr`.",
-    example: "(as-contract (print tx-sender)) ;; Returns 'CTcontract.name"
+    example: "(as-contract tx-sender) ;; Returns S1G2081040G2081040G2081040G208105NK8PE5.docs-test"
 };
 
 const ASSERTS_API: SpecialAPI = SpecialAPI {
@@ -663,7 +665,15 @@ an option type, and the argument is a `(some ...)` option, `unwrap!` returns the
 option. If the argument is a response type, and the argument is an `(ok ...)` response, `unwrap!` returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
-    example: "(unwrap! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
+    example: "
+(define-map names-map ((name (buff 12))) ((id int)))
+(map-set names-map { name: \"blockstack\" } { id: 1337 })
+(define-private (get-name-or-err (name (buff 12)))
+  (let ((raw-name (unwrap! (map-get? names-map { name: name }) (err 1))))
+       (ok raw-name)))
+
+(get-name-or-err \"blockstack\") ;; Returns (ok (tuple (id 1337)))
+(get-name-or-err \"non-existant\") ;; Returns (err 1)",
 };
 
 const TRY_API: SpecialAPI = SpecialAPI {
@@ -675,7 +685,10 @@ an option type, and the argument is a `(some ...)` option, `try!` returns the in
 option. If the argument is a response type, and the argument is an `(ok ...)` response, `try!` returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
-    example: "(try! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
+    example: "
+(define-map names-map ((name (buff 12))) ((id int)))
+(map-set names-map { name: \"blockstack\" } { id: 1337 })
+(try! (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
   (if (is-eq (mod x 2) 0)
       (ok x)
@@ -696,7 +709,12 @@ an option type, and the argument is a `(some ...)` option, this function returns
 option. If the argument is a response type, and the argument is an `(ok ...)` response, it returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
-    example: "(unwrap-panic (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))",
+    example: "
+(define-map names-map ((name (buff 12))) ((id int)))
+(map-set names-map { name: \"blockstack\" } { id: 1337 })
+(unwrap-panic (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
+(unwrap-panic (map-get? names-map { name: \"non-existant\" })) ;; Throws a runtime exception
+",
 };
 
 const UNWRAP_ERR_API: SpecialAPI = SpecialAPI {
@@ -707,7 +725,8 @@ const UNWRAP_ERR_API: SpecialAPI = SpecialAPI {
 is an `(err ...)` response, `unwrap` returns the inner value of the `err`.
 If the supplied argument is an `(ok ...)` value,
 `unwrap-err` throws a runtime error, aborting any further processing of the current transaction.",
-    example: "(unwrap-err-panic (err 1)) ;; Returns 1",
+    example: "(unwrap-err-panic (err 1)) ;; Returns 1
+(unwrap-err-panic (ok 1)) ;; Throws a runtime exception",
 };
 
 const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
@@ -775,7 +794,10 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
     description: "The `default-to` function attempts to 'unpack' the second argument: if the argument is
 a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
 `default-to` it returns the value of `default-value`.",
-    example: "(default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
+    example: "
+(define-map names-map ((name (buff 12))) ((id int)))
+(map-set names-map { name: \"blockstack\" } { id: 1337 })
+(default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
 (default-to 0 (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 0
 ",
 };
@@ -825,28 +847,34 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     signature: "(is-none value)",
     description: "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
-    example: "(is-none (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns false
-(is-none (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns true"
+    example: "
+(define-map names-map ((name (buff 12))) ((id int)))
+(map-set names-map { name: \"blockstack\" } { id: 1337 })
+(is-none (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns false
+(is-none (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns true"
 };
 
 const IS_ERR_API: SpecialAPI = SpecialAPI {
     input_type: "(response A B)",
     output_type: "bool",
-    signature: "(is-err? value)",
-    description: "`is-err?` tests a supplied response value, returning `true` if the response was an `err`,
+    signature: "(is-err value)",
+    description: "`is-err` tests a supplied response value, returning `true` if the response was an `err`,
 and `false` if it was an `ok`.",
-    example: "(is-err? (ok 1)) ;; Returns false
-(is-err? (err 1)) ;; Returns true",
+    example: "(is-err (ok 1)) ;; Returns false
+(is-err (err 1)) ;; Returns true",
 };
 
 const IS_SOME_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A)",
     output_type: "bool",
-    signature: "(is-some? value)",
-    description: "`is-some?` tests a supplied option value, returning `true` if the option value is `(some ...)`,
+    signature: "(is-some value)",
+    description: "`is-some` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
-    example: "(is-some? (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns true
-(is-some? (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns false"
+    example: "
+(define-map names-map ((name (buff 12))) ((id int)))
+(map-set names-map { name: \"blockstack\" } { id: 1337 })
+(is-some (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns true
+(is-some (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns false"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
@@ -868,9 +896,9 @@ The `miner-address` property returns a `principal` corresponding to the miner of
 
 The `id-header-hash` is the block identifier value that must be used as input to the `at-block` function.
 ",
-    example: "(get-block-info? time u10) ;; Returns (some 1557860301)
-(get-block-info? header-hash u2) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
-(get-block-info? vrf-seed u6) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
+    example: "(get-block-info? time 0u) ;; Returns (some 1557860301u)
+(get-block-info? header-hash 0u) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
+(get-block-info? vrf-seed 0u) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
 "
 };
 
@@ -890,6 +918,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 Tokens defined using `define-fungible-token` may be used in `ft-transfer?`, `ft-mint?`, and `ft-get-balance` functions",
     example: "
 (define-fungible-token stacks)
+(define-fungible-token limited-supply-stacks 100u)
 "
 };
 
@@ -1104,11 +1133,11 @@ type defined using `define-fungible-token`. The increased token balance is _not_
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
-returns `(ok true 1)`.
+returns `(ok true)`.
 ",
     example: "
 (define-fungible-token stackaroo)
-(ft-mint? stackaroo u100 tx-sender)
+(ft-mint? stackaroo 100u 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
 "
 };
 
@@ -1122,13 +1151,13 @@ that definition.
 
 If an asset identified by `asset-identifier` _already exists_, this function will return an error with the following error code:
 
-`(err 1)`
+`(err 1u)`
 
-Otherwise, on successfuly mint, it returns `(ok true 1)`.
+Otherwise, on successfuly mint, it returns `(ok true)`.
 ",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
-(nft-mint? stackaroo \"Roo\" tx-sender)
+(nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
 "
 };
 
@@ -1141,7 +1170,9 @@ The asset type must have been defined using `define-non-fungible-token`, and the
 that definition.",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
-(nft-get-owner? stackaroo \"Roo\")
+(nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)
+(nft-get-owner? stackaroo \"Roo\") ;; Returns (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)
+(nft-get-owner? stackaroo \"Too\") ;; Returns none
 "
 };
 
@@ -1153,8 +1184,9 @@ const GET_BALANCE: SpecialAPI = SpecialAPI {
     description: "`ft-get-balance` returns `token-name` balance of the principal `principal`.
 The token type must have been defined using `define-fungible-token`.",
     example: "
-(define-fungible-token stackaroos)
-(ft-get-balance stackaroos tx-sender)
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo 100u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(ft-get-balance stackaroo 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns 100u
 "
 };
 
@@ -1175,8 +1207,8 @@ one of the following error codes:
     example: "
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo 100u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(ft-transfer? stackaroo 50u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
-(ft-transfer? stackaroo 60u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u1)
+(ft-transfer? stackaroo 50u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
+(ft-transfer? stackaroo 60u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (err 1u)
 "
 };
 
@@ -1198,9 +1230,9 @@ one of the following error codes:
     example: "
 (define-non-fungible-token stackaroo (buff 40))
 (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
-(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u1)
-(nft-transfer? stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u3)
+(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
+(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (err 1u)
+(nft-transfer? stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (err 3u)
 "
 };
 
@@ -1213,7 +1245,8 @@ This function returns the STX balance of the `owner` principal. In the event tha
 principal isn't materialized, it returns 0.
 ",
     example: "
-(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns u100
+(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns 0u
+(stx-get-balance (as-contract tx-sender)) ;; returns 10000u
 "
 };
 
@@ -1226,14 +1259,16 @@ by debiting the `sender` principal. The `sender` principal _must_ be equal to th
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err u1)` -- `sender` does not have enough balance to transfer
-`(err u2)` -- `sender` and `recipient` are the same principal
-`(err u3)` -- amount to send is non-positive
-`(err u4)` -- the `sender` principal is not the current `tx-sender`
+`(err 1u)` -- `sender` does not have enough balance to transfer
+`(err 2u)` -- `sender` and `recipient` are the same principal
+`(err 3u)` -- amount to send is non-positive
+`(err 4u)` -- the `sender` principal is not the current `tx-sender`
 ",
     example: "
-(stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u4)
-(stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns (ok true)
+(as-contract
+  (stx-transfer? 60u tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; returns (ok true)
+(as-contract
+  (stx-transfer? 50u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender)) ;; returns (err 4u)
 "
 };
 
@@ -1246,13 +1281,15 @@ the STX. The `sender` principal _must_ be equal to the current context's `tx-sen
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err u1)` -- `sender` does not have enough balance to transfer
-`(err u3)` -- amount to send is non-positive
-`(err u4)` -- the `sender` principal is not the current `tx-sender`
+`(err 1u)` -- `sender` does not have enough balance to transfer
+`(err 3u)` -- amount to send is non-positive
+`(err 4u)` -- the `sender` principal is not the current `tx-sender`
 ",
     example: "
-(stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns (err u4)
-(stx-burn? u60 tx-sender) ;; returns (ok true)
+(as-contract
+  (stx-burn? 60u tx-sender)) ;; returns (ok true)
+(as-contract
+  (stx-burn? 50u 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; returns (err 4u)
 "
 };
 
@@ -1415,21 +1452,43 @@ pub fn make_json_api_reference() -> String {
 mod test {
     use super::make_json_api_reference;
     use super::make_all_api_reference;
-    use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext, MemoryBackingStore,
+    use chainstate::stacks::{StacksAddress, StacksBlockId, index::MarfTrieId};
+    use chainstate::burn::{BlockHeaderHash, VRFSeed};
+    use burnchains::BurnchainHeaderHash;
+
+    use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext,
+              database::{ MarfedKV, HeadersDB },
               LimitedCostTracker, GlobalContext, Error, contexts::OwnedEnvironment };
 
-    fn docs_execute(program: &str) {
-        let mut marf = MemoryBackingStore::new();
-        // first, load the samples for contract-call
-        {
-            let conn = marf.as_clarity_db();
-            let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
-            let mut env = OwnedEnvironment::new(conn);
-            env.initialize_contract(contract_id, 
-                                    &std::fs::read_to_string("sample-contracts/tokens.clar", ).unwrap()).unwrap();
-        }
+    struct DocHeadersDB {}
+    const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
 
-        // second, execute the program, iterating at each ";; Returns" comment
+    impl HeadersDB for DocHeadersDB {
+        fn get_burn_header_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
+            None
+        }
+        fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+            Some(VRFSeed::from_hex("f490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4").unwrap())
+        }
+        fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
+            Some(BlockHeaderHash::from_hex("374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb").unwrap())
+        }
+        fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+            Some(1557860301)
+        }
+        fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
+            None
+        }
+    }
+
+
+    fn docs_execute(marf: &mut MarfedKV, program: &str) {
+        // start the next block,
+        //  we never commit it so that we can reuse the initialization
+        marf.begin(&StacksBlockId([0; 32]),
+                   &StacksBlockId([1; 32]));
+
+        // execute the program, iterating at each ";; Returns" comment
         // there are maybe more rust-y ways of doing this, but this is the simplest.
         let mut segments = vec![];
         let mut current_segment: String = "".into();
@@ -1445,33 +1504,36 @@ mod test {
             segments.push(current_segment);
         }
 
-        let conn = marf.as_clarity_db();
+        let conn = marf.as_clarity_db(&DOC_HEADER_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
         let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
 
-        eprintln!("{}\n =====", program);
+        global_context.execute(|g| {
+            for segment in segments.iter() {
+                let expected = if segment.contains("Returns ") {
+                    let expects_start = segment.rfind("Returns ").unwrap() + "Returns ".len();
+                    Some(segment[expects_start..].trim().to_string())
+                } else {
+                    None
+                };
 
-        for segment in segments.iter() {
-            let expected = if segment.contains("Returns ") {
-                let expects_start = segment.rfind("Returns ").unwrap() + "Returns ".len();
-                Some(segment[expects_start..].trim().to_string())
-            } else {
-                None
-            };
+                eprintln!("{}", segment);
 
-            eprintln!("{}", segment);
+                let result = {
+                    let parsed = ast::build_ast(&contract_id, segment, &mut ()).unwrap()
+                        .expressions;
+                    eval_all(&parsed, &mut contract_context, g).unwrap()
+                };
 
-            let result = global_context.execute(|g| {
-                let parsed = ast::build_ast(&contract_id, segment, &mut ())?
-                    .expressions;
-                eval_all(&parsed, &mut contract_context, g)
-            }).unwrap();
-
-            if let Some(expected) = expected {
-                assert_eq!(expected, result.unwrap().to_string());
+                if let Some(expected) = expected {
+                    assert_eq!(expected, result.unwrap().to_string());
+                }
             }
-        }
+            Ok(())
+        }).unwrap();
+
+        marf.rollback();
     }
 
 
@@ -1485,6 +1547,29 @@ mod test {
     #[test]
     fn test_examples() {
         let apis = make_all_api_reference();
+        let mut marf = MarfedKV::temporary();
+        marf.begin(&StacksBlockId::sentinel(),
+                   &StacksBlockId([0; 32]));
+
+        // first, load the samples for contract-call
+        // and give the doc environment's contract some STX
+        {
+            let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+            let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+            let mut env = OwnedEnvironment::new(conn);
+            env.execute_in_env(QualifiedContractIdentifier::local("tokens").unwrap().into(),
+                               |e| {
+                                   e.global_context.database.set_account_stx_balance(
+                                       &QualifiedContractIdentifier::local("docs-test").unwrap().into(),
+                                       10000);
+                                   Ok(())
+                               }).unwrap();
+            env.initialize_contract(contract_id, 
+                                    &std::fs::read_to_string("sample-contracts/tokens.clar", ).unwrap()).unwrap();
+        }
+
+        marf.test_commit();
+
         for func_api in apis.functions.iter() {
             let example = &func_api.example;
             let without_throws: String = example.lines()
@@ -1493,7 +1578,7 @@ mod test {
                 .join("\n");
             let the_throws = example.lines()
                 .filter(|x| x.contains(";; Throws"));
-            docs_execute(&without_throws);
+            docs_execute(&mut marf, &without_throws);
             for expect_err in the_throws {
                 eprintln!("{}", expect_err);
                 execute(expect_err).unwrap_err();
