@@ -437,9 +437,16 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         if let Some(type_result) = self.try_native_function_check(function_name, args, context) {
             type_result
         } else {
-            let function_type = self.get_function_type(function_name)
-                .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?;
-            self.type_check_function_type(&function_type, args, context)
+            let function = match self.get_function_type(function_name) {
+                Some(FunctionType::Fixed(function)) => Ok(function),
+                _ => Err(CheckErrors::UnknownFunction(function_name.to_string()))
+            }?;
+
+            for (expected_type, found_type) in function.args.iter().map(|x| &x.signature).zip(args) {
+                self.type_check_expects(found_type, context, &expected_type)?;
+            }
+
+            Ok(function.returns)
         }
     }
 

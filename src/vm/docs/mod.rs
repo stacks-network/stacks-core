@@ -616,6 +616,19 @@ If the function returns _ok_, database changes occurred.",
 (as-contract (contract-call? .tokens mint! u19)) ;; Returns (ok u19)"
 };
 
+const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
+    input_type: "Trait",
+    output_type: "principal",
+    signature: "(contract-of .contract-name)",
+    description: "The `contract-of` function returns the principal of the contract implementing the trait.",
+    example: "
+(use-trait token-a-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
+(define-public (forward-get-balance (user principal) (contract <token-a-trait>))
+  (begin
+    (ok (contract-of contract)))) ;; returns the principal of the contract implementing <token-a-trait>
+"
+};
+
 const AT_BLOCK: SpecialAPI = SpecialAPI {
     input_type: "(buff 32), A",
     output_type: "A",
@@ -1340,6 +1353,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Keccak256 => make_for_special(&KECCAK256_API, name),
         Print => make_for_special(&PRINT_API, name),
         ContractCall => make_for_special(&CONTRACT_CALL_API, name),
+        ContractOf => make_for_special(&CONTRACT_OF_API, name),
         AsContract => make_for_special(&AS_CONTRACT_API, name),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, name),
         ConsOkay => make_for_special(&CONS_OK_API, name),

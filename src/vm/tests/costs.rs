@@ -65,6 +65,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Keccak256 => "(keccak256 1)",
         Print => "(print 1)",
         ContractCall => "(contract-call? .contract-other foo-exec 1)",
+        ContractOf => "(contract-of contract)",
         AsContract => "(as-contract 1)",
         GetBlockInfo => "(get-block-info? time u1)",
         ConsOkay => "(ok 1)",
@@ -101,8 +102,13 @@ fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_ident
 }
 
 fn test_tracked_costs(prog: &str) -> ExecutionCost {
-    let contract_other = "(define-map map-foo ((a int)) ((b int)))
+    let contract_trait = "(define-trait trait-1 (
+                            (foo-exec (int) (response int int))
+                          ))";
+    let contract_other = "(impl-trait .contract-trait.trait-1)
+                          (define-map map-foo ((a int)) ((b int)))
                           (define-public (foo-exec (a int)) (ok 1))";
+
 
     let contract_self = format!("(define-map map-foo ((a int)) ((b int)))
                          (define-non-fungible-token nft-foo int)
@@ -111,7 +117,8 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
                          (define-constant tuple-foo (tuple (a 1)))
                          (define-constant list-foo (list true))
                          (define-constant list-bar (list 1))
-                         (define-public (execute) (ok {}))", prog);
+                         (use-trait trait-1 .contract-trait.trait-1)
+                         (define-public (execute (contract <trait-1>)) (ok {}))", prog);
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
@@ -123,6 +130,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     let self_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
     let other_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
+    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
     let mut marf_kv = MarfedKV::temporary();
     marf_kv.begin(&TrieFileStorage::block_sentinel(),
@@ -140,11 +148,14 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
 
 
+    owned_env.initialize_contract(trait_contract_id.clone(), contract_trait).unwrap();
     owned_env.initialize_contract(other_contract_id.clone(), contract_other).unwrap();
     owned_env.initialize_contract(self_contract_id.clone(), &contract_self).unwrap();
 
+    let target_contract = Value::from(PrincipalData::Contract(other_contract_id));
+
     eprintln!("{}", &contract_self);
-    execute_transaction(&mut owned_env, p2, &self_contract_id, "execute", &[]).unwrap();
+    execute_transaction(&mut owned_env, p2, &self_contract_id, "execute", &symbols_from_values(vec![target_contract])).unwrap();
 
     let (_db, tracker) = owned_env.destruct().unwrap();
     tracker.get_total()
