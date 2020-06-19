@@ -94,7 +94,9 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
             if data.committed {
                 Ok(*data.data)
             } else {
-                Err(ShortReturnType::ExpectedValue(*data.data).into())
+                let short_return_val = Value::error(*data.data)
+                    .expect("BUG: Failed to construct new response type from old response type");
+                Err(ShortReturnType::ExpectedValue(short_return_val).into())
             }
         },
         _ => Err(CheckErrors::ExpectedOptionalOrResponseValue(input).into())
