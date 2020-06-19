@@ -1801,7 +1801,6 @@ mod test {
         pinger.join().unwrap();
     }
 
-    #[ignore] // fails intermittently when run via `cargo test`
     #[test]
     fn connection_send_recv() {
         let privkey = Secp256k1PrivateKey::new();
