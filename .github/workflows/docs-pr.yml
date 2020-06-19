@@ -12,9 +12,9 @@ name: Open Docs PR
 env:
   ROBOT_OWNER: kantai-robot
   ROBOT_REPO: docs.blockstack
-  TARGET_OWNER: kantai
+  TARGET_OWNER: blockstack
   TARGET_REPO: docs.blockstack
-  TARGET_REPOSITORY: kantai/docs.blockstack
+  TARGET_REPOSITORY: blockstack/docs.blockstack
 on:
   push:
     branches: [master]
