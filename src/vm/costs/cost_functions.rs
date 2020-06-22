@@ -3,7 +3,7 @@ use super::CostFunctions::{Linear, Constant, NLogN, LogN};
 
 macro_rules! def_runtime_cost {
     ($Name:ident { $runtime:expr }) => {
-        pub const $Name: SimpleCostSpecification = 
+        pub const $Name: SimpleCostSpecification =
             SimpleCostSpecification {
                 write_length: Constant(0),
                 write_count: Constant(0),
@@ -135,6 +135,7 @@ def_runtime_cost!(CONCAT { Linear(1, 1) });
 def_runtime_cost!(AS_MAX_LEN { Constant(1) });
 
 def_runtime_cost!(CONTRACT_CALL { Constant(1) });
+def_runtime_cost!(CONTRACT_OF { Constant(1) });
 
 pub const AT_BLOCK: SimpleCostSpecification = SimpleCostSpecification {
     write_length: Constant(0),
