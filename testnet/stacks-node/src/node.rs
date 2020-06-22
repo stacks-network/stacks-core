@@ -1,4 +1,5 @@
 use super::{Keychain, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
+use crate::run_loop::RegisteredKey;
 
 use std::convert::TryFrom;
 use std::{thread, time, thread::JoinHandle};
@@ -52,13 +53,6 @@ impl ChainTip {
             receipts: vec![]
         }
     }
-}
-
-#[derive(Clone)]
-struct RegisteredKey {
-    block_height: u16,
-    op_vtxindex: u16,
-    vrf_public_key: VRFPublicKey,
 }
 
 /// Node is a structure modelising an active node working on the stacks chain.
@@ -324,8 +318,8 @@ impl Node {
                         // Registered key has been mined
                         new_key = Some(RegisteredKey {
                             vrf_public_key: op.public_key.clone(),
-                            block_height: op.block_height as u16,
-                            op_vtxindex: op.vtxindex as u16,
+                            block_height: op.block_height as u64,
+                            op_vtxindex: op.vtxindex as u32,
                         });
                     }
                 },

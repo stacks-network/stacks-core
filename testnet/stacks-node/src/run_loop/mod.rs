@@ -5,6 +5,7 @@ use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
 
 use stacks::chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, TransactionPayload};
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::util::vrf::VRFPublicKey;
 
 macro_rules! info_blue {
     ($($arg:tt)*) => ({
@@ -104,4 +105,11 @@ impl RunLoopCallbacks {
         }
     }
 
+}
+
+#[derive(Clone)]
+pub struct RegisteredKey {
+    pub block_height: u64,
+    pub op_vtxindex: u32,
+    pub vrf_public_key: VRFPublicKey,
 }
