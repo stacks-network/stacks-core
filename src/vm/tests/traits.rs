@@ -551,11 +551,11 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
     let dispatching_contract =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>))
-            (contract-call? contract get-1 u0))
+            (contract-call? contract get-1 0u))
         (print (wrapped-get-1 .target-contract))";
     let target_contract =
         "(impl-trait .contract-defining-trait.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
