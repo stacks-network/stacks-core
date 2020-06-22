@@ -69,8 +69,8 @@ fn test_incomplete_impl_trait_2() {
             (get-3 (uint) (response uint uint))))";
     let impl_contract =
         "(impl-trait .defun.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))
-        (define-public (get-2 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))
+        (define-public (get-2 (x uint)) (ok 1u))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
@@ -848,11 +848,11 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
     let dispatching_contract_src =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>))
-            (contract-call? contract get-1 u0))
+            (contract-call? contract get-1 0u))
         (print (wrapped-get-1 .target-contract))";
     let target_contract_src =
         "(impl-trait .contract-defining-trait.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
@@ -880,12 +880,12 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
     let dispatching_contract_src =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
         (define-public (wrapped-get-1 (contract <trait-1>))
-            (contract-call? contract get-1 u0))
+            (contract-call? contract get-1 0u))
         (let ((p .target-contract))
             (print (wrapped-get-1 p)))";
     let target_contract_src =
         "(impl-trait .contract-defining-trait.trait-1)
-        (define-public (get-1 (x uint)) (ok u1))";
+        (define-public (get-1 (x uint)) (ok 1u))";
 
     let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
