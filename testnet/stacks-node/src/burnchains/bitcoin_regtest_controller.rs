@@ -204,8 +204,6 @@ impl BitcoinRegtestController {
     }
 
     pub fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
-        // todo(ludo): reuse the same client.
-
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
         let address = BitcoinAddress::from_bytes(

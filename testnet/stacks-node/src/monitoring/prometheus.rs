@@ -13,13 +13,19 @@ pub fn start_serving_prometheus_metrics(bind_address: String) {
     let addr = bind_address.clone();
 
     async_std::task::block_on(async {
-        let listener = TcpListener::bind(addr).await.expect("todo(ludo)");
-        let addr = format!("http://{}", listener.local_addr().expect("todo(ludo)"));
+        let listener = TcpListener::bind(addr).await.expect("Prometheus monitoring: unable to bind {}", addr);
+        let addr = format!("http://{}", listener.local_addr().expect("Prometheus monitoring: unable to get addr"));
         println!("Prometheus server listening on {}", addr);
     
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
-            let stream = stream.expect("todo(ludo)");
+            let stream = match stream {
+                Ok(stream) => stream,
+                Err(err) => {
+                    error!("Prometheus monitoring: unable to open socket and serve metrics - {:?}", err);
+                    return
+                }
+            };
             let addr = addr.clone();
     
             task::spawn(async {
