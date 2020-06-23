@@ -6,14 +6,49 @@ pub fn increment_rpc_calls_counter() {
     prometheus::RPC_CALL_COUNTER.inc();    
 }
 
-pub fn increment_p2p_control_plan_msg_received_counter() {
+pub fn increment_p2p_msg_unauthenticated_handshake_received_counter() {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_CONTROL_PLAN_MSG_RECEIVED_COUNTER.inc();    
+    prometheus::P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();    
 }
 
-pub fn increment_p2p_data_plan_msg_received_counter() {
+pub fn increment_p2p_msg_authenticated_handshake_received_counter() {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::P2P_DATA_PLAN_MSG_RECEIVED_COUNTER.inc();    
+    prometheus::P2P_MSG_AUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER.inc();    
+}
+
+pub fn increment_p2p_msg_get_neighbors_received_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::P2P_MSG_GET_NEIGHBORS_RECEIVED_COUNTER.inc();    
+}
+
+pub fn increment_p2p_msg_get_blocks_inv_received_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::P2P_MSG_GET_BLOCKS_INV_RECEIVED_COUNTER.inc();    
+}
+
+pub fn increment_p2p_msg_nack_sent_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::P2P_MSG_NACK_SENT_COUNTER.inc();    
+}
+
+pub fn increment_p2p_msg_ping_received_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::P2P_MSG_PING_RECEIVED_COUNTER.inc();    
+}
+
+pub fn increment_p2p_msg_nat_punch_request_received_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER.inc();    
+}
+
+pub fn increment_stx_blocks_downloaded_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_BLOCKS_DOWNLOADED_COUNTER.inc();    
+}
+
+pub fn increment_stx_micro_blocks_downloaded_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_MICRO_BLOCKS_DOWNLOADED_COUNTER.inc();    
 }
 
 pub fn increment_txs_received_counter() {

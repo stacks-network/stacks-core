@@ -7,15 +7,57 @@ lazy_static! {
         labels! {"handler" => "all",}
     )).unwrap();
 
-    pub static ref P2P_CONTROL_PLAN_MSG_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_p2p_control_plan_msg_received_total",
-        "Total number of messages received from p2p control plan.",
+    pub static ref P2P_MSG_UNAUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_p2p_msg_unauthenticated_handshake_received_total",
+        "Total number of authenticated Handshake messages received.",
         labels! {"handler" => "all",}
     )).unwrap();
 
-    pub static ref P2P_DATA_PLAN_MSG_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_p2p_data_plan_msg_received_total",
-        "Total number of messages received from p2p data plan.",
+    pub static ref P2P_MSG_AUTHENTICATED_HANDSHAKE_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_p2p_msg_authenticated_handshake_received_total",
+        "Total number of authenticated Handshake messages received.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref P2P_MSG_GET_NEIGHBORS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_p2p_msg_get_neighbors_received_total",
+        "Total number of GetNeighbors messages received.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref P2P_MSG_GET_BLOCKS_INV_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_p2p_msg_get_blocks_inv_received_total",
+        "Total number of GetBlocksInv messages received.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref P2P_MSG_NACK_SENT_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_p2p_msg_nack_sent_total",
+        "Total number of Nack messages sent.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref P2P_MSG_PING_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_p2p_msg_ping_received_total",
+        "Total number of Ping messages received.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_p2p_msg_nat_punch_request_received_total",
+        "Total number of NatPunchRequest messages received.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref STX_BLOCKS_DOWNLOADED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_stx_blocks_downloaded_total",
+        "Total number of Stacks blocks received.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref STX_MICRO_BLOCKS_DOWNLOADED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_stx_micro_blocks_downloaded_total",
+        "Total number of Stacks micro blocks received.",
         labels! {"handler" => "all",}
     )).unwrap();
 

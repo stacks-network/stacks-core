@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 pub use stacks::monitoring::{
     increment_warning_emitted_counter, 
     increment_errors_emitted_counter
