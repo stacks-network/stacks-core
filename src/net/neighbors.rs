@@ -2189,7 +2189,7 @@ mod test {
     #[ignore]
     fn test_step_walk_1_neighbor_plain() {
         let mut peer_1_config = TestPeerConfig::from_port(31990);
-        let mut peer_2_config = TestPeerConfig::from_port(31992);
+        let peer_2_config = TestPeerConfig::from_port(31992);
 
         // peer 1 crawls peer 2
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
