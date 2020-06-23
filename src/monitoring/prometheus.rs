@@ -61,6 +61,24 @@ lazy_static! {
         labels! {"handler" => "all",}
     )).unwrap();
 
+    pub static ref STX_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_stx_blocks_served_total",
+        "Total number of Stacks blocks served.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref STX_MICRO_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_stx_micro_blocks_served_total",
+        "Total number of Stacks micro blocks served.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref STX_CONFIRMED_MICRO_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_stx_confirmed_micro_blocks_served_total",
+        "Total number of Stacks blocks served.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
     pub static ref TXS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_transactions_received_total",
         "Total number of transactions received and relayed.",

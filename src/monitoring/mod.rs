@@ -51,6 +51,21 @@ pub fn increment_stx_micro_blocks_downloaded_counter() {
     prometheus::STX_MICRO_BLOCKS_DOWNLOADED_COUNTER.inc();    
 }
 
+pub fn increment_stx_blocks_served_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_BLOCKS_SERVED_COUNTER.inc();    
+}
+
+pub fn increment_stx_micro_blocks_served_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_MICRO_BLOCKS_SERVED_COUNTER.inc();    
+}
+
+pub fn increment_stx_confirmed_micro_blocks_served_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_CONFIRMED_MICRO_BLOCKS_SERVED_COUNTER.inc();    
+}
+
 pub fn increment_txs_received_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::TXS_RECEIVED_COUNTER.inc();    
