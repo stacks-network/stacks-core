@@ -5,8 +5,9 @@ use vm::errors::{InterpreterError, CheckErrors, InterpreterResult as Result, Inc
 use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, NULL_HEADER_DB,
                    ClaritySerializable, ClarityDeserializable};
 use vm::analysis::{AnalysisDatabase};
+use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
+use chainstate::stacks::index::{MARFValue, Error as MarfError, MarfTrieId, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::stacks::index::proofs::{TrieMerkleProof};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
@@ -22,8 +23,8 @@ use util::hash::{to_hex, hex_bytes, Sha512Trunc256Sum};
 ///   NOTE: Clarity will panic if you try to execute it from a non-initialized MarfedKV context.
 ///   (See: vm::tests::with_marfed_environment()) 
 pub struct MarfedKV {
-    chain_tip: BlockHeaderHash,
-    marf: MARF,
+    chain_tip: StacksBlockId,
+    marf: MARF<StacksBlockId>,
     // Since the MARF only stores 32 bytes of value,
     //   we need another storage
     side_store: SqliteConnection
@@ -41,7 +42,7 @@ pub trait ClarityBackingStore {
     fn put_all(&mut self, items: Vec<(String, String)>);
     /// fetch K-V out of the committed datastore
     fn get(&mut self, key: &str) -> Option<String>;
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)>;
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)>;
     fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
@@ -49,9 +50,9 @@ pub trait ClarityBackingStore {
     /// change the current MARF context to service reads from a different chain_tip
     ///   used to implement time-shifted evaluation.
     /// returns the previous block header hash on success
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash>;
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
 
-    fn get_block_at_height(&mut self, height: u32) -> Option<BlockHeaderHash>;
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
 
     /// this function returns the current block height, as viewed by this marfed-kv structure,
     ///  i.e., it changes on time-shifted evaluation. the open_chain_tip functions always
@@ -59,7 +60,7 @@ pub trait ClarityBackingStore {
     fn get_current_block_height(&mut self) -> u32;
 
     fn get_open_chain_tip_height(&mut self) -> u32;
-    fn get_open_chain_tip(&mut self) -> BlockHeaderHash;
+    fn get_open_chain_tip(&mut self) -> StacksBlockId;
     fn get_side_store(&mut self) -> &mut SqliteConnection;
 
     /// The contract commitment is the hash of the contract, plus the block height in
@@ -73,7 +74,7 @@ pub trait ClarityBackingStore {
     /// This function is used to obtain a committed contract hash, and the block header hash of the block
     ///   in which the contract was initialized. This data is used to store contract metadata in the side
     ///   store.
-    fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, Sha512Trunc256Sum)> {
+    fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
         let key = MarfedKV::make_contract_hash_key(contract);
         let contract_commitment = self.get(&key).map(|x| ContractCommitment::deserialize(&x))
             .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()) })?;
@@ -122,7 +123,7 @@ impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
 }
 
 impl MarfedKV {
-    pub fn open(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MarfedKV> {
+    pub fn open(path_str: &str, miner_tip: Option<&StacksBlockId>) -> Result<MarfedKV> {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
@@ -145,7 +146,7 @@ impl MarfedKV {
 
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
-            None => TrieFileStorage::block_sentinel()
+            None => StacksBlockId::sentinel()
         };
 
         Ok( MarfedKV { marf, chain_tip, side_store } )
@@ -164,7 +165,7 @@ impl MarfedKV {
             .unwrap();
         let side_store = SqliteConnection::memory().unwrap();
 
-        let chain_tip = TrieFileStorage::block_sentinel();
+        let chain_tip =  StacksBlockId::sentinel();
 
         MarfedKV { marf, chain_tip, side_store }
     }
@@ -186,7 +187,7 @@ impl MarfedKV {
     /// this is a "lower-level" rollback than the roll backs performed in
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
-    pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
+    pub fn begin(&mut self, current: &StacksBlockId, next: &StacksBlockId) {
         self.marf.begin(current, next)
             .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
         self.chain_tip = self.marf.get_open_chain_tip()
@@ -197,7 +198,7 @@ impl MarfedKV {
     pub fn rollback(&mut self) {
         self.marf.drop_current();
         self.side_store.rollback(&self.chain_tip);
-        self.chain_tip = TrieFileStorage::block_sentinel();
+        self.chain_tip = StacksBlockId::sentinel();
     }
     #[cfg(test)]
     pub fn test_commit(&mut self) {
@@ -207,7 +208,7 @@ impl MarfedKV {
     // This is used by miners
     //   so that the block validation and processing logic doesn't
     //   reprocess the same data as if it were already loaded
-    pub fn commit_mined_block(&mut self, will_move_to: &BlockHeaderHash) {
+    pub fn commit_mined_block(&mut self, will_move_to: &StacksBlockId) {
         debug!("commit_mined_block: ({}->{})", &self.chain_tip, will_move_to); 
         // rollback the side_store
         //    the side_store shouldn't commit data for blocks that won't be
@@ -218,18 +219,18 @@ impl MarfedKV {
         self.marf.commit_mined(will_move_to)
             .expect("ERROR: Failed to commit MARF block");
     }
-    pub fn commit_to(&mut self, final_bhh: &BlockHeaderHash) {
+    pub fn commit_to(&mut self, final_bhh: &StacksBlockId) {
         debug!("commit_to({})", final_bhh); 
         self.side_store.commit_metadata_to(&self.chain_tip, final_bhh);
         self.side_store.commit(&self.chain_tip);
         self.marf.commit_to(final_bhh)
             .expect("ERROR: Failed to commit MARF block");
     }
-    pub fn get_chain_tip(&self) -> &BlockHeaderHash {
+    pub fn get_chain_tip(&self) -> &StacksBlockId {
         &self.chain_tip
     }
 
-    pub fn set_chain_tip(&mut self, bhh: &BlockHeaderHash) {
+    pub fn set_chain_tip(&mut self, bhh: &StacksBlockId) {
         self.chain_tip = bhh.clone();
     }
 
@@ -241,7 +242,7 @@ impl MarfedKV {
             .expect("FATAL: Failed to read MARF root hash")
     }
 
-    pub fn get_marf(&mut self) -> &mut MARF {
+    pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
         &mut self.marf
     }
 
@@ -263,11 +264,11 @@ impl ClarityBackingStore for MarfedKV {
         &mut self.side_store
     }
 
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
         self.marf.check_ancestor_block_hash(&bhh).map_err(|e| {
             match e {
-                MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
-                MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
+                MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)),
+                MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)),
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e)
             }
         })?;
@@ -284,15 +285,18 @@ impl ClarityBackingStore for MarfedKV {
             .expect("Failed to obtain current block height.")
     }
 
-    fn get_block_at_height(&mut self, block_height: u32) -> Option<BlockHeaderHash> {
+    fn get_block_at_height(&mut self, block_height: u32) -> Option<StacksBlockId> {
         self.marf.get_bhh_at_height(&self.chain_tip, block_height)
             .expect("Unexpected MARF failure.")
+            .map(|x| StacksBlockId(x.to_bytes()))
     }
 
-    fn get_open_chain_tip(&mut self) -> BlockHeaderHash {
-        self.marf.get_open_chain_tip()
-            .expect("Attempted to get the open chain tip from an unopened context.")
-            .clone()
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        StacksBlockId(
+            self.marf.get_open_chain_tip()
+                .expect("Attempted to get the open chain tip from an unopened context.")
+                .clone()
+                .to_bytes())
     }
 
     fn get_open_chain_tip_height(&mut self) -> u32 {
@@ -300,7 +304,7 @@ impl ClarityBackingStore for MarfedKV {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)> {
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         self.marf.get_with_proof(&self.chain_tip, key)
             .or_else(|e| {
                 match e {
@@ -370,15 +374,15 @@ impl MemoryBackingStore {
 }
 
 impl ClarityBackingStore for MemoryBackingStore {
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(bhh).into())
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
         self.side_store.get(key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)> {
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
         self.side_store.get(key)
             .map(|x| {
                 (x, TrieMerkleProof(vec![]))
@@ -389,7 +393,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         &mut self.side_store
     }
 
-    fn get_block_at_height(&mut self, height: u32) -> Option<BlockHeaderHash> {
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         if height == 0 {
             Some(TrieFileStorage::block_sentinel())
         } else {
@@ -397,8 +401,8 @@ impl ClarityBackingStore for MemoryBackingStore {
         }
     }
 
-    fn get_open_chain_tip(&mut self) -> BlockHeaderHash {
-        TrieFileStorage::block_sentinel()
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        StacksBlockId::sentinel()
     }
 
     fn get_open_chain_tip_height(&mut self) -> u32 {

@@ -65,6 +65,7 @@ use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::burndb::BurnDBConn;
 use chainstate::burn::BlockSnapshot;
 
+use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::Error as chainstate_error;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::StacksBlockHeader;
@@ -109,14 +110,14 @@ pub struct BlockRequestKey {
     pub data_url: UrlString,
     pub burn_block_hash: BurnchainHeaderHash,
     pub anchor_block_hash: BlockHeaderHash,
-    pub index_block_hash: BlockHeaderHash,
+    pub index_block_hash: StacksBlockId,
     pub child_block_header: Option<StacksBlockHeader>,      // only used if asking for a microblock; used to confirm the stream's continuity
     pub sortition_height: u64,
 }
 
 
 impl BlockRequestKey {
-    pub fn new(neighbor: NeighborKey, data_url: UrlString, burn_block_hash: BurnchainHeaderHash, anchor_block_hash: BlockHeaderHash, index_block_hash: BlockHeaderHash, child_block_header: Option<StacksBlockHeader>, sortition_height: u64) -> BlockRequestKey {
+    pub fn new(neighbor: NeighborKey, data_url: UrlString, burn_block_hash: BurnchainHeaderHash, anchor_block_hash: BlockHeaderHash, index_block_hash: StacksBlockId, child_block_header: Option<StacksBlockHeader>, sortition_height: u64) -> BlockRequestKey {
         BlockRequestKey {
             neighbor: neighbor,
             data_url: data_url,
@@ -193,8 +194,8 @@ pub struct BlockDownloader {
 
     /// set of blocks and microblocks we have successfully downloaded (even if they haven't been
     /// stored yet)
-    blocks_downloaded: HashSet<BlockHeaderHash>,
-    microblocks_downloaded: HashSet<BlockHeaderHash>
+    blocks_downloaded: HashSet<StacksBlockId>,
+    microblocks_downloaded: HashSet<StacksBlockId>
 }
 
 impl BlockDownloader {
@@ -274,7 +275,10 @@ impl BlockDownloader {
 
         self.dns_lookups.clear();
         for url_str in urls.drain(..) {
-            let url = url_str.parse_to_block_url()?;        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL
+            if url_str.len() == 0 {
+                continue;
+            }
+            let url = url_str.parse_to_block_url()?;        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
             let port = match url.port_or_known_default() {
                 Some(p) => p,
                 None => {
@@ -362,11 +366,11 @@ impl BlockDownloader {
             match http.get_conversation(event_id) {
                 None => {
                     if http.is_connecting(event_id) {
-                        debug!("Event {} ({:?}, {:?} for block {} is not connected yet", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        debug!("Event {} ({:?}, {:?} for block {} is not connected yet", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                         pending_block_requests.insert(block_key, event_id);
                     }
                     else {
-                        debug!("Event {} ({:?}, {:?} for block {} failed to connect", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        debug!("Event {} ({:?}, {:?} for block {} failed to connect", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                         self.dead_peers.push(event_id);
                     }
                 }
@@ -852,6 +856,11 @@ impl PeerNetwork {
                         continue;
                     }
                 };
+                if data_url.len() == 0 {
+                    // peer doesn't yet know its public IP address, and isn't given a data URL
+                    // directly
+                    continue;
+                }
                 if block_urls.contains(&data_url) {
                     continue;
                 }
@@ -1114,7 +1123,7 @@ impl PeerNetwork {
     /// handling the request.
     fn begin_request<F>(network: &mut PeerNetwork, dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>, request_name: &str, request_keys: &mut VecDeque<BlockRequestKey>, chainstate: &mut StacksChainState, request_factory: F) -> Option<(BlockRequestKey, usize)> 
     where
-        F: Fn(PeerHost, BlockHeaderHash) -> HttpRequestType
+        F: Fn(PeerHost, StacksBlockId) -> HttpRequestType
     {
         loop {
             match request_keys.pop_front() {
@@ -1955,7 +1964,7 @@ pub mod test {
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_overwhelmed() {
-        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed", 3220, 5,
+        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed", 3230, 5,
                                        |ref mut peer_configs| {
                                            // build initial network topology -- a star with
                                            // peers[0] at the center, with all the blocks
@@ -1977,6 +1986,67 @@ pub mod test {
                                                peer_configs[i].connection_opts.max_clients_per_host = 1;
                                                peer_configs[i].connection_opts.num_clients = 1;
                                                peer_configs[i].connection_opts.idle_timeout = 1;
+                                           }
+
+                                           for n in neighbors.drain(..) {
+                                               peer_configs[0].add_neighbor(&n);
+                                           }
+                                       },
+                                       |num_blocks, ref mut peers| {
+                                           // build up block data to replicate
+                                           let mut block_data = vec![];
+                                           for _ in 0..num_blocks {
+                                               let (burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
+                                               peers[0].next_burnchain_block(burn_ops.clone());
+                                               peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                                               for i in 1..peers.len() {
+                                                   peers[i].next_burnchain_block(burn_ops.clone());
+                                               }
+
+                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                           }
+                                           block_data
+                                       },
+                                       |_| {},
+                                       |peer| {
+                                           // check peer health
+                                           // nothing should break 
+                                           match peer.network.block_downloader {
+                                               Some(ref dl) => {
+                                                   assert_eq!(dl.broken_peers.len(), 0);
+                                                   assert_eq!(dl.dead_peers.len(), 0);
+                                               },
+                                               None => {}
+                                           }
+                                           true
+                                       },
+                                       |_| true);
+    }
+    
+    #[test]
+    #[ignore]
+    pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
+        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed_sockets", 3240, 5,
+                                       |ref mut peer_configs| {
+                                           // build initial network topology -- a star with
+                                           // peers[0] at the center, with all the blocks
+                                           assert_eq!(peer_configs.len(), 5);
+                                           let mut neighbors = vec![];
+                                           
+                                           for p in peer_configs.iter_mut() {
+                                               p.connection_opts.disable_block_advertisement = true;
+                                           }
+
+                                           let peer_0 = peer_configs[0].to_neighbor();
+
+                                           for i in 1..peer_configs.len() {
+                                               neighbors.push(peer_configs[i].to_neighbor());
+                                               peer_configs[i].add_neighbor(&peer_0);
+
+                                               // severely restrict the number of events
+                                               peer_configs[i].connection_opts.max_sockets = 10;
                                            }
 
                                            for n in neighbors.drain(..) {

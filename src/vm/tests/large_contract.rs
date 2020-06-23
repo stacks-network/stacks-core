@@ -1,6 +1,8 @@
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use vm::execute as vm_execute;
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::StacksBlockId;
+use chainstate::stacks::index::MarfTrieId;
 use vm::errors::{Error, CheckErrors, RuntimeErrorType};
 use vm::types::{Value, OptionalData, StandardPrincipalData, ResponseData,
                 TypeSignature, PrincipalData, QualifiedContractIdentifier};
@@ -30,8 +32,8 @@ pub fn rollback_log_memory_test() {
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
     {
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+        let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                    &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
         let define_data_var = "(define-data-var XZ (buff 1048576) \"a\")";
@@ -72,8 +74,8 @@ pub fn let_memory_test() {
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
     {
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+        let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                    &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
         let define_data_var = "(define-constant buff-0 \"a\")";
@@ -115,8 +117,8 @@ pub fn argument_memory_test() {
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
     {
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+        let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                    &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
         let define_data_var = "(define-constant buff-0 \"a\")";
@@ -159,8 +161,8 @@ pub fn fcall_memory_test() {
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
     {
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+        let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                    &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
         let define_data_var = "(define-constant buff-0 \"a\")";
@@ -231,8 +233,8 @@ pub fn ccall_memory_test() {
     let CONTRACTS = 5;
 
     {
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+        let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                    &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
         let define_data_var = "(define-constant buff-0 \"a\")\n";

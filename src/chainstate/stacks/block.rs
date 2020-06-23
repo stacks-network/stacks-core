@@ -186,20 +186,16 @@ impl StacksBlockHeader {
     /// This is the "block hash" used for extending the state index root.
     /// This method is necessary because the index root must be globally unique (but, the same stacks
     /// block header can show up multiple times on different burn chain forks).
-    pub fn make_index_block_hash(burn_block_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> BlockHeaderHash {
-        let mut hash_bytes = vec![];
-        
-        hash_bytes.extend_from_slice(&mut block_hash.as_bytes().clone());
-        hash_bytes.extend_from_slice(&mut burn_block_hash.as_bytes().clone());
-        
-        let h = Sha512Trunc256Sum::from_data(&hash_bytes);
-        let mut b = [0u8; 32];
-        b.copy_from_slice(h.as_bytes());
+    pub fn make_index_block_hash(burn_block_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> StacksBlockId {
+        let mut hasher = Sha512Trunc256::new();
+        hasher.input(block_hash);
+        hasher.input(burn_block_hash);
 
-        BlockHeaderHash(b)
+        let h = Sha512Trunc256Sum::from_hasher(hasher);
+        StacksBlockId(h.0)
     }
 
-    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> BlockHeaderHash {
+    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> StacksBlockId {
         let block_hash = self.block_hash();
         StacksBlockHeader::make_index_block_hash(burn_hash, &block_hash)
     }
@@ -411,7 +407,7 @@ impl StacksBlock {
         self.header.block_hash()
     }
     
-    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> BlockHeaderHash {
+    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> StacksBlockId {
         self.header.index_block_hash(burn_hash)
     }
 

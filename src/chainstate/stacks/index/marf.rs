@@ -32,7 +32,6 @@ use std::path::{
     PathBuf
 };
 
-use std::marker::PhantomData;
 use std::fs;
 
 use sha2::Digest;
@@ -72,7 +71,8 @@ use chainstate::stacks::index::{
     proofs::TrieMerkleProof,
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
-    MARFValue
+    MARFValue,
+    MarfTrieId,
 };
 
 use chainstate::stacks::index::trie::{
@@ -88,22 +88,22 @@ pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH"
 pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
-pub struct MARF {
-    storage: TrieFileStorage,
-    open_chain_tip: Option<WriteChainTip>,
-    readonly: bool
+pub struct MARF<T: MarfTrieId> {
+    storage: TrieFileStorage<T>,
+    open_chain_tip: Option<WriteChainTip<T>>,
+    readonly: bool,
 }
 
 #[derive(Clone)]
-struct WriteChainTip {
-    block_hash: BlockHeaderHash,
+struct WriteChainTip<T> {
+    block_hash: T,
     height: u32
 }
 
-impl MARF {
+impl <T: MarfTrieId> MARF <T> {
 
     #[cfg(test)]
-    pub fn from_storage_opened(storage: TrieFileStorage, opened_to: &BlockHeaderHash) -> MARF {
+    pub fn from_storage_opened(storage: TrieFileStorage<T>, opened_to: &T) -> MARF<T> {
         MARF {
             storage,
             open_chain_tip: Some(WriteChainTip { block_hash: opened_to.clone(),
@@ -113,7 +113,7 @@ impl MARF {
     }
 
     // helper method for walking a node's backpr
-    fn walk_backptr(storage: &mut TrieFileStorage, start_node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, u32), Error> {
+    fn walk_backptr(storage: &mut TrieFileStorage<T>, start_node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor<T>) -> Result<(TrieNodeType, TrieHash, TriePtr, u32), Error> {
         if start_node.is_leaf() {
             panic!("Did not get an intermediate node");
         }
@@ -152,7 +152,7 @@ impl MARF {
         let hash = match node {
             TrieNodeType::Leaf(leaf) => get_leaf_hash(leaf),
             _ => {
-                MARF::node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
+                MARF::<T>::node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
                 TrieHash::from_data(&[])
             }
         };
@@ -163,7 +163,7 @@ impl MARF {
     /// Given a node, and the chr of one of its children, go find the last instance of that child in
     /// the MARF and copy it forward.  Update its ptrs to point to its descendents.
     /// s must point to the block hash in which this node lives, to which the child will be copied.
-    fn node_child_copy(storage: &mut TrieFileStorage, node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, BlockHeaderHash), Error> {
+    fn node_child_copy(storage: &mut TrieFileStorage<T>, node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor<T>) -> Result<(TrieNodeType, TrieHash, TriePtr, T), Error> {
         trace!("Copy to {:?} child {:x} of {:?}", storage.get_cur_block(), chr, node);
 
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
@@ -173,7 +173,7 @@ impl MARF {
 
         // update child_node with new ptrs and hashes
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
-        let child_hash = MARF::node_copy_update(&mut child_node, child_block_identifier)
+        let child_hash = MARF::<T>::node_copy_update(&mut child_node, child_block_identifier)
             .map_err(|e| Error::BlockHashMapCorruptionError(Some(Box::new(e))))?;
 
         // store it in this trie
@@ -188,14 +188,14 @@ impl MARF {
 
     /// Copy the root node from the previous Trie to this Trie, updating its ptrs.
     /// s must point to the target Trie
-    fn root_copy(storage: &mut TrieFileStorage, prev_block_hash: &BlockHeaderHash) -> Result<(), Error> {
+    fn root_copy(storage: &mut TrieFileStorage<T>, prev_block_hash: &T) -> Result<(), Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
         storage.open_block(prev_block_hash)?;
         let prev_block_identifier = storage.get_cur_block_identifier()
             .expect(&format!("called open_block on {}, but found no identifier", prev_block_hash));
         
         let (mut prev_root, _) = Trie::read_root(storage)?;
-        let new_root_hash = MARF::node_copy_update(&mut prev_root, prev_block_identifier)?;
+        let new_root_hash = MARF::<T>::node_copy_update(&mut prev_root, prev_block_identifier)?;
         
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
         
@@ -208,13 +208,13 @@ impl MARF {
     /// If the trie doesn't exist, then extend it from the current Trie and create a root node that
     /// has back pointers to its immediate children in the current trie.
     /// On Ok, s will point to new_bhh and will be open for reading
-    pub fn extend_trie(storage: &mut TrieFileStorage, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn extend_trie(storage: &mut TrieFileStorage<T>, new_bhh: &T) -> Result<(), Error> {
         if storage.readonly {
             return Err(Error::ReadOnlyError);
         }
 
         let (cur_bhh, cur_block_id) = storage.get_cur_block_and_id();
-        if storage.num_blocks() == 0 || cur_bhh == TrieFileStorage::block_sentinel() {
+        if storage.num_blocks() == 0 || cur_bhh == T::sentinel() {
             // brand new storage
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
@@ -253,7 +253,7 @@ impl MARF {
     /// Walk down this MARF at the given block hash, doing a copy-on-write for intermediate nodes in this block's Trie from any prior Tries.
     /// s must point to the last filled-in Trie -- i.e. block_hash points to the _new_ Trie that is
     /// being filled in.
-    fn walk_cow(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<TrieCursor, Error> {
+    fn walk_cow(storage: &mut TrieFileStorage<T>, block_hash: &T, path: &TriePath) -> Result<TrieCursor<T>, Error> {
         let block_id = storage.get_block_identifier(block_hash);
         MARF::extend_trie(storage, block_hash)?;
 
@@ -338,7 +338,7 @@ impl MARF {
     /// Walk down this MARF at the given block hash, resolving backptrs to previous tries.
     /// Return the cursor and the last node visited.
     /// s will point to the block in which the leaf was found, or the last block visited.
-    fn walk(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<(TrieCursor, TrieNodeType), Error> {
+    fn walk(storage: &mut TrieFileStorage<T>, block_hash: &T, path: &TriePath) -> Result<(TrieCursor<T>, TrieNodeType), Error> {
         storage.open_block(block_hash)?;
 
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
@@ -408,7 +408,7 @@ impl MARF {
         return Err(Error::CorruptionError("Trie has a cycle".to_string()));
     }
 
-    pub fn format(storage: &mut TrieFileStorage, first_block_hash: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn format(storage: &mut TrieFileStorage<T>, first_block_hash: &T) -> Result<(), Error> {
         if storage.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -422,7 +422,7 @@ impl MARF {
         storage.write_nodetype(root_ptr, &node_type, hash)
     }
 
-    pub fn get_path(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<Option<TrieLeaf>, Error> {
+    pub fn get_path(storage: &mut TrieFileStorage<T>, block_hash: &T, path: &TriePath) -> Result<Option<TrieLeaf>, Error> {
         trace!("MARF::get_path({:?}) {:?}", block_hash, path);
 
         // a NotFoundError _here_ means that a block didn't exist
@@ -454,7 +454,7 @@ impl MARF {
         }
     }
 
-    fn do_insert_leaf(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath, leaf_value: &TrieLeaf, update_skiplist: bool) -> Result<(), Error> {
+    fn do_insert_leaf(storage: &mut TrieFileStorage<T>, block_hash: &T, path: &TriePath, leaf_value: &TrieLeaf, update_skiplist: bool) -> Result<(), Error> {
         let mut value = leaf_value.clone();
         let mut cursor = MARF::walk_cow(storage, block_hash, path)?;
 
@@ -477,7 +477,7 @@ impl MARF {
         Ok(())
     }
 
-    pub fn insert_leaf(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
+    pub fn insert_leaf(storage: &mut TrieFileStorage<T>, block_hash: &T, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
         if storage.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -485,7 +485,7 @@ impl MARF {
     }
     
     // like insert_leaf, but don't update the merkle skiplist
-    pub fn insert_leaf_in_batch(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
+    pub fn insert_leaf_in_batch(storage: &mut TrieFileStorage<T>, block_hash: &T, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
         if storage.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -493,7 +493,7 @@ impl MARF {
     }
 
     /// Instantiate the MARF from a TrieFileStorage instance 
-    pub fn from_storage(storage: TrieFileStorage) -> MARF {
+    pub fn from_storage(storage: TrieFileStorage<T>) -> MARF<T> {
         MARF {
             storage: storage,
             open_chain_tip: None,
@@ -504,7 +504,7 @@ impl MARF {
     /// Instantiate the MARF using a TrieFileStorage instance, from the given path on disk.
     /// This will have the side-effect of instantiating a new fork table from the tries encoded on
     /// disk. Performant code should call this method sparingly.
-    pub fn from_path(path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF, Error> {
+    pub fn from_path(path: &str, miner_tip: Option<&T>) -> Result<MARF<T>, Error> {
         let mut file_storage = TrieFileStorage::new(path)?;
         match fs::metadata(path) {
             Ok(_) => {},
@@ -517,19 +517,19 @@ impl MARF {
             }
         };
 
-        if let Some(ref miner_tip) = miner_tip {
-            file_storage.set_miner_tip(*miner_tip.clone());
+        if let Some(miner_tip) = miner_tip {
+            file_storage.set_miner_tip(miner_tip.clone());
         }
 
         Ok(MARF::from_storage(file_storage))
     }
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
-    pub fn get(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
+    pub fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         MARF::get_by_key(&mut self.storage, block_hash, key)
     }
 
-    pub fn get_with_proof(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<(MARFValue, TrieMerkleProof)>, Error> {
+    pub fn get_with_proof(&mut self, block_hash: &T, key: &str) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let marf_value = match MARF::get_by_key(&mut self.storage, block_hash, key)? {
             None => return Ok(None),
             Some(x) => x
@@ -538,11 +538,11 @@ impl MARF {
         Ok(Some((marf_value, proof)))
     }
 
-    pub fn get_bhh_at_height(&mut self, block_hash: &BlockHeaderHash, height: u32) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_bhh_at_height(&mut self, block_hash: &T, height: u32) -> Result<Option<T>, Error> {
         MARF::get_block_at_height(&mut self.storage, height, block_hash)
     }
 
-    pub fn get_by_key(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
+    pub fn get_by_key(storage: &mut TrieFileStorage<T>, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
@@ -561,7 +561,7 @@ impl MARF {
         }))
     }
 
-    pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+    pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage<T>, block_hash: &T, current_block_hash: &T) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
         #[cfg(test)] {
             // used in testing in order to short-circuit block-height lookups
@@ -581,11 +581,11 @@ impl MARF {
         Ok(marf_value.map(u32::from))
     }
     
-    pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+    pub fn get_block_height(storage: &mut TrieFileStorage<T>, block_hash: &T, current_block_hash: &T) -> Result<Option<u32>, Error> {
         MARF::get_block_height_miner_tip(storage, block_hash, current_block_hash)
     }
 
-    pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_block_at_height(storage: &mut TrieFileStorage<T>, height: u32, current_block_hash: &T) -> Result<Option<T>, Error> {
         #[cfg(test)] {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -610,14 +610,11 @@ impl MARF {
 
         MARF::get_by_key(storage, current_block_hash, &height_key)
             .map(|option_result| {
-                option_result.map(|marf_value| { 
-                    let block_hash = BlockHeaderHash::from(marf_value);
-                    block_hash
-                })
+                option_result.map(T::from)
             })
     }
 
-    pub fn set_block_heights(&mut self, block_hash: &BlockHeaderHash, next_block_hash: &BlockHeaderHash, height: u32) -> Result<(), Error> {
+    pub fn set_block_heights(&mut self, block_hash: &T, next_block_hash: &T, height: u32) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -741,7 +738,7 @@ impl MARF {
     /// associated block's new state.  Call commit() or commit_to() to persist the changes.
     /// Fails if the block already exists.
     /// Storage will point to new chain tip on success.
-    pub fn begin(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -815,7 +812,7 @@ impl MARF {
     ///   to commit the mined block, but write it to the mined_block table,
     ///   rather than out to the marf_data table (this prevents the
     ///   miner's block from getting stepped on after the sortition).
-    pub fn commit_mined(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn commit_mined(&mut self, bhh: &T) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -830,7 +827,7 @@ impl MARF {
     
     /// Finish writing the next trie in the MARF, but change the hash of the current Trie's 
     /// block hash to something other than what we opened it as.  This persists all changes.
-    pub fn commit_to(&mut self, real_bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn commit_to(&mut self, real_bhh: &T) -> Result<(), Error> {
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -843,7 +840,7 @@ impl MARF {
         Ok(())
     }
 
-    pub fn get_block_height_of(&mut self, bhh: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+    pub fn get_block_height_of(&mut self, bhh: &T, current_block_hash: &T) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
             return Ok(self.get_open_chain_tip_height())
         } else {
@@ -852,7 +849,7 @@ impl MARF {
     }
 
     /// Get open chain tip
-    pub fn get_open_chain_tip(&self) -> Option<&BlockHeaderHash> {
+    pub fn get_open_chain_tip(&self) -> Option<&T> {
         self.open_chain_tip.as_ref()
             .map(|x| &x.block_hash)
     }
@@ -867,7 +864,7 @@ impl MARF {
     ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
     ///   as the current block
     /// The MARF _must_ be open to a valid block for this check to be evaluated.
-    pub fn check_ancestor_block_hash(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn check_ancestor_block_hash(&mut self, bhh: &T) -> Result<(), Error> {
         let cur_block_hash = self.storage.get_cur_block();
         if cur_block_hash == *bhh {
             // a block is in its own fork
@@ -875,14 +872,14 @@ impl MARF {
         }
 
         let bhh_height = MARF::get_block_height(&mut self.storage, bhh, &cur_block_hash)?
-            .ok_or_else(|| Error::NonMatchingForks(bhh.clone(), cur_block_hash.clone()))?;
+            .ok_or_else(|| Error::NonMatchingForks(bhh.clone().to_bytes(), cur_block_hash.clone().to_bytes()))?;
 
         let actual_block_at_height = MARF::get_block_at_height(&mut self.storage, bhh_height, &cur_block_hash)?
             .ok_or_else(|| Error::CorruptionError(format!(
                 "ERROR: Could not find block for height {}, but it was returned by MARF::get_block_height()", bhh_height)))?;
 
-        if *bhh != actual_block_at_height {
-            return Err(Error::NonMatchingForks(bhh.clone(), cur_block_hash.clone()))
+        if bhh != &actual_block_at_height {
+            return Err(Error::NonMatchingForks(bhh.clone().to_bytes(), cur_block_hash.to_bytes()))
         }
 
         // test open
@@ -896,17 +893,17 @@ impl MARF {
     }
 
     /// Access internal storage
-    pub fn borrow_storage_backend(&mut self) -> &mut TrieFileStorage {
+    pub fn borrow_storage_backend(&mut self) -> &mut TrieFileStorage<T> {
         &mut self.storage
     }
 
     /// Reopen storage read-only
-    pub fn reopen_storage_readonly(&self) -> Result<TrieFileStorage, Error> {
+    pub fn reopen_storage_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         self.storage.reopen_readonly()
     }
 
     /// Reopen this MARF with readonly storage.
-    pub fn reopen_readonly(&self) -> Result<MARF, Error> {
+    pub fn reopen_readonly(&self) -> Result<MARF<T>, Error> {
         if self.open_chain_tip.is_some() {
             error!("MARF at {} is already in the process of writing", &self.storage.dir_path);
             return Err(Error::InProgressError);
@@ -926,7 +923,7 @@ impl MARF {
     }
     
     /// Get the root trie hash at a particular block
-    pub fn get_root_hash_at(&mut self, block_hash: &BlockHeaderHash) -> Result<TrieHash, Error> {
+    pub fn get_root_hash_at(&mut self, block_hash: &T) -> Result<TrieHash, Error> {
         let cur_block_hash = self.storage.get_cur_block();
 
         self.storage.open_block(block_hash)?;
@@ -1274,7 +1271,7 @@ mod test {
 
     fn marf_walk_cow_test <F, G> (path_init: G, path_gen: F)
     where F: Fn(u32, [u8; 32]) -> [u8; 32],
-          G: FnOnce(&mut TrieFileStorage) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+          G: FnOnce(&mut TrieFileStorage<BlockHeaderHash>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         let mut f = TrieFileStorage::new_memory().unwrap();
         let mut last_block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &last_block_header).unwrap();
@@ -1435,7 +1432,7 @@ mod test {
         }
     }
 
-    fn marf_insert<F>(filename: &str, mut path_gen: F, count: u32, check_merkle_proof: bool) -> MARF
+    fn marf_insert<F>(filename: &str, mut path_gen: F, count: u32, check_merkle_proof: bool) -> MARF<BlockHeaderHash>
         where F: FnMut(u32) -> ([u8; 32], Option<BlockHeaderHash>) {
 
         let f = TrieFileStorage::new_memory().unwrap();
@@ -1554,7 +1551,7 @@ mod test {
         let mut marf = MARF::from_storage(f);
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
-        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &block_header).unwrap();
 
         let path = [0u8; 32];
         let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
@@ -1649,7 +1646,7 @@ mod test {
         let f = TrieFileStorage::new(&path).unwrap();
         let mut m = MARF::from_storage(f);
 
-        let mut block_header = TrieFileStorage::block_sentinel();
+        let mut block_header = BlockHeaderHash::sentinel();
         
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
         let mut start_time = get_epoch_time_ms();
@@ -1757,7 +1754,7 @@ mod test {
 
         let mut m = MARF::from_storage(f);
 
-        let mut block_header = TrieFileStorage::block_sentinel();
+        let mut block_header = BlockHeaderHash::sentinel();
         
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
         let mut prev_block_header = block_header.clone();
@@ -2005,7 +2002,7 @@ mod test {
             fork_headers.push(next_fork_row);
         }
        
-        m.begin(&TrieFileStorage::block_sentinel(), &BlockHeaderHash([0u8; 32])).unwrap();
+        m.begin(&BlockHeaderHash::sentinel(), &BlockHeaderHash([0u8; 32])).unwrap();
         m.commit().unwrap();
 
         for i in 1..8 {
@@ -2079,7 +2076,7 @@ mod test {
 
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
-        marf.begin(&TrieFileStorage::block_sentinel(), &target_block).unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &target_block).unwrap();
 
         let mut root_table_cache = None;
 
@@ -2217,11 +2214,11 @@ mod test {
         let value_1 = TrieLeaf::new(&vec![], &vec![1u8; 40]);
         let value_2 = TrieLeaf::new(&vec![], &vec![2u8; 40]);
 
-        marf.begin(&TrieFileStorage::block_sentinel(), &block_header_1).unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &block_header_1).unwrap();
         marf.insert_raw(triepath_1, value_1.clone()).unwrap();
         marf.commit_to(&block_header_1).unwrap();
 
-        marf.begin(&TrieFileStorage::block_sentinel(), &block_header_2).unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &block_header_2).unwrap();
         marf.insert_raw(triepath_2, value_2.clone()).unwrap();
         marf.commit_to(&block_header_2).unwrap();
             

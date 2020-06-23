@@ -52,7 +52,8 @@ use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
     BlockMap,
-    trie_sql
+    trie_sql,
+    MarfTrieId
 };
 
 use chainstate::stacks::index::storage::{
@@ -135,13 +136,13 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     tx.commit().map_err(|e| e.into())
 }
 
-pub fn get_block_identifier(conn: &Connection, bhh: &BlockHeaderHash) -> Result<u32, Error> {
+pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
     conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?", &[bhh],
                    |row| row.get("block_id"))
         .map_err(|e| e.into())
 }
 
-pub fn get_block_hash(conn: &Connection, local_id: u32) -> Result<BlockHeaderHash, Error> {
+pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result<T, Error> {
     let result = conn.query_row("SELECT block_hash FROM marf_data WHERE block_id = ?", &[local_id],
                                 |row| row.get("block_hash"))
         .optional()?;
@@ -151,7 +152,7 @@ pub fn get_block_hash(conn: &Connection, local_id: u32) -> Result<BlockHeaderHas
     })
 }
 
-pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
+pub fn write_trie_blob<T: MarfTrieId>(conn: &Connection, block_hash: &T, data: &[u8]) -> Result<u32, Error> {
     let args: &[&dyn ToSql] = &[block_hash, &data];
     let mut s = conn.prepare("INSERT INTO marf_data (block_hash, data) VALUES (?, ?)")?;
     let block_id = s.insert(args)?
@@ -160,7 +161,7 @@ pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[
     Ok(block_id)
 }
 
-pub fn write_trie_blob_to_mined(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
+pub fn write_trie_blob_to_mined<T: MarfTrieId>(conn: &Connection, block_hash: &T, data: &[u8]) -> Result<u32, Error> {
     let args: &[&dyn ToSql] = &[block_hash, &data];
     let mut s = conn.prepare("INSERT OR REPLACE INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
     let block_id = s.insert(args)?
@@ -170,13 +171,13 @@ pub fn write_trie_blob_to_mined(conn: &Connection, block_hash: &BlockHeaderHash,
 }
 
 #[cfg(test)]
-pub fn read_all_block_hashes_and_roots(conn: &Connection) -> Result<Vec<(TrieHash, BlockHeaderHash)>, Error> {
+pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(conn: &Connection) -> Result<Vec<(TrieHash, T)>, Error> {
     let mut s = conn.prepare("SELECT block_hash, data FROM marf_data")?;
     let rows = s.query_and_then(NO_PARAMS, |row| {
-        let block_hash: BlockHeaderHash = row.get("block_hash");
+        let block_hash: T = row.get("block_hash");
         let data = row.get_raw("data")
             .as_blob().expect("DB Corruption: MARF data is non-blob");
-        let start = TrieFileStorage::root_ptr_disk() as usize;
+        let start = TrieFileStorage::<T>::root_ptr_disk() as usize;
         let trie_hash = TrieHash(read_hash_bytes(&mut &data[start..])?);
         Ok((trie_hash, block_hash))
     })?;
@@ -190,7 +191,7 @@ pub fn read_node_hash_bytes<W: Write>(conn: &Connection, w: &mut W, block_id: u3
         .map_err(|e| e.into())
 }
 
-pub fn read_node_hash_bytes_by_bhh<W: Write>(conn: &Connection, w: &mut W, bhh: &BlockHeaderHash, ptr: &TriePtr) -> Result<(), Error> {
+pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(conn: &Connection, w: &mut W, bhh: &T, ptr: &TriePtr) -> Result<(), Error> {
     let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?",
                                      &[bhh], |r| r.get("block_id"))?;
     let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
@@ -210,7 +211,7 @@ pub fn get_node_hash_bytes(conn: &Connection, block_id: u32, ptr: &TriePtr) -> R
     Ok(TrieHash(hash_buff))
 }
 
-pub fn get_node_hash_bytes_by_bhh(conn: &Connection, bhh: &BlockHeaderHash, ptr: &TriePtr) -> Result<TrieHash, Error> {
+pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(conn: &Connection, bhh: &T, ptr: &TriePtr) -> Result<TrieHash, Error> {
     let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?",
                                      &[bhh], |r| r.get("block_id"))?;
     let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
@@ -218,7 +219,7 @@ pub fn get_node_hash_bytes_by_bhh(conn: &Connection, bhh: &BlockHeaderHash, ptr:
     Ok(TrieHash(hash_buff))
 }
 
-pub fn lock_bhh_for_extension(conn: &mut Connection, bhh: &BlockHeaderHash) -> Result<bool, Error> {
+pub fn lock_bhh_for_extension<T: MarfTrieId>(conn: &mut Connection, bhh: &T) -> Result<bool, Error> {
     let tx = tx_begin_immediate(conn)?;
     let is_bhh_committed = tx.query_row("SELECT 1 FROM marf_data WHERE block_hash = ? LIMIT 1", &[bhh],
                                         |_row| ()).optional()?.is_some();
@@ -243,7 +244,7 @@ pub fn count_blocks(conn: &Connection) -> Result<u32, Error> {
     Ok(result)
 }
 
-pub fn drop_lock(conn: &Connection, bhh: &BlockHeaderHash) -> Result<(), Error> {
+pub fn drop_lock<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<(), Error> {
     conn.execute("DELETE FROM block_extension_locks WHERE block_hash = ?", &[bhh])?;
     Ok(())
 }

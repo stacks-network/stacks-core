@@ -37,6 +37,7 @@ use net::p2p::*;
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::events::StacksTransactionReceipt;
 
 use core::mempool::*;
@@ -486,12 +487,12 @@ impl Relayer {
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
     /// process_new_blocks().  Make sure the messages don't get too big.
-    fn make_microblocksdata_messages(mut new_microblocks: HashMap<BlockHeaderHash, (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>)>) -> Vec<(Vec<RelayData>, MicroblocksData)> {
-        let mut mblocks_data : HashMap<BlockHeaderHash, Vec<(Vec<RelayData>, MicroblocksData)>> = HashMap::new();
-        let mut mblocks_sizes : HashMap<BlockHeaderHash, usize> = HashMap::new();
+    fn make_microblocksdata_messages(new_microblocks: HashMap<StacksBlockId, (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>)>) -> Vec<(Vec<RelayData>, MicroblocksData)> {
+        let mut mblocks_data : HashMap<StacksBlockId, Vec<(Vec<RelayData>, MicroblocksData)>> = HashMap::new();
+        let mut mblocks_sizes : HashMap<StacksBlockId, usize> = HashMap::new();
 
-        for (anchored_block_hash, (relayers, mut mblocks_map)) in new_microblocks.drain() {
-            for (_, mblock) in mblocks_map.drain() {
+        for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
+            for (_, mblock) in mblocks_map.into_iter() {
                 if mblocks_data.get(&anchored_block_hash).is_none() {
                     mblocks_data.insert(anchored_block_hash.clone(), vec![]);
                 }
@@ -657,7 +658,7 @@ impl Relayer {
     /// Return the list of MicroblockData messages we need to broadcast to our neighbors, as well
     /// as the list of neighbors we need to ban because they sent us invalid microblocks.
     fn preprocess_pushed_microblocks(network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
-        let mut new_microblocks : HashMap<BlockHeaderHash, (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>)> = HashMap::new();
+        let mut new_microblocks : HashMap<StacksBlockId, (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>)> = HashMap::new();
         let mut bad_neighbors = vec![];
 
         // process unconfirmed microblocks pushed to us.
@@ -680,16 +681,17 @@ impl Relayer {
                         Ok(_) => {
                             if need_relay {
                                 // we didn't have this block before, so relay it.
-                                // Group by anchored block hash, so we can convert them into
+                                // Group by index block hash, so we can convert them into
                                 // MicroblocksData messages later.  Group microblocks by block
                                 // hash, so we don't send dups.
-                                if let Some((_, mblocks_map)) = new_microblocks.get_mut(&anchored_block_hash) {
+                                let index_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &anchored_block_hash);
+                                if let Some((_, mblocks_map)) = new_microblocks.get_mut(&index_hash) {
                                     mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
                                 }
                                 else {
                                     let mut mblocks_map = HashMap::new();
                                     mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
-                                    new_microblocks.insert(anchored_block_hash.clone(), ((*mblock_relayers).clone(), mblocks_map));
+                                    new_microblocks.insert(index_hash, ((*mblock_relayers).clone(), mblocks_map));
                                 }
                             }
                         }
@@ -894,6 +896,7 @@ impl Relayer {
                 }
 
                 // have the p2p thread forward all new unconfirmed microblocks
+                test_debug!("{:?}: Unconfirmed microblocks: {}", &_local_peer, new_microblocks.len());
                 for (relayers, mblocks_msg) in new_microblocks.drain(..) {
                     test_debug!("{:?}: Send {} microblocks for {}", &_local_peer, mblocks_msg.microblocks.len(), &mblocks_msg.index_anchor_block);
                     let msg = StacksMessageType::Microblocks(mblocks_msg);
@@ -1430,8 +1433,8 @@ mod test {
             public_key: Secp256k1PublicKey::from_hex("0260569384baa726f877d47045931e5310383f18d0b243a9b6c095cee6ef19abd6").unwrap(),
             expire_block: 4302,
             last_contact_time: 0,
-            whitelisted: 0,
-            blacklisted: 0,
+            allowed: 0,
+            denied: 0,
             asn: 1,
             org: 1,
             in_degree: 0,
@@ -1443,8 +1446,8 @@ mod test {
             public_key: Secp256k1PublicKey::from_hex("02465f9ff58dfa8e844fec86fa5fc3fd59c75ea807e20d469b0a9f885d2891fbd4").unwrap(),
             expire_block: 4302,
             last_contact_time: 0,
-            whitelisted: 0,
-            blacklisted: 0,
+            allowed: 0,
+            denied: 0,
             asn: 2,
             org: 2,
             in_degree: 0,
@@ -1456,8 +1459,8 @@ mod test {
             public_key: Secp256k1PublicKey::from_hex("032d8a1ea2282c1514fdc1a6f21019561569d02a225cf7c14b4f803b0393cef031").unwrap(),
             expire_block: 4302,
             last_contact_time: 0,
-            whitelisted: 0,
-            blacklisted: 0,
+            allowed: 0,
+            denied: 0,
             asn: 2,
             org: 2,
             in_degree: 0,
@@ -1811,7 +1814,7 @@ mod test {
                 })
             });
 
-            spending_account.set_nonce(cur_nonce + 1);
+            // spending_account.set_nonce(cur_nonce + 1);
 
             tx_contract.chain_id = 0x80000000;
             tx_contract.auth.set_origin_nonce(cur_nonce);
@@ -1821,6 +1824,8 @@ mod test {
             spending_account.sign_as_origin(&mut tx_signer);
         
             let tx_contract_signed = tx_signer.get_tx().unwrap();
+
+            test_debug!("make transaction {:?} off of {:?}/{:?}: {:?}", &tx_contract_signed.txid(), burn_header_hash, block_hash, &tx_contract_signed);
 
             Ok(tx_contract_signed)
         }).unwrap();
@@ -1886,6 +1891,17 @@ mod test {
                                            block_data
                                        },
                                        |ref mut peers| {
+                                           // don't do anything until the peers learn their public
+                                           // IP addresses
+                                           if peers[0].network.local_peer.public_ip_address.is_none() {
+                                               test_debug!("Peer 0 doesn't know its public IP yet");
+                                               return;
+                                           }
+                                           if peers[1].network.local_peer.public_ip_address.is_none() {
+                                               test_debug!("Peer 1 doesn't know its public IP yet");
+                                               return;
+                                           }
+
                                            // make sure peer 2's inv has an entry for peer 1, even
                                            // though it's not doing an inv sync
                                            let peer_0_nk = peers[0].to_neighbor().addr;
@@ -1907,40 +1923,62 @@ mod test {
 
                                            let done_flag = *done.borrow();
                                            if is_peer_connected(&peers[0], &peer_1_nk) {
-                                               // push blocks and microblocks in order, and push a
-                                               // transaction that can only be validated once the
-                                               // block and microblocks are processed.
-                                               let ((burn_header_hash, block, microblocks), idx) = {
-                                                    let block_data = blocks_and_microblocks.borrow();
-                                                    let mut idx = blocks_idx.borrow_mut();
-                                                    
-                                                    let ret = block_data[*idx].clone();
-                                                    *idx += 1;
-                                                    if *idx >= block_data.len() {
-                                                        *idx = 0;
-                                                    }
-                                                    (ret, *idx)
+                                               // only submit the next transaction if the previous
+                                               // one is accepted
+                                               let has_last_transaction = {
+                                                   let expected_txs : std::cell::Ref<'_, Vec<StacksTransaction>> = sent_txs.borrow();
+                                                   if let Some(tx) = (*expected_txs).last() {
+                                                       let txid = tx.txid();
+                                                       if !peers[1].mempool.as_ref().unwrap().has_tx(&txid) {
+                                                           debug!("Peer 1 still waiting for transaction {}", &txid);
+                                                           push_transaction(&mut peers[0], &peer_1_nk, vec![], (*tx).clone());
+                                                           false
+                                                       }
+                                                       else {
+                                                           true
+                                                       }
+                                                   }
+                                                   else {
+                                                       true
+                                                   }
                                                };
 
-                                               if !done_flag {
-                                                   test_debug!("Push block {}/{} and microblocks (idx = {})", &burn_header_hash, block.block_hash(), idx);
-                                                   
-                                                   let block_hash = block.block_hash();
-                                                   push_block(&mut peers[0], &peer_1_nk, vec![], burn_header_hash.clone(), block);
-                                                   push_microblocks(&mut peers[0], &peer_1_nk, vec![], burn_header_hash, block_hash, microblocks);
+                                               if has_last_transaction {
+                                                   // push blocks and microblocks in order, and push a
+                                                   // transaction that can only be validated once the
+                                                   // block and microblocks are processed.
+                                                   let ((burn_header_hash, block, microblocks), idx) = {
+                                                        let block_data = blocks_and_microblocks.borrow();
+                                                        let mut idx = blocks_idx.borrow_mut();
+                                                        
+                                                        let ret = block_data[*idx].clone();
+                                                        *idx += 1;
+                                                        if *idx >= block_data.len() {
+                                                            *idx = 0;
+                                                        }
+                                                        (ret, *idx)
+                                                   };
 
-                                                   // create a transaction against the resulting
-                                                   // (anchored) chain tip
-                                                   let tx = make_test_smart_contract_transaction(&mut peers[0], &format!("test-contract-{}", &block_hash.to_hex()[0..10]), &burn_header_hash, &block_hash);
+                                                   if !done_flag {
+                                                       test_debug!("Push block {}/{} and microblocks (idx = {})", &burn_header_hash, block.block_hash(), idx);
+                                                       
+                                                       let block_hash = block.block_hash();
+                                                       push_block(&mut peers[0], &peer_1_nk, vec![], burn_header_hash.clone(), block);
+                                                       push_microblocks(&mut peers[0], &peer_1_nk, vec![], burn_header_hash, block_hash, microblocks);
 
-                                                   // push or post 
-                                                   push_transaction(&mut peers[0], &peer_1_nk, vec![], tx.clone());
+                                                       // create a transaction against the resulting
+                                                       // (anchored) chain tip
+                                                       let tx = make_test_smart_contract_transaction(&mut peers[0], &format!("test-contract-{}", &block_hash.to_hex()[0..10]), &burn_header_hash, &block_hash);
 
-                                                   let mut expected_txs = sent_txs.borrow_mut();
-                                                   expected_txs.push(tx);
-                                               }
-                                               else {
-                                                   test_debug!("Done pushing data");
+                                                       // push or post 
+                                                       push_transaction(&mut peers[0], &peer_1_nk, vec![], tx.clone());
+
+                                                       let mut expected_txs = sent_txs.borrow_mut();
+                                                       expected_txs.push(tx);
+                                                   }
+                                                   else {
+                                                       test_debug!("Done pushing data");
+                                                   }
                                                }
                                            }
 

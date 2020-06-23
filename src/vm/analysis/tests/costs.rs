@@ -17,6 +17,8 @@ use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
 
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::StacksBlockId;
 
 use vm::tests::costs::get_simple_test;
 
@@ -31,7 +33,11 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
         _ => panic!()
     };
 
-    let contract_other = "(define-map map-foo ((a int)) ((b int)))
+    let contract_trait = "(define-trait trait-1 (
+                            (foo-exec (int) (response int int))
+                          ))";
+    let contract_other = "(impl-trait .contract-trait.trait-1)
+                          (define-map map-foo ((a int)) ((b int)))
                           (define-public (foo-exec (a int)) (ok 1))";
 
     let contract_self = format!("(define-map map-foo ((a int)) ((b int)))
@@ -41,14 +47,30 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
                          (define-constant tuple-foo (tuple (a 1)))
                          (define-constant list-foo (list true))
                          (define-constant list-bar (list 1))
-                         (define-public (execute) (ok {}))", prog);
+                         (use-trait trait-1 .contract-trait.trait-1)
+                         (define-public (execute (contract <trait-1>)) (ok {}))", prog);
 
     let self_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
     let other_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
+    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
     {
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+        let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                    &StacksBlockId([0 as u8; 32]),
+                                                    &NULL_HEADER_DB);
+        conn.as_transaction(|conn| {
+            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&trait_contract_id, contract_trait).unwrap();
+            conn.initialize_smart_contract(
+                &trait_contract_id, &ct_ast, contract_trait, |_,_| false).unwrap();
+            conn.save_analysis(&trait_contract_id, &ct_analysis).unwrap();
+        });
+
+        conn.commit_block();
+    }
+
+    {
+        let mut conn = clarity_instance.begin_block(&StacksBlockId([0 as u8; 32]),
+                                                    &StacksBlockId([1 as u8; 32]),
                                                     &NULL_HEADER_DB);
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&other_contract_id, contract_other).unwrap();
@@ -61,8 +83,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     }
 
     {
-        let mut conn = clarity_instance.begin_block(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                                                    &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
+        let mut conn = clarity_instance.begin_block(&StacksBlockId([1 as u8; 32]),
+                                                    &StacksBlockId([2 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
         conn.as_transaction(|conn| {

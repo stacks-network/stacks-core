@@ -39,6 +39,8 @@ use sha2::Digest;
 
 use std::hash::Hash;
 use chainstate::burn::BlockHeaderHash;
+use burnchains::BurnchainHeaderHash;
+use chainstate::stacks::StacksBlockId;
 
 use util::log;
 use util::hash::to_hex;
@@ -60,6 +62,55 @@ impl_array_hexstring_fmt!(MARFValue);
 impl_byte_array_newtype!(MARFValue, u8, 40);
 impl_byte_array_message_codec!(MARFValue, 40);
 pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
+
+pub trait MarfTrieId:
+PartialEq + Clone + std::fmt::Display + std::fmt::Debug +
+rusqlite::types::ToSql + rusqlite::types::FromSql + std::convert::From<[u8; 32]> +
+std::convert::From<MARFValue> + ::net::StacksMessageCodec
+{
+    fn as_bytes(&self) -> &[u8];
+    fn to_bytes(self) -> [u8; 32];
+    fn sentinel() -> Self;
+}
+
+pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
+
+macro_rules! impl_marf_trie_id {
+    ($thing:ident) => {
+        impl MarfTrieId for $thing {
+            fn as_bytes(&self) -> &[u8] {
+                self.as_ref()
+            }
+            fn to_bytes(self) -> [u8; 32] {
+                self.0
+            }
+            fn sentinel() -> Self {
+                Self(SENTINEL_ARRAY.clone())
+            }
+        }
+
+        impl From<MARFValue> for $thing {
+            fn from(m: MARFValue) -> Self {
+                let h = m.0;
+                let mut d = [0u8; 32];
+                for i in 0..32 {
+                    d[i] = h[i];
+                }
+                for i in 32..h.len() {
+                    if h[i] != 0 {
+                        panic!("Failed to convert MARF value into BHH: data stored after 32nd byte");
+                    }
+                }
+                Self(d)
+            }
+        }
+    }
+}
+
+impl_marf_trie_id!(BurnchainHeaderHash);
+impl_marf_trie_id!(StacksBlockId);
+#[cfg(test)]
+impl_marf_trie_id!(BlockHeaderHash);
 
 impl TrieHash {
     /// TrieHash of zero bytes
@@ -115,15 +166,9 @@ impl TrieHash {
     }
 }
 
-impl AsRef<[u8]> for TrieHash {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl From<BlockHeaderHash> for MARFValue {
-    fn from(bhh: BlockHeaderHash) -> MARFValue {
-        let h = bhh.0;
+impl <T: MarfTrieId> From<T> for MARFValue {
+    fn from(bhh: T) -> MARFValue {
+        let h = bhh.to_bytes();
         let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a BHH into a MARF Value.");
@@ -146,22 +191,6 @@ impl From<u32> for MARFValue {
             d[i] = h[i];
         }
         MARFValue(d)
-    }
-}
-
-impl From<MARFValue> for BlockHeaderHash {
-    fn from(m: MARFValue) -> BlockHeaderHash {
-        let h = m.0;
-        let mut d = [0u8; 32];
-        for i in 0..32 {
-            d[i] = h[i];
-        }
-        for i in 32..h.len() {
-            if h[i] != 0 {
-                panic!("Failed to convert MARF value into BHH: data stored after 32nd byte");
-            }
-        }
-        BlockHeaderHash(d)
     }
 }
 
@@ -239,7 +268,7 @@ pub enum Error {
     WriteNotBegunError,
     CursorError(node::CursorError),
     RestoreMarfBlockError(Box<Error>),
-    NonMatchingForks(BlockHeaderHash, BlockHeaderHash)
+    NonMatchingForks([u8; 32], [u8; 32])
 }
 
 impl From<io::Error> for Error {
@@ -315,12 +344,14 @@ impl error::Error for Error {
 }
 
 pub trait BlockMap {
-    fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error>;
-    fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error>;
+    type TrieId: MarfTrieId;
+    fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&Self::TrieId, Error>;
 }
 
 #[cfg(test)]
 impl BlockMap for () {
+    type TrieId = BlockHeaderHash;
     fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
         Err(Error::NotFoundError)
     }
@@ -361,7 +392,7 @@ mod test {
     };
 
     /// Print out a trie to stderr
-    pub fn dump_trie(s: &mut TrieFileStorage) -> () {
+    pub fn dump_trie(s: &mut TrieFileStorage<BlockHeaderHash>) -> () {
         test_debug!("\n----- BEGIN TRIE ------");
         
         fn space(cnt: usize) -> String {
@@ -415,7 +446,7 @@ mod test {
         test_debug!("----- END TRIE ------\n");
     }
 
-    pub fn merkle_test(s: &mut TrieFileStorage, path: &Vec<u8>, value: &Vec<u8>) -> () {
+    pub fn merkle_test(s: &mut TrieFileStorage<BlockHeaderHash>, path: &Vec<u8>, value: &Vec<u8>) -> () {
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
 
@@ -431,7 +462,7 @@ mod test {
         assert!(proof.verify(&triepath, &MARFValue(marf_value.clone()), &root_hash, &empty_root_to_block));
     }
     
-    pub fn merkle_test_marf(s: &mut TrieFileStorage, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
+    pub fn merkle_test_marf(s: &mut TrieFileStorage<BlockHeaderHash>, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
         test_debug!("---------");
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, path, value);
         test_debug!("---------");
@@ -460,7 +491,7 @@ mod test {
         root_to_block
     }
     
-    pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage, header: &BlockHeaderHash, key: &String, value: &String, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
+    pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage<BlockHeaderHash>, header: &BlockHeaderHash, key: &String, value: &String, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
         test_debug!("---------");
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, key, value);
         test_debug!("---------");
@@ -486,7 +517,7 @@ mod test {
         root_to_block
     }
     
-    pub fn make_node_path(s: &mut TrieFileStorage, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+    pub fn make_node_path(s: &mut TrieFileStorage<BlockHeaderHash>, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         // make a fully-fleshed-out path of node's to a leaf 
         let root_ptr = s.root_ptr();
         let root = TrieNode256::new(&path_segments[0].0);
@@ -563,7 +594,7 @@ mod test {
         (nodes, node_ptrs, hashes)
     }
 
-    pub fn make_node4_path(s: &mut TrieFileStorage, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+    pub fn make_node4_path(s: &mut TrieFileStorage<BlockHeaderHash>, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         make_node_path(s, TrieNodeID::Node4 as u8, path_segments, leaf_data)
     }    
 }

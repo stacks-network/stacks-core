@@ -60,6 +60,7 @@ define_named_enum!(NativeFunctions {
     Print("print"),
     ContractCall("contract-call?"),
     AsContract("as-contract"),
+    ContractOf("contract-of"),
     AtBlock("at-block"),
     GetBlockInfo("get-block-info?"),
     ConsError("err"),
@@ -138,6 +139,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Print => SpecialFunction("special_print", &special_print),
             ContractCall => SpecialFunction("special_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
+            ContractOf => SpecialFunction("special_contract-of", &special_contract_of),
             GetBlockInfo => SpecialFunction("special_get_block_info", &database::special_get_block_info),
             ConsSome => NativeFunction("native_some", NativeHandle::SingleArg(&options::native_some), cost_functions::SOME_CONS),
             ConsOkay => NativeFunction("native_okay", NativeHandle::SingleArg(&options::native_okay), cost_functions::OK_CONS),
@@ -366,4 +368,32 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     env.drop_memory(cost_constants::AS_CONTRACT_MEMORY);
 
     result
+}
+
+fn special_contract_of(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    // (contract-of (..))
+    // arg0 => trait
+    check_argument_count(1, args)?;
+
+    runtime_cost!(cost_functions::CONTRACT_OF, env, 0)?;
+
+    let contract_ref = match &args[0].expr {
+        SymbolicExpressionType::Atom(contract_ref) => {
+            contract_ref
+        },
+        _ => return Err(CheckErrors::ContractOfExpectsTrait.into())
+    };
+
+    let contract_identifier = match context.callable_contracts.get(contract_ref) {
+        Some((ref contract_identifier, _trait_identifier)) => {
+            env.global_context.database.get_contract(contract_identifier)
+                .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+            contract_identifier
+        },
+        _ => return Err(CheckErrors::ContractOfExpectsTrait.into())
+    };
+
+    let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
+    Ok(contract_principal)
 }

@@ -36,7 +36,7 @@ use vm::types::*;
 use util::db::*;
 use util::db::Error as db_error;
 
-pub type MinerPaymentCache = HashMap<BlockHeaderHash, Vec<MinerPaymentSchedule>>;
+pub type MinerPaymentCache = HashMap<StacksBlockId, Vec<MinerPaymentSchedule>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -305,7 +305,7 @@ impl StacksChainState {
     }
 
     /// Get all scheduled miner rewards for a given index hash
-    pub fn get_scheduled_block_rewards(conn: &DBConn, index_block_hash: &BlockHeaderHash) -> Result<Vec<MinerPaymentSchedule>, Error> {
+    pub fn get_scheduled_block_rewards(conn: &DBConn, index_block_hash: &StacksBlockId) -> Result<Vec<MinerPaymentSchedule>, Error> {
         let qry = "SELECT * FROM payments WHERE index_block_hash = ?1 ORDER BY vtxindex ASC".to_string();
         let args : &[&dyn ToSql] = &[index_block_hash];
         let rows = query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;

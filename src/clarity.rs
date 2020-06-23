@@ -10,7 +10,8 @@ use std::path::PathBuf;
 use util::log;
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::index::storage::{TrieFileStorage};
+use chainstate::stacks::index::{MarfTrieId, storage::{TrieFileStorage}};
+use chainstate::stacks::StacksBlockId;
 
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use rusqlite::types::ToSql;
@@ -122,14 +123,14 @@ fn create_or_open_db(path: &String) -> Connection {
     conn
 }
 
-fn get_cli_chain_tip(conn: &Connection) -> BlockHeaderHash {
+fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
     let mut stmt = friendly_expect(conn.prepare("SELECT block_hash FROM cli_chain_tips ORDER BY id DESC LIMIT 1"), "FATAL: could not prepare query");
     let mut rows = friendly_expect(stmt.query(NO_PARAMS), "FATAL: could not fetch rows");
     let mut hash_opt = None;
     while let Some(row_res) = rows.next() {
         match row_res {
             Ok(row) => {
-                let bhh = friendly_expect(BlockHeaderHash::from_column(&row, "block_hash"), "FATAL: could not parse block hash");
+                let bhh = friendly_expect(StacksBlockId::from_column(&row, "block_hash"), "FATAL: could not parse block hash");
                 hash_opt = Some(bhh);
                 break;
             },
@@ -140,11 +141,11 @@ fn get_cli_chain_tip(conn: &Connection) -> BlockHeaderHash {
     }
     match hash_opt {
         Some(bhh) => bhh,
-        None => TrieFileStorage::block_sentinel()
+        None => StacksBlockId::sentinel()
     }
 }
 
-fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
+fn advance_cli_chain_tip(path: &String) -> (StacksBlockId, StacksBlockId) {
     let mut conn = create_or_open_db(path);
     let tx = friendly_expect(conn.transaction(), &format!("FATAL: failed to begin transaction on '{}'", path));
 
@@ -154,7 +155,7 @@ fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
     let parent_block_hash = get_cli_chain_tip(&tx);
 
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    let next_block_hash  = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
+    let next_block_hash  = friendly_expect_opt(StacksBlockId::from_bytes(&random_bytes),
                                               "Failed to generate random block header.");
 
     friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash]), 
@@ -201,7 +202,7 @@ where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
 
     let cli_db_conn = create_or_open_db(&cli_db_path);
     let from = get_cli_chain_tip(&cli_db_conn);
-    let to = BlockHeaderHash([2u8; 32]);        // 0x0202020202 ... (pattern not used anywhere else) 
+    let to = StacksBlockId([2u8; 32]);        // 0x0202020202 ... (pattern not used anywhere else) 
 
     marf_kv.begin(&from, &to);
     let (mut marf_return, result) = f(marf_kv);
@@ -213,9 +214,9 @@ fn at_block<F,R>(blockhash: &str, mut marf_kv: MarfedKV, f: F) -> R
 where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
 
     // store CLI data alongside the MARF database state
-    let from = BlockHeaderHash::from_hex(blockhash)
+    let from = StacksBlockId::from_hex(blockhash)
         .expect(&format!("FATAL: failed to parse inputted blockhash"));
-    let to = BlockHeaderHash([2u8; 32]);        // 0x0202020202 ... (pattern not used anywhere else)
+    let to = StacksBlockId([2u8; 32]);        // 0x0202020202 ... (pattern not used anywhere else)
 
     marf_kv.begin(&from, &to);
     let (mut marf_return, result) = f(marf_kv);

@@ -64,9 +64,11 @@ use rand::thread_rng;
 #[cfg(test)] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 0;
 #[cfg(not(test))] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 600;      // don't reach out to a frontier neighbor more than once every 10 minutes
 
-pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 30;      // number of seconds an outstanding request for neighbors can take (default value)
+pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 30;      // default number of seconds an outstanding request for neighbors can take
 
 pub const NUM_INITIAL_WALKS : u64 = 10;     // how many unthrottled walks should we do when this peer starts up
+pub const WALK_RETRY_COUNT : u64 = 10;      // how many unthrottled walks should we attempt when the peer starts up
+
 #[cfg(test)] pub const PRUNE_FREQUENCY : u64 = 0;             // how often we should consider pruning neighbors
 #[cfg(not(test))] pub const PRUNE_FREQUENCY : u64 = 43200;     // how often we should consider pruning neighbors (twice a day)
 pub const MAX_NEIGHBOR_BLOCK_DELAY : u64 = 288;     // maximum delta between our current block height and the neighbor's that we will treat this neighbor as fresh
@@ -89,8 +91,8 @@ impl Neighbor {
             public_key: pubk.clone(),
             expire_block: expire_block,
             last_contact_time: 0,
-            whitelisted: 0,
-            blacklisted: 0,
+            allowed: 0,
+            denied: 0,
             asn: 0,
             org: 0,
             in_degree: 1,
@@ -240,7 +242,7 @@ pub struct NeighborWalk {
     pub state: NeighborWalkState,
     pub events: HashSet<usize>,
 
-    local_peer: LocalPeer,
+    local_peer: LocalPeer,      // gets instantiated as a copy from PeerNetwork
     chain_view: BurnchainView,
 
     connecting: HashMap<NeighborKey, usize>,
@@ -473,7 +475,7 @@ impl NeighborWalk {
                                 let res = 
                                     if neighbor_from_handshake.addr != self.cur_neighbor.addr {
                                         // somehow, got a handshake from someone that _isn't_ cur_neighbor
-                                        debug!("{:?}: got unsolicited HandshakeAccept from outbound {:?} (expected {:?})", 
+                                        debug!("{:?}: got unsolicited (or bootstrapping) HandshakeAccept from outbound {:?} (expected {:?})", 
                                                &self.local_peer, 
                                                &neighbor_from_handshake.addr, 
                                                &self.cur_neighbor.addr);
@@ -744,9 +746,9 @@ impl NeighborWalk {
                     let replaced_neighbor_slot_opt = NeighborWalk::find_replaced_neighbor_slot(tx, &neighbor_from_handshake.addr)?;
                     match replaced_neighbor_slot_opt {
                         Some(slot) => {
-                            // if this peer isn't whitelisted, then consider
-                            // replacing
-                            if neighbor_from_handshake.whitelisted > 0 && (neighbor_from_handshake.whitelisted as u64) < get_epoch_time_secs() {
+                            // if this peer isn't allowed or denied, then consider
+                            // replacing.  Otherwise, keep the local configuration's preference.
+                            if !neighbor_from_handshake.is_denied() && !neighbor_from_handshake.is_allowed() {
                                 self.neighbor_replacements.insert(neighbor_from_handshake.addr.clone(), neighbor_from_handshake.clone());
                                 self.replaced_neighbors.insert(neighbor_from_handshake.addr.clone(), slot);
                             }
@@ -1313,10 +1315,15 @@ impl NeighborWalk {
                 let replaced_opt = PeerDB::get_peer_at(&mut tx, self.local_peer.network_id, *slot)?;
                 match replaced_opt {
                     Some(replaced) => {
-                        debug!("{:?}: Replace {:?} with {:?}", &self.local_peer, &replaced.addr, &replacement.addr);
+                        if PeerDB::is_address_denied(&mut tx, &replacement.addr.addrbytes)? {
+                            debug!("{:?}: Will not replace {:?} with {:?} -- is denied", &self.local_peer, &replaced.addr, &replacement.addr);
+                        }
+                        else {
+                            debug!("{:?}: Replace {:?} with {:?}", &self.local_peer, &replaced.addr, &replacement.addr);
 
-                        PeerDB::insert_or_replace_peer(&mut tx, &replacement, *slot)?;
-                        self.result.add_replaced(replaced.addr.clone());
+                            PeerDB::insert_or_replace_peer(&mut tx, &replacement, *slot)?;
+                            self.result.add_replaced(replaced.addr.clone());
+                        }
                     },
                     None => {}
                 }
@@ -1379,7 +1386,7 @@ impl PeerNetwork {
                 
                 // is the peer network still working?
                 if !self.is_connecting(*event_id) {
-                    debug!("{:?}: Failed to connect to {:?} (no longer connecting; assumed timed out)", &self.local_peer, nk);
+                    debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", &self.local_peer, *event_id, nk);
                     walk.connecting.remove(&nk);
                     return Err(net_error::PeerNotConnected);
                 }
@@ -1394,6 +1401,8 @@ impl PeerNetwork {
         }
         
         // so far so good.
+        walk.connecting.remove(&nk);
+
         // send handshake.
         let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
         
@@ -1497,6 +1506,12 @@ impl PeerNetwork {
 
         let pb = self.walk_pingbacks.get(&addr).unwrap().clone();
         let nk = NeighborKey::from_neighbor_address(pb.peer_version, pb.network_id, &addr);
+
+        // don't proceed if denied
+        if PeerDB::is_peer_denied(&self.peerdb.conn(), nk.network_id, &nk.addrbytes, nk.port)? {
+            debug!("{:?}: pingback neighbor {:?} is denied", &self.local_peer, &nk);
+            return Err(net_error::Denied);
+        }
 
         // (this will be ignored by the neighbor walk)
         let empty_neighbor = Neighbor::empty(&nk, &pb.pubkey, 0);
@@ -1940,10 +1955,10 @@ impl PeerNetwork {
     pub fn walk_peer_graph(&mut self) -> (bool, Option<NeighborWalkResult>) {
         if self.walk.is_none() {
             // time to do a walk yet?
-            if self.walk_count > NUM_INITIAL_WALKS && self.walk_deadline > get_epoch_time_secs() {
-                // we've done enough walks for an initial mixing,
+            if (self.walk_count > self.connection_opts.num_initial_walks || self.walk_retries > self.connection_opts.walk_retry_count) && self.walk_deadline > get_epoch_time_secs() {
+                // we've done enough walks for an initial mixing, or we can't connect to anyone,
                 // so throttle ourselves down until the walk deadline passes.
-                debug!("{:?}: Throttle walk until {} to walk again", &self.local_peer, self.walk_deadline);
+                debug!("{:?}: Throttle walk until {} to walk again (walk count: {}, walk retries: {})", &self.local_peer, self.walk_deadline, self.walk_count, self.walk_retries);
                 return (true, None);
             }
         }
@@ -1967,20 +1982,34 @@ impl PeerNetwork {
                 };
 
             self.walk_attempts += 1;
+
             match walk_res {
                 Ok(_) => {},
                 Err(Error::NoSuchNeighbor) => match self.instantiate_walk_from_pingback() {
                     Ok(_) => {},
                     Err(e) => {
                         debug!("{:?}: Failed to begin neighbor walk from pingback: {:?}", &self.local_peer, &e);
+                        self.walk_retries += 1;
+                        self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
                         return (true, None);
                     }
                 },
                 Err(e) => {
                     debug!("{:?}: Failed to begin neighbor walk from peer database: {:?}", &self.local_peer, &e);
+                    self.walk_retries += 1;
+                    self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
                     return (true, None);
                 }
             }
+        }
+
+        // synchronize local peer state, in case we learn e.g. the public IP address in the mean
+        // time
+        match self.walk {
+            Some(ref mut walk) => {
+                walk.local_peer = self.local_peer.clone();
+            },
+            None => {}
         }
        
         // take as many steps as we can
@@ -2060,6 +2089,7 @@ impl PeerNetwork {
             Ok(mut walk_opt) => {
                 // did something
                 self.walk_total_step_count += 1;
+                self.walk_retries = 0;
 
                 let mut done = false;
 
@@ -2159,7 +2189,7 @@ mod test {
     #[ignore]
     fn test_step_walk_1_neighbor_plain() {
         let mut peer_1_config = TestPeerConfig::from_port(31990);
-        let peer_2_config = TestPeerConfig::from_port(31992);
+        let mut peer_2_config = TestPeerConfig::from_port(31992);
 
         // peer 1 crawls peer 2
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -2171,7 +2201,96 @@ mod test {
         let mut walk_1_count = 0;
         let mut walk_2_count = 0;
         
-        while walk_1_count < 20 && walk_2_count < 20 {
+        while walk_1_count < 20 || walk_2_count < 20 || (!peer_1.network.public_ip_confirmed || !peer_2.network.public_ip_confirmed) {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+
+            walk_1_count = peer_1.network.walk_total_step_count;
+            walk_2_count = peer_2.network.walk_total_step_count;
+
+            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+
+            match peer_1.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            match peer_2.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            i += 1;
+        }
+
+        debug!("Completed walk round {} step(s)", i);
+
+        peer_1.dump_frontier();
+        peer_2.dump_frontier();
+
+        // peer 1 contacted peer 2
+        let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
+        assert!(stats_1.last_contact_time > 0);
+        assert!(stats_1.last_handshake_time > 0);
+        assert!(stats_1.last_send_time > 0);
+        assert!(stats_1.last_recv_time > 0);
+        assert!(stats_1.bytes_rx > 0);
+        assert!(stats_1.bytes_tx > 0);
+
+        let neighbor_2 = peer_2.to_neighbor();
+
+        // peer 2 is in peer 1's frontier DB
+        let peer_1_dbconn = peer_1.get_peerdb_conn();
+        match PeerDB::get_peer(peer_1_dbconn, neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap() {
+            None => {
+                test_debug!("no such peer: {:?}", &neighbor_2.addr);
+                assert!(false);
+            },
+            Some(p) => {
+                assert_eq!(p.public_key, neighbor_2.public_key);
+                assert_eq!(p.expire_block, neighbor_2.expire_block);
+            }
+        }
+
+        // peer 1 learned and confirmed its public IP address from peer 2
+        assert!(peer_1.network.local_peer.public_ip_address.is_some());
+        assert_eq!(peer_1.network.local_peer.public_ip_address.clone().unwrap(), (PeerAddress::from_socketaddr(&format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()), 31990)); 
+        assert!(peer_1.network.public_ip_learned);
+        assert!(peer_1.network.public_ip_confirmed);
+
+        // peer 2 learned and confirmed its public IP address from peer 1
+        assert!(peer_2.network.local_peer.public_ip_address.is_some());
+        assert_eq!(peer_2.network.local_peer.public_ip_address.clone().unwrap(), (PeerAddress::from_socketaddr(&format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()), 31992)); 
+        assert!(peer_2.network.public_ip_learned);
+        assert!(peer_2.network.public_ip_confirmed);
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_step_walk_1_neighbor_plain_no_natpunch() {
+        let mut peer_1_config = TestPeerConfig::from_port(31980);
+        let mut peer_2_config = TestPeerConfig::from_port(31982);
+
+        // simulate peer 2 not knowing how to handle a natpunch request
+        peer_2_config.connection_opts.disable_natpunch = true;
+
+        // peer 1 crawls peer 2
+        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        let mut i = 0;
+        let mut walk_1_count = 0;
+        let mut walk_2_count = 0;
+        
+        while walk_1_count < 20 || walk_2_count < 20 {
             let _ = peer_1.step();
             let _ = peer_2.step();
 
@@ -2229,6 +2348,96 @@ mod test {
                 assert_eq!(p.expire_block, neighbor_2.expire_block);
             }
         }
+
+        // peer 1 did not learn IP address
+        assert!(peer_1.network.local_peer.public_ip_address.is_none());
+        assert!(!peer_1.network.public_ip_confirmed);
+
+        // peer 2 did not learn IP address
+        assert!(peer_2.network.local_peer.public_ip_address.is_none());
+        assert!(!peer_2.network.public_ip_confirmed);
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_step_walk_1_neighbor_denied() {
+        let mut peer_1_config = TestPeerConfig::from_port(31994);
+        let mut peer_2_config = TestPeerConfig::from_port(31996);
+
+        // peer 1 crawls peer 2, but peer 1 has denied peer 2
+        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+
+        peer_1_config.connection_opts.walk_retry_count = 10;
+        peer_2_config.connection_opts.walk_retry_count = 10;
+        peer_1_config.connection_opts.walk_interval = 1;
+        peer_2_config.connection_opts.walk_interval = 1;
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        {
+            let mut tx = peer_1.network.peerdb.tx_begin().unwrap();
+            PeerDB::add_deny_cidr(&mut tx, &PeerAddress::from_ipv4(127,0,0,1), 128).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let mut i = 0;
+        let mut walk_1_count = 0;
+        let mut walk_2_count = 0;
+        let mut walk_1_retries = 0;
+        let mut walk_2_retries = 0;
+        let mut walk_1_total = 0;
+        let mut walk_2_total = 0;
+        
+        // walks just don't start.
+        // neither peer learns their public IP addresses.
+        while walk_1_retries < 20 && walk_2_retries < 20 {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+
+            walk_1_count = peer_1.network.walk_total_step_count;
+            walk_2_count = peer_2.network.walk_total_step_count;
+
+            assert_eq!(walk_1_count, 0);
+            assert_eq!(walk_2_count, 0);
+           
+            walk_1_total = peer_1.network.walk_count;
+            walk_2_total = peer_2.network.walk_count;
+            
+            assert_eq!(walk_1_total, 0);
+            assert_eq!(walk_2_total, 0);
+
+            walk_1_retries = peer_1.network.walk_retries;
+            walk_2_retries = peer_2.network.walk_retries;
+
+            match peer_1.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.dead_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            match peer_2.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.dead_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            i += 1;
+        }
+        
+        assert!(peer_1.network.public_ip_learned);
+        assert!(!peer_1.network.public_ip_confirmed);
+        assert!(peer_1.network.local_peer.public_ip_address.is_none());
+        
+        assert!(peer_2.network.public_ip_learned);
+        assert!(!peer_2.network.public_ip_confirmed);
+        assert!(peer_2.network.local_peer.public_ip_address.is_none());
     }
     
     #[test]
@@ -2669,7 +2878,6 @@ mod test {
                 match peer_1.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -2678,7 +2886,6 @@ mod test {
                 match peer_2.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -2759,8 +2966,8 @@ mod test {
         let mut peer_1_config = TestPeerConfig::from_port(32500);
         let mut peer_2_config = TestPeerConfig::from_port(32502);
 
-        peer_1_config.whitelisted = -1;
-        peer_2_config.whitelisted = -1;
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -2859,9 +3066,9 @@ mod test {
         let mut peer_2_config = TestPeerConfig::from_port(32512);
         let mut peer_3_config = TestPeerConfig::from_port(32514);
 
-        peer_1_config.whitelisted = -1;
-        peer_2_config.whitelisted = -1;
-        peer_3_config.whitelisted = -1;
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
+        peer_3_config.allowed = -1;
 
         peer_1_config.connection_opts.disable_pingbacks = true;
         peer_2_config.connection_opts.disable_pingbacks = true;
@@ -2948,7 +3155,7 @@ mod test {
 
         // peer 2 was added to the peer DB of peer 1
         let peer_1_dbconn = peer_1.get_peerdb_conn();
-        match PeerDB::get_peer(peer_1_dbconn, neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap() {
+        match PeerDB::get_peer_by_port(peer_1_dbconn, neighbor_2.addr.network_id, neighbor_2.addr.port).unwrap() {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
                 assert!(false);
@@ -2960,7 +3167,7 @@ mod test {
         }
         
         // peer 3 was added to the peer DB of peer 1
-        match PeerDB::get_peer(peer_1_dbconn, neighbor_3.addr.network_id, &neighbor_3.addr.addrbytes, neighbor_3.addr.port).unwrap() {
+        match PeerDB::get_peer_by_port(peer_1_dbconn, neighbor_3.addr.network_id, neighbor_3.addr.port).unwrap() {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_3.addr);
                 assert!(false);
@@ -2973,7 +3180,7 @@ mod test {
         
         // peer 2 was added to the peer DB of peer 3
         let peer_2_dbconn = peer_2.get_peerdb_conn();
-        match PeerDB::get_peer(peer_2_dbconn, neighbor_3.addr.network_id, &neighbor_3.addr.addrbytes, neighbor_3.addr.port).unwrap() {
+        match PeerDB::get_peer_by_port(peer_2_dbconn, neighbor_3.addr.network_id, neighbor_3.addr.port).unwrap() {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_3.addr);
                 assert!(false);
@@ -2986,7 +3193,7 @@ mod test {
 
         // peer 3 was added to the peer DB of peer 2
         let peer_3_dbconn = peer_3.get_peerdb_conn();
-        match PeerDB::get_peer(peer_3_dbconn, neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap() {
+        match PeerDB::get_peer_by_port(peer_3_dbconn, neighbor_2.addr.network_id, neighbor_2.addr.port).unwrap() {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
                 assert!(false);
@@ -3003,8 +3210,8 @@ mod test {
         let mut peer_1_config = TestPeerConfig::from_port(32600);
         let mut peer_2_config = TestPeerConfig::from_port(32602);
 
-        peer_1_config.whitelisted = -1;
-        peer_2_config.whitelisted = -1;
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
             
         // turn off features we don't use
         peer_1_config.connection_opts.disable_inv_sync = true;
@@ -3041,7 +3248,6 @@ mod test {
                 match peer_1.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        // assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -3050,7 +3256,6 @@ mod test {
                 match peer_2.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        // assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -3193,8 +3398,8 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_walk_ring_whitelist_15() {
-        // all initial peers are whitelisted
+    fn test_walk_ring_allow_15() {
+        // all initial peers are allowed
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3202,8 +3407,12 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 32800, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = -1;      // always whitelisted
-            conf.blacklisted = 0;
+            conf.allowed = -1;      // always allowed
+            conf.denied = 0;
+
+            conf.connection_opts.timeout = 100000;
+            conf.connection_opts.handshake_timeout = 100000;
+            conf.connection_opts.disable_natpunch = true;   // breaks allow checks
 
             peer_configs.push(conf);
         }
@@ -3214,7 +3423,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_walk_ring_15_plain() {
-        // initial peers are neither white- nor blacklisted
+        // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3222,8 +3431,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 32900, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
 
             peer_configs.push(conf);
         }
@@ -3234,7 +3443,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_walk_ring_15_pingback() {
-        // initial peers are neither white- nor blacklisted
+        // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3242,8 +3451,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 32950, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             conf.connection_opts.disable_pingbacks = true;
             conf.connection_opts.disable_inbound_walks = false;
 
@@ -3269,8 +3478,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33000, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             if i == 0 {
                 conf.asn = 1;
                 conf.org = 1;
@@ -3359,8 +3568,7 @@ mod test {
     
     #[test]
     #[ignore]
-    fn test_walk_line_whitelisted_15() {
-        // initial peers are neither white- nor blacklisted
+    fn test_walk_line_allowed_15() {
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3368,8 +3576,12 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33100, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = -1;
-            conf.blacklisted = 0;
+            conf.allowed = -1;
+            conf.denied = 0;
+            
+            conf.connection_opts.timeout = 100000;
+            conf.connection_opts.handshake_timeout = 100000;
+            conf.connection_opts.disable_natpunch = true;   // breaks allow checks
 
             peer_configs.push(conf);
         }
@@ -3380,7 +3592,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_walk_line_15_plain() {
-        // initial peers are neither white- nor blacklisted
+        // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3388,8 +3600,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33200, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
 
             peer_configs.push(conf);
         }
@@ -3412,8 +3624,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33300, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             if i == 0 {
                 conf.asn = 1;
                 conf.org = 1;
@@ -3454,7 +3666,7 @@ mod test {
     #[test]
     #[ignore]
     fn test_walk_line_15_pingback() {
-        // initial peers are neither white- nor blacklisted
+        // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
@@ -3462,8 +3674,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33350, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
 
@@ -3491,7 +3703,7 @@ mod test {
         //
         // 0 <--> 1 <--> 2 <--> ... <--> NEIGHBOR_COUNT
         //
-        // all initial peers are whitelisted
+        // all initial peers are allowed
         let mut peers = vec![];
 
         let PEER_COUNT = peer_configs.len();
@@ -3530,15 +3742,19 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_walk_star_whitelisted_15() {
+    fn test_walk_star_allowed_15() {
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 15;
         let NEIGHBOR_COUNT : usize = 3;
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33400, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = -1;      // always whitelisted
-            conf.blacklisted = 0;
+            conf.allowed = -1;      // always allowed
+            conf.denied = 0;
+            
+            conf.connection_opts.timeout = 100000;
+            conf.connection_opts.handshake_timeout = 100000;
+            conf.connection_opts.disable_natpunch = true;   // breaks allow checks
 
             peer_configs.push(conf);
         }
@@ -3555,8 +3771,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33500, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
 
             peer_configs.push(conf);
         }
@@ -3573,10 +3789,11 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33550, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
+            conf.connection_opts.soft_max_neighbors_per_org = PEER_COUNT as u64;
 
             peer_configs.push(conf);
         }
@@ -3599,8 +3816,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33600, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             if i == 0 {
                 conf.asn = 1;
                 conf.org = 1;
@@ -3756,8 +3973,8 @@ mod test {
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33250, NEIGHBOR_COUNT, PEER_COUNT);
 
-            conf.whitelisted = 0;
-            conf.blacklisted = 0;
+            conf.allowed = 0;
+            conf.denied = 0;
             conf.connection_opts.disable_pingbacks = true;
             conf.connection_opts.disable_inbound_walks = false;
             conf.connection_opts.walk_inbound_ratio = 2;
@@ -3794,8 +4011,8 @@ mod test {
             }
 
             let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-            let num_whitelisted = all_neighbors.iter().fold(0, |mut sum, ref n2| {sum += if n2.whitelisted < 0 { 1 } else { 0 }; sum});
-            test_debug!("Neighbor {} (all={}, outbound={}) (total neighbors = {}, total whitelisted = {}): outbound={:?} all={:?}", i, neighbor_index.len(), outbound_neighbor_index.len(), all_neighbors.len(), num_whitelisted, &outbound_neighbor_index, &neighbor_index);
+            let num_allowed = all_neighbors.iter().fold(0, |mut sum, ref n2| {sum += if n2.allowed < 0 { 1 } else { 0 }; sum});
+            test_debug!("Neighbor {} (all={}, outbound={}) (total neighbors = {}, total allowed = {}): outbound={:?} all={:?}", i, neighbor_index.len(), outbound_neighbor_index.len(), all_neighbors.len(), num_allowed, &outbound_neighbor_index, &neighbor_index);
         }
         test_debug!("\n");
     }
@@ -3869,8 +4086,8 @@ mod test {
     {
         let PEER_COUNT = peers.len();
 
-        let mut initial_whitelisted : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
-        let mut initial_blacklisted : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
+        let mut initial_allowed : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
+        let mut initial_denied : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
 
         for i in 0..PEER_COUNT {
             // turn off components we don't need
@@ -3879,17 +4096,17 @@ mod test {
             let nk = peers[i].config.to_neighbor().addr.clone();
             for j in 0..peers[i].config.initial_neighbors.len() {
                 let initial = &peers[i].config.initial_neighbors[j];
-                if initial.whitelisted < 0 {
-                    if !initial_whitelisted.contains_key(&nk) {
-                        initial_whitelisted.insert(nk.clone(), vec![]);
+                if initial.allowed < 0 {
+                    if !initial_allowed.contains_key(&nk) {
+                        initial_allowed.insert(nk.clone(), vec![]);
                     }
-                    initial_whitelisted.get_mut(&nk).unwrap().push(initial.addr.clone());
+                    initial_allowed.get_mut(&nk).unwrap().push(initial.addr.clone());
                 }
-                if initial.blacklisted < 0 {
-                    if !initial_blacklisted.contains_key(&nk) {
-                        initial_blacklisted.insert(nk.clone(), vec![]);
+                if initial.denied < 0 {
+                    if !initial_denied.contains_key(&nk) {
+                        initial_denied.insert(nk.clone(), vec![]);
                     }
-                    initial_blacklisted.get_mut(&nk).unwrap().push(initial.addr.clone());
+                    initial_denied.get_mut(&nk).unwrap().push(initial.addr.clone());
                 }
             }
         }
@@ -3915,12 +4132,12 @@ mod test {
                 let _ = peers[i].step();
                 let nk = peers[i].config.to_neighbor().addr;
                 
-                // whitelisted peers are still connected 
-                match initial_whitelisted.get(&nk) {
+                // allowed peers are still connected 
+                match initial_allowed.get(&nk) {
                     Some(ref peer_list) => {
                         for pnk in peer_list.iter() {
                             if !peers[i].network.events.contains_key(&pnk.clone()) {
-                                error!("{:?}: Perma-whitelisted peer {:?} not connected anymore", &nk, &pnk);
+                                error!("{:?}: Perma-allowed peer {:?} not connected anymore", &nk, &pnk);
                                 assert!(false);
                             }
                         }
@@ -3928,12 +4145,12 @@ mod test {
                     None => {}
                 };
 
-                // blacklisted peers are never connected 
-                match initial_blacklisted.get(&nk) {
+                // denied peers are never connected 
+                match initial_denied.get(&nk) {
                     Some(ref peer_list) => {
                         for pnk in peer_list.iter() {
                             if peers[i].network.events.contains_key(&pnk.clone()) {
-                                error!("{:?}: Perma-blacklisted peer {:?} connected", &nk, &pnk);
+                                error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
                                 assert!(false);
                             }
                         }

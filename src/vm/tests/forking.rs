@@ -10,6 +10,8 @@ use vm::tests::{symbols_from_values, execute, is_err_code, is_committed};
 
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::StacksBlockId;
 
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 
@@ -140,16 +142,16 @@ where F0: FnOnce(&mut OwnedEnvironment),
       F3: FnOnce(&mut OwnedEnvironment)
 {
     let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(&TrieFileStorage::block_sentinel(),
-                  &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+    marf_kv.begin(&StacksBlockId::sentinel(),
+                  &StacksBlockId([0 as u8; 32]));
 
     {
         marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
     }
 
     marf_kv.test_commit();
-    marf_kv.begin(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                  &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap());
+    marf_kv.begin(&StacksBlockId([0 as u8; 32]),
+                  &StacksBlockId([1 as u8; 32]));
 
     {
         let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
@@ -160,8 +162,8 @@ where F0: FnOnce(&mut OwnedEnvironment),
 
     // Now, we can do our forking.
 
-    marf_kv.begin(&BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
-                  &BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap());
+    marf_kv.begin(&StacksBlockId([1 as u8; 32]),
+                  &StacksBlockId([2 as u8; 32]));
 
     {
         let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
@@ -170,8 +172,8 @@ where F0: FnOnce(&mut OwnedEnvironment),
 
     marf_kv.test_commit();
 
-    marf_kv.begin(&BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
-                  &BlockHeaderHash::from_bytes(&[3 as u8; 32]).unwrap());
+    marf_kv.begin(&StacksBlockId([1 as u8; 32]),
+                  &StacksBlockId([3 as u8; 32]));
 
     {
         let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
@@ -181,8 +183,8 @@ where F0: FnOnce(&mut OwnedEnvironment),
     marf_kv.test_commit();
 
 
-    marf_kv.begin(&BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap(),
-                  &BlockHeaderHash::from_bytes(&[4 as u8; 32]).unwrap());
+    marf_kv.begin(&StacksBlockId([2 as u8; 32]),
+                  &StacksBlockId([4 as u8; 32]));
 
     {
         let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));

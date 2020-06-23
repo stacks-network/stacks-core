@@ -345,7 +345,7 @@ impl ConversationHttp {
     /// (so use a fd that can buffer!)
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
-    fn handle_getblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_block_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+    fn handle_getblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_block_hash: &StacksBlockId, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this block?
@@ -375,7 +375,7 @@ impl ConversationHttp {
     /// (so use a fd that can buffer!)
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
-    fn handle_getmicroblocks_confirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+    fn handle_getmicroblocks_confirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &StacksBlockId, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         match chainstate.get_confirmed_microblock_index_hash(index_anchor_block_hash) {
@@ -404,7 +404,7 @@ impl ConversationHttp {
     /// (so use a fd that can buffer!)
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
-    fn handle_getmicroblocks_indexed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_microblock_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+    fn handle_getmicroblocks_indexed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_microblock_hash: &StacksBlockId, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this confirmed microblock stream?
@@ -607,7 +607,7 @@ impl ConversationHttp {
     /// (so use a fd that can buffer!)
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
-    fn handle_getmicroblocks_unconfirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &BlockHeaderHash, min_seq: u16, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+    fn handle_getmicroblocks_unconfirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &StacksBlockId, min_seq: u16, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this unconfirmed microblock stream?
@@ -1094,22 +1094,22 @@ impl ConversationHttp {
     }
 
     /// Make a new getblock request to this endpoint
-    pub fn new_getblock(&self, index_block_hash: BlockHeaderHash) -> HttpRequestType {
+    pub fn new_getblock(&self, index_block_hash: StacksBlockId) -> HttpRequestType {
         HttpRequestType::GetBlock(HttpRequestMetadata::from_host(self.peer_host.clone()), index_block_hash)
     }
     
     /// Make a new get-microblocks request to this endpoint
-    pub fn new_getmicroblocks_indexed(&self, index_microblock_hash: BlockHeaderHash) -> HttpRequestType {
+    pub fn new_getmicroblocks_indexed(&self, index_microblock_hash: StacksBlockId) -> HttpRequestType {
         HttpRequestType::GetMicroblocksIndexed(HttpRequestMetadata::from_host(self.peer_host.clone()), index_microblock_hash)
     }
     
     /// Make a new get-microblocks-confirmed request to this endpoint
-    pub fn new_getmicroblocks_confirmed(&self, index_anchor_block_hash: BlockHeaderHash) -> HttpRequestType {
+    pub fn new_getmicroblocks_confirmed(&self, index_anchor_block_hash: StacksBlockId) -> HttpRequestType {
         HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_host(self.peer_host.clone()), index_anchor_block_hash)
     }
 
     /// Make a new get-microblocks request for unconfirmed microblocks
-    pub fn new_getmicroblocks_unconfirmed(&self, anchored_index_block_hash: BlockHeaderHash, min_seq: u16) -> HttpRequestType {
+    pub fn new_getmicroblocks_unconfirmed(&self, anchored_index_block_hash: StacksBlockId, min_seq: u16) -> HttpRequestType {
         HttpRequestType::GetMicroblocksUnconfirmed(HttpRequestMetadata::from_host(self.peer_host.clone()), anchored_index_block_hash, min_seq)
     }
 

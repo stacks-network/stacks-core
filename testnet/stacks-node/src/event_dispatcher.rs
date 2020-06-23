@@ -16,7 +16,7 @@ use stacks::net::StacksMessageCodec;
 use stacks::vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
 use stacks::vm::analysis::{contract_interface_builder::build_contract_interface};
 use stacks::util::hash::{bytes_to_hex};
-use stacks::chainstate::burn::BlockHeaderHash;
+use stacks::chainstate::stacks::StacksBlockId;
 
 use super::config::{EventObserverConfig, EventKeyType};
 use super::node::{ChainTip};
@@ -102,7 +102,7 @@ impl EventObserver {
     }
 
     fn send(&mut self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip,
-            parent_index_hash: &BlockHeaderHash) {
+            parent_index_hash: &StacksBlockId) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(committed, txid, event)|
             event.json_serialize(txid, *committed)
@@ -199,7 +199,7 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_chain_tip(&mut self, chain_tip: &ChainTip, parent_index_hash: &BlockHeaderHash) {
+    pub fn process_chain_tip(&mut self, chain_tip: &ChainTip, parent_index_hash: &StacksBlockId) {
 
         let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
         let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];

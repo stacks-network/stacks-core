@@ -91,7 +91,7 @@ impl ConfigFile {
             rpc_port: Some(18443),
             peer_port: Some(18444),
             peer_host: Some("argon.blockstack.org".to_string()),
-            process_exit_at_block_height: Some(8640 + 300), // 1 block every 30s, 24 hours * 3 + 300 blocks initially mined for seeding faucet / miner
+            process_exit_at_block_height: Some(20160 + 300), // 1 block every 30s, 24 hours * 7 + 300 blocks initially mined for seeding faucet / miner
             ..BurnchainConfigFile::default()
         };
 
@@ -631,8 +631,8 @@ impl NodeConfig {
                         public_key: Secp256k1PublicKey::from_hex(public_key).unwrap(),
                         expire_block: 99999,
                         last_contact_time: 0,
-                        whitelisted: 0,
-                        blacklisted: 0,
+                        allowed: 0,
+                        denied: 0,
                         asn: 0,
                         org: 0,
                         in_degree: 0,
