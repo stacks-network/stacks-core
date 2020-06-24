@@ -1,3 +1,5 @@
+[![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/blockstack/stacks-blockchain)
+
 # Stacks 2.0
 
 Reference implementation of the [Blockstack Technical Whitepaper](https://blockstack.org/whitepaper.pdf) in Rust.
