@@ -7,12 +7,14 @@ use stacks::vm::{
     analysis::{mem_type_check, contract_interface_builder::{build_contract_interface, ContractInterface}},
     Value };
 use stacks::chainstate::stacks::{
+    db::blocks::MemPoolRejection,
     db::StacksChainState, StacksPrivateKey, StacksTransaction, StacksAddress };
 use stacks::chainstate::burn::VRFSeed;
 use stacks::burnchains::Address;
 use stacks::net::{AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
 use stacks::net::StacksMessageCodec;
 use stacks::vm::clarity::ClarityConnection;
+use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
@@ -633,9 +635,20 @@ fn contract_stx_transfer() {
             let tx = make_contract_call(&sk_2, 0, 0, &to_addr(&contract_sk), "faucet", "spout", &[]);
             tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,tx).unwrap();
         } else if round == 4 {
-            // transfer to the contract again.
-            let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 0, &contract_identifier.into(), 1000);
-            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,xfer_to_contract).unwrap();
+            // let's testing "chaining": submit MAXIMUM_MEMPOOL_TX_CHAINING - 1 txs, which should succeed
+            for i in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
+                let xfer_to_contract = make_stacks_transfer(&sk_3, 1+i, 200, &contract_identifier.clone().into(), 1000);
+                let xfer_to_contract = StacksTransaction::consensus_deserialize(&mut &xfer_to_contract[..]).unwrap();
+                tenure.mem_pool.submit(&burn_header_hash, &header_hash,xfer_to_contract).unwrap();
+            }
+            // this one should fail:
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 3, 200, &contract_identifier.clone().into(), 1000);
+            let xfer_to_contract = StacksTransaction::consensus_deserialize(&mut &xfer_to_contract[..]).unwrap();
+            let result = match tenure.mem_pool.submit(&burn_header_hash, &header_hash,xfer_to_contract).unwrap_err() {
+                MemPoolRejection::TooMuchChaining => true,
+                _ => false
+            };
+            assert!(result);
         }
 
         return
@@ -708,7 +721,8 @@ fn contract_stx_transfer() {
             },
             4 => {
                 assert!(chain_tip.metadata.block_height == 5);
-                assert!(chain_tip.block.txs.len() == 2);
+                assert_eq!(chain_tip.block.txs.len() as u64, MAXIMUM_MEMPOOL_TX_CHAINING + 1,
+                           "Should have 1 coinbase tx and MAXIMUM_MEMPOOL_TX_CHAINING transfers");
 
                 let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
 
@@ -719,7 +733,7 @@ fn contract_stx_transfer() {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
                     }),
-                    1999);
+                    5999);
                 // check that 1000 stx _was_ debited from SK_3
                 let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                 let addr_3 = to_addr(&sk_3).into();
@@ -729,7 +743,7 @@ fn contract_stx_transfer() {
                             db.get_account_stx_balance(&addr_3)
                         })
                     }),
-                    98000);
+                    93000);
             },
 
             _ => {},

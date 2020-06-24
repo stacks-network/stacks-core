@@ -30,6 +30,7 @@ use rusqlite::Connection;
 use rusqlite::DatabaseName;
 
 use core::*;
+use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 
 use chainstate::burn::operations::*;
 
@@ -165,6 +166,7 @@ pub enum MemPoolRejection {
     NoCoinbaseViaMempool,
     NoSuchChainTip(BurnchainHeaderHash,BlockHeaderHash),
     ConflictingNonceInMempool,
+    TooMuchChaining,
     DBError(db_error),
     Other(String),
 }
@@ -177,6 +179,8 @@ impl MemPoolRejection {
                                         Some(json!({"message": e.to_string()}))),
             DeserializationFailure(e) => ("Deserialization",
                                           Some(json!({"message": e.to_string()}))),
+            TooMuchChaining => ("TooMuchChaining",
+                                Some(json!({"message": "Nonce would exceed chaining limit in mempool"}))),
             FailedToValidate(e) => ("SignatureValidation",
                                     Some(json!({"message": e.to_string()}))),
             FeeTooLow(actual, expected) => ("FeeTooLow", 
@@ -3355,6 +3359,12 @@ impl StacksChainState {
                 let origin_addr = tx.origin_address();
                 let origin_nonce = tx.get_origin().nonce();
                 let origin_next_nonce = MemPoolDB::get_next_nonce_for_address(mempool, &origin_addr)?;
+                if origin_next_nonce < origin.nonce {
+                    return Err(e.into())
+                }
+                if origin_next_nonce - origin.nonce >= MAXIMUM_MEMPOOL_TX_CHAINING {
+                    return Err(MemPoolRejection::TooMuchChaining)
+                }
                 if origin_nonce != origin_next_nonce {
                     e.is_origin = true;
                     e.principal = origin_addr.into();
@@ -3366,6 +3376,12 @@ impl StacksChainState {
                 if let Some(sponsor_addr) = tx.sponsor_address() {
                     let sponsor_nonce = tx.get_payer().nonce();
                     let sponsor_next_nonce = MemPoolDB::get_next_nonce_for_address(mempool, &sponsor_addr)?;
+                    if sponsor_next_nonce < payer.nonce {
+                        return Err(e.into())
+                    }
+                    if sponsor_next_nonce - payer.nonce >= MAXIMUM_MEMPOOL_TX_CHAINING {
+                        return Err(MemPoolRejection::TooMuchChaining)
+                    }
                     if sponsor_nonce != sponsor_next_nonce {
                         e.is_origin = false;
                         e.principal = sponsor_addr.into();
