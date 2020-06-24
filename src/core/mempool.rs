@@ -233,11 +233,20 @@ impl<'a> MemPoolTx<'a> {
         self.tx.commit().map_err(db_error::SqliteError)
     }
 
-    fn is_block_in_fork(&mut self, burn_block: &BurnchainHeaderHash, stacks_block: &BlockHeaderHash) -> Result<bool, db_error> {
-        let index_block = StacksBlockHeader::make_index_block_hash(burn_block, stacks_block);
-        match self.admitter.chainstate.headers_state_index.check_ancestor_block_hash(&index_block) {
-            Ok(_) => Ok(true),
-            Err(MarfError::NonMatchingForks(..)) => Ok(false),
+    fn is_block_in_fork(&mut self, check_burn_block: &BurnchainHeaderHash, check_stacks_block: &BlockHeaderHash,
+                        cur_burn_block: &BurnchainHeaderHash, cur_stacks_block: &BlockHeaderHash) -> Result<bool, db_error> {
+        let admitter_block = StacksBlockHeader::make_index_block_hash(
+            cur_burn_block, cur_stacks_block);
+        let index_block = StacksBlockHeader::make_index_block_hash(
+            check_burn_block, check_stacks_block);
+        let height_result = self.admitter.chainstate.with_clarity_marf(|marf| {
+            marf.get_block_height_of(&index_block, &admitter_block)
+        });
+        match height_result {
+            Ok(x) => {
+                eprintln!("{} from {} => {:?}", &index_block, &admitter_block, x);
+                Ok(x.is_some())
+            },
             Err(x) => Err(db_error::IndexError(x))
         }
     }
@@ -595,7 +604,8 @@ impl MemPoolDB {
             if estimated_fee > prior_tx.estimated_fee {
                 // is this a replace-by-fee ?
                 true
-            } else if tx.is_block_in_fork(&prior_tx.burn_header_hash, &prior_tx.block_header_hash)? {
+            } else if !tx.is_block_in_fork(&prior_tx.burn_header_hash, &prior_tx.block_header_hash,
+                                           burn_header_hash, block_header_hash)? {
                 // is this a replace-across-fork ?
                 true
             } else {
@@ -768,6 +778,7 @@ mod tests {
     use util::{log, secp256k1::*, strings::StacksString, hash::hex_bytes, hash::to_hex, hash::*};
 
     use chainstate::stacks::{
+        index::MarfTrieId,
         StacksBlockHeader,
         Error as ChainstateError,
         db::blocks::MemPoolRejection, db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -796,6 +807,108 @@ mod tests {
         let _chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_init");
         let chainstate_path = chainstate_path("mempool_db_init");
         let _mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+    }
+
+    #[test]
+    fn mempool_do_not_replace_tx() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_load_store_replace_tx");
+
+        // genesis -> b_1 -> b_2
+        //      \-> b_3
+
+        let b_1 = (BurnchainHeaderHash([0x1; 32]), BlockHeaderHash([0x4; 32]));
+        let b_2 = (BurnchainHeaderHash([0x2; 32]), BlockHeaderHash([0x5; 32]));
+        let b_3 = (BurnchainHeaderHash([0x3; 32]), BlockHeaderHash([0x6; 32]));
+        
+        eprintln!("b_1 => {}", &StacksBlockHeader::make_index_block_hash(&b_1.0, &b_1.1));
+        eprintln!("b_2 => {}", &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1));
+        eprintln!("b_3 => {}", &StacksBlockHeader::make_index_block_hash(&b_3.0, &b_3.1));
+
+        {
+            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+                                                                &BurnchainHeaderHash::sentinel(),
+                                                                &BlockHeaderHash::sentinel(),
+                                                                &b_1.0,
+                                                                &b_1.1);
+            c_tx.commit_block();
+        }
+
+        {
+            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+                                                                &BurnchainHeaderHash::sentinel(),
+                                                                &BlockHeaderHash::sentinel(),
+                                                                &b_3.0,
+                                                                &b_3.1);
+            c_tx.commit_block();
+        }
+
+        {
+            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+                                                                &b_1.0,
+                                                                &b_1.1,
+                                                                &b_2.0,
+                                                                &b_2.1);
+            c_tx.commit_block();
+        }
+
+        let chainstate_path = chainstate_path("mempool_db_load_store_replace_tx");
+        let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+        let mut txs = codec_all_transactions(&TransactionVersion::Testnet, 0x80000000, &TransactionAnchorMode::Any, &TransactionPostConditionMode::Allow);
+        let mut tx = txs.pop().unwrap();
+
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+
+        // do an initial insert
+        let origin_address = StacksAddress { version: 22, bytes: Hash160::from_data(&[0; 32]) };
+        let sponsor_address = StacksAddress { version: 22, bytes: Hash160::from_data(&[1; 32]) };
+
+        tx.set_fee_rate(123);
+
+        // test insert
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+
+        let len = tx_bytes.len() as u64;
+        let estimated_fee = tx.get_fee_rate() * len;        //TODO: use clarity analysis data to make this estimate
+        let height = 100;
+
+        let origin_nonce = tx.get_origin_nonce();
+        let sponsor_nonce = match tx.get_sponsor_nonce() {
+            Some(n) => n,
+            None => origin_nonce
+        };
+
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        MemPoolDB::try_add_tx(&mut mempool_tx, &b_1.0, &b_1.1,
+                              txid, tx_bytes, estimated_fee, tx.get_fee_rate(), height, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce).unwrap();
+
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        let prior_txid = txid.clone();
+
+        // now, let's try inserting again, with a lower fee, but at a different block hash
+        tx.set_fee_rate(100);
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+        let len = tx_bytes.len() as u64;
+        let estimated_fee = tx.get_fee_rate() * len;        //TODO: use clarity analysis data to make this estimate
+        let height = 100;
+        
+        let err_resp = 
+            MemPoolDB::try_add_tx(&mut mempool_tx, &b_2.0, &b_2.1,
+                                  txid, tx_bytes, estimated_fee, tx.get_fee_rate(), height, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce).unwrap_err();
+        assert!(match err_resp {
+            MemPoolRejection::ConflictingNonceInMempool => true,
+            _ => false,
+        });
+
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &prior_txid).unwrap());
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
     }
 
     #[test]

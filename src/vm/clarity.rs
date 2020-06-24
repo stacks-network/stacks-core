@@ -164,6 +164,15 @@ impl ClarityInstance {
         ClarityInstance { datastore: Some(datastore), block_limit }
     }
 
+    pub fn with_marf<F, R> (&mut self, f: F) -> R
+    where F: FnOnce(&mut MARF<StacksBlockId>) -> R {
+        let datastore = self.datastore.as_mut()
+            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
+            //   doesn't restore it's parent's datastore
+            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
+        f(datastore.get_marf())
+    }
+
     pub fn begin_block<'a> (&'a mut self, current: &StacksBlockId, next: &StacksBlockId,
                             header_db: &'a dyn HeadersDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
