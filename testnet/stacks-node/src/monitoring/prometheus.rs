@@ -23,7 +23,7 @@ pub fn start_serving_prometheus_metrics(bind_address: String) {
                 Ok(stream) => stream,
                 Err(err) => {
                     error!("Prometheus monitoring: unable to open socket and serve metrics - {:?}", err);
-                    return
+                    continue;
                 }
             };
             let addr = addr.clone();
