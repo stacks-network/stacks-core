@@ -239,6 +239,11 @@ impl<'a> MemPoolTx<'a> {
             cur_burn_block, cur_stacks_block);
         let index_block = StacksBlockHeader::make_index_block_hash(
             check_burn_block, check_stacks_block);
+        // short circuit equality
+        if admitter_block == index_block {
+            return Ok(true)
+        }
+
         let height_result = self.admitter.chainstate.with_clarity_marf(|marf| {
             marf.get_block_height_of(&index_block, &admitter_block)
         });
@@ -811,7 +816,7 @@ mod tests {
 
     #[test]
     fn mempool_do_not_replace_tx() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_load_store_replace_tx");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_do_not_replace_tx");
 
         // genesis -> b_1 -> b_2
         //      \-> b_3
@@ -854,7 +859,7 @@ mod tests {
             c_tx.commit_block();
         }
 
-        let chainstate_path = chainstate_path("mempool_db_load_store_replace_tx");
+        let chainstate_path = chainstate_path("mempool_do_not_replace_tx");
         let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
         let mut txs = codec_all_transactions(&TransactionVersion::Testnet, 0x80000000, &TransactionAnchorMode::Any, &TransactionPostConditionMode::Allow);
