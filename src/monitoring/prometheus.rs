@@ -49,14 +49,14 @@ lazy_static! {
         labels! {"handler" => "all",}
     )).unwrap();
 
-    pub static ref STX_BLOCKS_DOWNLOADED_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_stx_blocks_downloaded_total",
+    pub static ref STX_BLOCKS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_stx_blocks_received_total",
         "Total number of Stacks blocks received.",
         labels! {"handler" => "all",}
     )).unwrap();
 
-    pub static ref STX_MICRO_BLOCKS_DOWNLOADED_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_stx_micro_blocks_downloaded_total",
+    pub static ref STX_MICRO_BLOCKS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_stx_micro_blocks_received_total",
         "Total number of Stacks micro blocks received.",
         labels! {"handler" => "all",}
     )).unwrap();

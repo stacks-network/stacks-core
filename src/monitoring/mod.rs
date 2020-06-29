@@ -41,14 +41,14 @@ pub fn increment_p2p_msg_nat_punch_request_received_counter() {
     prometheus::P2P_MSG_NAT_PUNCH_REQUEST_RECEIVED_COUNTER.inc();    
 }
 
-pub fn increment_stx_blocks_downloaded_counter() {
+pub fn increment_stx_blocks_received_counter() {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::STX_BLOCKS_DOWNLOADED_COUNTER.inc();    
+    prometheus::STX_BLOCKS_RECEIVED_COUNTER.inc();    
 }
 
-pub fn increment_stx_micro_blocks_downloaded_counter() {
+pub fn increment_stx_micro_blocks_received_counter() {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::STX_MICRO_BLOCKS_DOWNLOADED_COUNTER.inc();    
+    prometheus::STX_MICRO_BLOCKS_RECEIVED_COUNTER.inc();    
 }
 
 pub fn increment_stx_blocks_served_counter() {
