@@ -1,5 +1,6 @@
 use super::{Keychain, Config, BurnchainController, BurnchainTip, EventDispatcher};
 use crate::config::HELIUM_BLOCK_LIMIT;
+use crate::run_loop::RegisteredKey;
 
 use std::convert::{ TryFrom, TryInto };
 use std::{thread, thread::JoinHandle};
@@ -51,13 +52,6 @@ use stacks::vm::costs::ExecutionCost;
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 pub const RELAYER_MAX_BUFFER: usize = 100;
-
-#[derive(Clone)]
-struct RegisteredKey {
-    block_height: u16,
-    op_vtxindex: u16,
-    vrf_public_key: VRFPublicKey,
-}
 
 struct AssembledAnchorBlock {
     parent_block_burn_hash: BurnchainHeaderHash,
@@ -853,8 +847,8 @@ impl InitializedNeonNode {
                 self.active_keys.push(
                     RegisteredKey {
                         vrf_public_key: op.public_key,
-                        block_height: op.block_height as u16,
-                        op_vtxindex: op.vtxindex as u16,
+                        block_height: op.block_height as u64,
+                        op_vtxindex: op.vtxindex as u32,
                     });
             }
         }
