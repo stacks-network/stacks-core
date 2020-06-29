@@ -67,6 +67,7 @@ use chainstate::stacks::db::{
 use chainstate::stacks::Error as chain_error;
 use chainstate::stacks::*;
 use burnchains::*;
+use monitoring;
 
 use rusqlite::{DatabaseName, NO_PARAMS};
 
@@ -345,6 +346,8 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_block_hash: &StacksBlockId, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+        monitoring::increment_stx_blocks_served_counter();
+
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this block?
@@ -375,6 +378,8 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_confirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &StacksBlockId, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+        monitoring::increment_stx_confirmed_micro_blocks_served_counter();
+
         let response_metadata = HttpResponseMetadata::from(req);
 
         match chainstate.get_confirmed_microblock_index_hash(index_anchor_block_hash) {
@@ -404,6 +409,8 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_indexed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_microblock_hash: &StacksBlockId, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+        monitoring::increment_stx_micro_blocks_served_counter();
+
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this confirmed microblock stream?
@@ -678,6 +685,8 @@ impl ConversationHttp {
     /// peer network (like a transaction or a block or microblock)
     pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
                           chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, handler_opts: &RPCHandlerArgs) -> Result<Option<StacksMessageType>, net_error> {
+
+        monitoring::increment_rpc_calls_counter();
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;

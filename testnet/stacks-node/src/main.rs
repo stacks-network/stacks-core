@@ -8,6 +8,8 @@ extern crate serde;
 
 pub use stacks::util;
 
+pub mod monitoring;
+
 pub mod run_loop; 
 pub mod keychain;
 pub mod node;

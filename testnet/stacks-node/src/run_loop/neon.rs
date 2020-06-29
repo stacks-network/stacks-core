@@ -1,4 +1,6 @@
 use std::process;
+use std::thread;
+
 use crate::{Config, NeonGenesisNode, BurnchainController, 
             BitcoinRegtestController, Keychain};
 use stacks::chainstate::burn::db::burndb::BurnDB;
@@ -8,6 +10,8 @@ use stacks::burnchains::bitcoin::{BitcoinNetworkType,
                                   address::{BitcoinAddressType}};
 
 use super::RunLoopCallbacks;
+
+use crate::monitoring::start_serving_monitoring_metrics;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -113,6 +117,14 @@ impl RunLoop {
         // Start the runloop
         info!("Begin run loop");
         self.bump_blocks_processed();
+        
+        let prometheus_bind = self.config.node.prometheus_bind.clone();
+        if let Some(prometheus_bind) = prometheus_bind {
+            thread::spawn(move || {
+                start_serving_monitoring_metrics(prometheus_bind);
+            });
+        }
+
         loop {
             burnchain_tip = burnchain.sync();
 
