@@ -1096,7 +1096,7 @@ impl ConversationP2P {
             StacksMessageType::GetNeighbors => self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble),
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(local_peer, burndb, chainstate, chain_view, &msg.preamble, get_blocks_inv),
             StacksMessageType::Blocks(_) => {
-                monitoring::increment_stx_blocks_downloaded_counter();
+                monitoring::increment_stx_blocks_received_counter();
 
                 // not handled here, but do some accounting -- we can't receive blocks too often,
                 // so close this conversation if we do.
@@ -1109,7 +1109,7 @@ impl ConversationP2P {
                 }
             },
             StacksMessageType::Microblocks(_) => {
-                monitoring::increment_stx_micro_blocks_downloaded_counter();
+                monitoring::increment_stx_micro_blocks_received_counter();
 
                 // not handled here, but do some accounting -- we can't receive too many
                 // unconfirmed microblocks per second
