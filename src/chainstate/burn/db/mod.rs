@@ -18,6 +18,7 @@
 */
 
 pub mod burndb;
+pub mod processing;
 
 use std::fmt;
 use std::error;

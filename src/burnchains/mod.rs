@@ -22,6 +22,7 @@
 pub mod bitcoin;
 pub mod indexer;
 pub mod burnchain;
+pub mod db;
 
 use std::fmt;
 use std::error;
@@ -70,6 +71,8 @@ use chainstate::burn::operations::LeaderKeyRegisterOp;
 use address::AddressHashMode;
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+
+use rusqlite::Error as sqlite_error;
 
 use util::hash::Hash160;
 use util::db::Error as db_error;
@@ -253,7 +256,6 @@ pub struct BurnchainBlockHeader {
     pub block_height: u64,
     pub block_hash: BurnchainHeaderHash,
     pub parent_block_hash: BurnchainHeaderHash,
-    pub parent_index_root: TrieHash,
     pub num_txs: u64,
     pub timestamp: u64,
 }
@@ -361,6 +363,12 @@ impl error::Error for Error {
 impl From<db_error> for Error {
     fn from(e: db_error) -> Error {
         Error::DBError(e)
+    }
+}
+
+impl From<sqlite_error> for Error {
+    fn from(e: sqlite_error) -> Error {
+        Error::DBError(db_error::SqliteError(e))
     }
 }
 

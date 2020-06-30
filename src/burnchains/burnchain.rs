@@ -43,6 +43,9 @@ use burnchains::{
 };
 
 use burnchains::Error as burnchain_error;
+use burnchains::db::{
+    BurnchainDb
+};
 
 use burnchains::indexer::{BurnchainIndexer, BurnchainBlockParser, BurnchainBlockDownloader, BurnBlockIPC};
 use burnchains::BurnchainParameters;
@@ -285,7 +288,7 @@ impl BurnchainBlock {
         }
     }
     
-    pub fn header(&self, parent_snapshot: &BlockSnapshot) -> BurnchainBlockHeader {
+    pub fn header(&self) -> BurnchainBlockHeader {
         match *self {
             BurnchainBlock::Bitcoin(ref data) => {
                 BurnchainBlockHeader {
@@ -293,7 +296,6 @@ impl BurnchainBlock {
                     block_hash: data.block_hash.clone(),
                     parent_block_hash: data.parent_block_hash.clone(),
                     num_txs: data.txs.len() as u64,
-                    parent_index_root: parent_snapshot.index_root.clone(),
                     timestamp: data.timestamp
                 }
             }
@@ -394,13 +396,22 @@ impl Burnchain {
     pub fn get_db_path(&self) -> String {
         let chainstate_dir = Burnchain::get_chainstate_path(&self.working_dir, &self.chain_name, &self.network_name);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
-        db_pathbuf.push("burn.db");
+        db_pathbuf.push("sortition.db");
         
         let db_path = db_pathbuf.to_str().unwrap().to_string();
         db_path
     }
 
-    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<BurnDB, burnchain_error> {
+    pub fn get_burnchaindb_path(&self) -> String {
+        let chainstate_dir = Burnchain::get_chainstate_path(&self.working_dir, &self.chain_name, &self.network_name);
+        let mut db_pathbuf = PathBuf::from(&chainstate_dir);
+        db_pathbuf.push("burnchain.db");
+        
+        let db_path = db_pathbuf.to_str().unwrap().to_string();
+        db_path
+    }
+
+    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(BurnDB, BurnchainDb), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
         let first_block_height = indexer.get_first_block_height();
@@ -408,8 +419,13 @@ impl Burnchain {
         let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
         
         let db_path = self.get_db_path();
-        BurnDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)
-            .map_err(burnchain_error::DBError)
+        let burnchain_db_path = self.get_burnchaindb_path();
+
+        let burndb = BurnDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
+
+        let burnchaindb = BurnchainDb::connect(&burnchain_db_path, readwrite)?;
+
+        Ok((burndb, burnchaindb))
     }
 
     /// Open the burn database.  It must already exist.
@@ -425,7 +441,7 @@ impl Burnchain {
     }
 
     /// Try to parse a burnchain transaction into a Blockstack operation
-    fn classify_transaction(block_header: &BurnchainBlockHeader, burn_tx: &BurnchainTransaction) -> Option<BlockstackOperationType> {
+    pub fn classify_transaction(block_header: &BurnchainBlockHeader, burn_tx: &BurnchainTransaction) -> Option<BlockstackOperationType> {
         match burn_tx.opcode() {
             x if x == Opcodes::LeaderKeyRegister as u8 => {
                 match LeaderKeyRegisterOp::from_tx(block_header, burn_tx) {
@@ -466,42 +482,9 @@ impl Burnchain {
         }
     }
    
-    /// Run a blockstack operation's "check()" method and return the result.
-    fn check_transaction<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, blockstack_op: &BlockstackOperationType) -> Result<(), burnchain_error> {
-        match blockstack_op {
-            BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                op.check(burnchain, block_header, ic)
-                    .map_err(|e| {
-                          warn!("REJECTED({}) leader key register {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
-                          burnchain_error::OpError(e)
-                    })
-            },
-            BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                op.check(burnchain, block_header, ic)
-                    .map_err(|e| {
-                          warn!("REJECTED({}) leader block commit {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
-                          burnchain_error::OpError(e)
-                    })
-            },
-            BlockstackOperationType::UserBurnSupport(ref op) => {
-                op.check(burnchain, block_header, ic)
-                    .map_err(|e| {
-                        warn!("REJECTED({}) user burn support {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
-                        burnchain_error::OpError(e)
-                    })
-            }
-        }
-    }
-
-    /// Filter out the burnchain block's transactions that could be blockstack transactions.
-    /// Return the ordered list of blockstack operations by vtxindex
-    fn get_blockstack_transactions(block: &BurnchainBlock, block_header: &BurnchainBlockHeader) -> Vec<BlockstackOperationType> {
-        debug!("Extract Blockstack transactions from block {} {}", block.block_height(), &block.block_hash());
-        block.txs().iter().filter_map(|tx| Burnchain::classify_transaction(block_header, &tx)).collect()
-    }
 
     /// Sanity check -- a list of checked ops is sorted and all vtxindexes are unique
-    fn ops_are_sorted(ops: &Vec<BlockstackOperationType>) -> bool {
+    pub fn ops_are_sorted(ops: &Vec<BlockstackOperationType>) -> bool {
         if ops.len() > 1 {
             for i in 0..ops.len() - 1 {
                 if ops[i].vtxindex() >= ops[i+1].vtxindex() {
@@ -516,41 +499,36 @@ impl Burnchain {
     /// If a key was registered more than once, take the first one and drop the rest.
     /// checked_ops must be sorted by vtxindex
     /// Returns the filtered list of blockstack ops
-    fn filter_block_VRF_dups(mut checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
+    pub fn filter_block_VRF_dups(mut checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
         debug!("Check Blockstack transactions: reject duplicate VRF keys");
         assert!(Burnchain::ops_are_sorted(&checked_ops));
 
-        let mut ret = Vec::with_capacity(checked_ops.len());
-
         let mut all_keys : HashSet<VRFPublicKey> = HashSet::new();
-        for op in checked_ops.drain(..) {
-            match op {
-                BlockstackOperationType::LeaderKeyRegister(data) => {
-                    if all_keys.contains(&data.public_key) {
-                        // duplicate
-                        warn!("REJECTED({}) leader key register {} at {},{}: Duplicate VRF key", data.block_height, &data.txid, data.block_height, data.vtxindex);
-                    }
-                    else {
-                        // first case
-                        all_keys.insert(data.public_key.clone());
-                        ret.push(BlockstackOperationType::LeaderKeyRegister(data));
-                    }
-                },
-                _ => {
-                    // preserve
-                    ret.push(op);
+        checked_ops.retain(|op| {
+            if let BlockstackOperationType::LeaderKeyRegister(data) = op {
+                if all_keys.contains(&data.public_key) {
+                    // duplicate
+                    warn!("REJECTED({}) leader key register {} at {},{}: Duplicate VRF key", data.block_height, &data.txid, data.block_height, data.vtxindex);
+                    false
+                } else {
+                    // first case
+                    all_keys.insert(data.public_key.clone());
+                    true
                 }
+            } else {
+                // preserve
+                true
             }
-        }
+        });
 
-        ret
+        checked_ops
     }
 
     /// Verify that two or more block commits do not consume the same VRF key.
     /// If a key is consumed more than once, then pick the block-commit with the highest burn (to
     /// stop griefing attacks).  In case of ties, pick the block-commit that occurs earlier in the
     /// block.
-    fn filter_block_commits_with_same_VRF_key(checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
+    pub fn filter_block_commits_with_same_VRF_key(checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
         debug!("Check Blockstack transactions: filter commits that consume the same VRF key");
         assert!(Burnchain::ops_are_sorted(&checked_ops));
 
@@ -600,171 +578,17 @@ impl Burnchain {
         ret
     }
 
-
-    /// Generate the list of blockstack operations that will be snapshotted -- a subset of the
-    /// blockstack operations extracted from get_blockstack_transactions.
-    /// Return the list of parsed blockstack operations whose check() method has returned true.
-    fn check_block_ops<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, block_ops: &Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, burnchain_error> {
-        debug!("Check Blockstack transactions from block {} {}", block_header.block_height, &block_header.block_hash);
-        let mut ret = vec![];
-
-        // classify and check each transaction
-        for blockstack_op in block_ops {
-            match Burnchain::check_transaction(ic, burnchain, block_header, blockstack_op) {
-                Err(_) => {
-                    // check failed
-                    continue;
-                }
-                Ok(_) => {
-                    ret.push((*blockstack_op).clone());
-                }
-            }
-        }
-
-        // block-wide check: no duplicate keys registered
-        let ret_filtered = Burnchain::filter_block_VRF_dups(ret);
-        assert!(Burnchain::ops_are_sorted(&ret_filtered));
-    
-        // block-wide check: at most one block-commit can consume a VRF key
-        let ret_filtered = Burnchain::filter_block_commits_with_same_VRF_key(ret_filtered);
-        assert!(Burnchain::ops_are_sorted(&ret_filtered));
-
-        Ok(ret_filtered)
-    }
-
-    /// Process all block's checked transactions 
-    /// * make the burn distribution
-    /// * insert the ones that went into the burn distribution
-    /// * snapshot the block and run the sortition
-    /// * return the snapshot (and sortition results)
-    fn process_checked_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, this_block_ops: &Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
-        let this_block_height = block_header.block_height;
-        let this_block_hash = block_header.block_hash.clone();
-
-        // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(&tx.as_conn(), parent_snapshot, this_block_ops)
-            .map_err(|e| {
-                error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
-                e
-            })?;
-
-        let txids = state_transition.accepted_ops.iter().map(|ref op| op.txid()).collect();
-        
-        // do the cryptographic sortition and pick the next winning block.
-        let mut snapshot = BlockSnapshot::make_snapshot(&tx.as_conn(), burnchain, parent_snapshot, block_header, &state_transition.burn_dist, &txids)
-            .map_err(|e| {
-                error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash, e);
-                burnchain_error::DBError(e)
-            })?;
-        
-        // store the snapshot
-        let index_root = BurnDB::append_chain_tip_snapshot(tx, parent_snapshot, &snapshot, &state_transition.accepted_ops, &state_transition.consumed_leader_keys)?;
-
-        snapshot.index_root = index_root;
-
-        debug!("OPS-HASH({}): {}", this_block_height, &snapshot.ops_hash);
-        debug!("INDEX-ROOT({}): {}", this_block_height, &snapshot.index_root);
-        debug!("SORTITION-HASH({}): {}", this_block_height, &snapshot.sortition_hash);
-        debug!("CONSENSUS({}): {}", this_block_height, &snapshot.consensus_hash);
-        Ok((snapshot, state_transition))
-    }
-
-    /// Check and then commit all blockstack operations to our chainstate.
-    /// * pull out all the transactions that are blockstack ops
-    /// * select the ones that are _valid_ 
-    /// * do a cryptographic sortition to select the next Stacks block
-    /// * commit all valid transactions
-    /// * commit the results of the sortition
-    /// Returns the BlockSnapshot created from this block.
-    pub fn process_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, blockstack_txs: &Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
-        debug!("BEGIN({}) block ({},{})", block_header.block_height, block_header.block_hash, block_header.parent_block_hash);
-        debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
-
-        // check each transaction, and filter out only the ones that are valid 
-        let block_ops = Burnchain::check_block_ops(&tx.as_conn(), burnchain, block_header, blockstack_txs)
-            .map_err(|e| {
-                error!("TRANSACTION ABORTED when checking block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
-                e
-            })?;
-
-        // process them 
-        let res = Burnchain::process_checked_block_ops(tx, burnchain, parent_snapshot, block_header, &block_ops)
-            .map_err(|e| {
-                error!("TRANSACTION ABORTED when snapshotting block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
-                e
-            })?;
-
-        Ok(res)
-    }
-
-    /// Get the abstracted burnchain header from an abstracted burnchain block, as well as its
-    /// parent snapshot.
-    /// the txs won't be considered; only the linkage to its parent.
-    /// Returns the burnchain block header (with all fork information filled in), as well as the
-    /// chain tip to which it will be attached.
-    pub fn get_burnchain_block_attachment_info<'a>(tx: &mut BurnDBTx<'a>, block: &BurnchainBlock) -> Result<(BurnchainBlockHeader, BlockSnapshot), burnchain_error> {
-        debug!("Get header for block {} {}", block.block_height(), &block.block_hash());
-
-        let parent_snapshot = match BurnDB::get_block_snapshot(tx, &block.parent_block_hash())? {
-            Some(sn) => {
-                sn
-            },
-            None => {
-                warn!("Unknown block {:?}", block.parent_block_hash());
-                return Err(burnchain_error::MissingParentBlock);
-            }
-        };
-
-        let header = block.header(&parent_snapshot);
-        Ok((header, parent_snapshot))
-    }
-
-    /// Apply safety checks on extracted blockstack transactions
-    /// - put them in order by vtxindex
-    /// - make sure there are no vtxindex duplicates
-    pub fn apply_blockstack_txs_safety_checks(block_height: u64, blockstack_txs: &mut Vec<BlockstackOperationType>) -> () {
-        // safety -- make sure these are in order
-        blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
-
-        // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
-        if blockstack_txs.len() > 1 {
-            for i in 0..blockstack_txs.len() - 1 {
-                if blockstack_txs[i].vtxindex() == blockstack_txs[i+1].vtxindex() {
-                    panic!("FATAL: BUG: duplicate vtxindex {} in block {}", blockstack_txs[i].vtxindex(), blockstack_txs[i].block_height());
-                }
-            }
-        }
-
-        // safety -- block heights all match
-        for tx in blockstack_txs.iter() {
-            if tx.block_height() != block_height {
-                panic!("FATAL: BUG: block height mismatch: {} != {}", tx.block_height(), block_height);
-            }
-        }
-    }
-
-    /// Given the extracted txs, and a block header, go process them into the next
-    /// snapshot.  Unlike process_block_ops, this method applies safety checks against the given
-    /// list of blockstack transactions.
-    pub fn process_block_txs<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader, burnchain: &Burnchain, mut blockstack_txs: Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
-        assert_eq!(parent_snapshot.block_height + 1, this_block_header.block_height);
-        assert_eq!(parent_snapshot.burn_header_hash, this_block_header.parent_block_hash);
-        Burnchain::apply_blockstack_txs_safety_checks(this_block_header.block_height, &mut blockstack_txs);
-        
-        let new_snapshot = Burnchain::process_block_ops(tx, burnchain, &parent_snapshot, &this_block_header, &blockstack_txs)?;
-        Ok(new_snapshot)
-    }
-
     /// Top-level entry point to check and process a block.
-    pub fn process_block(db: &mut BurnDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
+    pub fn process_block(db: &mut BurnDB, burnchain_db: &mut BurnchainDb, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
         let mut tx = db.tx_begin()?;
 
-        let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(&mut tx, block)?;
-        let blockstack_txs = Burnchain::get_blockstack_transactions(block, &header);
-        let new_snapshot = Burnchain::process_block_txs(&mut tx, &parent_snapshot, &header, burnchain, blockstack_txs)?;
-        
+        let header = block.header();
+        let parent_snapshot = tx.get_burnchain_block_attachment_info(&header)?;
+        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
+        let new_snapshot = tx.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)?;
+
         // commit everything!
         tx.commit()?;
         Ok(new_snapshot)
@@ -816,7 +640,7 @@ impl Burnchain {
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
     pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
-        let mut burndb = self.connect_db(indexer, true)?;
+        let (mut burndb, mut burnchain_db) = self.connect_db(indexer, true)?;
         let burn_chain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn())
             .map_err(|e| {
                 error!("Failed to query burn chain tip from burn DB");
@@ -912,7 +736,7 @@ impl Burnchain {
                 }
                 
                 let insert_start = get_epoch_time_ms();
-                let (tip, transition) = Burnchain::process_block(&mut burndb, &burnchain_config, &burnchain_block)?;
+                let (tip, transition) = Burnchain::process_block(&mut burndb, &mut burnchain_db, &burnchain_config, &burnchain_block)?;
                 last_processed = (tip, Some(transition));
                 let insert_end = get_epoch_time_ms();
 

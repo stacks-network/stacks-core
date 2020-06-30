@@ -52,6 +52,7 @@ use core::SYSTEM_FORK_SET_VERSION;
 use util::log;
 use util::uint::Uint256;
 use util::hash::Sha512Trunc256Sum;
+use util::hash::Hash32;
 
 use chainstate::stacks::index::TrieHash;
 
@@ -68,7 +69,10 @@ impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 impl_byte_array_serde!(BlockHeaderHash);
 pub const BLOCK_HEADER_HASH_ENCODED_SIZE : usize = 32;
 
-pub struct VRFSeed(pub [u8; 32]);
+#[derive(Serialize, Deserialize)]
+pub struct VRFSeed(
+    #[serde(serialize_with = "Hash32::json_serialize", deserialize_with = "Hash32::json_deserialize")]
+    pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);

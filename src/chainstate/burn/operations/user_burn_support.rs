@@ -23,8 +23,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBConn;
+use chainstate::burn::db::burndb::{ BurnDB, BurnDBTx };
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -207,9 +206,9 @@ impl BlockstackOperation for UserBurnSupportOp {
         UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), op_error> {
+    fn check(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &BurnDBTx) -> Result<(), op_error> {
         // this will be the chain tip we're building on
-        let chain_tip = BurnDB::get_block_snapshot(ic, &block_header.parent_block_hash)?
+        let chain_tip = tx.get_block_snapshot(&block_header.parent_block_hash)?
             .expect("FATAL: no parent snapshot in the DB");
 
         let leader_key_block_height = self.key_block_ptr as u64;
@@ -219,15 +218,8 @@ impl BlockstackOperation for UserBurnSupportOp {
         /////////////////////////////////////////////////////////////////
    
         // NOTE: we only care about the first 19 bytes
-        let fresh_chs = BurnDB::get_fresh_consensus_hashes(ic, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &chain_tip.burn_header_hash)?;
-
-        let mut is_fresh = false;
-        for ch in fresh_chs.iter() {
-            if ch.as_bytes()[0..19] == self.consensus_hash.as_bytes()[0..19] {
-                is_fresh = true;
-                break;
-            }
-        }
+        let is_fresh = BurnDB::is_fresh_consensus_hash_check_19b(
+            tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)?;
 
         if !is_fresh {
             warn!("Invalid user burn: invalid consensus hash {}", &self.consensus_hash);
@@ -248,7 +240,8 @@ impl BlockstackOperation for UserBurnSupportOp {
             return Err(op_error::ParseError);
         }
 
-        let register_key_opt = BurnDB::get_leader_key_at(ic, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)?;
+        let register_key_opt = BurnDB::get_leader_key_at(
+            &tx.as_conn(), leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)?;
 
         if register_key_opt.is_none() {
             warn!("Invalid user burn: no such leader VRF key {}", &self.public_key.to_hex());

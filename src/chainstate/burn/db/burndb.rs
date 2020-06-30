@@ -32,7 +32,8 @@ use std::convert::From;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_row, query_row_columns, query_count, IndexDBTx, IndexDBConn, db_mkdirs};
+use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_row, query_row_columns, query_count, IndexDBTx,
+               IndexDBConn, db_mkdirs, query_row_panic};
 use util::db::Error as db_error;
 use util::db::tx_begin_immediate;
 use util::get_epoch_time_secs;
@@ -59,7 +60,10 @@ use burnchains::Burnchain;
 use burnchains::{
     BurnchainSigner,
     BurnchainRecipient,
-    BurnchainTransaction
+    BurnchainTransaction,
+    BurnchainBlockHeader,
+    BurnchainStateTransition,
+    Error as BurnchainError
 };
 
 use chainstate::stacks::StacksAddress;
@@ -1140,7 +1144,7 @@ impl BurnDB {
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
-    pub fn get_ancestor_snapshot<'a>(ic: &BurnDBConn<'a>, ancestor_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_ancestor_snapshot(ic: &BurnDBConn, ancestor_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
         let ancestor_hash = match burndb_get_ancestor_block_hash(ic, ancestor_block_height, &tip_block_hash)? {
             Some(bhh) => {
@@ -1160,6 +1164,7 @@ impl BurnDB {
     /// known snapshot.
     pub fn get_consensus_at<'a>(ic: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<ConsensusHash>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
+
         match BurnDB::get_ancestor_snapshot(ic, block_height, tip_block_hash)? {
             Some(sn) => Ok(Some(sn.consensus_hash.clone())),
             None => Ok(None)
@@ -1530,7 +1535,7 @@ impl BurnDB {
     
     /// Get a parent block commit at a specific location in the burn chain on a particular fork.
     /// Returns None if there is no block commit at this location.
-    pub fn get_block_commit_parent<'a>(ic: &BurnDBConn<'a>, block_height: u64, vtxindex: u32, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    pub fn get_block_commit_parent(ic: &BurnDBConn, block_height: u64, vtxindex: u32, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
         let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(ic, block_height, tip_block_hash)? {
             Some(sn) => {
@@ -1543,19 +1548,8 @@ impl BurnDB {
 
         let qry = "SELECT * FROM block_commits WHERE burn_header_hash = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2".to_string();
         let args: &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(block_height)?, &vtxindex];
-        let rows = query_rows::<LeaderBlockCommitOp, _>(ic, &qry, args)?;
-
-        match rows.len() {
-            0 => {
-                return Ok(None);
-            },
-            1 => {
-                return Ok(Some(rows[0].clone()));
-            },
-            _ => {
-                panic!("Multiple parent blocks at {},{} in {}", block_height, vtxindex, tip_block_hash);
-            }
-        }
+        query_row_panic(ic, &qry, args,
+                        || format!("Multiple parent blocks at {},{} in {}", block_height, vtxindex, tip_block_hash))
     }
 
     /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
@@ -1606,8 +1600,8 @@ impl BurnDB {
     }
 
     /// Find out whether or not a particular VRF key was used before in this fork segment's history.
-    pub fn has_VRF_public_key<'a>(ic: &BurnDBConn<'a>, key: &VRFPublicKey, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
-        let tip_snapshot = match BurnDB::get_block_snapshot(ic, tip_block_hash)? {
+    pub fn has_VRF_public_key(tx: &BurnDBTx, key: &VRFPublicKey, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+        let tip_snapshot = match tx.get_block_snapshot(tip_block_hash)? {
             None => {
                 error!("No tip with index root {}", tip_block_hash);
                 return Err(db_error::NotFoundError);
@@ -1617,53 +1611,10 @@ impl BurnDB {
             }
         };
 
-        let key_status = match BurnDB::index_value_get(ic, &tip_snapshot.burn_header_hash, &format!("burndb::vrf::{}", key.to_hex()))? {
-            Some(_) => {
-                // key was seen before
-                true
-            },
-            None => {
-                // never before seen
-                false
-            }
-        };
+        let key_status = tx.get_index_value_by_burnheader(&tip_snapshot.burn_header_hash, &format!("burndb::vrf::{}", key.to_hex()))?
+            .is_some();
 
         Ok(key_status)
-    }
-    
-    /// Get all fresh consensus hashes in this fork.
-    pub fn get_fresh_consensus_hashes<'a>(ic: &BurnDBConn<'a>, current_block_height: u64, consensus_hash_lifetime: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<ConsensusHash>, db_error> {
-        assert!(current_block_height < BLOCK_HEIGHT_MAX);
-        let first_snapshot = BurnDB::get_first_block_snapshot(ic)?;
-        let mut last_snapshot = match BurnDB::get_block_snapshot(ic, tip_block_hash)? {
-            None => {
-                return Err(db_error::NotFoundError);
-            }
-            Some(sn) => sn
-        };
-
-        let mut oldest_height = 
-            if current_block_height < consensus_hash_lifetime {
-                0
-            }
-            else {
-                current_block_height - consensus_hash_lifetime
-            };
-
-        if oldest_height < first_snapshot.block_height {
-            oldest_height = first_snapshot.block_height;
-        }
-
-        let mut fresh_chs = vec![last_snapshot.consensus_hash.clone()];
-        for _i in oldest_height..current_block_height {
-            let ancestor_snapshot = BurnDB::get_block_snapshot(ic, &last_snapshot.parent_burn_header_hash)?.expect(&format!("Discontiguous index: missing block {}", last_snapshot.parent_burn_header_hash));
-            fresh_chs.push(ancestor_snapshot.consensus_hash);
-            last_snapshot = ancestor_snapshot;
-        }
-
-        // first item is the _oldest_ consensus hash
-        fresh_chs.reverse();
-        return Ok(fresh_chs);
     }
     
     /// Given a burnchain header hash, go get the last N Stacks block headers that won sortition
@@ -1743,17 +1694,13 @@ impl BurnDB {
         debug!("Block header cache has {} items", cache.len());
     }
 
-    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
-    /// The fork must exist.
-    pub fn is_fresh_consensus_hash<'a>(ic: &BurnDBConn<'a>, current_block_height: u64, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+    fn check_fresh_consensus_hash<F>(tx: &BurnDBTx, current_block_height: u64, consensus_hash_lifetime: u64,
+                                     tip_block_hash: &BurnchainHeaderHash, check: F) -> Result<bool, db_error>
+    where F: Fn(&ConsensusHash) -> bool {
         assert!(current_block_height < BLOCK_HEIGHT_MAX);
-        let first_snapshot = BurnDB::get_first_block_snapshot(ic)?;
-        match BurnDB::get_block_snapshot(ic, tip_block_hash)? {
-            None => {
-                return Err(db_error::NotFoundError);
-            }
-            Some(_) => {}
-        };
+        let first_snapshot = BurnDB::get_first_block_snapshot(tx)?;
+        let mut last_snapshot = tx.get_block_snapshot(tip_block_hash)?
+            .ok_or_else(|| db_error::NotFoundError )?;
 
         let mut oldest_height = 
             if current_block_height < consensus_hash_lifetime {
@@ -1767,52 +1714,51 @@ impl BurnDB {
             oldest_height = first_snapshot.block_height;
         }
 
-        let mut last_snapshot = BurnDB::get_block_snapshot(ic, tip_block_hash)?
-            .ok_or(db_error::NotFoundError)?;
-
-        if last_snapshot.consensus_hash == *consensus_hash {
-            return Ok(true);
+        if check(&last_snapshot.consensus_hash) {
+            return Ok(true)
         }
 
         for _i in oldest_height..current_block_height {
-            // all of these values should exist
-            let ancestor_snapshot = match BurnDB::get_block_snapshot(ic, &last_snapshot.parent_burn_header_hash)? {
-                Some(sn) => {
-                    sn
-                },
-                None => {
-                    panic!("Discontiguous index: missing block {}", last_snapshot.parent_burn_header_hash);
-                }
-            };
-
-            if ancestor_snapshot.consensus_hash == *consensus_hash {
-                // found!
-                return Ok(true);
+            let ancestor_snapshot = tx.get_block_snapshot(&last_snapshot.parent_burn_header_hash)?
+                .expect(&format!("Discontiguous index: missing block {}", last_snapshot.parent_burn_header_hash));
+            if check(&ancestor_snapshot.consensus_hash) {
+                return Ok(true)
             }
-
             last_snapshot = ancestor_snapshot;
         }
 
-        return Ok(false);
+        return Ok(false)
+    }
+
+    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
+    /// The fork must exist.
+    pub fn is_fresh_consensus_hash(tx: &BurnDBTx, current_block_height: u64, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+        BurnDB::check_fresh_consensus_hash(tx, current_block_height, consensus_hash_lifetime, tip_block_hash,
+                                           |fresh_hash| { fresh_hash == consensus_hash })
+    }
+
+    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
+    /// The fork must exist.
+    /// This function only checks the first 19 bytes
+    pub fn is_fresh_consensus_hash_check_19b(tx: &BurnDBTx, current_block_height: u64, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+        BurnDB::check_fresh_consensus_hash(tx, current_block_height, consensus_hash_lifetime, tip_block_hash,
+                                           |fresh_hash| { fresh_hash.as_bytes()[0..19] == consensus_hash.as_bytes()[0..19] })
     }
 
     /// Determine whether or not a leader key has been consumed by a subsequent block commitment in
     /// this fork's history.
     /// Will return false if the leader key does not exist.
-    pub fn is_leader_key_consumed<'a>(ic: &BurnDBConn<'a>, leader_key: &LeaderKeyRegisterOp, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+    pub fn is_leader_key_consumed(tx: &BurnDBTx, leader_key: &LeaderKeyRegisterOp, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
         assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
         
-        let tip_snapshot = match BurnDB::get_block_snapshot(ic, tip_block_hash)? { 
-            None => {
+        let tip_snapshot = tx.get_block_snapshot(tip_block_hash)?
+            .ok_or_else(|| {
                 error!("No tip with index root {}", tip_block_hash);
-                return Err(db_error::NotFoundError);
-            }
-            Some(sn) => {
-                sn
-            }
-        };
+                db_error::NotFoundError
+            })?;
 
-        let key_status = match BurnDB::index_value_get(ic, &tip_snapshot.burn_header_hash, &format!("burndb::vrf::{}", leader_key.public_key.to_hex()))? {
+        let key = format!("burndb::vrf::{}", leader_key.public_key.to_hex());
+        let key_status = match tx.get_index_value_by_burnheader(&tip_snapshot.burn_header_hash, &key)? {
             Some(status_str) => {
                 if status_str == "1" {
                     // key is still available
@@ -1946,15 +1892,9 @@ impl BurnDB {
 
     /// Do we expect a stacks block in this particular fork?
     /// i.e. is this block hash part of the fork history identified by tip_block_hash?
-    pub fn expects_stacks_block_in_fork<'a>(ic: &BurnDBConn<'a>, block_hash: &BlockHeaderHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
-        match BurnDB::index_value_get(ic, tip_block_hash, &format!("burndb::sortition_block_hash::{}", block_hash))? {
-            Some(_) => {
-                Ok(true)
-            },
-            None => {
-                Ok(false)
-            }
-        }
+    pub fn expects_stacks_block_in_fork(tx: &BurnDBTx, block_hash: &BlockHeaderHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
+        tx.get_index_value_by_burnheader(tip_block_hash, &format!("burndb::sortition_block_hash::{}", block_hash))
+            .map(|result| result.is_some())
     }
 }
 

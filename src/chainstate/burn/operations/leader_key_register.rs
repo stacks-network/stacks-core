@@ -35,7 +35,7 @@ use util::db::DBConn;
 use util::db::DBTx;
 
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBConn;
+use chainstate::burn::db::burndb::BurnDBTx;
 use chainstate::stacks::index::TrieHash;
 
 use burnchains::BurnchainTransaction;
@@ -216,9 +216,9 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), op_error> {
+    fn check(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &BurnDBTx) -> Result<(), op_error> {
         // this will be the chain tip we're building on
-        let chain_tip = BurnDB::get_block_snapshot(ic, &block_header.parent_block_hash)?
+        let chain_tip = tx.get_block_snapshot(&block_header.parent_block_hash)?
             .expect("FATAL: no parent snapshot in the DB");
 
         /////////////////////////////////////////////////////////////////
@@ -226,7 +226,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         /////////////////////////////////////////////////////////////////
 
         // key selected here must never have been submitted on this fork before 
-        let has_key_already = BurnDB::has_VRF_public_key(ic, &self.public_key, &chain_tip.burn_header_hash)?;
+        let has_key_already = BurnDB::has_VRF_public_key(tx, &self.public_key, &chain_tip.burn_header_hash)?;
 
         if has_key_already {
             warn!("Invalid leader key registration: public key {} previously used", &self.public_key.to_hex());
@@ -237,7 +237,8 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(ic, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)?;
+        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(
+            tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)?;
 
         if !consensus_hash_recent {
             warn!("Invalid leader key registration: invalid consensus hash {}", &self.consensus_hash);
