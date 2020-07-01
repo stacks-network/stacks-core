@@ -28,4 +28,4 @@ pub trait ChainstateDB {
 // needs to come _after_ the macro def above, since they both use this macro
 pub mod burn;
 pub mod stacks;
-
+pub mod coordinator;
