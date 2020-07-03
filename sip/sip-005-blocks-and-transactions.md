@@ -816,7 +816,7 @@ A _block header_ is encoded as follows:
   chain (in particular, it must hash to its VRF seed), described below.
 * A 32-byte **parent block hash**, which must be the SHA512/256 hash of the last _anchored_ block
   that precedes this block in the fork to which this block is to be appended.
-* A 32-byte **parent microblock hash**, which must be the SHA512/256 hash of the last _stremead_
+* A 32-byte **parent microblock hash**, which must be the SHA512/256 hash of the last _streamed_
   block that precedes this block in the fork to which this block is to be appended.
 * A 2-byte **parent microblock sequence number**, which indicates the sequence
   number of the parent microblock to which this anchored block is attached.
