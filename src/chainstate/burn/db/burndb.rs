@@ -26,8 +26,7 @@ use rusqlite::TransactionBehavior;
 use rand;
 use rand::RngCore;
 
-use std::fs;
-use std::io;
+use std::{io, fs, cmp};
 use std::convert::From;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -472,7 +471,11 @@ pub type SortitionDBTx<'a> = IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
 pub type SortitionHandleConn<'a> = IndexDBConn<'a, SortitionHandleContext, SortitionId>;
 pub type SortitionHandleTx<'a> = IndexDBTx<'a, SortitionHandleContext, SortitionId>;
 
-trait SortitionContext {
+///
+/// This trait is used for functions that
+///  can accept either a SortitionHandleConn or a SortitionDBConn
+///
+pub trait SortitionContext {
     fn first_block_height(&self) -> u64;
 }
 
@@ -560,16 +563,20 @@ impl db_keys {
 impl <'a> SortitionHandleTx <'a> {
     /// begin a MARF transaction with this connection
     ///  this is used by _writing_ contexts
-    pub fn begin_stubbed(connection: SortitionDBTx<'a>, parent_chain_tip: &BurnchainHeaderHash, chain_tip: &BurnchainHeaderHash) -> Result<SortitionHandleTx<'a>, db_error> {
+    pub fn begin_stubbed(conn: &'a mut SortitionDB, parent_chain_tip: &BurnchainHeaderHash, chain_tip: &BurnchainHeaderHash) -> Result<SortitionHandleTx<'a>, db_error> {
+        if !conn.readwrite {
+            return Err(db_error::ReadOnly);
+        }
+
         let chain_tip = SortitionId(chain_tip.0.clone());
         let parent_chain_tip = SortitionId(parent_chain_tip.0.clone());
 
-        let mut handle = connection.into_other(
-            |old_context| SortitionHandleContext {
-                chain_tip,
-                first_block_height: old_context.first_block_height
-            });
 
+        let tx = tx_begin_immediate(&mut conn.conn)?;
+        let mut handle = SortitionHandleTx::new(
+            tx, &mut conn.marf,
+            SortitionHandleContext { chain_tip,
+                                     first_block_height: conn.first_block_height });
         handle.put_indexed_begin(&parent_chain_tip, &chain_tip)?;
 
         Ok(handle)
@@ -673,10 +680,15 @@ impl <'a> SortitionHandleConn <'a> {
     /// open a reader handle
     pub fn open_reader_stubbed(connection: &'a SortitionDBConn<'a>, chain_tip: &BurnchainHeaderHash) -> Result<SortitionHandleConn<'a>, db_error> {
         let chain_tip = SortitionId(chain_tip.0.clone());
+        SortitionHandleConn::open_reader(connection, &chain_tip)
+    }
+
+    /// open a reader handle
+    pub fn open_reader(connection: &'a SortitionDBConn<'a>, chain_tip: &SortitionId) -> Result<SortitionHandleConn<'a>, db_error> {
         Ok(SortitionHandleConn {
             conn: &connection.conn,
             context: SortitionHandleContext {
-                chain_tip,
+                chain_tip: chain_tip.clone(),
                 first_block_height: connection.context.first_block_height
             },
             index: &connection.index,
@@ -728,7 +740,7 @@ impl <'a> SortitionHandleConn <'a> {
     pub fn get_consensus_at(&self, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
-        match SortitionDB::get_ancestor_snapshot(&self.conn, block_height, &self.context.chain_tip)? {
+        match SortitionDB::get_ancestor_snapshot(self, block_height, &self.context.chain_tip)? {
             Some(sn) => Ok(Some(sn.consensus_hash)),
             None => Ok(None)
         }
@@ -737,11 +749,34 @@ impl <'a> SortitionHandleConn <'a> {
     pub fn get_block_snapshot_by_height(&self, block_height: u64) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
-        SortitionDB::get_ancestor_snapshot(&self.conn, block_height, &self.context.chain_tip)
+        SortitionDB::get_ancestor_snapshot(self, block_height, &self.context.chain_tip)
+    }
+
+    /// Get all user burns that burned for the winning block in the chain_tip sortition
+    /// Returns list of user burns in order by vtxindex.
+    pub fn get_winning_user_burns_by_block(&self) -> Result<Vec<UserBurnSupportOp>, db_error> {
+        let snapshot = match self.get_tip_snapshot()? {
+            Some(sn) => sn,
+            None => {
+                // no such snapshot, so no such users
+                return Ok(vec![]);
+            }
+        };
+
+        if !snapshot.sortition {
+            // no winner
+            return Ok(vec![]);
+        }
+
+        let winning_block_hash160 = Hash160::from_sha256(snapshot.winning_stacks_block_hash.as_bytes());
+
+        let qry = "SELECT * FROM user_burn_support WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 ORDER BY vtxindex ASC";
+        let args: [&dyn ToSql; 2] = [&snapshot.sortition_id, &winning_block_hash160];
+
+        query_rows(self, qry, &args)
     }
 
     /// Get the block snapshot of the parent stacks block of the given stacks block
-    /// TODO: refactor and dedup with validate_anchored_block_burnchain
     pub fn get_block_snapshot_of_parent_stacks_block(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<(LeaderBlockCommitOp, BlockSnapshot)>, db_error> {
         let block_commit = match SortitionDB::get_block_commit_for_stacks_block(&self.conn, burn_header_hash, &block_hash)? {
             Some(bc) => bc,
@@ -785,17 +820,16 @@ impl <'a> SortitionHandleConn <'a> {
     pub fn get_last_snapshot_with_sortition(&self, burn_block_height: u64) -> Result<BlockSnapshot, db_error> {
         assert!(burn_block_height < BLOCK_HEIGHT_MAX);
         test_debug!("Get snapshot at from sortition tip {}, expect height {}", &self.context.chain_tip, burn_block_height);
-        let get_from = match self.conn.get_ancestor_block_hash(burn_block_height, &self.context.chain_tip)? {
+        let get_from = match self.get_ancestor_block_hash(burn_block_height, &self.context.chain_tip)? {
+            Some(sortition_id) => sortition_id,
             None => {
-                error!("No tip at sortition identifier {}", &self.context.chain_tip);
+                error!("No blockheight {} ancestor at sortition identifier {}",
+                       burn_block_height, &self.context.chain_tip);
                 return Err(db_error::NotFoundError);
-            },
-            Some(sn) => {
-                sn
             }
         };
 
-        let ancestor_hash = match self.conn.get_indexed(&get_from, &db_keys::last_sortition())? {
+        let ancestor_hash = match self.get_indexed(&get_from, &db_keys::last_sortition())? {
             Some(hex_str) => {
                 BurnchainHeaderHash::from_hex(&hex_str)
                     .expect(&format!("FATAL: corrupt database: failed to parse {} into a hex string", &hex_str))
@@ -806,14 +840,11 @@ impl <'a> SortitionHandleConn <'a> {
             }
         };
         
-        match self.get_block_snapshot(&ancestor_hash) {
-            Ok(snapshot_opt) => {
-                Ok(snapshot_opt.expect(&format!("FATAL: corrupt index: no snapshot {}", ancestor_hash)))
-            },
-            Err(e) => {
-                Err(e)
-            }
-        }
+        self.get_block_snapshot(&ancestor_hash)
+            .map(|snapshot_opt| {
+                snapshot_opt
+                    .expect(&format!("FATAL: corrupt index: no snapshot {}", ancestor_hash))
+            })
     }
 
     fn check_fresh_consensus_hash<F>(&self, consensus_hash_lifetime: u64, check: F) -> Result<bool, db_error>
@@ -916,15 +947,17 @@ impl <'a> SortitionHandleConn <'a> {
 
 }
 
-impl <'a> From<&BurnDBConn<'a>> for SortitionDBConn<'a> {
-    fn from(o: &BurnDBConn<'a>) -> SortitionDBConn<'a> {
-        panic!("Will never be implemented");
-    }
-}
-
 impl PoxForkIdentifier {
     pub fn stubbed() -> PoxForkIdentifier {
         PoxForkIdentifier([0; 32])
+    }
+}
+
+impl SortitionId {
+    /// PoX Todo: any caller of this would need to instead
+    ///  construct a sortition ID with a burn header hash + pox fork identifier
+    pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
+        SortitionId(from.0.clone())
     }
 }
 
@@ -1018,12 +1051,12 @@ impl SortitionDB {
         debug!("Connect/Open burndb '{}' as '{}', with index as '{}'",
                db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
 
-        let mut conn = Connection::open_with_flags(&db_path, open_flags)?;
+        let conn = Connection::open_with_flags(&db_path, open_flags)?;
         conn.busy_handler(Some(tx_busy_handler))?;
 
         let marf = SortitionDB::open_index(&index_path)?;
 
-        let db = SortitionDB {
+        let mut db = SortitionDB {
             conn, marf, readwrite, first_block_height,
             first_burn_header_hash: first_burn_hash.clone(),
         };
@@ -1045,7 +1078,7 @@ impl SortitionDB {
     }
 
     fn instantiate(&mut self, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> Result<(), db_error> {
-        let db_tx = self.tx_begin()?;
+        let mut db_tx = SortitionHandleTx::begin_stubbed(self, first_burn_header_hash, first_burn_header_hash)?;
 
         // create first (sentinel) snapshot
         let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash, first_burn_header_timestamp);
@@ -1061,14 +1094,13 @@ impl SortitionDB {
 
         db_tx.instantiate_index()?;
 
-        let opened = SortitionHandleTx::begin_stubbed(db_tx, first_burn_header_hash, first_burn_header_hash)?;
-
-        let index_root = opened.index_add_fork_info(&mut first_snapshot, &first_snapshot, &vec![], &vec![])?;
+        let mut first_sn = first_snapshot.clone();
+        let index_root = db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], &vec![])?;
         first_snapshot.index_root = index_root;
 
-        opened.insert_block_snapshot(&first_snapshot)?;
+        db_tx.insert_block_snapshot(&first_snapshot)?;
 
-        opened.commit()?;
+        db_tx.commit()?;
         Ok(())
     }
 }
@@ -1142,6 +1174,60 @@ impl <'a> SortitionDBConn <'a> {
 
         ret.reverse();
         Ok(ret)
+    }
+
+    /// Get a burn blockchain snapshot, given a burnchain configuration struct.
+    /// Used mainly by the network code to determine what the chain tip currently looks like.
+    pub fn get_burnchain_view(&self, burnchain: &Burnchain, chain_tip: &BlockSnapshot) -> Result<BurnchainView, db_error> {
+        if chain_tip.block_height < burnchain.first_block_height {
+            // should never happen, but don't panic since this is network-callable code
+            error!("Invalid block height from DB: {}: expected at least {}", chain_tip.block_height, burnchain.first_block_height);
+            return Err(db_error::Corruption);
+        }
+
+        if chain_tip.block_height < burnchain.stable_confirmations as u64 {
+            // should never happen, but don't panic since this is network-callable code
+            error!("Invalid block height from DB: {}: expected at least {}", chain_tip.block_height, burnchain.stable_confirmations);
+            return Err(db_error::Corruption);
+        }
+
+        let stable_block_height = cmp::min(burnchain.first_block_height,
+                                           chain_tip.block_height - (burnchain.stable_confirmations as u64));
+
+        let db_handle = SortitionHandleConn::open_reader(self, &chain_tip.sortition_id)?;
+
+        let stable_snapshot = db_handle.get_block_snapshot_by_height(stable_block_height)?
+            .ok_or_else(|| {
+                // shouldn't be possible, but don't panic since this is network-callable code
+                error!("Failed to load snapshot for block {} from fork {}", stable_block_height, &chain_tip.burn_header_hash);
+                db_error::Corruption
+            })?;
+
+        // get all consensus hashes between the chain tip, and the stable height back
+        // MAX_NEIGHBOR_BLOCK_DELAY
+        let oldest_height = 
+            if stable_snapshot.block_height < MAX_NEIGHBOR_BLOCK_DELAY {
+                0
+            }
+            else {
+                stable_snapshot.block_height - MAX_NEIGHBOR_BLOCK_DELAY
+            };
+
+        let mut last_consensus_hashes = HashMap::new();
+        for height in oldest_height..chain_tip.block_height {
+            let ch = db_handle.get_consensus_at(height)?
+                .unwrap_or(ConsensusHash::empty());
+            last_consensus_hashes.insert(height, ch);
+        }
+
+        test_debug!("Chain view: {},{}-{},{}", chain_tip.block_height, chain_tip.consensus_hash, stable_block_height, stable_snapshot.consensus_hash);
+        Ok(BurnchainView {
+            burn_block_height: chain_tip.block_height, 
+            burn_consensus_hash: chain_tip.consensus_hash,
+            burn_stable_block_height: stable_block_height,
+            burn_stable_consensus_hash: stable_snapshot.consensus_hash,
+            last_consensus_hashes: last_consensus_hashes
+        })
     }
 }
 
@@ -1377,6 +1463,25 @@ impl SortitionDB {
         let args: [&dyn ToSql; 2] = [&burn_header_hash, &block_hash];
         query_row_panic(conn, qry, &args,
                         || format!("FATAL: multiple block commits for {}", &block_hash))
+    }
+
+    /// Merge the result of get_stacks_header_hashes() into a BlockHeaderCache
+    pub fn merge_block_header_cache(cache: &mut BlockHeaderCache, header_data: &Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)>) -> () {
+        let mut i = header_data.len() - 1;
+        while i > 0 {
+
+            let cur_block_hash = &header_data[i].0;
+            let cur_block_opt = &header_data[i].1;
+
+            if !cache.contains_key(cur_block_hash) {
+                let prev_block_hash = header_data[i-1].0.clone();
+                cache.insert((*cur_block_hash).clone(), ((*cur_block_opt).clone(), prev_block_hash.clone()));
+            }
+            
+            i -= 1;
+        }
+        
+        debug!("Block header cache has {} items", cache.len());
     }
 
     /// Get a blockstack burnchain operation by txid

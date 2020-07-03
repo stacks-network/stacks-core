@@ -40,7 +40,7 @@ use net::rpc::*;
 use net::http::*;
 use net::p2p::PeerMap;
 
-use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::burndb::SortitionDB;
 use chainstate::stacks::db::StacksChainState;
 
 use burnchains::Burnchain;
@@ -333,7 +333,7 @@ impl HttpPeer {
     /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
     /// forwarded to the peer network.
     fn process_http_conversation(chain_view: &BurnchainView, peers: &PeerMap,
-                                 burndb: &BurnDB, peerdb: &PeerDB,
+                                 sortdb: &SortitionDB, peerdb: &PeerDB,
                                  chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
                                  event_id: usize, client_sock: &mut mio_net::TcpStream,
                                  convo: &mut ConversationHttp,
@@ -381,7 +381,7 @@ impl HttpPeer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        let msgs = match convo.chat(chain_view, peers, burndb, peerdb, chainstate, mempool, handler_args) {
+        let msgs = match convo.chat(chain_view, peers, sortdb, peerdb, chainstate, mempool, handler_args) {
             Ok(msgs) => msgs,
             Err(e) => {
                 debug!("Failed to converse HTTP on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
@@ -428,7 +428,7 @@ impl HttpPeer {
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the list of
     /// peer network messages we'll need to forward
-    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
+    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, peers: &PeerMap, sortdb: &SortitionDB, peerdb: &PeerDB,
                              chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, handler_args: &RPCHandlerArgs) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -451,7 +451,7 @@ impl HttpPeer {
                 Some(ref mut convo) => {
                     // activity on a http socket
                     test_debug!("Process HTTP data from {:?}", convo);
-                    match HttpPeer::process_http_conversation(&self.chain_view, peers, burndb, peerdb, chainstate, mempool,
+                    match HttpPeer::process_http_conversation(&self.chain_view, peers, sortdb, peerdb, chainstate, mempool,
                                                               *event_id, client_sock, convo, handler_args) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {
@@ -507,7 +507,7 @@ impl HttpPeer {
     /// -- clear out timed-out requests
     /// Returns the list of messages to forward along to the peer network.
     pub fn run(&mut self, network_state: &mut NetworkState, new_chain_view: BurnchainView,
-               p2p_peers: &PeerMap, burndb: &BurnDB, peerdb: &PeerDB,
+               p2p_peers: &PeerMap, sortdb: &SortitionDB, peerdb: &PeerDB,
                chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
                mut poll_state: NetworkPollState, handler_args: &RPCHandlerArgs) -> Result<Vec<StacksMessageType>, net_error> {
 
@@ -522,7 +522,7 @@ impl HttpPeer {
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
         let (stacks_msgs, error_events) = self.process_ready_sockets(
-            &mut poll_state, p2p_peers, burndb, peerdb, chainstate, mempool, handler_args);
+            &mut poll_state, p2p_peers, sortdb, peerdb, chainstate, mempool, handler_args);
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);
             self.deregister_http(network_state, error_event);

@@ -591,10 +591,9 @@ impl Burnchain {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
         let header = block.header();
-        let tx = db.tx_begin()?;
 
         let mut sortition_db_handle = SortitionHandleTx::begin_stubbed(
-            tx, &header.parent_block_hash, &header.block_hash)?;
+            db, &header.parent_block_hash, &header.block_hash)?;
 
         let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&header.parent_block_hash)?
             .ok_or_else(|| {

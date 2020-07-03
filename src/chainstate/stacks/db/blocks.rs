@@ -1091,7 +1091,7 @@ impl StacksChainState {
         let possible_parent_snapshots = query_rows::<BlockSnapshot, _>(&sort_handle, &sql, &[parent_block_hash])?;
         for possible_parent in possible_parent_snapshots.into_iter() {
             let burn_ancestor = sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
-            if let Some(ancestor) = burn_ancestor {
+            if let Some(_ancestor) = burn_ancestor {
                 // found!
                 return Ok(Some(possible_parent.burn_header_hash));
             }
@@ -1101,7 +1101,7 @@ impl StacksChainState {
 
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
-    pub fn load_parent_block_header(sort_ic: &SortitionDBConn, blocks_conn: &DBConn, blocks_path: &String, 
+    pub fn load_parent_block_header(sort_ic: &SortitionDBConn, _blocks_conn: &DBConn, blocks_path: &String, 
                                     burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<(StacksBlockHeader, BurnchainHeaderHash)>, Error> {
         let header = match StacksChainState::load_block_header(blocks_path, burn_header_hash, anchored_block_hash)? {
             Some(hdr) => hdr,
@@ -1120,10 +1120,10 @@ impl StacksChainState {
             let burn_ancestor = sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
             if let Some(ancestor) = burn_ancestor {
                 // found!
-                let ret = match StacksChainState::load_block_header(blocks_path, &ancestor.burn_header_hash, &ancestor.anchored_block_hash)? {
-                    Some(header) => Ok(Some((header, ancestor.burn_header_hash))),
-                    None => Ok(None)
-                };
+                let ret = StacksChainState::load_block_header(blocks_path, &ancestor.burn_header_hash, anchored_block_hash)?
+                    .map(|header| { (header, ancestor.burn_header_hash) });
+
+                return Ok(ret);
             }
         }
         return Ok(None)
@@ -2190,9 +2190,7 @@ impl StacksChainState {
     /// Returns None if not valid
     /// * burn_header_hash is the burnchain block header hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
-    pub fn validate_anchored_block_burnchain(sort_ic: &SortitionDBConn, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, mainnet: bool, chain_id: u32) -> Result<Option<(u64, u64)>, Error> {
-        let db_handle = SortitionHandleConn::open_reader_stubbed(sort_ic, burn_header_hash)?;
-
+    pub fn validate_anchored_block_burnchain(db_handle: &SortitionHandleConn, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, mainnet: bool, chain_id: u32) -> Result<Option<(u64, u64)>, Error> {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();
         let (block_commit, stacks_chain_tip) =
@@ -2237,7 +2235,7 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let sortition_burns = SortitionDB::get_block_burn_amount(sort_ic, &penultimate_sortition_snapshot)
+        let sortition_burns = SortitionDB::get_block_burn_amount(db_handle, &penultimate_sortition_snapshot)
             .expect("FATAL: have block commit but no total burns in its sortition");
 
         Ok(Some((block_commit.burn_fee, sortition_burns)))
@@ -2254,8 +2252,10 @@ impl StacksChainState {
     /// 
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
-    pub fn preprocess_anchored_block<'a>(&mut self, burn_ic: &BurnDBConn<'a>, burn_header_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
+    pub fn preprocess_anchored_block(&mut self, sort_ic: &SortitionDBConn, burn_header_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
         debug!("preprocess anchored block {}/{}", burn_header_hash, block.block_hash());
+
+        let sort_handle = SortitionHandleConn::open_reader_stubbed(sort_ic, burn_header_hash)?;
 
         // already in queue or already processed?
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &block.block_hash());
@@ -2273,15 +2273,16 @@ impl StacksChainState {
         }
          
         // find all user burns that supported this block 
-        let user_burns = BurnDB::get_winning_user_burns_by_block(burn_ic, burn_header_hash)
-            .map_err(Error::DBError)?;
+        let user_burns = sort_handle.get_winning_user_burns_by_block()?;
 
         let mainnet = self.mainnet;
         let chain_id = self.chain_id;
         let mut block_tx = self.blocks_tx_begin()?;
 
         // does this block match the burnchain state? skip if not
-        let (commit_burn, sortition_burn) = match StacksChainState::validate_anchored_block_burnchain(burn_ic, burn_header_hash, block, mainnet, chain_id)? {
+        let validation_res = StacksChainState::validate_anchored_block_burnchain(
+            &sort_handle, burn_header_hash, block, mainnet, chain_id)?;
+        let (commit_burn, sortition_burn) = match validation_res {
             Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
             None => { 
                 let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
@@ -2290,7 +2291,7 @@ impl StacksChainState {
                 // orphan it
                 StacksChainState::set_block_processed(&mut block_tx, None, burn_header_hash, &block.block_hash(), false)?;
 
-                block_tx.commit().map_err(Error::DBError)?;
+                block_tx.commit()?;
                 return Err(Error::InvalidStacksBlock(msg));
             }
         };

@@ -50,7 +50,9 @@ use util::secp256k1::Secp256k1PrivateKey;
 use burnchains::PublicKey;
 
 use chainstate::burn::db::burndb;
-use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::burndb::{
+    SortitionDB
+};
 
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::StacksBlockHeader;
@@ -66,7 +68,7 @@ use std::collections::HashSet;
 
 use std::io::Read;
 use std::io::Write;
-
+use std::cmp;
 use std::convert::TryFrom;
 
 use util::log;
@@ -938,32 +940,24 @@ impl ConversationP2P {
 
     /// Handle an inbound GetBlocksInv request.
     /// Returns a reply handle to the generated message (possibly a nack)
-    fn handle_getblocksinv(&mut self, local_peer: &LocalPeer, burndb: &BurnDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView, preamble: &Preamble, get_blocks_inv: &GetBlocksInv) -> Result<ReplyHandleP2P, net_error> {
+    fn handle_getblocksinv(&mut self, local_peer: &LocalPeer, sortdb: &SortitionDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView, preamble: &Preamble, get_blocks_inv: &GetBlocksInv) -> Result<ReplyHandleP2P, net_error> {
         let block_hashes = {
-            let num_headers = 
-                if (get_blocks_inv.num_blocks as u32) > BLOCKS_INV_DATA_MAX_BITLEN {
-                    BLOCKS_INV_DATA_MAX_BITLEN as u64
-                }
-                else {
-                    get_blocks_inv.num_blocks as u64
-                };
-            let ic = burndb.index_conn();
-            match ic.get_stacks_header_hashes(num_headers, &get_blocks_inv.consensus_hash, Some(chainstate.get_block_header_cache())) {
-                Ok(blocks_hashes) => Ok(blocks_hashes),
-                Err(e) => match e {
-                    db_error::NotFoundError => {
-                        // make this into a NACK
-                        return self.reply_nack(local_peer, burnchain_view, preamble, NackErrorCodes::NoSuchBurnchainBlock);
-                    },
-                    _ => {
-                        Err(net_error::DBError(e))
-                    }
-                }
+            let num_headers = cmp::min(BLOCKS_INV_DATA_MAX_BITLEN as u64,
+                                       get_blocks_inv.num_blocks as u64);
+            let ic = sortdb.index_conn();
+            let res = ic.get_stacks_header_hashes(num_headers, &get_blocks_inv.consensus_hash, Some(chainstate.get_block_header_cache()));
+            match res {
+                Ok(hashes) => Ok(hashes),
+                Err(db_error::NotFoundError) => {
+                    // make this into a NACK
+                    return self.reply_nack(local_peer, burnchain_view, preamble, NackErrorCodes::NoSuchBurnchainBlock);
+                },
+                Err(e) => Err(net_error::DBError(e))
             }
         }?;
 
         // update cache
-        BurnDB::merge_block_header_cache(chainstate.borrow_block_header_cache(), &block_hashes);
+        SortitionDB::merge_block_header_cache(chainstate.borrow_block_header_cache(), &block_hashes);
 
         let blocks_inv_data : BlocksInvData = chainstate.get_blocks_inventory(&block_hashes).map_err(|e| net_error::from(e))?;
 
@@ -1082,10 +1076,10 @@ impl ConversationP2P {
     
     /// Handle an inbound authenticated p2p data-plane message.
     /// Return the message if not handled
-    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &BurnDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, msg: StacksMessage) -> Result<Option<StacksMessage>, net_error> {
+    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, sortdb: &SortitionDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, msg: StacksMessage) -> Result<Option<StacksMessage>, net_error> {
         let res = match msg.payload {
             StacksMessageType::GetNeighbors => self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble),
-            StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(local_peer, burndb, chainstate, chain_view, &msg.preamble, get_blocks_inv),
+            StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(local_peer, sortdb, chainstate, chain_view, &msg.preamble, get_blocks_inv),
             StacksMessageType::Blocks(_) => {
                 // not handled here, but do some accounting -- we can't receive blocks too often,
                 // so close this conversation if we do.
@@ -1397,7 +1391,7 @@ impl ConversationP2P {
     /// Attempts to fulfill requests in other threads as a result of processing a message.
     /// Returns the list of unfulfilled Stacks messages we received -- messages not destined for
     /// any other thread in this program (i.e. "unsolicited messages").
-    pub fn chat(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &BurnDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
+    pub fn chat(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, sortdb: &SortitionDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} messages pending", &self, num_inbound);
 
@@ -1498,7 +1492,7 @@ impl ConversationP2P {
                     }
                     else {
                         test_debug!("{:?}: Try handling message (type {} seq {})", &self, _msgtype, _seq);
-                        let msg_opt = self.handle_data_message(local_peer, peerdb, burndb, chainstate, burnchain_view, msg)?;
+                        let msg_opt = self.handle_data_message(local_peer, peerdb, sortdb, chainstate, burnchain_view, msg)?;
                         match msg_opt {
                             Some(msg) => {
                                 debug!("{:?}: Did not handle message (type {} seq {}); passing upstream", &self, _msgtype, _seq);
