@@ -827,7 +827,9 @@ pub mod tests {
     use burnchains::{Txid, BurnchainHeaderHash};
     use chainstate::burn::{ConsensusHash, OpsHash, BlockSnapshot, SortitionHash, VRFSeed, BlockHeaderHash};
 
-    use chainstate::burn::db::burndb::BurnDB;
+    use chainstate::burn::db::burndb::{
+        SortitionHandleTx, SortitionDB, SortitionId,
+    };
 
     use burnchains::Address;
     use burnchains::PublicKey;
@@ -1114,6 +1116,7 @@ pub mod tests {
         let mut block_121_snapshot = BlockSnapshot {
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
+            sortition_id: SortitionId(block_121_hash.0.clone()),
             burn_header_timestamp: 121,
             parent_burn_header_hash: first_burn_hash.clone(),
             ops_hash: block_opshash_121.clone(),
@@ -1145,6 +1148,7 @@ pub mod tests {
         let mut block_122_snapshot = BlockSnapshot {
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
+            sortition_id: SortitionId(block_122_hash.0.clone()),
             burn_header_timestamp: 122,
             parent_burn_header_hash: block_121_hash.clone(),
             ops_hash: block_opshash_122.clone(),
@@ -1182,6 +1186,7 @@ pub mod tests {
         let mut block_123_snapshot = BlockSnapshot {
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
+            sortition_id: SortitionId(block_123_hash.0.clone()),
             burn_header_timestamp: 123,
             parent_burn_header_hash: block_122_hash.clone(),
             ops_hash: block_opshash_123.clone(),
@@ -1232,7 +1237,7 @@ pub mod tests {
             block_commit_1.clone(),
         ];
  
-        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
        
         // NOTE: the .txs() method will NOT be called, so we can pass an empty vec![] here
         let block121 = BurnchainBlock::Bitcoin(BitcoinBlock::new(121, &block_121_hash, &first_burn_hash, &vec![], 121));
@@ -1243,27 +1248,32 @@ pub mod tests {
 
         // process up to 124 
         {
-            let header = block121.header(&initial_snapshot);
-            let mut tx = db.tx_begin().unwrap();
-            let (sn121, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &initial_snapshot, &header, &block_ops_121).unwrap();
+            let header = block121.header();
+            let mut tx = SortitionHandleTx::begin(&mut db, &initial_snapshot.sortition_id,
+                                                  &SortitionId(header.block_hash.0.clone())).unwrap();
+
+            let (sn121, _) = tx.process_block_ops(&burnchain, &initial_snapshot, &header, block_ops_121).unwrap();
             tx.commit().unwrap();
            
             block_121_snapshot.index_root = sn121.index_root.clone();
             assert_eq!(sn121, block_121_snapshot);
         }
         {
-            let header = block122.header(&block_121_snapshot);
-            let mut tx = db.tx_begin().unwrap();
-            let (sn122, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &block_121_snapshot, &header, &block_ops_122).unwrap();
+            let header = block122.header();
+            let mut tx = SortitionHandleTx::begin(&mut db, &block_121_snapshot.sortition_id,
+                                                  &SortitionId(header.block_hash.0.clone())).unwrap();
+
+            let (sn122, _) = tx.process_block_ops(&burnchain, &block_121_snapshot, &header, block_ops_122).unwrap();
             tx.commit().unwrap();
             
             block_122_snapshot.index_root = sn122.index_root.clone();
             assert_eq!(sn122, block_122_snapshot);
         }
         {
-            let header = block123.header(&block_122_snapshot);
-            let mut tx = db.tx_begin().unwrap();
-            let (sn123, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &block_122_snapshot, &header, &block_ops_123).unwrap();
+            let header = block123.header();
+            let mut tx = SortitionHandleTx::begin(&mut db, &block_122_snapshot.sortition_id,
+                                                  &SortitionId(header.block_hash.0.clone())).unwrap();
+            let (sn123, _) = tx.process_block_ops(&burnchain, &block_122_snapshot, &header, block_ops_123).unwrap();
             tx.commit().unwrap();
             
             block_123_snapshot.index_root = sn123.index_root.clone();
@@ -1326,6 +1336,7 @@ pub mod tests {
             let mut block_124_snapshot = BlockSnapshot {
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
+                sortition_id: SortitionId(block_124_hash.0.clone()),
                 burn_header_timestamp: 124,
                 parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
                 ops_hash: block_opshash_124.clone(),
@@ -1357,9 +1368,10 @@ pub mod tests {
 
             // process this scenario
             let sn124 = {
-                let header = block124.header(&block_123_snapshot);
-                let mut tx = db.tx_begin().unwrap();
-                let (sn124, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &block_123_snapshot, &header, &block_ops_124).unwrap();
+                let header = block124.header();
+                let mut tx = SortitionHandleTx::begin(&mut db, &block_123_snapshot.sortition_id,
+                                                      &SortitionId(header.block_hash.0.clone())).unwrap();
+                let (sn124, _) = tx.process_block_ops(&burnchain, &block_123_snapshot, &header, block_ops_124).unwrap();
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
@@ -1555,7 +1567,7 @@ pub mod tests {
         let mut expected_burn_total : u64 = 0;
 
         // insert all operations
-        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
         let mut prev_snapshot = BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height as u64);
         let mut all_stacks_block_hashes = vec![];
 
@@ -1597,8 +1609,8 @@ pub mod tests {
             }
 
             let ch = {
-                let ic = db.index_conn();
-                BurnDB::get_consensus_at(&ic, (i as u64) + first_block_height, &parent_burn_block_hash).unwrap().unwrap_or(ConsensusHash::empty())
+                let ic = db.index_handle(&prev_snapshot.sortition_id);
+                ic.get_consensus_at((i as u64) + first_block_height).unwrap().unwrap_or(ConsensusHash::empty())
             };
 
             let next_leader_key = LeaderKeyRegisterOp {
@@ -1619,9 +1631,10 @@ pub mod tests {
 
             // process this block
             let snapshot = {
-                let header = block.header(&prev_snapshot);
-                let mut tx = db.tx_begin().unwrap();
-                let (sn, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &prev_snapshot, &header, &block_ops).unwrap();
+                let header = block.header();
+                let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id,
+                                                      &SortitionId(header.block_hash.0.clone())).unwrap();
+                let (sn, _) = tx.process_block_ops(&burnchain, &prev_snapshot, &header, block_ops).unwrap();
                 tx.commit().unwrap();
                 sn
             };
