@@ -711,7 +711,7 @@ that they will stream a transaction, but these techniques are beyond the scope o
 ### Minimizing reward variance
 
 Leaders compete to elect the next block by burning more cryptocurrency and/or
-spending more energy.  However, if they lose the election, the lose the cryptocurrency the burned.
+spending more energy.  However, if they lose the election, they lose the cryptocurrency they burned.
 This makes for a "high variance" pay-out proposition that puts leaders in a
 position where they need to maintain a comfortable cryptocurrency buffer to
 stay solvent.
