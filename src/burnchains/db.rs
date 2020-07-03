@@ -1,3 +1,9 @@
+use serde_json;
+use rusqlite::{
+    Connection, Transaction, types::ToSql, NO_PARAMS,
+    OptionalExtension, Row
+};
+
 use burnchains::{
     Burnchain,
     BurnchainBlock,
@@ -10,9 +16,9 @@ use chainstate::burn::operations::{
     BlockstackOperationType
 };
 
-use serde_json;
-use rusqlite::{ Connection, Transaction, types::ToSql };
-use util::db::u64_to_sql;
+use util::db::{
+    u64_to_sql, query_row, FromRow, FromColumn, Error as DBError
+};
 
 pub struct BurnchainDb {
     conn: Connection
@@ -47,6 +53,19 @@ fn apply_blockstack_txs_safety_checks(block_height: u64, blockstack_txs: &mut Ve
     }
 }
 
+impl FromRow<BurnchainBlockHeader> for BurnchainBlockHeader {
+    fn from_row(row: &Row) -> Result<BurnchainBlockHeader, DBError> {
+        let block_height = u64::from_column(row, "block_height")?;
+        let block_hash = BurnchainHeaderHash::from_column(row, "block_hash")?;
+        let timestamp = u64::from_column(row, "timestamp")?;
+        let num_txs = u64::from_column(row, "num_txs")?;
+        let parent_block_hash = BurnchainHeaderHash::from_column(row, "parent_block_hash")?;
+
+        Ok(BurnchainBlockHeader {
+            block_height, block_hash, timestamp, num_txs, parent_block_hash
+        })
+    }
+}
 
 impl <'a> BurnchainDbTransaction <'a> {
     fn store_burnchain_db_entry(&self, header: &BurnchainBlockHeader) -> Result<i64, BurnchainError> {
@@ -89,8 +108,18 @@ impl BurnchainDb {
         panic!("Not implemented: {} {}", path, readwrite);
     }
 
+    pub fn open(path: &str, readwrite: bool) -> Result<BurnchainDb, BurnchainError> {
+        panic!("Not implemented: {} {}", path, readwrite);
+    }
+
     fn start_transaction<'a>(&'a mut self) -> Result<BurnchainDbTransaction<'a>, BurnchainError> {
         Ok(BurnchainDbTransaction { sql_tx: self.conn.transaction()? })
+    }
+
+    pub fn get_canonical_burn_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
+        let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
+        let opt = query_row(&self.conn, qry, NO_PARAMS)?;
+        Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
     /// Filter out the burnchain block's transactions that could be blockstack transactions.

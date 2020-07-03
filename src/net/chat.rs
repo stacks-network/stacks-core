@@ -947,8 +947,8 @@ impl ConversationP2P {
                 else {
                     get_blocks_inv.num_blocks as u64
                 };
-
-            match BurnDB::get_stacks_header_hashes(&burndb.index_conn(), num_headers, &get_blocks_inv.consensus_hash, Some(chainstate.get_block_header_cache())) {
+            let ic = burndb.index_conn();
+            match ic.get_stacks_header_hashes(num_headers, &get_blocks_inv.consensus_hash, Some(chainstate.get_block_header_cache())) {
                 Ok(blocks_hashes) => Ok(blocks_hashes),
                 Err(e) => match e {
                     db_error::NotFoundError => {

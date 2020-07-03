@@ -17,6 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use chainstate::burn::db::burndb::SortitionDBHandle;
 use std::io::{Read, Write};
 
 use address::AddressHashMode;
@@ -282,14 +283,10 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
         
-    fn check(&self, _burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &BurnDBTx) -> Result<(), op_error> {
+    fn check(&self, _burnchain: &Burnchain, tx: &SortitionDBHandle) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
         
-        // this will be the chain tip we're building on
-        let chain_tip = tx.get_block_snapshot(&block_header.parent_block_hash)?
-            .expect("FATAL: no parent snapshot in the DB");
-
         /////////////////////////////////////////////////////////////////////////////////////
         // There must be a burn
         /////////////////////////////////////////////////////////////////////////////////////
@@ -303,7 +300,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         // This tx must occur after the start of the network
         /////////////////////////////////////////////////////////////////////////////////////
     
-        let first_block_snapshot = BurnDB::get_first_block_snapshot(tx)?;
+        let first_block_snapshot = tx.get_first_block_snapshot()?;
 
         if self.block_height < first_block_snapshot.block_height {
             warn!("Invalid block commit: predates genesis height {}", first_block_snapshot.block_height);
@@ -314,7 +311,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         // Block must be unique in this burnchain fork
         /////////////////////////////////////////////////////////////////////////////////////
         
-        let is_already_committed = BurnDB::expects_stacks_block_in_fork(tx, &self.block_header_hash, &chain_tip.burn_header_hash)?;
+        let is_already_committed = tx.expects_stacks_block_in_fork(&self.block_header_hash)?;
 
         if is_already_committed {
             warn!("Invalid block commit: already committed to {}", self.block_header_hash);
@@ -330,16 +327,16 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoLeaderKey);
         }
 
-        let register_key = BurnDB::get_leader_key_at(&tx.as_conn(), leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)?
+        let register_key = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into())?
             .ok_or_else(|| {
-                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.burn_header_hash);
+                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, &tx.context.chain_tip);
                 op_error::BlockCommitNoLeaderKey
             })?;
 
-        let is_key_consumed = BurnDB::is_leader_key_consumed(&tx, &register_key, &chain_tip.burn_header_hash)?;
+        let is_key_consumed = tx.is_leader_key_consumed(&register_key)?;
 
         if is_key_consumed {
-            warn!("Invalid block commit: leader key at ({},{}) is already used as of {} in fork {}", register_key.block_height, register_key.vtxindex, chain_tip.block_height, chain_tip.burn_header_hash);
+            warn!("Invalid block commit: leader key at ({},{}) is already used as in fork {}", register_key.block_height, register_key.vtxindex, &tx.context.chain_tip);
             return Err(op_error::BlockCommitLeaderKeyAlreadyUsed);
         }
 
@@ -357,9 +354,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
-            let conn = tx.as_conn();
-            let has_parent = BurnDB::get_block_commit_parent(
-                &conn, parent_block_height, self.parent_vtxindex.into(), &chain_tip.burn_header_hash)?
+            let has_parent = tx.get_block_commit_parent(parent_block_height, self.parent_vtxindex.into())?
                 .is_some();
             if !has_parent {
                 warn!("Invalid block commit: no parent block in this fork");

@@ -34,7 +34,6 @@ use net::rpc::*;
 use net::http::*;
 use net::p2p::*;
 
-use chainstate::burn::db::burndb::BurnDB;
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksBlockId;
@@ -42,8 +41,9 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 
 use core::mempool::*;
 
-use chainstate::burn::db::burndb::BurnDBTx;
-use chainstate::burn::db::burndb::BurnDBConn;
+use chainstate::burn::db::burndb::{
+    BurnDB, SortitionDBHandle, BurnDBTx, BurnDBConn
+};
 
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -465,7 +465,10 @@ impl Relayer {
 
     /// Insert a staging block
     fn process_new_anchored_block<'a>(burn_ic: &BurnDBConn<'a>, chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
-        let sn = match BurnDB::get_block_snapshot(burn_ic, burn_header_hash)? {
+        let db_handle = SortitionDBHandle::open_reader_stubbed(
+            burn_ic, burn_header_hash)?;
+
+        let sn = match db_handle.get_block_snapshot(burn_header_hash)? {
             Some(sn) => sn,
             None => {
                 debug!("Received unknown block {}/{}", burn_header_hash, block.block_hash());
@@ -474,8 +477,8 @@ impl Relayer {
         };
 
         // find the snapshot of the parent of this block
-        let parent_block_snapshot = match StacksChainState::get_block_snapshot_of_parent_stacks_block(burn_ic, burn_header_hash, &block.block_hash())? {
-            Some(sn) => sn,
+        let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(burn_header_hash, &block.block_hash())? {
+            Some((_, sn)) => sn,
             None => {
                 debug!("Received block with unknown parent snapshot: {}/{}", burn_header_hash, &block.block_hash());
                 return Ok(false);

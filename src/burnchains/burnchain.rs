@@ -58,8 +58,10 @@ use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::bitcoin::address::BitcoinAddressType;
 use burnchains::bitcoin::BitcoinNetworkType;
 
-use chainstate::burn::Opcodes;
-
+use chainstate::burn::{ 
+    Opcodes, BlockSnapshot
+};
+use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
     LeaderBlockCommitOp,
     LeaderKeyRegisterOp,
@@ -67,13 +69,11 @@ use chainstate::burn::operations::{
     BlockstackOperation,
     BlockstackOperationType,
 };
-
-use chainstate::burn::BlockSnapshot;
-
-use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBTx;
-use chainstate::burn::db::burndb::BurnDBConn;
-use chainstate::burn::distribution::BurnSamplePoint;
+use chainstate::burn::db::burndb::{
+    BurnDB, BurnDBTx, BurnDBConn, SortitionDB,
+    SortitionHandleTx, SortitionHandleConn,
+    PoxForkIdentifier,
+};
 
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
@@ -105,7 +105,7 @@ impl BurnchainStateTransition {
         }
     }
 
-    pub fn from_block_ops<'a>(ic: &BurnDBConn<'a>, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
+    pub fn from_block_ops(ic: &SortitionHandleConn, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
         let mut user_burns: Vec<UserBurnSupportOp> = vec![];
@@ -140,8 +140,7 @@ impl BurnchainStateTransition {
         }
 
         // find all VRF leader keys that were consumed by the block commits of this block 
-        let consumed_leader_keys = BurnDB::get_consumed_leader_keys(ic, &parent_snapshot.burn_header_hash, &block_commits)
-            .map_err(burnchain_error::DBError)?;
+        let consumed_leader_keys = SortitionDB::get_consumed_leader_keys(&ic, &parent_snapshot, &block_commits)?;
 
         // calculate the burn distribution from these operations.
         // The resulting distribution will contain the user burns that match block commits, and
@@ -411,7 +410,7 @@ impl Burnchain {
         db_path
     }
 
-    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(BurnDB, BurnchainDb), burnchain_error> {
+    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(SortitionDB, BurnchainDb), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
         let first_block_height = indexer.get_first_block_height();
@@ -421,23 +420,32 @@ impl Burnchain {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
 
-        let burndb = BurnDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
+        let sortitiondb = SortitionDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
 
         let burnchaindb = BurnchainDb::connect(&burnchain_db_path, readwrite)?;
 
-        Ok((burndb, burnchaindb))
+        Ok((sortitiondb, burnchaindb))
     }
 
     /// Open the burn database.  It must already exist.
-    pub fn open_db(&self, readwrite: bool) -> Result<BurnDB, burnchain_error> {
+    pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDb), burnchain_error> {
         let db_path = self.get_db_path();
+        let burnchain_db_path = self.get_burnchaindb_path();
+
         let db_pathbuf = PathBuf::from(db_path.clone());
         if !db_pathbuf.exists() {
             return Err(burnchain_error::DBError(db_error::NoDBError));
         }
 
-        BurnDB::open(&db_path, readwrite)
-            .map_err(burnchain_error::DBError)
+        let db_pathbuf = PathBuf::from(burnchain_db_path.clone());
+        if !db_pathbuf.exists() {
+            return Err(burnchain_error::DBError(db_error::NoDBError));
+        }
+
+        let sortition_db = SortitionDB::open(&db_path, readwrite)?;
+        let burnchain_db = BurnchainDb::open(&burnchain_db_path, readwrite)?;
+
+        Ok((sortition_db, burnchain_db))
     }
 
     /// Try to parse a burnchain transaction into a Blockstack operation
@@ -579,18 +587,26 @@ impl Burnchain {
     }
 
     /// Top-level entry point to check and process a block.
-    pub fn process_block(db: &mut BurnDB, burnchain_db: &mut BurnchainDb, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
+    pub fn process_block(db: &mut SortitionDB, burnchain_db: &mut BurnchainDb, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
-        let mut tx = db.tx_begin()?;
-
         let header = block.header();
-        let parent_snapshot = tx.get_burnchain_block_attachment_info(&header)?;
+        let tx = db.tx_begin()?;
+
+        let mut sortition_db_handle = SortitionHandleTx::begin_stubbed(
+            tx, &header.parent_block_hash, &header.block_hash)?;
+
+        let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&header.parent_block_hash)?
+            .ok_or_else(|| {
+                warn!("Unknown block {:?}", header.parent_block_hash);
+                burnchain_error::MissingParentBlock
+            })?;
+
         let blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
-        let new_snapshot = tx.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)?;
+        let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)?;
 
         // commit everything!
-        tx.commit()?;
+        sortition_db_handle.commit()?;
         Ok(new_snapshot)
     }
 
@@ -641,11 +657,29 @@ impl Burnchain {
     pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
         let (mut burndb, mut burnchain_db) = self.connect_db(indexer, true)?;
-        let burn_chain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn())
+        let burn_chain_tip = burnchain_db.get_canonical_burn_chain_tip()
             .map_err(|e| {
                 error!("Failed to query burn chain tip from burn DB");
-                burnchain_error::DBError(e)
+                e
             })?;
+
+        let last_snapshot_processed = match SortitionDB::get_last_snapshot(&burndb.conn, &PoxForkIdentifier::stubbed())? {
+            Some(snapshot) => snapshot,
+            None => {
+                warn!("No snapshot processed yet");
+                SortitionDB::get_first_block_snapshot(&burndb.conn)?
+            }
+        };
+
+        // does the bunchain db have more blocks than the sortition db has processed?
+        // PoX TODO: this check shouldn't happen here. instead, this "sync_with_indexer" function
+        //            should just insert the new data into the burnchain db, and signal to the StacksChainController
+        //            that it should check whether or not it should process a new sortition.
+        assert_eq!(last_snapshot_processed.block_height,
+                   burn_chain_tip.block_height,
+                   "FATAL: Last snapshot processed height={} and current burnchain db height={} have diverged",
+                   last_snapshot_processed.block_height,
+                   burn_chain_tip.block_height);
 
         let db_height = burn_chain_tip.block_height;
 
@@ -673,7 +707,7 @@ impl Burnchain {
         debug!("Sync'ed headers from {} to {}. DB at {}", start_block, end_block, db_height);
         if start_block == db_height && db_height == end_block {
             // all caught up
-            return Ok((burn_chain_tip, None));
+            return Ok((last_snapshot_processed, None));
         }
 
         info!("Node will fetch burnchain blocks {}-{}...", start_block, end_block);
@@ -727,7 +761,7 @@ impl Burnchain {
         });
 
         let db_thread : thread::JoinHandle<Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error>> = thread::spawn(move || {
-            let mut last_processed = (burn_chain_tip, None);
+            let mut last_processed = (last_snapshot_processed, None);
             while let Ok(Some(burnchain_block)) = db_recv.recv() {
                 debug!("Try recv next parsed block");
 

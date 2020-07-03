@@ -34,10 +34,12 @@ use util::db::Error as db_error;
 
 use core::*;
 
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBConn;
-use chainstate::burn::BlockSnapshot;
+use chainstate::burn::db::burndb::{
+    BurnDB, BurnDBConn, SortitionId, SortitionHandleConn,
+};
+use chainstate::burn::{
+    BlockSnapshot, BlockHeaderHash
+};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -87,6 +89,7 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_burn_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            sortition_id: SortitionId::sentinel(),
         }
     }
 
@@ -129,11 +132,11 @@ impl BlockSnapshot {
     /// Note that the VRF seed is not guaranteed to be the hash of a valid VRF
     /// proof.  Miners would only build off of leader block commits for which they
     /// (1) have the associated block data and (2) the proof in that block is valid.
-    fn select_winning_block<'a>(ic: &BurnDBConn, block_header: &BurnchainBlockHeader, sortition_hash: &SortitionHash, burn_dist: &Vec<BurnSamplePoint>) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    fn select_winning_block(ic: &SortitionHandleConn, block_header: &BurnchainBlockHeader, sortition_hash: &SortitionHash, burn_dist: &Vec<BurnSamplePoint>) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let burn_block_height = block_header.block_height;
 
         // get the last winner's VRF seed in this block's fork
-        let last_sortition_snapshot = BurnDB::get_last_snapshot_with_sortition(ic, burn_block_height - 1, &block_header.parent_block_hash)?;
+        let last_sortition_snapshot = ic.get_last_snapshot_with_sortition(burn_block_height - 1)?;
 
         let VRF_seed =
             if last_sortition_snapshot.is_initial() {
@@ -142,9 +145,9 @@ impl BlockSnapshot {
             }
             else {
                 // there may have been a prior winning block commit.  Use its VRF seed if possible
-                BurnDB::get_block_commit(ic, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.burn_header_hash)?
+                ic.get_block_commit(&last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.burn_header_hash)?
                     .expect("FATAL ERROR: no winning block commits in database (indicates corruption)")
-                    .new_seed.clone()
+                    .new_seed
             };
 
         // pick the next winner
@@ -162,7 +165,7 @@ impl BlockSnapshot {
     }
 
     /// Make the snapshot struct for the case where _no sortition_ takes place
-    fn make_snapshot_no_sortition<'a>(ic: &BurnDBConn, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, first_block_height: u64, burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
+    fn make_snapshot_no_sortition(ic: &SortitionHandleConn, sortition_id: &SortitionId, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, first_block_height: u64, burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
         let parent_block_hash = block_header.parent_block_hash.clone();
@@ -171,7 +174,8 @@ impl BlockSnapshot {
         let non_winning_block_hash = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
         let ops_hash = OpsHash::from_txids(txids);
-        let ch = ConsensusHash::from_parent_block_data(ic, &ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, &block_hash, burn_total)?;
+        let ch = ConsensusHash::from_parent_block_data(
+            ic, &ops_hash, block_height - 1, first_block_height, &block_hash, burn_total)?;
 
         debug!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
@@ -194,7 +198,8 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
             canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
-            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone()
+            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
+            sortition_id: sortition_id.clone()
         })
     }
     
@@ -209,7 +214,9 @@ impl BlockSnapshot {
     /// All of this is rolled into the BlockSnapshot struct.
     /// 
     /// Call this *after* you store all of the block's transactions to the burn db.
-    pub fn make_snapshot<'a>(ic: &BurnDBConn<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, burn_dist: &Vec<BurnSamplePoint>, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
+    pub fn make_snapshot(ic: &SortitionHandleConn, burnchain: &Burnchain, my_sortition_id: &SortitionId,
+                         parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader,
+                         burn_dist: &Vec<BurnSamplePoint>, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         assert_eq!(parent_snapshot.burn_header_hash, block_header.parent_block_hash);
         assert_eq!(parent_snapshot.block_height + 1, block_header.block_height);
 
@@ -227,7 +234,7 @@ impl BlockSnapshot {
         if burn_dist.len() == 0 {
             // no burns happened
             debug!("No burns happened in block {} {:?}", block_height, &block_hash);
-            return BlockSnapshot::make_snapshot_no_sortition(ic, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+            return BlockSnapshot::make_snapshot_no_sortition(ic, my_sortition_id, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
         }
 
         // NOTE: this only counts burns from leader block commits and user burns that match them.
@@ -237,7 +244,7 @@ impl BlockSnapshot {
                 if total == 0 {
                     // no one burned, so no sortition
                     debug!("No transactions submitted burns in block {} {:?}", block_height, &block_hash);
-                    return BlockSnapshot::make_snapshot_no_sortition(ic, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+                    return BlockSnapshot::make_snapshot_no_sortition(ic, my_sortition_id, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
                 }
                 else {
                     total
@@ -246,7 +253,7 @@ impl BlockSnapshot {
             None => {
                 // overflow -- treat as 0 (no sortition)
                 warn!("Burn count exceeds maximum threshold");
-                return BlockSnapshot::make_snapshot_no_sortition(ic, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+                return BlockSnapshot::make_snapshot_no_sortition(ic, my_sortition_id, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
             }
         };
 
@@ -260,7 +267,7 @@ impl BlockSnapshot {
             None => {
                 // overflow.  Deny future sortitions
                 warn!("Cumulative sortition burn has overflown.  Subsequent sortitions will be denied.");
-                return BlockSnapshot::make_snapshot_no_sortition(ic, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+                return BlockSnapshot::make_snapshot_no_sortition(ic, my_sortition_id, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
             }
         };
 
@@ -272,7 +279,8 @@ impl BlockSnapshot {
         // prove on this final sortition hash.
         let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block.new_seed);
         let next_ops_hash = OpsHash::from_txids(&txids);
-        let next_ch = ConsensusHash::from_parent_block_data(ic, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, &block_hash, next_burn_total)?;
+        let next_ch = ConsensusHash::from_parent_block_data(
+            ic, &next_ops_hash, block_height - 1, first_block_height, &block_hash, next_burn_total)?;
 
         debug!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, &winning_block.block_header_hash, &winning_block.txid);
 
@@ -296,6 +304,7 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
             canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
             canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
+            sortition_id: my_sortition_id.clone()
         })
     }
 }

@@ -40,6 +40,7 @@ use sha2::Digest;
 use std::hash::Hash;
 use chainstate::burn::BlockHeaderHash;
 use burnchains::BurnchainHeaderHash;
+use chainstate::burn::db::burndb::SortitionId;
 use chainstate::stacks::StacksBlockId;
 
 use util::log;
@@ -109,6 +110,7 @@ macro_rules! impl_marf_trie_id {
 
 impl_marf_trie_id!(BurnchainHeaderHash);
 impl_marf_trie_id!(StacksBlockId);
+impl_marf_trie_id!(SortitionId);
 #[cfg(test)]
 impl_marf_trie_id!(BlockHeaderHash);
 

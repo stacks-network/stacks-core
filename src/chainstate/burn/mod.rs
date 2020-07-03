@@ -42,8 +42,9 @@ use ripemd160::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;
 
-use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBConn;
+use chainstate::burn::db::burndb::{
+    BurnDB, BurnDBConn, SortitionId, SortitionHandleConn
+};
 
 use util::db::Error as db_error;
 
@@ -69,13 +70,11 @@ impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 impl_byte_array_serde!(BlockHeaderHash);
 pub const BLOCK_HEADER_HASH_ENCODED_SIZE : usize = 32;
 
-#[derive(Serialize, Deserialize)]
-pub struct VRFSeed(
-    #[serde(serialize_with = "Hash32::json_serialize", deserialize_with = "Hash32::json_deserialize")]
-    pub [u8; 32]);
+pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
+impl_byte_array_serde!(VRFSeed);
 pub const VRF_SEED_ENCODED_SIZE : u32 = 32;
 
 impl VRFSeed {
@@ -136,6 +135,7 @@ pub struct BlockSnapshot {
     pub canonical_stacks_tip_height: u64,               // memoized canonical stacks chain tip
     pub canonical_stacks_tip_hash: BlockHeaderHash,     // memoized canonical stacks chain tip
     pub canonical_stacks_tip_burn_hash: BurnchainHeaderHash,    // memoized canonical stacks chain tip
+    pub sortition_id: SortitionId
 }
 
 impl BlockHeaderHash {
@@ -270,13 +270,13 @@ impl ConsensusHash {
 
     /// Get the previous consensus hashes that must be hashed to find
     /// the *next* consensus hash at a particular block.
-    pub fn get_prev_consensus_hashes<'a>(ic: &BurnDBConn<'a>, block_height: u64, first_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<ConsensusHash>, db_error> {
+    pub fn get_prev_consensus_hashes(ic: &SortitionHandleConn, block_height: u64, first_block_height: u64) -> Result<Vec<ConsensusHash>, db_error> {
         let mut i = 0;
         let mut prev_chs = vec![];
         while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
             let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
-            let prev_ch = BurnDB::get_consensus_at(ic, prev_block, tip_block_hash)
-                .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, tip_block_hash))
+            let prev_ch = ic.get_consensus_at(prev_block)
+                .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, &ic.context.chain_tip))
                 .unwrap_or(ConsensusHash::empty());
 
             debug!("Consensus at {}: {}", prev_block, &prev_ch);
@@ -296,8 +296,8 @@ impl ConsensusHash {
     }
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    pub fn from_parent_block_data<'a>(ic: &BurnDBConn<'a>, opshash: &OpsHash, parent_block_height: u64, first_block_height: u64, parent_block_hash: &BurnchainHeaderHash, this_block_hash: &BurnchainHeaderHash, total_burn: u64) -> Result<ConsensusHash, db_error> {
-        let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(ic, parent_block_height, first_block_height, parent_block_hash)?;
+    pub fn from_parent_block_data(ic: &SortitionHandleConn, opshash: &OpsHash, parent_block_height: u64, first_block_height: u64, this_block_hash: &BurnchainHeaderHash, total_burn: u64) -> Result<ConsensusHash, db_error> {
+        let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(ic, parent_block_height, first_block_height)?;
         Ok(ConsensusHash::from_ops(this_block_hash, opshash, total_burn, &prev_consensus_hashes))
     }
 

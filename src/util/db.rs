@@ -388,7 +388,7 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
 
 /// Read-only connection to a MARF-indexed DB
 pub struct IndexDBConn<'a, C, T: MarfTrieId> {
-    conn: &'a Connection,
+    pub conn: &'a Connection,
     pub index: &'a MARF<T>,
     pub context: C
 }
@@ -575,6 +575,17 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
             index: index,
             block_linkage: None,
             context: context
+        }
+    }
+
+    pub fn into_other<D: Clone, F>(self, context_transform: F) -> IndexDBTx<'a, D, T>
+    where F: FnOnce(C) -> D {
+        let new_context = context_transform(self.context);
+        IndexDBTx {
+            _tx: self._tx,
+            index: self.index,
+            block_linkage: self.block_linkage,
+            context: new_context
         }
     }
 

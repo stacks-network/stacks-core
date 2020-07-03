@@ -48,9 +48,6 @@ use sha2::Sha512;
 use std::fmt;
 use std::error;
 
-use serde::{ Serialize, Serializer, Deserialize,
-             Deserializer, de::Error as DeserError, de::Visitor };
-
 use util::hash::hex_bytes;
 use rand;
 
@@ -59,31 +56,18 @@ pub struct VRFPublicKey(pub ed25519_PublicKey);
 
 pub struct VRFPrivateKey(pub ed25519_PrivateKey);
 
-impl Serialize for VRFPublicKey {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bytes(self.as_bytes())
+impl serde::Serialize for VRFPublicKey {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let inst = self.to_hex();
+        s.serialize_str(inst.as_str())
     }
 }
 
-struct VRFPublicKeyDeserVisitor;
-
-impl <'de> Visitor <'de> for VRFPublicKeyDeserVisitor {
-    type Value = VRFPublicKey;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a byte array of length 32")
-    }
-
-    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E> where E: DeserError {
-        VRFPublicKey::from_bytes(v)
-            .ok_or_else(|| E::invalid_length(v.len(), &self))
-    }
-}
-
-impl<'de> Deserialize<'de> for VRFPublicKey {
-    fn deserialize<D>(deserializer: D) -> Result<VRFPublicKey, D::Error>
-    where D: Deserializer<'de> {
-        deserializer.deserialize_bytes(VRFPublicKeyDeserVisitor)
+impl<'de> serde::Deserialize<'de> for VRFPublicKey {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<VRFPublicKey, D::Error> {
+        let inst_str = String::deserialize(d)?;
+        VRFPublicKey::from_hex(&inst_str)
+            .ok_or_else(|| serde::de::Error::custom("Failed to parse VRF Public Key from hex"))
     }
 }
 
