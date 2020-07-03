@@ -564,20 +564,25 @@ impl <'a> SortitionHandleTx <'a> {
     /// begin a MARF transaction with this connection
     ///  this is used by _writing_ contexts
     pub fn begin_stubbed(conn: &'a mut SortitionDB, parent_chain_tip: &BurnchainHeaderHash, chain_tip: &BurnchainHeaderHash) -> Result<SortitionHandleTx<'a>, db_error> {
+        let chain_tip = SortitionId(chain_tip.0.clone());
+        let parent_chain_tip = SortitionId(parent_chain_tip.0.clone());
+
+        SortitionHandleTx::begin(conn, &chain_tip, &parent_chain_tip)
+    }
+
+    /// begin a MARF transaction with this connection
+    ///  this is used by _writing_ contexts
+    pub fn begin(conn: &'a mut SortitionDB, parent_chain_tip: &SortitionId, chain_tip: &SortitionId) -> Result<SortitionHandleTx<'a>, db_error> {
         if !conn.readwrite {
             return Err(db_error::ReadOnly);
         }
 
-        let chain_tip = SortitionId(chain_tip.0.clone());
-        let parent_chain_tip = SortitionId(parent_chain_tip.0.clone());
-
-
         let tx = tx_begin_immediate(&mut conn.conn)?;
         let mut handle = SortitionHandleTx::new(
             tx, &mut conn.marf,
-            SortitionHandleContext { chain_tip,
+            SortitionHandleContext { chain_tip: chain_tip.clone(),
                                      first_block_height: conn.first_block_height });
-        handle.put_indexed_begin(&parent_chain_tip, &chain_tip)?;
+        handle.put_indexed_begin(parent_chain_tip, chain_tip)?;
 
         Ok(handle)
     }
@@ -981,6 +986,17 @@ impl SortitionDB {
                              SortitionDBTxContext { first_block_height: self.first_block_height })
     }
 
+    pub fn index_handle<'a>(&'a self, chain_tip: &SortitionId) -> SortitionHandleConn<'a> {
+        SortitionHandleConn::new(&self.conn, &self.marf,
+                                 SortitionHandleContext {
+                                     first_block_height: self.first_block_height,
+                                     chain_tip: chain_tip.clone() })
+    }
+
+    pub fn conn<'a>(&'a self) -> &'a Connection {
+        &self.conn
+    }
+
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
         MARF::from_path(index_path, None).map_err(|_e| db_error::Corruption)
@@ -1075,6 +1091,18 @@ impl SortitionDB {
         }
 
         Ok(db)
+    }
+
+    /// Open a burn database at random tmp dir (used for testing)
+    #[cfg(test)]
+    pub fn connect_test(first_block_height: u64, first_burn_hash: &BurnchainHeaderHash) -> Result<SortitionDB, db_error> { 
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-burndb-{}", to_hex(&buf));
+
+        SortitionDB::connect(&db_path_dir, first_block_height, first_burn_hash,
+                             get_epoch_time_secs(), true)
     }
 
     fn instantiate(&mut self, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> Result<(), db_error> {
@@ -1832,7 +1860,7 @@ impl <'a> SortitionHandleTx <'a> {
 
 }
 
-impl ChainstateDB for BurnDB {
+impl ChainstateDB for SortitionDB {
     fn backup(_backup_path: &String) -> Result<(), db_error> {
         return Err(db_error::NotImplemented);
     }
@@ -1871,15 +1899,33 @@ mod tests {
     #[test]
     fn test_instantiate() {
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let _db = BurnDB::connect_test(123, &first_burn_hash).unwrap();
+        let _db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
     }
 
     #[test]
     fn test_tx_begin_end() {
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let mut db = BurnDB::connect_test(123, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
         let tx = db.tx_begin().unwrap();
         tx.commit().unwrap();
+    }
+
+    fn test_append_snapshot(db: &mut SortitionDB, next_hash: BurnchainHeaderHash, block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>) -> BlockSnapshot {
+        let mut sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        let mut tx = SortitionHandleTx::begin_stubbed(db, &sn.burn_header_hash, &next_hash).unwrap();
+
+        let sn_parent = sn.clone();
+        sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+        sn.burn_header_hash = next_hash;
+        sn.block_height += 1;
+        sn.num_sortitions += 1;
+
+        let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, block_ops, consumed_leader_keys).unwrap();
+        sn.index_root = index_root;
+
+        tx.commit().unwrap();
+
+        sn
     }
 
     #[test]
@@ -1900,57 +1946,28 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x01; 32])
         };
 
-        let mut db = BurnDB::connect_test(block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
-        let snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
-
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
-            sn.index_root = index_root;
-
-            tx.commit().unwrap();
-
-            sn
-        };
+        let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
+                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
 
         {
             let ic = db.index_conn();
-            let leader_key_opt = BurnDB::get_leader_key_at(&ic, block_height + 1, vtxindex, &snapshot.burn_header_hash).unwrap();
+            let leader_key_opt = SortitionDB::get_leader_key_at(&ic, block_height + 1, vtxindex, &snapshot.sortition_id).unwrap();
             assert!(leader_key_opt.is_some());
             assert_eq!(leader_key_opt.unwrap(), leader_key);
         }
 
-        let new_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x02; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
-
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
-            sn.index_root = index_root;
-
-            tx.commit().unwrap();
-            sn
-        };
+        let new_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x02; 32]),
+                                            &vec![], &vec![]);
 
         {
             let ic = db.index_conn();
-            let leader_key_opt = BurnDB::get_leader_key_at(&ic, block_height + 1, vtxindex, &new_snapshot.burn_header_hash).unwrap();
+            let leader_key_opt = SortitionDB::get_leader_key_at(&ic, block_height + 1, vtxindex, &new_snapshot.sortition_id).unwrap();
             assert!(leader_key_opt.is_some());
             assert_eq!(leader_key_opt.unwrap(), leader_key);
             
-            let leader_key_none = BurnDB::get_leader_key_at(&ic, block_height + 1, vtxindex+1, &new_snapshot.burn_header_hash).unwrap();
+            let leader_key_none = SortitionDB::get_leader_key_at(&ic, block_height + 1, vtxindex+1, &new_snapshot.sortition_id).unwrap();
             assert!(leader_key_none.is_none());
         }
     }
@@ -1997,148 +2014,104 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x03; 32])
         };
 
-        let mut db = BurnDB::connect_test(block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
-        let snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
-
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
-            sn.index_root = index_root;
-
-            tx.commit().unwrap();
-            sn
-        };
+        let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
+                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
 
         // test get_consumed_leader_keys()
         {
             let ic = db.index_conn();
-            let keys = BurnDB::get_consumed_leader_keys(&ic, &snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
+            let keys = SortitionDB::get_consumed_leader_keys(&ic, &snapshot, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
 
         // test is_leader_key_consumed()
         {
-            let ic = db.index_conn();
-            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &snapshot.burn_header_hash).unwrap();
+            let ic = db.index_handle(&snapshot.sortition_id);
+            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(!is_consumed);
         }
-        
-        let snapshot_consumed = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
 
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone())], &vec![leader_key.clone()]).unwrap();
-            sn.index_root = index_root;
-
-            tx.commit().unwrap();
-
-            sn
-        };
+        let snapshot_consumed = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
+                                                     &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone())], &vec![leader_key.clone()]);
 
         {
-            let ic = db.index_conn();
-            let res_block_commits = BurnDB::get_block_commits_by_block(&ic, block_height+2, &snapshot_consumed.burn_header_hash).unwrap();
+            let res_block_commits = SortitionDB::get_block_commits_by_block(db.conn(), &snapshot_consumed.sortition_id).unwrap();
             assert_eq!(res_block_commits.len(), 1);
             assert_eq!(res_block_commits[0], block_commit);
-
-            let no_block_commits = BurnDB::get_block_commits_by_block(&ic, block_height+1, &snapshot_consumed.burn_header_hash).unwrap();
-            assert_eq!(no_block_commits.len(), 0);
         }
         
         // test is_leader_key_consumed() now that the commit exists
         {
-            let ic = db.index_conn();
-            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &snapshot_consumed.burn_header_hash).unwrap();
+            let ic = db.index_handle(&snapshot_consumed.sortition_id);
+            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(is_consumed);
         }
 
         // advance and get parent
-        let empty_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x05; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
+        let empty_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x05; 32]),
+                                                  &vec![], &vec![]);
 
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
-            sn.index_root = index_root;
-
-            tx.commit().unwrap();
-
-            sn
-        };
-        
         // test get_block_commit_parent()
         {
             let ic = db.index_conn();
-            let parent = BurnDB::get_block_commit_parent(&ic, block_height + 2, block_commit.vtxindex, &empty_snapshot.burn_header_hash).unwrap();
+            let parent = SortitionDB::get_block_commit_parent(&ic, block_height + 2, block_commit.vtxindex, &empty_snapshot.sortition_id).unwrap();
             assert!(parent.is_some());
             assert_eq!(parent.unwrap(), block_commit);
 
-            let parent = BurnDB::get_block_commit_parent(&ic, block_height + 3, block_commit.vtxindex, &empty_snapshot.burn_header_hash).unwrap();
+            let parent = SortitionDB::get_block_commit_parent(&ic, block_height + 3, block_commit.vtxindex, &empty_snapshot.sortition_id).unwrap();
             assert!(parent.is_none());
             
-            let parent = BurnDB::get_block_commit_parent(&ic, block_height + 2, block_commit.vtxindex + 1, &empty_snapshot.burn_header_hash).unwrap();
+            let parent = SortitionDB::get_block_commit_parent(&ic, block_height + 2, block_commit.vtxindex + 1, &empty_snapshot.sortition_id).unwrap();
             assert!(parent.is_none());
         }
 
         // test get_block_commit()
         {
-            let commit = BurnDB::get_block_commit(db.conn(), &block_commit.txid, &block_commit.burn_header_hash).unwrap();
+            let handle = db.index_handle(&empty_snapshot.sortition_id);
+            let commit = handle.get_block_commit(&block_commit.txid, &block_commit.burn_header_hash).unwrap();
             assert!(commit.is_some());
             assert_eq!(commit.unwrap(), block_commit);
 
             let bad_txid = Txid::from_bytes_be(&hex_bytes("4c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap();
-            let commit = BurnDB::get_block_commit(db.conn(), &bad_txid, &block_commit.burn_header_hash).unwrap();
+            let commit = handle.get_block_commit(&bad_txid, &block_commit.burn_header_hash).unwrap();
             assert!(commit.is_none());
         }
         
         // test get_consumed_leader_keys() (should be doable at any subsequent index root)
         {
             let ic = db.index_conn();
-            let keys = BurnDB::get_consumed_leader_keys(&ic, &empty_snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
+            let keys = SortitionDB::get_consumed_leader_keys(&ic, &empty_snapshot, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
         
         // test is_leader_key_consumed() (should be duable at any subsequent index root)
         {
-            let ic = db.index_conn();
-            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &empty_snapshot.burn_header_hash).unwrap();
+            let ic = db.index_handle(&empty_snapshot.sortition_id);
+            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(is_consumed);
             
-            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &snapshot.burn_header_hash).unwrap();
+
+            let ic = db.index_handle(&snapshot.sortition_id);
+            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(!is_consumed);
         }
 
         // make a fork between the leader key and block commit, and verify that the key is
         // unconsumed
         let fork_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_block_snapshot(&tx, &BurnchainHeaderHash([0x01; 32])).unwrap().unwrap();
+            let mut sn = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id).unwrap().unwrap();
+            let next_hash = BurnchainHeaderHash([0x13; 32]);
+            let mut tx = SortitionHandleTx::begin_stubbed(&mut db, &sn.burn_header_hash, &next_hash).unwrap();
 
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x13; 32]);
+            sn.burn_header_hash = next_hash;
             sn.block_height += 1;
             sn.num_sortitions += 1;
 
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
+            let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, &vec![], &vec![]).unwrap();
             sn.index_root = index_root;
             
             tx.commit().unwrap();
@@ -2149,10 +2122,14 @@ mod tests {
         // test get_consumed_leader_keys() and is_leader_key_consumed() against this new fork
         {
             let ic = db.index_conn();
-            let keys = BurnDB::get_consumed_leader_keys(&ic, &fork_snapshot.burn_header_hash, &vec![block_commit.clone()]).unwrap();
+            let keys = SortitionDB::get_consumed_leader_keys(&ic, &fork_snapshot, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
-
-            let is_consumed = BurnDB::is_leader_key_consumed(&ic, &leader_key, &fork_snapshot.burn_header_hash).unwrap();
+        }
+        
+        // test is_leader_key_consumed() (should be duable at any subsequent index root)
+        {
+            let ic = db.index_handle(&fork_snapshot.sortition_id);
+            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(!is_consumed);
         }
     }
@@ -2190,49 +2167,21 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x03; 32])
         };
 
-        let mut db = BurnDB::connect_test(block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
         
-        let snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
 
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
-            sn.index_root = index_root;
+        let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
+                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
 
-            tx.commit().unwrap();
-            sn
-        };
-        
-        let user_burn_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
-
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![]).unwrap();
-            sn.index_root = index_root;
-
-            tx.commit().unwrap();
-            sn
-        };
+        let user_burn_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
+                                                      &vec![BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![]);
 
         {
-            let ic = db.index_conn();
-            let res_user_burns = BurnDB::get_user_burns_by_block(&ic, block_height+2, &user_burn_snapshot.burn_header_hash).unwrap();
+            let res_user_burns = SortitionDB::get_user_burns_by_block(db.conn(), &user_burn_snapshot.sortition_id).unwrap();
             assert_eq!(res_user_burns.len(), 1);
             assert_eq!(res_user_burns[0], user_burn);
 
-            let no_user_burns = BurnDB::get_user_burns_by_block(&ic, block_height+1, &user_burn_snapshot.burn_header_hash).unwrap();
+            let no_user_burns = SortitionDB::get_user_burns_by_block(db.conn(), &snapshot.sortition_id).unwrap();
             assert_eq!(no_user_burns.len(), 0);
         }
     }
@@ -2256,52 +2205,24 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x03; 32])
         };
 
-        let mut db = BurnDB::connect_test(block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
         
-        let no_key_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
-
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
-            sn.index_root = index_root;
-            
-            tx.commit().unwrap();
-            sn
-        };
+        let no_key_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
+                                                   &vec![], &vec![]);
 
         let has_key_before = {
-            let ic = db.index_conn();
-            BurnDB::has_VRF_public_key(&ic, &public_key, &no_key_snapshot.burn_header_hash).unwrap()
+            let ic = db.index_handle(&no_key_snapshot.sortition_id);
+            ic.has_VRF_public_key(&public_key).unwrap()
         };
 
         assert!(!has_key_before);
 
-        let key_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
-
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
-            sn.index_root = index_root;
-            
-            tx.commit().unwrap();
-            sn
-        };
+        let key_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
+                                                &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
 
         let has_key_after = {
-            let ic = db.index_conn();
-            BurnDB::has_VRF_public_key(&ic, &public_key, &key_snapshot.burn_header_hash).unwrap()
+            let ic = db.index_handle(&key_snapshot.sortition_id);
+            ic.has_VRF_public_key(&public_key).unwrap()
         };
 
         assert!(has_key_after);
@@ -2311,25 +2232,33 @@ mod tests {
     fn is_fresh_consensus_hash() {
         let consensus_hash_lifetime = 24;
         let first_burn_hash = BurnchainHeaderHash::from_hex("10000000000000000000000000000000000000000000000000000000000000ff").unwrap();
-        let mut db = BurnDB::connect_test(0, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
         {
-            let mut tx = db.tx_begin().unwrap();
-            let mut last_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+            let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
             for i in 0..255 {
+                let sortition_id = SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]);
+                let parent_sortition_id = if i == 0 {
+                    last_snapshot.sortition_id.clone()
+                } else {
+                    SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i-1 as u8])
+                };
+
+                let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id, &sortition_id).unwrap();
                 let snapshot_row = BlockSnapshot {
-                    block_height: i+1,
+                    block_height: i as u64 +1,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    sortition_id,
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    total_burn: i,
+                    total_burn: i as u64,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
-                    num_sortitions: i+1,
+                    num_sortitions: i as u64 + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
                     arrival_index: 0,
@@ -2337,46 +2266,36 @@ mod tests {
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
                 };
-                let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
+                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row,
+                                                              &vec![], &vec![]).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
+                tx.commit().unwrap();
             }
-
-            tx.commit().unwrap();
         }
 
-        let tip = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
 
         let ch_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap();
         let ch_oldest_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - consensus_hash_lifetime) as u8]).unwrap();
         let ch_newest_stale = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - consensus_hash_lifetime - 1) as u8]).unwrap();
         let ch_missing = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,255]).unwrap();
 
-        let fresh_check = {
-            let ic = db.index_conn();
-            BurnDB::is_fresh_consensus_hash(&ic, 255, consensus_hash_lifetime, &ch_fresh, &tip.burn_header_hash).unwrap()
-        };
+        let ic = db.index_handle(&tip.sortition_id);
+        let fresh_check = ic.is_fresh_consensus_hash(consensus_hash_lifetime, &ch_fresh).unwrap();
 
         assert!(fresh_check);
 
-        let oldest_fresh_check = {
-            let ic = db.index_conn();
-            BurnDB::is_fresh_consensus_hash(&ic, 255, consensus_hash_lifetime, &ch_oldest_fresh, &tip.burn_header_hash).unwrap()
-        };
+        let oldest_fresh_check = ic.is_fresh_consensus_hash(consensus_hash_lifetime, &ch_oldest_fresh).unwrap();
 
         assert!(oldest_fresh_check);
 
-        let newest_stale_check = {
-            let ic = db.index_conn();
-            BurnDB::is_fresh_consensus_hash(&ic, 255, consensus_hash_lifetime, &ch_newest_stale, &tip.burn_header_hash).unwrap()
-        };
+        let newest_stale_check = ic.is_fresh_consensus_hash(consensus_hash_lifetime, &ch_newest_stale).unwrap();
 
         assert!(!newest_stale_check);
 
-        let missing_check = {
-            let ic = db.index_conn();
-            BurnDB::is_fresh_consensus_hash(&ic, 255, consensus_hash_lifetime, &ch_missing, &tip.burn_header_hash).unwrap()
-        };
+            
+        let missing_check = ic.is_fresh_consensus_hash(consensus_hash_lifetime, &ch_missing).unwrap();
 
         assert!(!missing_check);
     }
@@ -2384,25 +2303,33 @@ mod tests {
     #[test]
     fn get_consensus_at() {
         let first_burn_hash = BurnchainHeaderHash::from_hex("10000000000000000000000000000000000000000000000000000000000000ff").unwrap();
-        let mut db = BurnDB::connect_test(0, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
         {
-            let mut tx = db.tx_begin().unwrap();
-            let mut last_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+            let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
             for i in 0..256 {
+                let sortition_id = SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]);
+                let parent_sortition_id = if i == 0 {
+                    last_snapshot.sortition_id.clone()
+                } else {
+                    SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i-1 as u8])
+                };
+
+                let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id, &sortition_id).unwrap();
                 let snapshot_row = BlockSnapshot {
-                    block_height: i+1,
+                    block_height: i as u64 +1,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    sortition_id,
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    total_burn: i,
+                    total_burn: i as u64,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    index_root: TrieHash::from_empty_data(), 
-                    num_sortitions: i+1,
+                    index_root: TrieHash::from_empty_data(),
+                    num_sortitions: i as u64 + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
                     arrival_index: 0,
@@ -2410,25 +2337,26 @@ mod tests {
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
                 };
-                let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
+                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row,
+                                                              &vec![], &vec![]).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
-
-                // should succeed within the tx 
-                let ch = BurnDB::get_consensus_at(&tx.as_conn(), i+1, &last_snapshot.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
+                // should succeed within the tx
+                
+                let ch = tx.as_conn().get_consensus_at(i as u64 + 1).unwrap().unwrap_or(ConsensusHash::empty());
                 assert_eq!(ch, last_snapshot.consensus_hash);
-            }
 
-            tx.commit().unwrap();
+                tx.commit().unwrap();
+            }
         }
 
-        let tip = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
 
         for i in 0..256 {
             // should succeed within the conn
-            let ic = db.index_conn();
+            let ic = db.index_handle(&tip.sortition_id);
             let expected_ch = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap();
-            let ch = BurnDB::get_consensus_at(&ic, i+1, &tip.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
+            let ch = ic.get_consensus_at(i+1).unwrap().unwrap_or(ConsensusHash::empty());
             assert_eq!(ch, expected_ch);
         }
     }
@@ -2490,48 +2418,19 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x03; 32])
         };
 
-        let mut db = BurnDB::connect_test(block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
-        let key_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
-
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
-            sn.index_root = index_root;
-            
-            tx.commit().unwrap();
-            sn
-        };
+        let key_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
+                                                &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
         
-        let commit_snapshot = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            
-            let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
-            sn.block_height += 1;
-            sn.num_sortitions += 1;
-
-            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone()), BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![leader_key.clone()]).unwrap();
-            sn.index_root = index_root;
-
-            tx.commit().unwrap();
-            sn
-        };
+        let commit_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
+                                                   &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone()), BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![leader_key.clone()]).unwrap();
     
         {
-            let ic = db.index_conn();
-            let burn_amt = BurnDB::get_block_burn_amount(&ic, block_height + 2, &commit_snapshot.burn_header_hash).unwrap();
+            let burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &commit_snapshot).unwrap();
             assert_eq!(burn_amt, block_commit.burn_fee + user_burn.burn_fee);
 
-            let no_burn_amt = BurnDB::get_block_burn_amount(&ic, block_height + 1, &commit_snapshot.burn_header_hash).unwrap();
+            let no_burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &key_snapshot).unwrap();
             assert_eq!(no_burn_amt, 0);
         }
     }
@@ -2547,6 +2446,7 @@ mod tests {
             block_height: block_height - 2,
             burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: first_burn_hash.clone(),
+            sortition_id: SortitionId(first_burn_hash.0.clone()),
             parent_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
             consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
             ops_hash: OpsHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
@@ -2569,6 +2469,7 @@ mod tests {
             block_height: block_height,
             burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
+            sortition_id: SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]),
             parent_burn_header_hash:  BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
@@ -2591,6 +2492,7 @@ mod tests {
             block_height: block_height - 1,
             burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
+            sortition_id: SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]),
             parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
             ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
@@ -2609,16 +2511,13 @@ mod tests {
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
         };
 
-        let mut db = BurnDB::connect_test(block_height - 2, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(block_height - 2, &first_burn_hash).unwrap();
 
-        let chain_tip = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap()
-        };
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
 
         let initial_snapshot = {
-            let ic = db.index_conn();
-            BurnDB::get_last_snapshot_with_sortition(&ic, block_height - 2, &chain_tip.burn_header_hash).unwrap()
+            let ic = db.index_handle(&chain_tip.sortition_id);
+            ic.get_last_snapshot_with_sortition(block_height - 2).unwrap()
         };
 
         first_snapshot.index_root = initial_snapshot.index_root.clone();
@@ -2626,20 +2525,18 @@ mod tests {
         assert_eq!(initial_snapshot, first_snapshot);
 
         {
-            let mut tx = db.tx_begin().unwrap();
-            let chain_tip = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            BurnDB::append_chain_tip_snapshot(&mut tx, &chain_tip, &snapshot_without_sortition, &vec![], &vec![]).unwrap();
+            let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+            let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id, &snapshot_without_sortition.sortition_id).unwrap();
+
+            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_without_sortition, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
         }
         
-        let chain_tip = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap()
-        };
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
 
         let mut next_snapshot = {
-            let ic = db.index_conn();
-            BurnDB::get_last_snapshot_with_sortition(&ic, block_height - 1, &chain_tip.burn_header_hash).unwrap()
+            let ic = db.index_handle(&chain_tip.sortition_id);
+            ic.get_last_snapshot_with_sortition(block_height - 1).unwrap()
         };
 
         next_snapshot.index_root = initial_snapshot.index_root.clone();
@@ -2647,20 +2544,18 @@ mod tests {
         assert_eq!(initial_snapshot, next_snapshot);
 
         {
-            let mut tx = db.tx_begin().unwrap();
-            let chain_tip = BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap();
-            BurnDB::append_chain_tip_snapshot(&mut tx, &chain_tip, &snapshot_with_sortition, &vec![], &vec![]).unwrap();
+            let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+            let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id, &snapshot_without_sortition.sortition_id).unwrap();
+
+            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
         }
         
-        let chain_tip = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_canonical_burn_chain_tip_stubbed(&mut tx).unwrap()
-        };
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
 
         let next_snapshot_2 = {
-            let ic = db.index_conn();
-            BurnDB::get_last_snapshot_with_sortition(&ic, block_height, &chain_tip.burn_header_hash).unwrap()
+            let ic = db.index_handle(&chain_tip.sortition_id);
+            ic.get_last_snapshot_with_sortition(block_height).unwrap()
         };
 
         snapshot_with_sortition.index_root = next_snapshot_2.index_root.clone();
@@ -2671,13 +2566,10 @@ mod tests {
     /// Verify that the snapshots in a fork are well-formed -- i.e. the block heights are
     /// sequential and the parent block hash of the ith block is equal to the block hash of the
     /// (i-1)th block.
-    fn verify_fork_integrity(db: &mut BurnDB, tip_header_hash: &BurnchainHeaderHash) {
-        let mut child = {
-            let ic = db.index_conn();
-            BurnDB::get_block_snapshot(&ic, tip_header_hash).unwrap().unwrap()
-        };
+    fn verify_fork_integrity(db: &mut SortitionDB, tip: &SortitionId) {
+        let mut child = SortitionDB::get_block_snapshot(db.conn(), tip).unwrap().unwrap();
 
-        let initial = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
+        let initial = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
        
         test_debug!("Verify from {},hash={},parent={} back to {},hash={},parent={}",
                     child.block_height, child.burn_header_hash, child.parent_burn_header_hash,
@@ -2686,7 +2578,7 @@ mod tests {
         while child.block_height > initial.block_height {
             let parent = {
                 let ic = db.index_conn();
-                BurnDB::get_block_snapshot_in_fork(&ic, child.block_height - 1, &child.burn_header_hash).unwrap().unwrap()
+                SortitionDB::get_ancestor_snapshot(&ic, child.block_height - 1, &child.sortition_id).unwrap().unwrap()
             };
 
             test_debug!("Verify {} == {} - 1 and hash={},parent_hash={} == parent={}",
@@ -2723,10 +2615,10 @@ mod tests {
         let first_burn_hash = BurnchainHeaderHash([0x00; 32]);
         let first_block_height = 100;
 
-        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
         // make an initial fork
-        let mut last_snapshot = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
+        let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
 
         for i in 0..10 {
             let mut next_snapshot = last_snapshot.clone();
@@ -2737,8 +2629,8 @@ mod tests {
             next_snapshot.burn_header_hash = BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             next_snapshot.consensus_hash = ConsensusHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+            let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
 
             last_snapshot = next_snapshot.clone();
@@ -2758,10 +2650,10 @@ mod tests {
                     tmp
                 };
             
-            let parent_block = BurnchainHeaderHash(parent_block_hash);
+            let parent_block = SortitionId(parent_block_hash);
             test_debug!("----- build fork off of parent {} (i = {}) -----", &parent_block, i);
 
-            let mut last_snapshot = BurnDB::get_block_snapshot(db.conn(), &parent_block).unwrap().unwrap();
+            let mut last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &parent_block).unwrap().unwrap();
 
             let initial_block_height = last_snapshot.block_height;
             let initial_num_sortitions = last_snapshot.num_sortitions;
@@ -2779,8 +2671,8 @@ mod tests {
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
-                let mut tx = db.tx_begin().unwrap();
-                let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
 
                 next_snapshot.index_root = next_index_root;
@@ -2798,11 +2690,11 @@ mod tests {
         for i in 0..9 {
             let mut last_block_hash = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,10];
             last_block_hash[i] = (9 - i) as u8;
-            let last_block = BurnchainHeaderHash(last_block_hash);
+            let last_block = SortitionId(last_block_hash);
             
             test_debug!("----- grow fork {} (i = {}) -----", &last_block, i);
 
-            let mut last_snapshot = BurnDB::get_block_snapshot(db.conn(), &last_block).unwrap().unwrap();
+            let mut last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &last_block).unwrap().unwrap();
            
             let initial_block_height = last_snapshot.block_height;
             let mut next_snapshot = last_snapshot.clone();
@@ -2823,13 +2715,13 @@ mod tests {
                 next_snapshot.consensus_hash = ConsensusHash([2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
                 let next_index_root = {
-                    let mut tx = db.tx_begin().unwrap();
-                    let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+                    let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+                    let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                     tx.commit().unwrap();
                     next_index_root
                 };
 
-                last_snapshot = BurnDB::get_block_snapshot(db.conn(), &next_snapshot.burn_header_hash).unwrap().unwrap();
+                last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &next_snapshot.sortition_id).unwrap().unwrap();
             }
 
             // make the fork exceed the canonical chain tip 
@@ -2846,8 +2738,8 @@ mod tests {
             next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
 
             let next_index_root = {
-                let mut tx = db.tx_begin().unwrap();
-                let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
                 next_index_root
             };
@@ -2857,11 +2749,11 @@ mod tests {
             let mut expected_tip = next_snapshot.clone();
             expected_tip.index_root = next_index_root;
 
-            let canonical_tip = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+            let canonical_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
             assert_eq!(canonical_tip, expected_tip);
 
-            verify_fork_integrity(&mut db, &canonical_tip.burn_header_hash);
-            all_chain_tips.push(canonical_tip.burn_header_hash.clone());
+            verify_fork_integrity(&mut db, &canonical_tip.sortition_id);
+            all_chain_tips.push(canonical_tip.sortition_id.clone());
         }
 
         for tip_header_hash in all_chain_tips.iter() {
@@ -2872,10 +2764,9 @@ mod tests {
     #[test]
     fn test_get_stacks_header_hashes() {
         let first_burn_hash = BurnchainHeaderHash::from_hex("10000000000000000000000000000000000000000000000000000000000000ff").unwrap();
-        let mut db = BurnDB::connect_test(0, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
         {
-            let mut tx = db.tx_begin().unwrap();
-            let mut last_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+            let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
             let mut total_burn = 0;
             let mut total_sortitions = 0;
             for i in 0..256 {
@@ -2885,6 +2776,7 @@ mod tests {
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                            sortition_id: SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]),
                             parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                             ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2910,6 +2802,7 @@ mod tests {
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                            sortition_id: SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]),
                             parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                             ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2930,25 +2823,28 @@ mod tests {
                     };
 
                 // NOTE: we don't care about VRF keys or block commits here
-                let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
+
+                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &snapshot_row.sortition_id).unwrap();
+
+                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
 
                 // should succeed within the tx 
-                let ch = BurnDB::get_consensus_at(&tx.as_conn(), i+1, &last_snapshot.burn_header_hash).unwrap().unwrap_or(ConsensusHash::empty());
+                let ch = tx.as_conn().get_consensus_at(i + 1).unwrap().unwrap_or(ConsensusHash::empty());
                 assert_eq!(ch, last_snapshot.consensus_hash);
-            }
 
-            tx.commit().unwrap();
+                tx.commit().unwrap();
+            }
         }
         
-        let canonical_tip = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         let mut cache = BlockHeaderCache::new();
 
         {
             let ic = db.index_conn();
-            let hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
-            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+            let hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
             assert_eq!(hashes.len(), 256);
             for i in 0..256 {
@@ -2972,10 +2868,10 @@ mod tests {
 
         {
             let ic = db.index_conn();
-            let hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, None).unwrap();
-            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+            let hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, None).unwrap();
+            SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
-            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            let cached_hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
 
             assert_eq!(hashes.len(), 256);
             assert_eq!(cached_hashes.len(), 256);
@@ -3001,10 +2897,10 @@ mod tests {
 
         {
             let ic = db.index_conn();
-            let hashes = BurnDB::get_stacks_header_hashes(&ic, 192, &canonical_tip.consensus_hash, None).unwrap();
-            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+            let hashes = ic.get_stacks_header_hashes(192, &canonical_tip.consensus_hash, None).unwrap();
+            SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
-            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 192, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            let cached_hashes = ic.get_stacks_header_hashes(192, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
 
             assert_eq!(hashes.len(), 192);
             assert_eq!(cached_hashes.len(), 192);
@@ -3028,10 +2924,10 @@ mod tests {
         
         {
             let ic = db.index_conn();
-            let hashes = BurnDB::get_stacks_header_hashes(&ic, 257, &canonical_tip.consensus_hash, None).unwrap();
-            BurnDB::merge_block_header_cache(&mut cache, &hashes);
+            let hashes = ic.get_stacks_header_hashes(257, &canonical_tip.consensus_hash, None).unwrap();
+            SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
-            let cached_hashes = BurnDB::get_stacks_header_hashes(&ic, 257, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            let cached_hashes = ic.get_stacks_header_hashes(257, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
 
             assert_eq!(hashes.len(), 256);
             assert_eq!(cached_hashes.len(), 256);
@@ -3057,7 +2953,7 @@ mod tests {
         
         {
             let ic = db.index_conn();
-            let err = BurnDB::get_stacks_header_hashes(&ic, 256, &ConsensusHash([0x03; 20]), None).unwrap_err();
+            let err = ic.get_stacks_header_hashes(256, &ConsensusHash([0x03; 20]), None).unwrap_err();
             match err {
                 db_error::NotFoundError => {},
                 _ => {
@@ -3067,7 +2963,7 @@ mod tests {
                 }
             }
             
-            let err = BurnDB::get_stacks_header_hashes(&ic, 256, &ConsensusHash([0x03; 20]), Some(&cache)).unwrap_err();
+            let err = ic.get_stacks_header_hashes(256, &ConsensusHash([0x03; 20]), Some(&cache)).unwrap_err();
             match err {
                 db_error::NotFoundError => {},
                 _ => {
@@ -3079,13 +2975,14 @@ mod tests {
         }
     }
 
-    fn make_fork_run(db: &mut BurnDB, start_snapshot: &BlockSnapshot, length: u64, bit_pattern: u8) -> () {
+    fn make_fork_run(db: &mut SortitionDB, start_snapshot: &BlockSnapshot, length: u64, bit_pattern: u8) -> () {
         let mut last_snapshot = start_snapshot.clone();
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
                 block_height: last_snapshot.block_height + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),
+                sortition_id: SortitionId([(i as u8) | bit_pattern; 32]),
                 parent_burn_header_hash: last_snapshot.burn_header_hash.clone(),
                 consensus_hash: ConsensusHash([(i as u8) | bit_pattern; 20]),
                 ops_hash: OpsHash([(i as u8) | bit_pattern; 32]),
@@ -3104,20 +3001,20 @@ mod tests {
                 canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
             };
             {
-                let mut tx = db.tx_begin().unwrap();
-                BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &snapshot, &vec![], &vec![]).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &snapshot.sortition_id).unwrap();
+                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
             }
-            last_snapshot = BurnDB::get_block_snapshot(db.conn(), &snapshot.burn_header_hash).unwrap().unwrap();
+            last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id).unwrap().unwrap();
         }
     }
 
     #[test]
     fn test_set_stacks_block_accepted() {
         let first_burn_hash = BurnchainHeaderHash::from_hex("10000000000000000000000000000000000000000000000000000000000000ff").unwrap();
-        let mut db = BurnDB::connect_test(0, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
 
-        let mut last_snapshot = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
+        let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
 
         // seed a single fork
         make_fork_run(&mut db, &last_snapshot, 5, 0);
@@ -3138,41 +3035,42 @@ mod tests {
 
             {
                 let mut tx = db.tx_begin().unwrap();
-                BurnDB::set_stacks_block_accepted(&mut tx, &burn_header_hash, &parent_stacks_block_hash, &stacks_block_hash, height).unwrap();
+                tx.set_stacks_block_accepted_stubbed(
+                    &burn_header_hash, &parent_stacks_block_hash, &stacks_block_hash, height).unwrap();
                 tx.commit().unwrap();
             }
 
             // chain tip is memoized to the current burn chain tip
-            let (burn_bhh, block_bhh) = BurnDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
+            let (burn_bhh, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(db.conn()).unwrap();
             assert_eq!(burn_bhh, burn_header_hash);
             assert_eq!(block_bhh, stacks_block_hash);
         }
 
         // materialize all block arrivals in the MARF
-        last_snapshot = BurnDB::get_block_snapshot(db.conn(), &BurnchainHeaderHash([0x04; 32])).unwrap().unwrap();
+        last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x04; 32])).unwrap().unwrap();
         make_fork_run(&mut db, &last_snapshot, 1, 0);
 
         // verify that all Stacks block in this fork can be looked up from this chain tip
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         {
             let ic = db.index_conn();
             for i in 0..5 {
                 let parent_stacks_block_hash = BlockHeaderHash([i as u8; 32]);
-                let parent_key = BurnDB::make_stacks_block_index_key(&parent_stacks_block_hash);
+                let parent_key = db_keys::stacks_block_index(&parent_stacks_block_hash);
 
                 test_debug!("Look up '{}' off of {}", &parent_key, &last_snapshot.burn_header_hash);
-                let value_opt = BurnDB::index_value_get(&ic, &last_snapshot.burn_header_hash, &parent_key).unwrap();
+                let value_opt = ic.get_indexed(&last_snapshot.sortition_id, &parent_key).unwrap();
                 assert!(value_opt.is_some());
                 assert_eq!(value_opt.unwrap(), format!("{}", i));
             }
         }
 
         // make a burn fork off of the 5th block
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         make_fork_run(&mut db, &last_snapshot, 5, 0x80);
 
         // chain tip is _still_ memoized to the last materialized chain tip
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x8a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x04; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x04; 32]));
@@ -3187,20 +3085,21 @@ mod tests {
                 
             {
                 let mut tx = db.tx_begin().unwrap();
-                BurnDB::set_stacks_block_accepted(&mut tx, &burn_header_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
+                tx.set_stacks_block_accepted_stubbed(
+                    &burn_header_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
                 tx.commit().unwrap();
             }
 
             // chain tip is memoized to the current burn chain tip, since it's the longest stacks fork
-            let (burn_bhh, block_bhh) = BurnDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
+            let (burn_bhh, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(db.conn()).unwrap();
             assert_eq!(burn_bhh, burn_header_hash);
             assert_eq!(block_bhh, stacks_block_hash);
 
             parent_stacks_block_hash = stacks_block_hash;
         }
-        
+
         // chain tip is _still_ memoized to the last materialized chain tip (i.e. stacks block 7)
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x8a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x87; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x87; 32]));
@@ -3217,12 +3116,13 @@ mod tests {
                 
             {
                 let mut tx = db.tx_begin().unwrap();
-                BurnDB::set_stacks_block_accepted(&mut tx, &burn_header_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
+                tx.set_stacks_block_accepted_stubbed(
+                    &burn_header_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
                 tx.commit().unwrap();
             }
 
             // chain tip is memoized to the current burn chain tip, since it's the longest stacks fork
-            let (burn_bhh, block_bhh) = BurnDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
+            let (burn_bhh, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(db.conn()).unwrap();
             assert_eq!(burn_bhh, last_snapshot.canonical_stacks_tip_burn_hash);
             assert_eq!(block_bhh, last_snapshot.canonical_stacks_tip_hash);
             
@@ -3237,18 +3137,19 @@ mod tests {
                 
             {
                 let mut tx = db.tx_begin().unwrap();
-                BurnDB::set_stacks_block_accepted(&mut tx, &burn_header_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
+                tx.set_stacks_block_accepted_stubbed(
+                    &burn_header_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
                 tx.commit().unwrap();
             }
 
             // we've overtaken the longest fork with a different longest fork on this burn chain fork
-            let (burn_bhh, block_bhh) = BurnDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
+            let (burn_bhh, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(db.conn()).unwrap();
             assert_eq!(burn_bhh, burn_header_hash);
             assert_eq!(block_bhh, stacks_block_hash);
         }
         
         // canonical stacks chain tip is now stacks block 9
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x8a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x89; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x89; 32]));
@@ -3262,12 +3163,12 @@ mod tests {
         //
         // stx:      1,    2,    3,    4
         // burn:  0x01, 0x02, 0x03, 0x04, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b
-        last_snapshot = BurnDB::get_block_snapshot(db.conn(), &BurnchainHeaderHash([0x04; 32])).unwrap().unwrap();
+        last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x04; 32])).unwrap().unwrap();
         make_fork_run(&mut db, &last_snapshot, 7, 0x40);
 
         // canonical stacks chain tip is now stacks block 4, since the burn chain fork ending on
         // 0x4b has overtaken the burn chain fork ending on 0x8a
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x4b; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x04; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x04; 32]));
@@ -3276,11 +3177,12 @@ mod tests {
         // set the stacks block at 0x4b as accepted as the 5th block
         {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::set_stacks_block_accepted(&mut tx, &BurnchainHeaderHash([0x4b; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x4b; 32]), 5).unwrap();
+            tx.set_stacks_block_accepted_stubbed(
+                &BurnchainHeaderHash([0x4b; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x4b; 32]), 5).unwrap();
             tx.commit().unwrap();
         }
         
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x4b; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x4b; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x4b; 32]));
@@ -3297,17 +3199,17 @@ mod tests {
         //
         // stx:      1,    2,    3,    4,
         // burn:  0x01, 0x02, 0x03, 0x04, 0x45, 0x46, 0x47, 0x48, 0x29, 0x2a
-        last_snapshot = BurnDB::get_block_snapshot(db.conn(), &BurnchainHeaderHash([0x48; 32])).unwrap().unwrap();
+        last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x48; 32])).unwrap().unwrap();
         make_fork_run(&mut db, &last_snapshot, 2, 0x20);
 
-        last_snapshot = BurnDB::get_block_snapshot(db.conn(), &BurnchainHeaderHash([0x2a; 32])).unwrap().unwrap();
+        last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x2a; 32])).unwrap().unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x2a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x04; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x04; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 4);
         
         // doesn't affect canonical chain tip
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x4b; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x4b; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x4b; 32]));
@@ -3316,12 +3218,14 @@ mod tests {
         // set the stacks block at 0x29 and 0x2a as accepted as the 5th and 6th blocks
         {
             let mut tx = db.tx_begin().unwrap();
-            let tip_snapshot = BurnDB::get_block_snapshot(&tx, &BurnchainHeaderHash([0x2a; 32])).unwrap().unwrap();
-            BurnDB::set_stacks_block_accepted_at_tip(&mut tx, &tip_snapshot, &BurnchainHeaderHash([0x29; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x29; 32]), 5).unwrap();
-            BurnDB::set_stacks_block_accepted_at_tip(&mut tx, &tip_snapshot, &BurnchainHeaderHash([0x2a; 32]), &BlockHeaderHash([0x29; 32]), &BlockHeaderHash([0x2a; 32]), 6).unwrap();
+            let tip_snapshot = SortitionDB::get_block_snapshot(&tx, &SortitionId([0x2a; 32])).unwrap().unwrap();
+            tx.set_stacks_block_accepted_stubbed(
+                &tip_snapshot, &BurnchainHeaderHash([0x29; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x29; 32]), 5).unwrap();
+            tx.set_stacks_block_accepted_stubbed(
+                &tip_snapshot, &BurnchainHeaderHash([0x2a; 32]), &BlockHeaderHash([0x29; 32]), &BlockHeaderHash([0x2a; 32]), 6).unwrap();
             tx.commit().unwrap();
         }
-        
+
         // new state of the world:
         // burnchain forks:
         // stx:      1,    2,    3,    4,          6,          8,    9
@@ -3335,14 +3239,14 @@ mod tests {
         // burn:  0x01, 0x02, 0x03, 0x04, 0x45, 0x46, 0x47, 0x48, 0x29, 0x2a
         
         // canonical stacks chain off of non-canonical burn chain fork 0x2a should have been updated
-        last_snapshot = BurnDB::get_block_snapshot(db.conn(), &BurnchainHeaderHash([0x2a; 32])).unwrap().unwrap();
+        last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x2a; 32])).unwrap().unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x2a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x2a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x2a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 6);
 
         // insertion on the non-canonical tip doesn't affect canonical chain tip
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x4b; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x4b; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x4b; 32]));
@@ -3352,10 +3256,14 @@ mod tests {
         // canonical burn chain tip), on blocks 0x45, 0x46, and 0x47
         {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::set_stacks_block_accepted(&mut tx, &BurnchainHeaderHash([0x45; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x45; 32]), 5).unwrap();
-            BurnDB::set_stacks_block_accepted(&mut tx, &BurnchainHeaderHash([0x46; 32]), &BlockHeaderHash([0x45; 32]), &BlockHeaderHash([0x46; 32]), 6).unwrap();
-            BurnDB::set_stacks_block_accepted(&mut tx, &BurnchainHeaderHash([0x47; 32]), &BlockHeaderHash([0x46; 32]), &BlockHeaderHash([0x47; 32]), 7).unwrap();
-            BurnDB::set_stacks_block_accepted(&mut tx, &BurnchainHeaderHash([0x48; 32]), &BlockHeaderHash([0x47; 32]), &BlockHeaderHash([0x48; 32]), 8).unwrap();
+            tx.set_stacks_block_accepted_stubbed(
+                &BurnchainHeaderHash([0x45; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x45; 32]), 5).unwrap();
+            tx.set_stacks_block_accepted_stubbed(
+                &BurnchainHeaderHash([0x46; 32]), &BlockHeaderHash([0x45; 32]), &BlockHeaderHash([0x46; 32]), 6).unwrap();
+            tx.set_stacks_block_accepted_stubbed(
+                &BurnchainHeaderHash([0x47; 32]), &BlockHeaderHash([0x46; 32]), &BlockHeaderHash([0x47; 32]), 7).unwrap();
+            tx.set_stacks_block_accepted_stubbed(
+                &BurnchainHeaderHash([0x48; 32]), &BlockHeaderHash([0x47; 32]), &BlockHeaderHash([0x48; 32]), 8).unwrap();
             tx.commit().unwrap();
         }
         
@@ -3373,7 +3281,7 @@ mod tests {
         // burn:  0x01, 0x02, 0x03, 0x04, 0x45, 0x46, 0x47, 0x48, 0x29, 0x2a
 
         // new stacks tip is the 9th block added on burn chain tipped by 0x4b
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x4b; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x48; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x48; 32]));
@@ -3381,7 +3289,7 @@ mod tests {
 
         // LIMITATION: the burn chain tipped at 0x2a will _not_ be updated, since it is not the
         // canonical burn chain tip.
-        last_snapshot = BurnDB::get_block_snapshot(db.conn(), &BurnchainHeaderHash([0x2a; 32])).unwrap().unwrap();
+        last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &BurnchainHeaderHash([0x2a; 32])).unwrap().unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x2a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x2a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x2a; 32]));
@@ -3405,7 +3313,7 @@ mod tests {
         // stx:      1,    2,    3,    4,                            5,    6
         // burn:  0x01, 0x02, 0x03, 0x04, 0x45, 0x46, 0x47, 0x48, 0x29, 0x2a, 0x2b, 0x2c
 
-        last_snapshot = BurnDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
+        last_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x2c; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x48; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x48; 32]));
