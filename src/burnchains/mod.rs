@@ -463,7 +463,6 @@ pub mod test {
                 block_height: parent_sn.block_height + 1,
                 block_hash: block_hash,
                 parent_block_hash: parent_sn.burn_header_hash.clone(),
-                parent_index_root: parent_sn.index_root.clone(),
                 num_txs: num_txs,
                 timestamp: get_epoch_time_secs()
             }
@@ -734,14 +733,14 @@ pub mod test {
             txop
         }
 
-        pub fn add_leader_block_commit<'a>(&mut self, 
-                                           ic: &SortitionDBConn<'a>,
-                                           miner: &mut TestMiner, 
-                                           block_hash: &BlockHeaderHash, 
-                                           burn_fee: u64, 
-                                           leader_key: &LeaderKeyRegisterOp, 
-                                           fork_snapshot: Option<&BlockSnapshot>, 
-                                           parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp 
+        pub fn add_leader_block_commit(&mut self, 
+                                       ic: &SortitionDBConn,
+                                       miner: &mut TestMiner, 
+                                       block_hash: &BlockHeaderHash, 
+                                       burn_fee: u64, 
+                                       leader_key: &LeaderKeyRegisterOp, 
+                                       fork_snapshot: Option<&BlockSnapshot>, 
+                                       parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp 
         {
             let pubks = miner.privks.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
             let input = BurnchainSigner {
@@ -766,8 +765,11 @@ pub mod test {
 
             let new_seed = VRFSeed::from_proof(&proof);
 
-            let mut txop = match ic.get_block_commit(&last_snapshot_with_sortition.winning_block_txid, &last_snapshot_with_sortition.burn_header_hash)
-                .expect("FATAL: failed to read block commit") {
+            let get_commit_res = ic.as_handle(&last_snapshot_with_sortition.sortition_id)
+                .get_block_commit(&last_snapshot_with_sortition.winning_block_txid,
+                                  &last_snapshot_with_sortition.burn_header_hash)
+                .expect("FATAL: failed to read block commit");
+            let mut txop = match get_commit_res {
                 Some(parent) => {
                     let txop = LeaderBlockCommitOp::new(block_hash, self.block_height, &new_seed, &parent, leader_key.block_height as u32, leader_key.vtxindex as u16, burn_fee, &input);
                     txop
@@ -961,7 +963,7 @@ pub mod test {
     fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) -> () {
         // all keys accepted
         for key in prev_keys.iter() {
-            let tx_opt = BurnDB::get_burnchain_transaction(node.burndb.conn(), &key.txid).unwrap();
+            let tx_opt = SortitionDB::get_burnchain_transaction(node.burndb.conn(), &key.txid).unwrap();
             assert!(tx_opt.is_some());
 
             let tx = tx_opt.unwrap();
@@ -979,7 +981,7 @@ pub mod test {
     fn verify_commits_accepted(node: &TestBurnchainNode, next_block_commits: &Vec<LeaderBlockCommitOp>) -> () {
         // all commits accepted
         for commit in next_block_commits.iter() {
-            let tx_opt = BurnDB::get_burnchain_transaction(node.burndb.conn(), &commit.txid).unwrap();
+            let tx_opt = SortitionDB::get_burnchain_transaction(node.burndb.conn(), &commit.txid).unwrap();
             assert!(tx_opt.is_some());
 
             let tx = tx_opt.unwrap();

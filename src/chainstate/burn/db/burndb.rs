@@ -1493,6 +1493,20 @@ impl SortitionDB {
                         || format!("FATAL: multiple block commits for {}", &block_hash))
     }
 
+
+    /// Get a block snapshot for a winning block hash in a given burn chain fork.
+    #[cfg(test)]
+    pub fn get_block_snapshot_for_winning_stacks_block(ic: &SortitionDBConn, tip: &SortitionId, block_hash: &BlockHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+        match ic.get_indexed(tip, &db_keys::stacks_block_index(block_hash))? {
+            Some(block_height_str) => {
+                SortitionDB::get_ancestor_snapshot(ic, block_height_str.parse().unwrap(), tip)
+            },
+            None => {
+                Ok(None)
+            }
+        }
+    }
+
     /// Merge the result of get_stacks_header_hashes() into a BlockHeaderCache
     pub fn merge_block_header_cache(cache: &mut BlockHeaderCache, header_data: &Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)>) -> () {
         let mut i = header_data.len() - 1;
