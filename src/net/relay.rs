@@ -1542,7 +1542,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -1692,7 +1692,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            let saved_copy : Vec<(BurnchainHeaderHash, StacksBlock, Vec<StacksMicroblock>)> = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
@@ -1891,7 +1891,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            *blocks_and_microblocks.borrow_mut() = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();

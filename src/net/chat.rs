@@ -1560,7 +1560,7 @@ mod test {
 
     use core::{PEER_VERSION, NETWORK_P2P_PORT};
 
-    fn make_test_chain_dbs(testname: &str, burnchain: &Burnchain, network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> (PeerDB, BurnDB, StacksChainState) {
+    fn make_test_chain_dbs(testname: &str, burnchain: &Burnchain, network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> (PeerDB, SortitionDB, StacksChainState) {
         let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
         match fs::metadata(&test_path) {
             Ok(_) => {
@@ -1576,7 +1576,7 @@ mod test {
         let chainstate_path = format!("{}/chainstate", &test_path);
 
         let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, None, key_expires, PeerAddress::from_ipv4(127, 0, 0, 1), NETWORK_P2P_PORT, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
-        let burndb = BurnDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
+        let burndb = SortitionDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
         let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
 
         (peerdb, burndb, chainstate)
@@ -1613,14 +1613,13 @@ mod test {
         eprintln!("pipe_write = {:?}", pipe_write);
     }
 
-    fn db_setup(peerdb: &mut PeerDB, burndb: &mut BurnDB, socketaddr: &SocketAddr, chain_view: &BurnchainView) -> () {
+    fn db_setup(peerdb: &mut PeerDB, burndb: &mut SortitionDB, socketaddr: &SocketAddr, chain_view: &BurnchainView) -> () {
         {
             let mut tx = peerdb.tx_begin().unwrap();
             PeerDB::set_local_ipaddr(&mut tx, &PeerAddress::from_socketaddr(socketaddr), socketaddr.port()).unwrap();
             tx.commit().unwrap();
         }
-        let mut tx = burndb.tx_begin().unwrap();
-        let mut prev_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+        let mut prev_snapshot = SortitionDB::get_first_block_snapshot(burndb.conn()).unwrap();
         for i in prev_snapshot.block_height..chain_view.burn_block_height+1 {
             let mut next_snapshot = prev_snapshot.clone();
 
@@ -1641,6 +1640,7 @@ mod test {
             next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
             next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+            next_snapshot.sortition_id = SortitionId(big_i_bytes_32.clone());
             next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
             next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32.clone());
             next_snapshot.winning_block_txid = Txid(big_i_bytes_32.clone());
@@ -1649,14 +1649,17 @@ mod test {
             next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
             next_snapshot.num_sortitions += 1;
 
-            let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+            let mut tx = SortitionHandleTx::begin(&mut burndb, &prev_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+
+            let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
             next_snapshot.index_root = next_index_root;
 
             test_debug!("i = {}, chain_view.burn_block_height = {}, ch = {}", i, chain_view.burn_block_height, next_snapshot.consensus_hash);
             
             prev_snapshot = next_snapshot;
+
+            tx.commit().unwrap();
         }
-        tx.commit().unwrap();
     }
 
     #[test]
@@ -2400,7 +2403,7 @@ mod test {
         };
 
         // convo_1 sends a getblocksinv to convo_2 for all the blocks
-        let convo_1_chaintip = BurnDB::get_canonical_burn_chain_tip(burndb_1.conn()).unwrap();
+        let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(burndb_1.conn()).unwrap();
         let getblocksdata_1 = GetBlocksInv { consensus_hash: convo_1_chaintip.consensus_hash, num_blocks: BLOCKS_INV_DATA_MAX_BITLEN as u16 };
         let getblocksdata_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_1.clone())).unwrap();
         let mut rh_1 = convo_1.send_signed_request(getblocksdata_1_msg, 10000000).unwrap();
@@ -2575,8 +2578,8 @@ mod test {
         chain_view.make_test_data();
 
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut burndb_1 = BurnDB::connect_test(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 = BurnDB::connect_test(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
         
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         

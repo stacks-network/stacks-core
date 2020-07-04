@@ -1519,7 +1519,7 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1531,12 +1531,12 @@ pub mod test {
             peer_2.next_burnchain_block(burn_ops.clone());
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_2.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_2.burndb.as_ref().unwrap().conn()).unwrap();
             block_data.push((sn.burn_header_hash.clone(), stacks_block, microblocks));
         }
 
         let num_burn_blocks = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - peer_1.config.burnchain.first_block_height
         };
         
@@ -1625,7 +1625,7 @@ pub mod test {
         let block_hashes = {
             let num_headers = end_height - start_height;
             let ic = peer.burndb.as_mut().unwrap().index_conn();
-            let tip = BurnDB::get_canonical_burn_chain_tip(&ic).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
             let ancestor = BurnDB::get_block_snapshot_in_fork(&ic, end_height, &tip.burn_header_hash).unwrap().unwrap();
             BurnDB::get_stacks_header_hashes(&ic, num_headers, &ancestor.consensus_hash, None).unwrap()
         };
@@ -1680,14 +1680,14 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let block_data = block_generator(num_blocks, &mut peers);
 
         let num_burn_blocks = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peers[0].burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1819,7 +1819,7 @@ pub mod test {
                                                peers[1].next_burnchain_block(burn_ops.clone());
                                                peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[1].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[1].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -1885,7 +1885,7 @@ pub mod test {
                                                    peers[i].next_burnchain_block(burn_ops.clone());
                                                }
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -1942,7 +1942,7 @@ pub mod test {
                                                    peers[i].next_burnchain_block(burn_ops.clone());
                                                }
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -2006,7 +2006,7 @@ pub mod test {
                                                    peers[i].next_burnchain_block(burn_ops.clone());
                                                }
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -2067,7 +2067,7 @@ pub mod test {
                                                    peers[i].next_burnchain_block(burn_ops.clone());
                                                }
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data

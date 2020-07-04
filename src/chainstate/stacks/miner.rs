@@ -30,7 +30,6 @@ use chainstate::stacks::db::{
 };
 use chainstate::stacks::index::TrieHash;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::BurnDB;
 use chainstate::stacks::events::StacksTransactionReceipt;
 
 use net::StacksMessageCodec;
@@ -1189,7 +1188,7 @@ pub mod test {
                     let parent_stacks_block_snapshot = {
                         let ic = sortdb.index_conn();
                         let parent_stacks_block_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &burn_block.parent_snapshot.sortition_id, &parent_stacks_block.block_hash()).unwrap().unwrap();
-                        let burned_last = SortitionDB::get_block_burn_amount(&ic, &burn_block.parent_snapshot).unwrap()
+                        let burned_last = SortitionDB::get_block_burn_amount(&ic, &burn_block.parent_snapshot).unwrap();
                         parent_stacks_block_snapshot
                     };
 

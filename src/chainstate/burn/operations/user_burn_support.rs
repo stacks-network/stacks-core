@@ -23,7 +23,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::{ SortitionDBHandle };
+use chainstate::burn::db::burndb::{ SortitionHandleConn };
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -206,7 +206,7 @@ impl BlockstackOperation for UserBurnSupportOp {
         UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check(&self, burnchain: &Burnchain, tx: &SortitionDBHandle) -> Result<(), op_error> {
+    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
 
         /////////////////////////////////////////////////////////////////
@@ -259,9 +259,7 @@ mod tests {
     use super::*;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::Txid;
-    use burnchains::BLOCKSTACK_MAGIC_MAINNET;
-    use burnchains::BurnchainBlockHeader;
+    use burnchains::*;
 
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::BitcoinAddress;
@@ -274,7 +272,8 @@ mod tests {
         BlockstackOperationType
     };
 
-    use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash, BlockSnapshot};
+    use chainstate::burn::*;
+    use chainstate::burn::db::burndb::*;
     
     use chainstate::stacks::StacksAddress;
     
@@ -492,7 +491,7 @@ mod tests {
         
         // populate consensus hashes
         let tip_index_root = {
-            let mut prev_snapshot = SortitionDB::get_first_block_snapshot(&tx).unwrap(); 
+            let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap(); 
             for i in 0..10 {
                 let mut snapshot_row = BlockSnapshot {
                     block_height: i + 1 + first_block_height,
@@ -593,7 +592,7 @@ mod tests {
                 num_txs: 1,
                 timestamp: get_epoch_time_secs()
             };
-            let ic = db.index_conn();
+            let ic = db.index_handle(&SortitionId::stubbed(&fixture.op.burn_header_hash));
             assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic)));
         }
     }

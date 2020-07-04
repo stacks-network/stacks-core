@@ -35,7 +35,7 @@ use util::db::Error as db_error;
 use core::*;
 
 use chainstate::burn::db::burndb::{
-    BurnDB, BurnDBConn, SortitionId, SortitionHandleConn,
+    SortitionId, SortitionHandleConn,
 };
 use chainstate::burn::{
     BlockSnapshot, BlockHeaderHash
@@ -317,7 +317,7 @@ mod test {
     use burnchains::test::*;
     use chainstate::stacks::*;
     use chainstate::burn::operations::*;
-
+    use chainstate::burn::db::burndb::*;
     use chainstate::burn::VRFSeed;
     use chainstate::burn::BlockHeaderHash;
     use util::vrf::VRFPublicKey;
@@ -346,22 +346,22 @@ mod test {
             first_block_hash: first_burn_hash.clone()
         };
 
-        let db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+        let db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
         let empty_block_header = BurnchainBlockHeader {
             block_height: first_block_height + 1,
             block_hash: BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0x01,0x24]),
             parent_block_hash: first_burn_hash.clone(),
             num_txs: 0,
-            parent_index_root: TrieHash::from_empty_data(),
             timestamp: get_epoch_time_secs()
         };
         
-        let initial_snapshot = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
+        let initial_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
 
         let snapshot_no_transactions = {
-            let ic = db.index_conn();
-            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &initial_snapshot, &empty_block_header, &vec![], &vec![]).unwrap();
+            let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
+            let ic = db.index_handle(&sort_id);
+            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &initial_snapshot, &empty_block_header, &vec![], &vec![]).unwrap();
             sn
         };
 
@@ -380,8 +380,9 @@ mod test {
         };
 
         let snapshot_no_burns = {
-            let ic = db.index_conn();
-            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &initial_snapshot, &empty_block_header, &vec![empty_burn_point.clone()], &vec![key.txid.clone()]).unwrap();
+            let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
+            let ic = db.index_handle(&sort_id);
+            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &initial_snapshot, &empty_block_header, &vec![empty_burn_point.clone()], &vec![key.txid.clone()]).unwrap();
             sn
         };
 

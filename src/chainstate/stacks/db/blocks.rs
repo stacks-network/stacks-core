@@ -2377,8 +2377,8 @@ impl StacksChainState {
 
     /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
     #[cfg(test)]
-    pub fn preprocess_stacks_epoch<'a>(&mut self, burn_ic: &BurnDBConn<'a>, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
-        self.preprocess_anchored_block(burn_ic, &snapshot.burn_header_hash, snapshot.burn_header_timestamp, block, &snapshot.parent_burn_header_hash)?;
+    pub fn preprocess_stacks_epoch(&mut self, sort_ic: &SortitionDBConn, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
+        self.preprocess_anchored_block(sort_ic, &snapshot.burn_header_hash, snapshot.burn_header_timestamp, block, &snapshot.parent_burn_header_hash)?;
         let block_hash = block.block_hash();
         for mblock in microblocks.iter() {
             self.preprocess_streamed_microblock(&snapshot.burn_header_hash, &block_hash, mblock)?;

@@ -836,7 +836,7 @@ pub mod test {
                 .unwrap();
             sortition_db_handle.commit().unwrap();
 
-            new_snapshot
+            new_snapshot.0
         }
     }
 

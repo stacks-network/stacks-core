@@ -1538,7 +1538,7 @@ mod test {
 
         let num_blocks = 5;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1551,7 +1551,7 @@ mod test {
         }
 
         let (tip, num_burn_blocks) = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             let num_burn_blocks = sn.block_height - peer_1.config.burnchain.first_block_height;
             (sn, num_burn_blocks)
         };
@@ -1678,7 +1678,7 @@ mod test {
 
         let num_blocks = (BLOCKS_INV_DATA_MAX_BITLEN * 2) as u64;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1692,7 +1692,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1800,7 +1800,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1813,7 +1813,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1902,7 +1902,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1926,7 +1926,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         

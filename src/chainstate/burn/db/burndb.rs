@@ -468,6 +468,13 @@ pub type BurnDBConn<'a> = IndexDBConn<'a, BurnDBTxContext, BurnchainHeaderHash>;
 pub type SortitionDBConn<'a> = IndexDBConn<'a, SortitionDBTxContext, SortitionId>;
 pub type SortitionDBTx<'a> = IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
 
+///
+/// These structs are used to keep an open "handle" to the
+///   sortition db -- this is just the db/marf connection
+///   + a chain tip. This mostly just makes the job of callers 
+///   much simpler, because they don't have to worry about passing
+///   around the open chain tip everywhere.
+///
 pub type SortitionHandleConn<'a> = IndexDBConn<'a, SortitionHandleContext, SortitionId>;
 pub type SortitionHandleTx<'a> = IndexDBTx<'a, SortitionHandleContext, SortitionId>;
 
@@ -520,19 +527,6 @@ impl_array_hexstring_fmt!(PoxForkIdentifier);
 impl_byte_array_newtype!(PoxForkIdentifier, u8, 32);
 impl_byte_array_from_column!(PoxForkIdentifier);
 impl_byte_array_message_codec!(PoxForkIdentifier, 32);
-
-///
-/// This struct is used to keep an open "handle" to the
-///   sortition db -- this is just the db/marf connection
-///   + a chain tip. This mostly just makes the job of callers 
-///   much simpler, because they don't have to worry about passing
-///   around the open chain tip everywhere.
-///
-pub type SortitionDBHandle<'a> = SortitionHandleConn<'a>;
-
-/*impl <'a> AsRef<SortitionDBConn<'a>> for SortitionHandleConnection<'a> {
-    
-}*/
 
 struct db_keys;
 impl db_keys {
@@ -2436,9 +2430,9 @@ mod tests {
 
         let key_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
                                                 &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
-        
+
         let commit_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
-                                                   &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone()), BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![leader_key.clone()]).unwrap();
+                                                   &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone()), BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![leader_key.clone()]);
     
         {
             let burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &commit_snapshot).unwrap();
@@ -3232,11 +3226,10 @@ mod tests {
         // set the stacks block at 0x29 and 0x2a as accepted as the 5th and 6th blocks
         {
             let mut tx = db.tx_begin().unwrap();
-            let tip_snapshot = SortitionDB::get_block_snapshot(&tx, &SortitionId([0x2a; 32])).unwrap().unwrap();
             tx.set_stacks_block_accepted_stubbed(
-                &tip_snapshot, &BurnchainHeaderHash([0x29; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x29; 32]), 5).unwrap();
+                &BurnchainHeaderHash([0x29; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x29; 32]), 5).unwrap();
             tx.set_stacks_block_accepted_stubbed(
-                &tip_snapshot, &BurnchainHeaderHash([0x2a; 32]), &BlockHeaderHash([0x29; 32]), &BlockHeaderHash([0x2a; 32]), 6).unwrap();
+                &BurnchainHeaderHash([0x2a; 32]), &BlockHeaderHash([0x29; 32]), &BlockHeaderHash([0x2a; 32]), 6).unwrap();
             tx.commit().unwrap();
         }
 
@@ -3303,7 +3296,7 @@ mod tests {
 
         // LIMITATION: the burn chain tipped at 0x2a will _not_ be updated, since it is not the
         // canonical burn chain tip.
-        last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &BurnchainHeaderHash([0x2a; 32])).unwrap().unwrap();
+        last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x2a; 32])).unwrap().unwrap();
         assert_eq!(last_snapshot.burn_header_hash, BurnchainHeaderHash([0x2a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_burn_hash, BurnchainHeaderHash([0x2a; 32]));
         assert_eq!(last_snapshot.canonical_stacks_tip_hash, BlockHeaderHash([0x2a; 32]));

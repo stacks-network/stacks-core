@@ -38,7 +38,7 @@ use burnchains::Burnchain;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::SortitionDBHandle;
+use chainstate::burn::db::burndb::SortitionHandleConn;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
 use burnchains::{
@@ -189,7 +189,7 @@ pub struct UserBurnSupportOp {
 }
 
 pub trait BlockstackOperation {
-    fn check(&self, burnchain: &Burnchain, tx: &SortitionDBHandle) -> Result<(), Error>;
+    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), Error>;
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<Self, Error>
         where Self: Sized;
 }
