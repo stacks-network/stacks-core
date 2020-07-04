@@ -1574,7 +1574,8 @@ mod test {
             let burndb = peer_1.burndb.take().unwrap();
             let sn = {
                 let ic = burndb.index_conn();
-                let sn = BurnDB::get_block_snapshot_in_fork(&ic, i + 1 + first_stacks_block_height, &tip.burn_header_hash).unwrap().unwrap();
+                let sn = SortitionDB::get_ancestor_snapshot(
+                    &ic, i + 1 + first_stacks_block_height, &tip.sortition_id).unwrap().unwrap();
                 eprintln!("{:?}", &sn);
                 sn
             };
@@ -1590,7 +1591,8 @@ mod test {
 
                     let sn = {
                         let ic = burndb.index_conn();
-                        let sn = BurnDB::get_block_snapshot_in_fork(&ic, i + first_stacks_block_height + 1, &tip.burn_header_hash).unwrap().unwrap();
+                        let sn = SortitionDB::get_ancestor_snapshot(
+                            &ic, i + first_stacks_block_height + 1, &tip.sortition_id).unwrap().unwrap();
                         eprintln!("{:?}", &sn);
                         sn
                     };

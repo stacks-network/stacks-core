@@ -1626,8 +1626,8 @@ pub mod test {
             let num_headers = end_height - start_height;
             let ic = peer.burndb.as_mut().unwrap().index_conn();
             let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
-            let ancestor = BurnDB::get_block_snapshot_in_fork(&ic, end_height, &tip.burn_header_hash).unwrap().unwrap();
-            BurnDB::get_stacks_header_hashes(&ic, num_headers, &ancestor.consensus_hash, None).unwrap()
+            let ancestor = SortitionDB::get_ancestor_snapshot(&ic, end_height, &tip.sortition_id).unwrap().unwrap();
+            ic.get_stacks_header_hashes(num_headers, &ancestor.consensus_hash, None).unwrap()
         };
 
         let mut inv = BlocksInvData::empty();

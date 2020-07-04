@@ -1649,7 +1649,7 @@ mod test {
             next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
             next_snapshot.num_sortitions += 1;
 
-            let mut tx = SortitionHandleTx::begin(&mut burndb, &prev_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+            let mut tx = SortitionHandleTx::begin(burndb, &prev_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
 
             let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
             next_snapshot.index_root = next_index_root;

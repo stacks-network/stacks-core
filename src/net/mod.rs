@@ -2009,10 +2009,9 @@ pub mod test {
         pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> u64 {
             let mut burndb = self.burndb.take().unwrap();
             let block_height = {
-                let mut tx = burndb.tx_begin().unwrap();
-                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&tx.as_conn()).unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&burndb.conn()).unwrap();
                 let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345), blockstack_ops.len() as u64);
-
+                let mut tx = SortitionHandleTx::begin(&mut burndb, &tip.sortition_id, &SortitionId::stubbed(&block_header.block_hash)).unwrap();
                 for op in blockstack_ops.iter_mut() {
                     match op {
                         BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
@@ -2028,8 +2027,8 @@ pub mod test {
                         }
                     }
                 }
-                        
-                Burnchain::process_block_txs(&mut tx, &tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
+
+                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
                 tx.commit().unwrap();
                 block_header.block_height
             };

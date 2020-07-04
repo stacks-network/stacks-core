@@ -561,7 +561,7 @@ impl <'a> SortitionHandleTx <'a> {
         let chain_tip = SortitionId(chain_tip.0.clone());
         let parent_chain_tip = SortitionId(parent_chain_tip.0.clone());
 
-        SortitionHandleTx::begin(conn, &chain_tip, &parent_chain_tip)
+        SortitionHandleTx::begin(conn, &parent_chain_tip, &chain_tip)
     }
 
     /// begin a MARF transaction with this connection
@@ -574,9 +574,9 @@ impl <'a> SortitionHandleTx <'a> {
         let tx = tx_begin_immediate(&mut conn.conn)?;
         let mut handle = SortitionHandleTx::new(
             tx, &mut conn.marf,
-            SortitionHandleContext { chain_tip: chain_tip.clone(),
+            SortitionHandleContext { chain_tip: parent_chain_tip.clone(),
                                      first_block_height: conn.first_block_height });
-        handle.put_indexed_begin(parent_chain_tip, chain_tip)?;
+//        handle.put_indexed_begin(parent_chain_tip, chain_tip)?;
 
         Ok(handle)
     }
@@ -1100,7 +1100,7 @@ impl SortitionDB {
     }
 
     fn instantiate(&mut self, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> Result<(), db_error> {
-        let mut db_tx = SortitionHandleTx::begin_stubbed(self, first_burn_header_hash, first_burn_header_hash)?;
+        let mut db_tx = SortitionHandleTx::begin_stubbed(self, &BurnchainHeaderHash::sentinel(), first_burn_header_hash)?;
 
         // create first (sentinel) snapshot
         let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash, first_burn_header_timestamp);
@@ -1117,6 +1117,7 @@ impl SortitionDB {
         db_tx.instantiate_index()?;
 
         let mut first_sn = first_snapshot.clone();
+        first_sn.sortition_id = SortitionId::sentinel();
         let index_root = db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], &vec![])?;
         first_snapshot.index_root = index_root;
 
@@ -1789,7 +1790,7 @@ impl <'a> SortitionHandleTx <'a> {
 
         // store each indexed field
         //  -- marf tx _must_ have already began
-        // self.put_indexed_begin(&parent_snapshot.sortition_id, &snapshot.sortition_id)?;
+        self.put_indexed_begin(&parent_snapshot.sortition_id, &snapshot.sortition_id)?;
 
         let root_hash = self.put_indexed_all(&keys, &values)?;
         self.indexed_commit()?;
@@ -2314,12 +2315,12 @@ mod tests {
         let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
         {
             let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
-            for i in 0..256 {
+            for i in 0..256u64 {
                 let sortition_id = SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]);
                 let parent_sortition_id = if i == 0 {
                     last_snapshot.sortition_id.clone()
                 } else {
-                    SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i-1 as u8])
+                    SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i-1) as u8])
                 };
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id, &sortition_id).unwrap();
@@ -3009,8 +3010,8 @@ mod tests {
                 canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
             };
             {
-                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &snapshot.sortition_id).unwrap();
-                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![]).unwrap();
+                let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id, &snapshot.sortition_id).unwrap();
+                let _index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
             }
             last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id).unwrap().unwrap();
