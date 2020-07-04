@@ -1075,7 +1075,7 @@ pub mod test {
 
         pub fn get_last_winning_snapshot(ic: &SortitionDBConn, fork_tip: &BlockSnapshot, miner: &TestMiner) -> Option<BlockSnapshot> {
             for commit_op in miner.block_commits.iter().rev() {
-                match SortitionDB::get_block_snapshot_for_winning_stacks_block(ic, &fork_tip.burn_header_hash, &commit_op.block_header_hash).unwrap() {
+                match SortitionDB::get_block_snapshot_for_winning_stacks_block(ic, &fork_tip.sortition_id, &commit_op.block_header_hash).unwrap() {
                     Some(sn) => {
                         return Some(sn);
                     }
@@ -1142,7 +1142,7 @@ pub mod test {
         }
 
         pub fn make_tenure_commitment(&mut self, 
-                                      burndb: &mut BurnDB, 
+                                      sortdb: &mut SortitionDB, 
                                       burn_block: &mut TestBurnchainBlock, 
                                       miner: &mut TestMiner, 
                                       stacks_block: &StacksBlock,
@@ -1157,7 +1157,7 @@ pub mod test {
             test_debug!("Miner {}: Commit to stacks block {} (work {},{})", miner.id, stacks_block.block_hash(), stacks_block.header.total_work.burn, stacks_block.header.total_work.work);
 
             // send block commit for this block
-            let block_commit_op = TestStacksNode::add_block_commit(burndb, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt);
+            let block_commit_op = TestStacksNode::add_block_commit(sortdb, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt);
             
             test_debug!("Miner {}: Block commit transaction builds on {},{} (parent snapshot is {:?})", miner.id, block_commit_op.parent_block_ptr, block_commit_op.parent_vtxindex, &parent_block_snapshot_opt);
             self.commit_ops.insert(block_commit_op.block_header_hash.clone(), self.anchored_blocks.len()-1);
@@ -1188,7 +1188,7 @@ pub mod test {
                     // building off an existing stacks block
                     let parent_stacks_block_snapshot = {
                         let ic = sortdb.index_conn();
-                        let parent_stacks_block_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &burn_block.parent_snapshot.burn_header_hash, &parent_stacks_block.block_hash()).unwrap().unwrap();
+                        let parent_stacks_block_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &burn_block.parent_snapshot.sortition_id, &parent_stacks_block.block_hash()).unwrap().unwrap();
                         let burned_last = SortitionDB::get_block_burn_amount(&ic, &burn_block.parent_snapshot).unwrap()
                         parent_stacks_block_snapshot
                     };
@@ -1209,7 +1209,7 @@ pub mod test {
             test_debug!("Miner {}: Assemble stacks block from {}", miner.id, miner.origin_address().unwrap().to_string());
 
             let (stacks_block, microblocks) = block_assembler(builder, miner);
-            let block_commit_op = self.make_tenure_commitment(burndb, burn_block, miner, &stacks_block, &microblocks, burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
+            let block_commit_op = self.make_tenure_commitment(sortdb, burn_block, miner, &stacks_block, &microblocks, burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
 
             (stacks_block, microblocks, block_commit_op)
         }
@@ -3661,7 +3661,7 @@ pub mod test {
                     }
                     Some(block) => {
                         let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3774,7 +3774,7 @@ pub mod test {
                     }
                     Some(block) => {
                         let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3868,7 +3868,7 @@ pub mod test {
                     }
                     Some(block) => {
                         let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3951,7 +3951,7 @@ pub mod test {
                     }
                     Some(block) => {
                         let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };

@@ -1823,7 +1823,7 @@ pub mod test {
     pub struct TestPeer {
         pub config: TestPeerConfig,
         pub network: PeerNetwork,
-        pub burndb: Option<BurnDB>,
+        pub burndb: Option<SortitionDB>,
         pub miner: TestMiner,
         pub stacks_node: Option<TestStacksNode>,
         pub relayer: Relayer,
@@ -2158,11 +2158,11 @@ pub mod test {
         // Make a tenure
         pub fn make_tenure<F>(&mut self, mut tenure_builder: F) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>)
         where
-            F: FnMut(&mut TestMiner, &mut BurnDB, &mut StacksChainState, VRFProof, Option<&StacksBlock>, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) 
+            F: FnMut(&mut TestMiner, &mut SortitionDB, &mut StacksChainState, VRFProof, Option<&StacksBlock>, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) 
         {
             let mut burndb = self.burndb.take().unwrap();
             let mut burn_block = {
-                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(burndb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
             };
 
