@@ -178,7 +178,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.put(&key, &value.serialize());
     }
 
-    fn get <T> (&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {
+    pub fn get <T> (&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {
         self.store.get::<T>(key)
     }
 
