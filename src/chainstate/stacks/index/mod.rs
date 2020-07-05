@@ -70,6 +70,7 @@ std::convert::From<MARFValue> + ::net::StacksMessageCodec
 {
     fn as_bytes(&self) -> &[u8];
     fn to_bytes(self) -> [u8; 32];
+    fn from_bytes([u8; 32]) -> Self;
     fn sentinel() -> Self;
 }
 
@@ -86,6 +87,9 @@ macro_rules! impl_marf_trie_id {
             }
             fn sentinel() -> Self {
                 Self(SENTINEL_ARRAY.clone())
+            }
+            fn from_bytes(bytes: [u8; 32]) -> Self {
+                Self(bytes)
             }
         }
 
@@ -262,6 +266,7 @@ pub enum Error {
     CorruptionError(String),
     BlockHashMapCorruptionError(Option<Box<Error>>),
     ReadOnlyError,
+    UnconfirmedError,
     NotDirectoryError,
     PartialWriteError,
     InProgressError,
@@ -317,6 +322,7 @@ impl fmt::Display for Error {
             Error::ExistsError => write!(f, "Object exists"),
             Error::BadSeekValue => write!(f, "Bad seek value"),
             Error::ReadOnlyError => write!(f, "Storage is in read-only mode"),
+            Error::UnconfirmedError => write!(f, "Storage is in unconfirmed mode"),
             Error::NotDirectoryError => write!(f, "Not a directory"),
             Error::PartialWriteError => write!(f, "Data is partially written and not yet recovered"),
             Error::InProgressError => write!(f, "Write was in progress"),
