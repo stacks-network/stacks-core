@@ -2007,12 +2007,13 @@ pub mod test {
             empty_block
         }
 
-        pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> u64 {
+        pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> (u64, BurnchainHeaderHash) {
             let mut burndb = self.burndb.take().unwrap();
-            let block_height = {
+            let (block_height, block_hash) = {
                 let mut tx = burndb.tx_begin().unwrap();
                 let tip = BurnDB::get_canonical_burn_chain_tip(&tx.as_conn()).unwrap();
-                let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345), blockstack_ops.len() as u64);
+                let block_header_hash = BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345);
+                let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, block_header_hash.clone(), blockstack_ops.len() as u64);
 
                 for op in blockstack_ops.iter_mut() {
                     match op {
@@ -2032,10 +2033,10 @@ pub mod test {
                         
                 Burnchain::process_block_txs(&mut tx, &tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
                 tx.commit().unwrap();
-                block_header.block_height
+                (block_header.block_height, block_header_hash)
             };
             self.burndb = Some(burndb);
-            block_height
+            (block_height, block_hash)
         }
 
         pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
@@ -2115,7 +2116,7 @@ pub mod test {
             self.stacks_node = Some(node);
         }
 
-        pub fn add_empty_burnchain_block(&mut self) -> u64 {
+        pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash) {
             self.next_burnchain_block(vec![])
         }
 
