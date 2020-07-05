@@ -123,7 +123,7 @@ impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
 }
 
 impl MarfedKV {
-    pub fn open(path_str: &str, miner_tip: Option<&StacksBlockId>) -> Result<MarfedKV> {
+    fn setup_db(path_str: &str, unconfirmed: bool) -> Result<(SqliteConnection, MARF<StacksBlockId>)> {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
@@ -141,9 +141,31 @@ impl MarfedKV {
             .to_string();
 
         let side_store = SqliteConnection::initialize(&data_path)?;
-        let marf = MARF::from_path(&marf_path, miner_tip)
-            .map_err(|err| InterpreterError::MarfFailure(IncomparableError{ err }))?;
+        let marf =
+            if unconfirmed {
+                MARF::from_path_unconfirmed(&marf_path)
+                    .map_err(|err| InterpreterError::MarfFailure(IncomparableError{ err }))?
+            }
+            else {
+                MARF::from_path(&marf_path)
+                    .map_err(|err| InterpreterError::MarfFailure(IncomparableError{ err }))?
+            };
 
+        Ok((side_store, marf))
+    }
+
+    pub fn open(path_str: &str, miner_tip: Option<&StacksBlockId>) -> Result<MarfedKV> {
+        let (side_store, marf) = MarfedKV::setup_db(path_str, false)?;
+        let chain_tip = match miner_tip {
+            Some(ref miner_tip) => *miner_tip.clone(),
+            None => StacksBlockId::sentinel()
+        };
+
+        Ok( MarfedKV { marf, chain_tip, side_store } )
+    }
+    
+    pub fn open_unconfirmed(path_str: &str, miner_tip: Option<&StacksBlockId>) -> Result<MarfedKV> {
+        let (side_store, marf) = MarfedKV::setup_db(path_str, true)?;
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
             None => StacksBlockId::sentinel()
@@ -161,7 +183,7 @@ impl MarfedKV {
         let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
         path.push(to_hex(&random_bytes));
 
-        let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"), None)
+        let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
             .unwrap();
         let side_store = SqliteConnection::memory().unwrap();
 
@@ -195,16 +217,34 @@ impl MarfedKV {
             .clone();
         self.side_store.begin(&self.chain_tip);
     }
+    
+    pub fn begin_unconfirmed(&mut self, current: &StacksBlockId) {
+        self.marf.begin_unconfirmed(current)
+            .expect(&format!("ERROR: Failed to begin new unconfirmed MARF block for {})", current));
+        self.chain_tip = self.marf.get_open_chain_tip()
+            .expect("ERROR: Failed to get open MARF")
+            .clone();
+        self.side_store.begin(&self.chain_tip);
+    }
+
     pub fn rollback(&mut self) {
         self.marf.drop_current();
         self.side_store.rollback(&self.chain_tip);
         self.chain_tip = StacksBlockId::sentinel();
     }
+    
+    pub fn rollback_unconfirmed(&mut self) {
+        self.marf.drop_unconfirmed();
+        self.side_store.rollback_unconfirmed(&self.chain_tip);
+        self.chain_tip = StacksBlockId::sentinel();
+    }
+
     #[cfg(test)]
     pub fn test_commit(&mut self) {
         let bhh = self.chain_tip.clone();
         self.commit_to(&bhh);
     }
+
     // This is used by miners
     //   so that the block validation and processing logic doesn't
     //   reprocess the same data as if it were already loaded
@@ -219,6 +259,7 @@ impl MarfedKV {
         self.marf.commit_mined(will_move_to)
             .expect("ERROR: Failed to commit MARF block");
     }
+
     pub fn commit_to(&mut self, final_bhh: &StacksBlockId) {
         debug!("commit_to({})", final_bhh); 
         self.side_store.commit_metadata_to(&self.chain_tip, final_bhh);
@@ -226,6 +267,16 @@ impl MarfedKV {
         self.marf.commit_to(final_bhh)
             .expect("ERROR: Failed to commit MARF block");
     }
+
+    pub fn commit_unconfirmed(&mut self) {
+        debug!("commit_unconfirmed()");
+        // NOTE: Can omit commit_metadata_to, since the block header hash won't change
+        // self.side_store.commit_metadata_to(&self.chain_tip, final_bhh);
+        self.side_store.commit(&self.chain_tip);
+        self.marf.commit()
+            .expect("ERROR: Failed to commit MARF block");
+    }
+
     pub fn get_chain_tip(&self) -> &StacksBlockId {
         &self.chain_tip
     }
@@ -257,6 +308,16 @@ impl MarfedKV {
     pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
         format!("clarity-contract::{}", contract)
     }
+
+    fn reopen_tip(&mut self) -> Result<()> {
+        self.marf.open_block(&self.chain_tip)
+            .map_err(|e| {
+                match e {
+                    MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(self.chain_tip.0.clone())).into(),
+                    _ => panic!("ERROR: Unexpected MARF failure: {}", e)
+                }
+            })
+    }
 }
 
 impl ClarityBackingStore for MarfedKV {
@@ -286,6 +347,7 @@ impl ClarityBackingStore for MarfedKV {
     }
 
     fn get_block_at_height(&mut self, block_height: u32) -> Option<StacksBlockId> {
+        self.reopen_tip().ok()?;
         self.marf.get_bhh_at_height(&self.chain_tip, block_height)
             .expect("Unexpected MARF failure.")
             .map(|x| StacksBlockId(x.to_bytes()))
@@ -305,6 +367,7 @@ impl ClarityBackingStore for MarfedKV {
     }
 
     fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+        self.reopen_tip().ok()?;
         self.marf.get_with_proof(&self.chain_tip, key)
             .or_else(|e| {
                 match e {
@@ -323,16 +386,22 @@ impl ClarityBackingStore for MarfedKV {
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
+        trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
+        self.reopen_tip().ok()?;
         self.marf.get(&self.chain_tip, key)
             .or_else(|e| {
                 match e {
-                    MarfError::NotFoundError => Ok(None),
+                    MarfError::NotFoundError => {
+                        trace!("MarfedKV get {:?} off of {:?}: not found", key, &self.chain_tip);
+                        Ok(None)
+                    },
                     _ => Err(e)
                 }
             })
             .expect("ERROR: Unexpected MARF Failure on GET")
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
+                trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
                 self.side_store.get(&side_key)
                     .expect(&format!("ERROR: MARF contained value_hash not found in side storage: {}",
                                      side_key))
@@ -340,9 +409,12 @@ impl ClarityBackingStore for MarfedKV {
     }
 
     fn put_all(&mut self, mut items: Vec<(String, String)>) {
+        self.reopen_tip().expect(&format!("Failed to reopen tip {:?}", &self.chain_tip));
+        
         let mut keys = Vec::new();
         let mut values = Vec::new();
         for (key, value) in items.drain(..) {
+            test_debug!("Put '{}' = '{}'", &key, &value);
             let marf_value = MARFValue::from_value(&value);
             self.side_store.put(&marf_value.to_hex(), &value);
             keys.push(key);
