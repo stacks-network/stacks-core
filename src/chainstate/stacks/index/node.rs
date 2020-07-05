@@ -436,6 +436,10 @@ impl <T: MarfTrieId> TrieCursor <T> {
         assert!(self.last_error.is_none());
 
         trace!("cursor: walk: node = {:?} block = {:?}", node, block_hash);
+        
+        // walk this node
+        self.nodes.push((*node).clone());
+        self.node_path_index = 0;
 
         if self.index >= self.path.len() {
             trace!("cursor: out of path");
@@ -443,14 +447,7 @@ impl <T: MarfTrieId> TrieCursor <T> {
         }
 
         let node_path = node.path_bytes();
-
         let path_bytes = self.path.as_bytes();
-
-        assert!(self.index + node_path.len() <= self.path.len());
-
-        // walk this node
-        self.nodes.push((*node).clone());
-        self.node_path_index = 0;
 
         // consume as much of the compressed path as we can
         for i in 0..node_path.len() {
