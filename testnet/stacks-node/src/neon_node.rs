@@ -684,9 +684,8 @@ impl InitializedNeonNode {
                                                                 bytes_so_far)?;
         let mblock_key = keychain.get_microblock_key()
             .expect("Miner attempt to mine microblocks without a microblock key");
-        let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&mblock_key).to_bytes());
 
-        let mblock = microblock_miner.mine_next_microblock(mem_pool, &mblock_key, &mblock_pubkey_hash)?;
+        let mblock = microblock_miner.mine_next_microblock(mem_pool, &mblock_key)?;
 
         info!("Minted microblock with {} transactions", mblock.txs.len());
 
