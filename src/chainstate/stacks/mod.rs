@@ -71,6 +71,8 @@ use vm::types::{
     QualifiedContractIdentifier
 };
 
+use vm::errors::Error as clarity_interpreter_error;
+
 use vm::representations::{ContractName, ClarityName};
 use vm::clarity::Error as clarity_error;
 use vm::costs::ExecutionCost;
@@ -208,6 +210,12 @@ impl error::Error for Error {
 impl From<db_error> for Error {
     fn from(e: db_error) -> Error {
         Error::DBError(e)
+    }
+}
+
+impl From<clarity_interpreter_error> for Error {
+    fn from(e: clarity_interpreter_error) -> Error {
+        Error::ClarityError(clarity_error::Interpreter(e))
     }
 }
 
@@ -474,6 +482,18 @@ pub enum TransactionPayload {
     SmartContract(TransactionSmartContract),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),       // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     Coinbase(CoinbasePayload)
+}
+
+impl TransactionPayload {
+    pub fn name(&self) -> &'static str {
+        match self {
+            TransactionPayload::TokenTransfer(..) => "TokenTransfer",
+            TransactionPayload::ContractCall(..) => "ContractCall",
+            TransactionPayload::SmartContract(..) => "SmartContract",
+            TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
+            TransactionPayload::Coinbase(..) => "Coinbase"
+        }
+    }
 }
 
 #[repr(u8)]
