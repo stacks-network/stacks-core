@@ -721,7 +721,7 @@ pub mod test {
 
     use util::sleep_ms;
 
-    pub const COINBASE : u128 = 500 * 100_000;
+    pub const COINBASE : u128 = 500 * 1_000_000;
 
     pub fn coinbase_total_at(stacks_height: u64) -> u128 {
         if stacks_height > MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
