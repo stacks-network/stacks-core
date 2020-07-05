@@ -1066,9 +1066,9 @@ _fully-qualified name_ of the smart contract to:
      derive the contract account address and to query its code),
 
 The fully-qualified name of a smart contract is composed of the c32check-encoded
-standard account address that created it, as well as an ASCII-encoded string chosen by
-the standard account owner(s) when the contract is instantiated (subject to the
-constraints mentioned in the above sections).  Note that all
+standard account address that created it, followed by an ASCII period `.`, as well
+as an ASCII-encoded string chosen by the standard account owner(s) when the contract
+is instantiated (subject to the constraints mentioned in the above sections).  Note that all
 fully-qualified smart contract names are globally unique -- the same standard
 account cannot create two smart contracts with the same name.
 
@@ -1206,8 +1206,8 @@ the nonce of account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
 
 The STX balance is encoded as follows:
 
-* Key: the string "vm-account::", a c32check-encoded address, and the string
-  "::19"
+* Key: the string "vm-account::", a Principal Address (see below), and the string
+  `"::19"`
 * Value: a serialized Clarity `UInt`
 
 Example: `"vm-account::SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q::19"` refers to
@@ -1217,7 +1217,7 @@ A fungible token balance owned by an account is encoded as follows:
 
 * Key: the string `"vm::"`, the fully-qualified contract identifier, the string `"::2::"`,
   the name of the token as defined in its Clarity contract, the string `"::"`, and the
-c32check-encoded address of the account.
+Principal Address of the account owning the token (see below).
 * Value: a serialized Clarity `UInt`
 
 Example: `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::2::example-token::SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q"`
@@ -1229,12 +1229,14 @@ A non-fungible token owned by an account is encoded as follows:
 * Key: the string `"vm::"`, the fully-qualified contract identifier, the string `"::4::"`,
   the name of the token as defined in its Clarity contract, the string `"::"`,
 and the serialized Clarity value that represents the token.
-* Value: a serialized Clarity standard principal
+* Value: a serialized Clarity Principal (either a Standard Principal or a Contract Principal)
 
 Example: `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::4::example-nft::\x02\x00\x00\x00\x0b\x68\x65\x6c\x6c\x6f\x20\x77\x6f\x72\x6c\x64"` 
 refers to the non-fungible token `"hello world"` (which has type `buff` and is
 comprised of 11 bytes), defined in Clarity contract `SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`
 as a type of non-fungible token `example-nft`.
+
+A Principal Address is either a 32check-encoded address in the case of standard principal, or a c32check-encoded address, followed by an ASCII period `.`0, and an ASCII-encoded string for a contract principal.
 
 #### Calculating the State of a Smart Contract
 
