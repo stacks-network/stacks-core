@@ -89,7 +89,7 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_burn_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
-            sortition_id: SortitionId::sentinel(),
+            sortition_id: SortitionId::stubbed(first_burn_header_hash),
         }
     }
 
