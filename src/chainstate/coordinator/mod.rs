@@ -1,5 +1,7 @@
+use std::collections::VecDeque;
 use std::thread;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{self, Sender};
 use std::process;
 
 use burnchains::BurnchainHeaderHash;
@@ -30,6 +32,10 @@ impl ChainStateDB {
     }
 
     pub fn is_block_processed(&self, block_id: &StacksBlockIdentifier) -> Result<bool, ()> {
+        unimplemented!()
+    }
+
+    pub fn process_blocks(&mut self, burnchain_db: &mut BurnchainDB, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
         unimplemented!()
     }
 }
@@ -81,7 +87,7 @@ impl PoxDB {
         unimplemented!()
     }
 
-    pub fn get_reward_set_start_for(&self, block: &StacksBlockIdentifier) -> u64 {
+    pub fn get_reward_set_start_for(&self, block: &StacksBlockIdentifier) -> &BurnchainHeaderHash {
         unimplemented!()
     }
 }
@@ -147,31 +153,33 @@ impl ChainsCoordinator {
         }
     }
 
-    pub fn handle_new_burnchain_block(&mut self) {
+    pub fn handle_new_burnchain_block(&mut self) -> Result<(), ()> {
         // Retrieve canonical burnchain chain tip from the BurnchainDB
         let canonical_burnchain_tip = self.burnchain_db.get_canonical_chain_tip();
         
         // Early return: this block has already been processed
         match self.canonical_burnchain_chain_tip {
-            Some(ref current) if current.burn_header_hash == canonical_burnchain_tip.burn_header_hash => return,
-            _ => {}
-        }
+            Some(ref current) if current.burn_header_hash == canonical_burnchain_tip.burn_header_hash => Err(()),
+            _ => Ok(())
+        }?;
 
         // Retrieve canonical pox id (<=> reward cycle id)
         let pox_id = self.pox_db.get_canonical_pox_id(&canonical_burnchain_tip.burn_header_hash);
 
         // Retrieve all the direct ancestors of this block with an unprocessed sortition 
-        let mut parent_bhh = canonical_burnchain_tip.burn_header_hash.clone();
-        let mut sortitions_to_process = vec![canonical_burnchain_tip];
+        let mut cursor = canonical_burnchain_tip.burn_header_hash.clone();
+        let mut sortitions_to_process = VecDeque::new();
 
-        while match self.sortition_db.is_sortition_processed(&parent_bhh, &pox_id) {
-            Ok(ref is_processed)  => !is_processed,
+        while match self.sortition_db.is_sortition_processed(&cursor, &pox_id) {
+            Ok(ref is_processed)  => !is_processed, // We halt the ancestry research as soon as we find a processed parent
             _ => false
         } {
-            if let Ok(block) = self.burnchain_db.get_burnchain_block(&parent_bhh) {
-                parent_bhh = block.parent_burn_header_hash.clone();
-                sortitions_to_process.push(block);
+            if let Ok(block) = self.burnchain_db.get_burnchain_block(&cursor) {
+                let parent = block.parent_burn_header_hash.clone();
+                sortitions_to_process.push_front(block);
+                cursor = parent;
             } else {
+                info!("ChainsCoordinator: could not retrieve block {}", cursor);
                 break;
             }
         }
@@ -180,8 +188,8 @@ impl ChainsCoordinator {
             let sortition_id = match SortitionDB::evaluate_sortition(&unprocessed_block, &pox_id, &self.pox_db) {
                 Ok(sortition_id) => sortition_id,
                 Err(e) => {
-                    error!("ChainsCoordinator: unable to retrieve sortition");
-                    continue
+                    error!("ChainsCoordinator: unable to retrieve sortition {:?}", e);
+                    break
                 }
             };
 
@@ -189,124 +197,160 @@ impl ChainsCoordinator {
                 // todo(ludo): I think I'm supposed to use `SortitionDB::latest_stacks_blocks_processed`
                 for block in blocks_ready_to_process {
                     match self.process_block(&block) {
-                        Some(is_pox_anchor) if is_pox_anchor == true => {
-                            self.process_new_pox_anchor();
+                        Ok(is_pox_anchor) => {
+                            if is_pox_anchor == true {
+                                self.process_new_pox_anchor()?;
+                            }
+                            Ok(())
                         }
-                        _ => {}
-                    }
+                        Err(err) => Err(err)
+                    }?;
                 }
             }
         }
+
+        Ok(())
     }
 
-    pub fn handle_new_block(&mut self) {
+    pub fn handle_new_block(&mut self) -> Result<(), ()> {
         // Rebuild sortition id
         let sortition_id = match (&self.canonical_pox_id, &self.canonical_burnchain_chain_tip) {
-            (Some(pox_id), Some(burnchain_block)) => SortitionIdentifier(burnchain_block.burn_header_hash.clone(), pox_id.clone()),
+            (Some(pox_id), Some(burnchain_block)) => Ok(SortitionIdentifier(burnchain_block.burn_header_hash.clone(), pox_id.clone())),
             (_, _) => {
-                // todo(ludo): handle this case
-                return;
+                // We received a BlockDiscovered event before receiving a BurnchainBlockDiscovered event
+                Err(())
             }
-        };
+        }?;
 
         while let Some(blocks_ready_to_process) = self.blocks_db.get_blocks_ready_to_process(&sortition_id, &self.sortition_db) {
             // todo(ludo): I think I'm supposed to use `SortitionDB::latest_stacks_blocks_processed`
             for block in blocks_ready_to_process {
                 match self.process_block(&block) {
-                    Some(is_pox_anchor) if is_pox_anchor == true => {
-                        self.process_new_pox_anchor();
+                    Ok(is_pox_anchor) if is_pox_anchor == true => {
+                        self.process_new_pox_anchor()?;
                     }
                     _ => {}
                 }
                 self.canonical_chain_tip = Some(block);
             }
         }
+
+        Ok(())
     }
 
-    fn process_new_pox_anchor(&mut self) {
+    fn process_new_pox_anchor(&mut self) -> Result<(), ()> {
         let ordered_missing_anchored_blocks = self.pox_db.get_ordered_missing_anchors();
         for block_id in ordered_missing_anchored_blocks.iter() {
             match self.chain_state_db.is_block_processed(&block_id) {
-                Ok(is_processed) if is_processed == true => {
-                    PoxDB::process_anchor(&block_id, &self.chain_state_db);
-                    // self.canonical_burn_header = self.pox_db.get_reward_set_start_for(&block_id);
-                    // todo(ludo): adapt the following lines.
-                    // self.canon_burn_header = self.pox_db.get_reward_set_start_for(block) 
-                    // todo(ludo): block_id is a construct based on the pox_id, why do we need to fetch it from the DB?
-                    self.canonical_pox_id = Some(self.pox_db.get_canonical_pox_id(&block_id.burnchain_header_hash));
-                    self.canonical_chain_tip = None;
-                    // start processing from the beginning of the new PoX reward set
-                    return self.handle_new_burnchain_block()    
+                Ok(is_processed) => {
+                    if is_processed {
+                        PoxDB::process_anchor(&block_id, &self.chain_state_db)?;
+                        let canonical_bhh = self.pox_db.get_reward_set_start_for(&block_id);
+                        // Retrieve the corresponding block
+                        let canonical_block = self.burnchain_db.get_burnchain_block(canonical_bhh)?;
+                        self.canonical_burnchain_chain_tip = Some(canonical_block); 
+                        self.canonical_pox_id = Some(self.pox_db.get_canonical_pox_id(&block_id.burnchain_header_hash));
+                        self.canonical_chain_tip = None;
+                        // Start processing from the beginning of the new PoX reward set
+                        self.handle_new_burnchain_block()?;    
+                    }
+                    Ok(())
                 },
-                _ => {}
-            }
+                Err(e) => {
+                    error!("ChainsCoordinator: unable to retrieve processed block {:?}", block_id);
+                    Err(e)
+                }
+            }?;
         }
-        self.discover_new_pox_anchor();
+        self.discover_new_pox_anchor()
     }
 
-    fn process_block(&self, block: &StacksBlock) -> Option<bool> {
+    fn process_block(&self, block: &StacksBlock) -> Result<bool, ()> {
         unimplemented!()
     }
 
-    fn discover_new_pox_anchor(&mut self) {
+    fn discover_new_pox_anchor(&mut self) -> Result<(), ()> {
         unimplemented!()
     }
 }
 
 pub enum ChainsEvent {
-    BlockDiscovered,
-    BurnchainBlockDiscovered,
+    BlockDiscovered(Option<Sender<ChainsEventCallback>>),
+    BurnchainBlockDiscovered(Option<Sender<ChainsEventCallback>>),
 }
 
-pub struct ChainsEventsObserver {
-    event_tx: Option<mpsc::Sender<ChainsEvent>>,
+pub enum ChainsEventCallback {
+    BlockProcessed,
+    BurnchainBlockProcessed,
 }
 
-impl ChainsEventsObserver {
+pub struct ChainsEventsRouter {
+    events_tx: Option<mpsc::Sender<ChainsEvent>>,
+}
 
-    pub fn new() -> ChainsEventsObserver {
-        ChainsEventsObserver {
-            event_tx: None
+impl ChainsEventsRouter {
+
+    pub fn new() -> ChainsEventsRouter {
+        ChainsEventsRouter {
+            events_tx: None,
         }
     }
 
     pub fn spawn_chains_coordinator(&mut self) -> mpsc::Sender<ChainsEvent> {
-        if let Some(ref event_tx) = self.event_tx {
+        if let Some(ref events_tx) = self.events_tx {
             error!("ChainsCoordinator is already processing chains events");
-            return event_tx.clone();
+            return events_tx.clone();
         }
 
-        let (event_tx, event_rx) = mpsc::channel();
-        self.event_tx = Some(event_tx.clone());
+        let (events_tx, events_rx) = mpsc::channel();
+        self.events_tx = Some(events_tx.clone());
 
         thread::spawn(move || {
             let mut chains_coordinator = ChainsCoordinator::new();
             loop {
-                if let Ok(event) = event_rx.recv() {
-                    match event {
-                        ChainsEvent::BlockDiscovered => chains_coordinator.handle_new_block(),
-                        ChainsEvent::BurnchainBlockDiscovered => chains_coordinator.handle_new_burnchain_block(),
-                    }                
+                if let Ok(event) = events_rx.recv() {
+                    let (result, tx, event_callback) = match event {
+                        ChainsEvent::BlockDiscovered(tx) => 
+                            (chains_coordinator.handle_new_block(), tx, ChainsEventCallback::BlockProcessed),
+                        ChainsEvent::BurnchainBlockDiscovered(tx) => 
+                            (chains_coordinator.handle_new_burnchain_block(), tx, ChainsEventCallback::BurnchainBlockProcessed),
+                    };
+                    match result {
+                        Ok(res) => {
+                            info!("ChainsCoordinator: successfully processed event");
+                            if let Some(tx) = tx {
+                                tx.send(event_callback);
+                            }
+                        },
+                        Err(e) => error!("ChainsCoordinator: failed processing event {:?}", e),
+                    };
                 } else {
                     error!("ChainsEventsObserver stopped receiving events");
                     break;
                 }
             }
         });
-        event_tx
+        events_tx
     }
 }
 
 fn main() {
-    let mut chains_events_observer = ChainsEventsObserver::new();
-    let chains_event_tx = chains_events_observer.spawn_chains_coordinator();
+    let mut chains_events_router = ChainsEventsRouter::new();
+    let chains_event_tx = chains_events_router.spawn_chains_coordinator();
 
     // We can now, from any thread, notify the coordinator to update the different DBs, with the following events, 
     // and be sure that the processing of these events will happen sequentially on the same thread.
     chains_event_tx
-        .send(ChainsEvent::BlockDiscovered)
+        .send(ChainsEvent::BlockDiscovered(None))
         .expect("Unable to transmit ChainsEvent::BlockDiscovered");
+
+    // Since events processing is mono-threaded, we can, as an option, provide a callback transmitter
+    // in case we need to make a given job blocking
+    let (event_callback_tx, event_callback_rx) = mpsc::channel();
     chains_event_tx
-        .send(ChainsEvent::BurnchainBlockDiscovered)
-        .expect("Unable to transmit ChainsEvent::BurnchainBlockDiscovered");;
+        .send(ChainsEvent::BurnchainBlockDiscovered(Some(event_callback_tx)))
+        .expect("Unable to transmit ChainsEvent::BurnchainBlockDiscovered");
+    if let Ok(event) = event_callback_rx.recv() {
+        println!("Event processed!")
+    }
 }
