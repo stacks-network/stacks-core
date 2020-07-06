@@ -1236,7 +1236,7 @@ refers to the non-fungible token `"hello world"` (which has type `buff` and is
 comprised of 11 bytes), defined in Clarity contract `SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`
 as a type of non-fungible token `example-nft`.
 
-A Principal Address is either a 32check-encoded address in the case of standard principal, or a c32check-encoded address, followed by an ASCII period `.`0, and an ASCII-encoded string for a contract principal.
+A Principal Address is either a c32check-encoded address in the case of standard principal, or a c32check-encoded address, followed by an ASCII period `.`, and an ASCII-encoded string for a contract principal.
 
 #### Calculating the State of a Smart Contract
 
