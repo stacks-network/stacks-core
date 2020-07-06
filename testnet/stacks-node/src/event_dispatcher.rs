@@ -46,7 +46,7 @@ impl EventObserver {
         };
 
         let url = {
-            let url = format!("{}{}", &self.endpoint, path);
+            let url = format!("http://{}/{}", &self.endpoint, path);
             Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
         };
 
