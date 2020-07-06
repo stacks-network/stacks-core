@@ -46,10 +46,9 @@ impl EventObserver {
         };
 
         let url = {
-            let joined_components = match (self.endpoint.ends_with("/"), path.starts_with("/")) {
-                (true, true) => format!("{}{}", &self.endpoint, &path[1..]),
-                (true, _) | (_, true) => format!("{}{}", &self.endpoint, path),
-                (_, _) => format!("{}/{}", &self.endpoint, path)
+            let joined_components = match path.starts_with("/") {
+                true => format!("{}{}", &self.endpoint, &path[1..]),
+                false => format!("{}{}", &self.endpoint, path)
             };
             let url = format!("http://{}", joined_components);
             Url::parse(&url).expect(&format!("Event dispatcher: unable to parse {} as a URL", url))
