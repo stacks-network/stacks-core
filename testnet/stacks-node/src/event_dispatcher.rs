@@ -40,14 +40,19 @@ impl EventObserver {
         let body = match serde_json::to_vec(&payload) {
             Ok(body) => body,
             Err(err) => {
-                println!("ERROR: serialization failed  - {:?}", err);
+                error!("Event dispatcher: serialization failed  - {:?}", err);
                 return
             }
         };
 
         let url = {
-            let url = format!("http://{}/{}", &self.endpoint, path);
-            Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
+            let joined_components = match (self.endpoint.ends_with("/"), path.starts_with("/")) {
+                (true, true) => format!("{}{}", &self.endpoint, &path[1..]),
+                (true, _) | (_, true) => format!("{}{}", &self.endpoint, path),
+                (_, _) => format!("{}/{}", &self.endpoint, path)
+            };
+            let url = format!("http://{}", joined_components);
+            Url::parse(&url).expect(&format!("Event dispatcher: unable to parse {} as a URL", url))
         };
 
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
