@@ -27,6 +27,7 @@ use rusqlite::Row;
 
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::cmp;
 
 use burnchains::BurnchainHeaderHash;
 use burnchains::Txid;
@@ -36,6 +37,7 @@ use net::StacksMessageCodec;
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
     Error as ChainstateError,
+    index::Error as MarfError,
     StacksAddress,
     StacksTransaction,
     StacksBlockHeader,
@@ -59,8 +61,11 @@ use util::db::tx_busy_handler;
 use core::FIRST_STACKS_BLOCK_HASH;
 use core::FIRST_BURNCHAIN_BLOCK_HASH;
 
+use rusqlite::Error as SqliteError;
+
 // maximum number of confirmations a transaction can have before it's garbage-collected
-pub const MEMPOOL_MAX_TRANSACTION_AGE : u64 = 256;
+pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
+pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 5;
 
 pub struct MemPoolAdmitter {
     // mempool admission should have its own chain state view.
@@ -83,8 +88,8 @@ impl MemPoolAdmitter {
         self.cur_block = cur_block.clone();
     }
 
-    pub fn will_admit_tx(&mut self, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
-        self.chainstate.will_admit_mempool_tx(&self.cur_burn_block, &self.cur_block, tx, tx_size)
+    pub fn will_admit_tx(&mut self, mempool_conn: &DBConn, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
+        self.chainstate.will_admit_mempool_tx(mempool_conn, &self.cur_burn_block, &self.cur_block, tx, tx_size)
     }
 }
 
@@ -177,11 +182,15 @@ const MEMPOOL_SQL : &'static [&'static str] = &[
         height INTEGER NOT NULL,    -- stacks block height
         accept_time INTEGER NOT NULL,
         tx BLOB NOT NULL,
-        PRIMARY KEY(origin_address,origin_nonce,sponsor_address,sponsor_nonce)
+        PRIMARY KEY (txid),
+        UNIQUE (origin_address, origin_nonce),
+        UNIQUE (sponsor_address,sponsor_nonce)
     );
     "#,
     r#"
     CREATE INDEX by_txid ON mempool(txid);
+    CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce),
+    CREATE INDEX by_origin ON mempool(origin_address, origin_nonce),
     CREATE INDEX by_timestamp ON mempool(accept_time);
     CREATE INDEX by_chaintip ON mempool(burn_header_hash,block_header_hash);
     CREATE INDEX by_estimated_fee ON mempool(estimated_fee);
@@ -222,6 +231,29 @@ impl<'a> MemPoolTx<'a> {
     
     pub fn commit(self) -> Result<(), db_error> {
         self.tx.commit().map_err(db_error::SqliteError)
+    }
+
+    fn is_block_in_fork(&mut self, check_burn_block: &BurnchainHeaderHash, check_stacks_block: &BlockHeaderHash,
+                        cur_burn_block: &BurnchainHeaderHash, cur_stacks_block: &BlockHeaderHash) -> Result<bool, db_error> {
+        let admitter_block = StacksBlockHeader::make_index_block_hash(
+            cur_burn_block, cur_stacks_block);
+        let index_block = StacksBlockHeader::make_index_block_hash(
+            check_burn_block, check_stacks_block);
+        // short circuit equality
+        if admitter_block == index_block {
+            return Ok(true)
+        }
+
+        let height_result = self.admitter.chainstate.with_clarity_marf(|marf| {
+            marf.get_block_height_of(&index_block, &admitter_block)
+        });
+        match height_result {
+            Ok(x) => {
+                eprintln!("{} from {} => {:?}", &index_block, &admitter_block, x);
+                Ok(x.is_some())
+            },
+            Err(x) => Err(db_error::IndexError(x))
+        }
     }
 }
 
@@ -504,32 +536,45 @@ impl MemPoolDB {
         Ok(rows)
     }
 
-    /// Get a transaction's metadata in a chain tip, given its origin and sponsor metadata.
+    /// Get a transaction's metadata, given address and nonce, and whether the address is used as a sponsor or an origin.
     /// Faster than getting the MemPoolTxInfo, since no deserialization will be needed.
     /// Used to see if there exists a transaction with this info, so as to implement replace-by-fee
-    fn get_tx_metadata_by_addresses(conn: &DBConn,
-                                    origin_address: &StacksAddress,
-                                    origin_nonce: u64,
-                                    sponsor_address: &StacksAddress,
-                                    sponsor_nonce: u64,
-                                    burn_header_hash: &BurnchainHeaderHash,
-                                    block_header_hash: &BlockHeaderHash) -> Result<Option<MemPoolTxMetadata>, db_error> {
-        let sql = "SELECT 
-            txid,
-            origin_address,
-            origin_nonce,
-            sponsor_address,
-            sponsor_nonce,
-            estimated_fee,
-            fee_rate,
-            length,
-            burn_header_hash,
-            block_header_hash,
-            height,
-            accept_time
-            FROM mempool WHERE origin_address = ?1 AND origin_nonce = ?2 AND sponsor_address = ?3 AND sponsor_nonce = ?4 AND burn_header_hash = ?5 AND block_header_hash = ?6";
-        let args : &[&dyn ToSql] = &[&origin_address.to_string(), &u64_to_sql(origin_nonce)?, &sponsor_address.to_string(), &u64_to_sql(sponsor_nonce)?, burn_header_hash, block_header_hash];
-        query_row(conn, sql, args)
+    fn get_tx_metadata_by_address(conn: &DBConn, is_origin: bool, addr: &StacksAddress, nonce: u64) -> Result<Option<MemPoolTxMetadata>, db_error> {
+        let sql = format!("SELECT 
+                          txid,
+                          origin_address,
+                          origin_nonce,
+                          sponsor_address,
+                          sponsor_nonce,
+                          estimated_fee,
+                          fee_rate,
+                          length,
+                          burn_header_hash,
+                          block_header_hash,
+                          height,
+                          accept_time
+                          FROM mempool WHERE {0}_address = ?1 AND {0}_nonce = ?2",
+                          if is_origin { "origin" } else { "sponsor" });
+        let args: &[&dyn ToSql] = &[&addr.to_string(), &u64_to_sql(nonce)?];
+        query_row(conn, &sql, args)
+    }
+
+    fn get_next_nonce_as_participant_type(conn: &DBConn, addr: &StacksAddress, as_origin: bool) -> Result<u64, db_error> {
+        let sql = format!("SELECT ifnull(max({0}_nonce + 1), 0) FROM mempool WHERE {0}_address = ?1",
+                          if as_origin { "origin" } else { "sponsor" });
+        match conn.query_row_and_then(&sql, &[addr.to_string()], |row| {
+            u64::from_row(row)
+        }) {
+            Ok(max) => Ok(max),
+            Err(db_error::SqliteError(SqliteError::QueryReturnedNoRows)) => Ok(0),
+            otherwise => otherwise
+        }
+    }
+
+    pub fn get_next_nonce_for_address(conn: &DBConn, address: &StacksAddress) -> Result<u64, db_error> {
+        let as_origin = MemPoolDB::get_next_nonce_as_participant_type(conn, address, true)?;
+        let as_sponsor = MemPoolDB::get_next_nonce_as_participant_type(conn, address, false)?;
+        Ok(cmp::max(as_origin, as_sponsor))
     }
 
     /// Add a transaction to the mempool.  If it already exists, then replace it if the given fee
@@ -551,13 +596,36 @@ impl MemPoolDB {
 
         let length = tx_bytes.len() as u64;
 
-        // replace-by-fee in this chain tip?
-        if let Some(tx_metadata) = MemPoolDB::get_tx_metadata_by_addresses(tx, origin_address, origin_nonce, sponsor_address, sponsor_nonce, burn_header_hash, block_header_hash).map_err(MemPoolRejection::DBError)? {
-            if estimated_fee < tx_metadata.estimated_fee {
-                // we already have a tx from these accounts, and the tx we have has a higher fee
-                debug!("Already have a tx from ({},{},{},{}) -- estimated fee {} < {}", origin_address, origin_nonce, sponsor_address, sponsor_nonce, estimated_fee, tx_metadata.estimated_fee);
-                return Ok(());
+        // do we already have txs with either the same origin nonce or sponsor nonce ?
+        let prior_tx = {
+            match MemPoolDB::get_tx_metadata_by_address(tx, true, origin_address, origin_nonce)? {
+                Some(prior_tx) => Some(prior_tx),
+                None => MemPoolDB::get_tx_metadata_by_address(tx, false, sponsor_address, sponsor_nonce)?
             }
+        };
+
+        // if so, is this a replace-by-fee? or a replace-in-chain-tip?
+        let add_tx = if let Some(prior_tx) = prior_tx {
+            if estimated_fee > prior_tx.estimated_fee {
+                // is this a replace-by-fee ?
+                true
+            } else if !tx.is_block_in_fork(&prior_tx.burn_header_hash, &prior_tx.block_header_hash,
+                                           burn_header_hash, block_header_hash)? {
+                // is this a replace-across-fork ?
+                true
+            } else {
+                // there's a >= fee tx in this fork, cannot add
+                info!("TX conflicts with sponsor/origin nonce in same fork with >= fee: new_txid={}, old_txid={}, origin_addr={}, origin_nonce={}, sponsor_addr={}, sponsor_nonce={}, new_fee={}, old_fee={}",
+                      txid, prior_tx.txid, origin_address, origin_nonce, sponsor_address, sponsor_nonce, estimated_fee, prior_tx.estimated_fee);
+                false
+            }
+        } else {
+            // no conflicting TX with this origin/sponsor, go ahead and add
+           true
+        };
+
+        if !add_tx {
+            return Err(MemPoolRejection::ConflictingNonceInMempool);
         }
 
         let sql = "INSERT OR REPLACE INTO mempool (
@@ -618,7 +686,7 @@ impl MemPoolDB {
     }
 
     /// Submit a transaction to the mempool at a particular chain tip.
-    pub fn tx_submit<'a>(mempool_tx: &mut MemPoolTx<'a>, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, tx: StacksTransaction, do_admission_checks: bool) -> Result<(), MemPoolRejection> {
+    pub fn tx_submit(mempool_tx: &mut MemPoolTx, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, tx: StacksTransaction, do_admission_checks: bool) -> Result<(), MemPoolRejection> {
         test_debug!("Mempool submit {} at {}/{}", tx.txid(), burn_header_hash, block_hash);
 
         let height = match mempool_tx.admitter.chainstate.get_stacks_block_height(burn_header_hash, block_hash) {
@@ -658,7 +726,7 @@ impl MemPoolDB {
 
         if do_admission_checks {
             mempool_tx.admitter.set_block(&block_hash, &burn_header_hash);
-            mempool_tx.admitter.will_admit_tx(&tx, len)?;
+            mempool_tx.admitter.will_admit_tx(&mempool_tx.tx, &tx, len)?;
         }
         
         MemPoolDB::try_add_tx(mempool_tx, &burn_header_hash, &block_hash, txid, tx_data, estimated_fee, fee_rate, height, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce)?;
@@ -715,6 +783,7 @@ mod tests {
     use util::{log, secp256k1::*, strings::StacksString, hash::hex_bytes, hash::to_hex, hash::*};
 
     use chainstate::stacks::{
+        index::MarfTrieId,
         StacksBlockHeader,
         Error as ChainstateError,
         db::blocks::MemPoolRejection, db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -740,14 +809,116 @@ mod tests {
 
     #[test]
     fn mempool_db_init() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_init");
+        let _chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_init");
         let chainstate_path = chainstate_path("mempool_db_init");
-        let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+        let _mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+    }
+
+    #[test]
+    fn mempool_do_not_replace_tx() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_do_not_replace_tx");
+
+        // genesis -> b_1 -> b_2
+        //      \-> b_3
+
+        let b_1 = (BurnchainHeaderHash([0x1; 32]), BlockHeaderHash([0x4; 32]));
+        let b_2 = (BurnchainHeaderHash([0x2; 32]), BlockHeaderHash([0x5; 32]));
+        let b_3 = (BurnchainHeaderHash([0x3; 32]), BlockHeaderHash([0x6; 32]));
+        
+        eprintln!("b_1 => {}", &StacksBlockHeader::make_index_block_hash(&b_1.0, &b_1.1));
+        eprintln!("b_2 => {}", &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1));
+        eprintln!("b_3 => {}", &StacksBlockHeader::make_index_block_hash(&b_3.0, &b_3.1));
+
+        {
+            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+                                                                &BurnchainHeaderHash::sentinel(),
+                                                                &BlockHeaderHash::sentinel(),
+                                                                &b_1.0,
+                                                                &b_1.1);
+            c_tx.commit_block();
+        }
+
+        {
+            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+                                                                &BurnchainHeaderHash::sentinel(),
+                                                                &BlockHeaderHash::sentinel(),
+                                                                &b_3.0,
+                                                                &b_3.1);
+            c_tx.commit_block();
+        }
+
+        {
+            let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+                                                                &b_1.0,
+                                                                &b_1.1,
+                                                                &b_2.0,
+                                                                &b_2.1);
+            c_tx.commit_block();
+        }
+
+        let chainstate_path = chainstate_path("mempool_do_not_replace_tx");
+        let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+        let mut txs = codec_all_transactions(&TransactionVersion::Testnet, 0x80000000, &TransactionAnchorMode::Any, &TransactionPostConditionMode::Allow);
+        let mut tx = txs.pop().unwrap();
+
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+
+        // do an initial insert
+        let origin_address = StacksAddress { version: 22, bytes: Hash160::from_data(&[0; 32]) };
+        let sponsor_address = StacksAddress { version: 22, bytes: Hash160::from_data(&[1; 32]) };
+
+        tx.set_fee_rate(123);
+
+        // test insert
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+
+        let len = tx_bytes.len() as u64;
+        let estimated_fee = tx.get_fee_rate() * len;        //TODO: use clarity analysis data to make this estimate
+        let height = 100;
+
+        let origin_nonce = tx.get_origin_nonce();
+        let sponsor_nonce = match tx.get_sponsor_nonce() {
+            Some(n) => n,
+            None => origin_nonce
+        };
+
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        MemPoolDB::try_add_tx(&mut mempool_tx, &b_1.0, &b_1.1,
+                              txid, tx_bytes, estimated_fee, tx.get_fee_rate(), height, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce).unwrap();
+
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+
+        let prior_txid = txid.clone();
+
+        // now, let's try inserting again, with a lower fee, but at a different block hash
+        tx.set_fee_rate(100);
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+        let len = tx_bytes.len() as u64;
+        let estimated_fee = tx.get_fee_rate() * len;        //TODO: use clarity analysis data to make this estimate
+        let height = 100;
+        
+        let err_resp = 
+            MemPoolDB::try_add_tx(&mut mempool_tx, &b_2.0, &b_2.1,
+                                  txid, tx_bytes, estimated_fee, tx.get_fee_rate(), height, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce).unwrap_err();
+        assert!(match err_resp {
+            MemPoolRejection::ConflictingNonceInMempool => true,
+            _ => false,
+        });
+
+        assert!(MemPoolDB::db_has_tx(&mempool_tx, &prior_txid).unwrap());
+        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
     }
 
     #[test]
     fn mempool_db_load_store_replace_tx() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_load_store_replace_tx");
+        let _chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_load_store_replace_tx");
         let chainstate_path = chainstate_path("mempool_db_load_store_replace_tx");
         let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -816,7 +987,7 @@ mod tests {
     
             assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
-            let tx_info_before = MemPoolDB::get_tx_metadata_by_addresses(&mempool_tx, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce, &BurnchainHeaderHash([0x1; 32]), &BlockHeaderHash([0x2; 32])).unwrap().unwrap();
+            let tx_info_before = MemPoolDB::get_tx_metadata_by_address(&mempool_tx, true, &origin_address, origin_nonce).unwrap().unwrap();
             assert_eq!(tx_info_before, tx_info.metadata);
 
             MemPoolDB::try_add_tx(&mut mempool_tx, &BurnchainHeaderHash([0x1; 32]), &BlockHeaderHash([0x2; 32]), txid, tx_bytes, estimated_fee, tx.get_fee_rate(), height, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce).unwrap();
@@ -825,7 +996,7 @@ mod tests {
             assert!(!MemPoolDB::db_has_tx(&mempool_tx, &old_txid).unwrap());
             assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
             
-            let tx_info_after = MemPoolDB::get_tx_metadata_by_addresses(&mempool_tx, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce, &BurnchainHeaderHash([0x1; 32]), &BlockHeaderHash([0x2; 32])).unwrap().unwrap();
+            let tx_info_after = MemPoolDB::get_tx_metadata_by_address(&mempool_tx, true, &origin_address, origin_nonce).unwrap().unwrap();
             assert!(tx_info_after != tx_info.metadata);
 
             // test retrieval -- transaction should have been replaced because it has a higher
@@ -856,11 +1027,16 @@ mod tests {
             let txid = tx.txid();
             let mut tx_bytes = vec![];
             tx.consensus_serialize(&mut tx_bytes).unwrap();
-            let expected_tx = tx.clone();
+            let _expected_tx = tx.clone();
             let estimated_fee = tx.get_fee_rate() * len;        // TODO: use clarity analysis metadata to make this estimate
     
-            MemPoolDB::try_add_tx(&mut mempool_tx, &BurnchainHeaderHash([0x1; 32]), &BlockHeaderHash([0x2; 32]), txid, tx_bytes, estimated_fee, tx.get_fee_rate(), height, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce).unwrap();
-            
+            assert!(
+                match MemPoolDB::try_add_tx(&mut mempool_tx, &BurnchainHeaderHash([0x1; 32]), &BlockHeaderHash([0x2; 32]), txid, tx_bytes, estimated_fee, tx.get_fee_rate(), height, &origin_address, origin_nonce, &sponsor_address, sponsor_nonce).unwrap_err() {
+                    MemPoolRejection::ConflictingNonceInMempool => true,
+                    _ => false
+                });
+
+
             // was NOT replaced
             assert!(MemPoolDB::db_has_tx(&mempool_tx, &old_txid).unwrap());
             assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());

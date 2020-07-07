@@ -496,7 +496,7 @@ mod test {
     #[test]
     fn test_register_deregister_stress() {
         let mut ns = NetworkState::new(20).unwrap();
-        let mut count = 0;
+        let count = 0;
         let mut in_use = HashSet::new();
         let mut events_in = vec![];
 

@@ -893,6 +893,11 @@ impl StacksChainState {
         StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state,
                                                  parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
+
+    pub fn with_clarity_marf<F, R>(&mut self, f: F) -> R
+    where F: FnOnce(&mut MARF<StacksBlockId>) -> R {
+        self.clarity_state.with_marf(f)
+    }
     
     fn begin_read_only_clarity_tx<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> ClarityReadOnlyConnection<'a> {
         let index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);

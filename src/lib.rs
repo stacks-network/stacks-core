@@ -22,6 +22,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
+#![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
 extern crate rand;
 extern crate tini;
