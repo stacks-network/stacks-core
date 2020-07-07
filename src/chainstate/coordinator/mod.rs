@@ -33,10 +33,12 @@ impl ChainStateDB {
         ChainStateDB {}
     }
 
+    #[allow(unused_variables)]
     pub fn is_block_processed(&self, block_id: &StacksBlockIdentifier) -> Result<bool, ()> {
         unimplemented!()
     }
 
+    #[allow(unused_variables)]
     pub fn process_blocks(&mut self, burnchain_db: &mut BurnchainDB, pox_identifier: PoxIdentifier) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, ()> {
         unimplemented!()
     }
@@ -53,6 +55,7 @@ impl BurnchainDB {
         unimplemented!()
     }
 
+    #[allow(unused_variables)]
     pub fn get_burnchain_block(&self, burnchain_header_hash: &BurnchainHeaderHash) -> Result<BurnchainBlock, ()> {
         unimplemented!()
     }
@@ -65,6 +68,7 @@ impl BlocksDB {
         BlocksDB {}
     }
 
+    #[allow(unused_variables)]
     pub fn get_blocks_ready_to_process(&self, sortition_id: &SortitionIdentifier, sortition_db: &SortitionDB) -> Option<Vec<StacksBlock>> {
         // This method will be calling sortition_db::latest_stacks_blocks_processed
         unimplemented!()
@@ -78,19 +82,23 @@ impl PoxDB {
         PoxDB {}
     }
 
+    #[allow(unused_variables)]
     pub fn get_canonical_pox_id(&self, burnchain_header_hash: &BurnchainHeaderHash) -> PoxIdentifier {
         unimplemented!()
     }
 
+    #[allow(unused_variables)]
     pub fn get_ordered_missing_anchors(&self, upper_bound: &StacksBlockIdentifier) -> Vec<StacksBlockIdentifier> {
         unimplemented!()
     }
 
+    #[allow(unused_variables)]
     // Note: we'd be temporary using an associated function instead of method, because this call is writing. 
     pub fn process_anchor(block: &StacksBlockIdentifier, chain_state: &ChainStateDB) -> Result<(), ()> {
         unimplemented!()
     }
 
+    #[allow(unused_variables)]
     pub fn get_reward_set_start_for(&self, block: &StacksBlockIdentifier) -> &BurnchainHeaderHash {
         unimplemented!()
     }
@@ -103,22 +111,27 @@ impl SortitionDB {
         SortitionDB {}
     }
   
+    #[allow(unused_variables)]
     pub fn get_sortition_id(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxIdentifier) -> Result<SortitionIdentifier, ()> {
         unimplemented!()
     }
 
+    #[allow(unused_variables)]
     pub fn is_sortition_processed(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxIdentifier) -> Result<bool, ()> {
         unimplemented!()
     }
     
+    #[allow(unused_variables)]
     pub fn evaluate_sortition(burnchain_block: &BurnchainBlock, pox_id: &PoxIdentifier, pox_db: &PoxDB) -> Result<SortitionIdentifier, ()> {
         unimplemented!()
     }
 
+    #[allow(unused_variables)]
     pub fn is_stacks_block_in_sortition_set(sortition_id: &SortitionIdentifier, block_to_check: &BlockHeaderHash) -> Result<bool, ()> {
         unimplemented!()
     }
  
+    #[allow(unused_variables)]
     pub fn latest_stacks_blocks_processed(sortition_id: &SortitionIdentifier) -> Result<u64, ()> {
         unimplemented!()
     }
@@ -273,12 +286,13 @@ impl ChainsCoordinator {
         self.discover_new_pox_anchor(block_id)
     }
 
+    #[allow(unused_variables)]
     fn process_block(&self, block: &StacksBlock) -> Result<bool, ()> {
         unimplemented!()
     }
 
     fn discover_new_pox_anchor(&mut self, block_id: &StacksBlockIdentifier) -> Result<(), ()> {
-        PoxDB::process_anchor(block_id, self.chain_state_db)
+        PoxDB::process_anchor(block_id, &self.chain_state_db)
     }
 }
 
@@ -324,10 +338,12 @@ impl ChainsEventsRouter {
                             (chains_coordinator.handle_new_burnchain_block(), tx, ChainsEventCallback::BurnchainBlockProcessed),
                     };
                     match result {
-                        Ok(res) => {
+                        Ok(_) => {
                             info!("ChainsCoordinator: successfully processed event");
                             if let Some(tx) = tx {
-                                tx.send(event_callback);
+                                if let Err(e) = tx.send(event_callback) {
+                                    error!("ChainsCoordinator: unable to send the event callback - {}", e);
+                                }
                             }
                         },
                         Err(e) => error!("ChainsCoordinator: failed processing event {:?}", e),
@@ -358,7 +374,7 @@ fn main() {
     chains_event_tx
         .send(ChainsEvent::BurnchainBlockDiscovered(Some(event_callback_tx)))
         .expect("Unable to transmit ChainsEvent::BurnchainBlockDiscovered");
-    if let Ok(event) = event_callback_rx.recv() {
+    if let Ok(_) = event_callback_rx.recv() {
         println!("Event processed!")
     }
 }
