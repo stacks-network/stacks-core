@@ -13,15 +13,15 @@
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=blockstack-core"
-                    "test_tx_begin_end"
+                    "--package=blockstack-core",
                 ],
                 "filter": {
                     "name": "blockstack_lib",
-                    "kind": "lib"
+                    "kind": "lib",
+                    
                 }
             },
-            "args": [],
+            "args": ["mine_anchored_empty_blocks_single"],
             "cwd": "${workspaceFolder}"
         },
         {

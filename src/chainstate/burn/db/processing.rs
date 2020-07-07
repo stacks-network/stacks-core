@@ -113,10 +113,12 @@ impl <'a> SortitionHandleTx <'a> {
 
         let txids = state_transition.accepted_ops.iter().map(|ref op| op.txid()).collect();
 
-        let next_sortition_id = &self.context.chain_tip;
+        let next_pox_id = &parent_snapshot.pox_id;
+        let next_sortition_id = SortitionId::stubbed(&this_block_hash);
 
         // do the cryptographic sortition and pick the next winning block.
-        let mut snapshot = BlockSnapshot::make_snapshot(&self.as_conn(), burnchain, next_sortition_id, parent_snapshot, block_header, &state_transition.burn_dist, &txids)
+        let mut snapshot = BlockSnapshot::make_snapshot(&self.as_conn(), burnchain, &next_sortition_id, next_pox_id,
+                                                        parent_snapshot, block_header, &state_transition.burn_dist, &txids)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash, e);
                 BurnchainError::DBError(e)
@@ -142,10 +144,12 @@ impl <'a> SortitionHandleTx <'a> {
     /// * commit all valid transactions
     /// * commit the results of the sortition
     /// Returns the BlockSnapshot created from this block.
-    pub fn process_block_ops(&mut self, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, blockstack_txs: Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+    pub fn process_block_ops(&mut self, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, mut blockstack_txs: Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         debug!("BEGIN({}) block ({},{}) with sortition_id: {}", block_header.block_height, block_header.block_hash,
                block_header.parent_block_hash, &self.context.chain_tip);
         debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
+
+        blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
         // check each transaction, and filter out only the ones that are valid 
         let block_ops = self.check_block_ops(burnchain, blockstack_txs)

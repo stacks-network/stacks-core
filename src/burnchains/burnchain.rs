@@ -828,7 +828,7 @@ pub mod tests {
     use chainstate::burn::{ConsensusHash, OpsHash, BlockSnapshot, SortitionHash, VRFSeed, BlockHeaderHash};
 
     use chainstate::burn::db::burndb::{
-        SortitionHandleTx, SortitionDB, SortitionId,
+        SortitionHandleTx, SortitionDB, SortitionId, PoxForkIdentifier
     };
 
     use burnchains::Address;
@@ -900,7 +900,7 @@ pub mod tests {
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone()
         };
-        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();        
         let block_121_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000012").unwrap();
         let block_122_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap();
         let block_123_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
@@ -1114,6 +1114,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_121_snapshot = BlockSnapshot {
+            pox_id: PoxForkIdentifier::stubbed(),
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
             sortition_id: SortitionId(block_121_hash.0.clone()),
@@ -1146,6 +1147,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_122_snapshot = BlockSnapshot {
+            pox_id: PoxForkIdentifier::stubbed(),
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
             sortition_id: SortitionId(block_122_hash.0.clone()),
@@ -1184,6 +1186,7 @@ pub mod tests {
             block_121_snapshot.consensus_hash.clone(),
         ];
         let mut block_123_snapshot = BlockSnapshot {
+            pox_id: PoxForkIdentifier::stubbed(),
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
             sortition_id: SortitionId(block_123_hash.0.clone()),
@@ -1334,6 +1337,7 @@ pub mod tests {
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
             
             let mut block_124_snapshot = BlockSnapshot {
+                pox_id: PoxForkIdentifier::stubbed(),
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
                 sortition_id: SortitionId(block_124_hash.0.clone()),

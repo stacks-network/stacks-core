@@ -145,6 +145,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 
         //
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
+        let pox_id = PoxForkIdentifier::from_column(row, "pox_id")?;
 
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
@@ -172,7 +173,8 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             canonical_stacks_tip_hash: canonical_stacks_tip_hash,
             canonical_stacks_tip_burn_hash: canonical_stacks_tip_burn_hash,
 
-            sortition_id
+            sortition_id,
+            pox_id
         };
         Ok(snapshot)
     }
@@ -328,6 +330,8 @@ const BURNDB_SETUP : &'static [&'static str]= &[
     CREATE TABLE snapshots(
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT UNIQUE NOT NULL,
+        sortition_id TEXT UNIQUE NOT NULL,
+        pox_id TEXT NOT NULL,
         burn_header_timestamp INT NOT NULL,
         parent_burn_header_hash TEXT NOT NULL,
         consensus_hash TEXT NOT NULL,
@@ -349,7 +353,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         canonical_stacks_tip_hash TEXT NOT NULL,        -- hash of highest known Stacks fork's tip block in this burn chain fork
         canonical_stacks_tip_burn_hash TEXT NOT NULL,   -- burn hash of highest known Stacks fork's tip block in this burn chain fork
 
-        PRIMARY KEY(burn_header_hash)
+        PRIMARY KEY(sortition_id)
     );"#,
     r#"
     CREATE UNIQUE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);
@@ -364,13 +368,14 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         vtxindex INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
-
+        sortition_id TEXT NOT NULL,
+        
         consensus_hash TEXT NOT NULL,
         public_key TEXT NOT NULL,
         memo TEXT,
         address TEXT NOT NULL,
 
-        PRIMARY KEY(txid,burn_header_hash),
+        PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(burn_header_hash) REFERENCES snapshots(burn_header_hash)
     );"#,
     r#"
@@ -379,6 +384,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         vtxindex INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
+        sortition_id TEXT NOT NULL,
 
         block_header_hash TEXT NOT NULL,
         new_seed TEXT NOT NULL,
@@ -391,7 +397,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
         input TEXT NOT NULL,        -- must match `address` in leader_keys
 
-        PRIMARY KEY(txid,burn_header_hash),
+        PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(burn_header_hash) REFERENCES snapshots(burn_header_hash)
     );"#,
     r#"
@@ -400,6 +406,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         vtxindex INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
+        sortition_id TEXT NOT NULL,
 
         address TEXT NOT NULL,
         consensus_hash TEXT NOT NULL,
@@ -410,7 +417,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
 
         burn_fee TEXT NOT NULL,
 
-        PRIMARY KEY(txid,burn_header_hash),
+        PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(burn_header_hash) REFERENCES snapshots(burn_header_hash)
     );"#,
     r#"
@@ -498,20 +505,13 @@ impl SortitionContext for SortitionDBTxContext {
     }
 }
 
-fn burndb_get_ancestor_block_hash<'a>(iconn: &BurnDBConn<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BurnchainHeaderHash>, db_error> {
-    if block_height < iconn.context.first_block_height {
+fn get_ancestor_sort_id<C: SortitionContext>(ic: &IndexDBConn<'_, C, SortitionId>, block_height: u64, tip_block_hash: &SortitionId) -> Result<Option<SortitionId>, db_error> {
+    let first_block_height = ic.context.first_block_height();
+    if block_height < first_block_height {
         return Ok(None);
     }
-    
-    let first_block_height = iconn.context.first_block_height;
-    match iconn.get_ancestor_block_hash(block_height - first_block_height, &tip_block_hash)? {
-        Some(bhh) => {
-            Ok(Some(BurnchainHeaderHash::from(bhh)))
-        },
-        None => {
-            Ok(None)
-        }
-    }
+ 
+    ic.get_ancestor_block_hash(block_height - first_block_height, &tip_block_hash)
 }
 
 pub struct SortitionId(pub [u8; 32]);
@@ -621,9 +621,9 @@ impl <'a> SortitionDBTx <'a> {
                 assert_eq!(stacks_block_hash, &FIRST_STACKS_BLOCK_HASH);
             }
             debug!("Accepted Stacks block {}/{} builds on the memoized canonical chain tip ({})", burn_header_hash, stacks_block_hash, &burn_tip.burn_header_hash);
-            let args : &[&dyn ToSql] = &[burn_header_hash, stacks_block_hash, &u64_to_sql(stacks_block_height)?, &burn_tip.burn_header_hash];
+            let args : &[&dyn ToSql] = &[burn_header_hash, stacks_block_hash, &u64_to_sql(stacks_block_height)?, &burn_tip.sortition_id];
             self.execute("UPDATE snapshots SET canonical_stacks_tip_burn_hash = ?1, canonical_stacks_tip_hash = ?2, canonical_stacks_tip_height = ?3
-                        WHERE burn_header_hash = ?4", args)?;
+                        WHERE sortition_id = ?4", args)?;
 
             SortitionDB::insert_accepted_stacks_block_pointer(self, &burn_tip.burn_header_hash, burn_header_hash, stacks_block_hash, stacks_block_height)?;
         }
@@ -819,7 +819,7 @@ impl <'a> SortitionHandleConn <'a> {
     pub fn get_last_snapshot_with_sortition(&self, burn_block_height: u64) -> Result<BlockSnapshot, db_error> {
         assert!(burn_block_height < BLOCK_HEIGHT_MAX);
         test_debug!("Get snapshot at from sortition tip {}, expect height {}", &self.context.chain_tip, burn_block_height);
-        let get_from = match self.get_ancestor_block_hash(burn_block_height, &self.context.chain_tip)? {
+        let get_from = match get_ancestor_sort_id(self, burn_block_height, &self.context.chain_tip)? {
             Some(sortition_id) => sortition_id,
             None => {
                 error!("No blockheight {} ancestor at sortition identifier {}",
@@ -1407,12 +1407,8 @@ impl SortitionDB {
     /// block in this fork, find the snapshot of the block at that height.
     pub fn get_ancestor_snapshot<C: SortitionContext>(ic: &IndexDBConn<'_, C, SortitionId>, ancestor_block_height: u64, tip_block_hash: &SortitionId) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
-        let first_block_height = ic.context.first_block_height();
-        if ancestor_block_height < first_block_height {
-            return Ok(None);
-        }
 
-        let ancestor = match ic.get_ancestor_block_hash(ancestor_block_height - first_block_height, &tip_block_hash)? {
+        let ancestor = match get_ancestor_sort_id(ic, ancestor_block_height, tip_block_hash)? {
             Some(id) => id,
             None => {
                 debug!("No ancestor block {} from {} in index", ancestor_block_height, tip_block_hash);
@@ -1492,9 +1488,11 @@ impl SortitionDB {
     /// Get a block snapshot for a winning block hash in a given burn chain fork.
     #[cfg(test)]
     pub fn get_block_snapshot_for_winning_stacks_block(ic: &SortitionDBConn, tip: &SortitionId, block_hash: &BlockHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
-        match ic.get_indexed(tip, &db_keys::stacks_block_index(block_hash))? {
-            Some(block_height_str) => {
-                SortitionDB::get_ancestor_snapshot(ic, block_height_str.parse().unwrap(), tip)
+        match ic.get_indexed(tip, &db_keys::stacks_block_present(block_hash))? {
+            Some(sortition_id_hex) => {
+                let sortition_id = SortitionId::from_hex(&sortition_id_hex)
+                    .expect("FATAL: DB stored non-parseable sortition id");
+                SortitionDB::get_block_snapshot(ic, &sortition_id)
             },
             None => {
                 Ok(None)
@@ -1584,26 +1582,26 @@ impl <'a> SortitionHandleTx <'a> {
         self.insert_block_snapshot(&sn)?;
 
         for block_op in block_ops {
-            self.store_burnchain_transaction(block_op)?;
+            self.store_burnchain_transaction(block_op, &sn.sortition_id)?;
         }
 
         Ok(root_hash)
     }
 
     /// Store a blockstack burnchain operation
-    fn store_burnchain_transaction(&mut self, blockstack_op: &BlockstackOperationType) -> Result<(), db_error> {
+    fn store_burnchain_transaction(&mut self, blockstack_op: &BlockstackOperationType, sort_id: &SortitionId) -> Result<(), db_error> {
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 debug!("ACCEPTED({}) leader key register {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
-                self.insert_leader_key(op)
+                self.insert_leader_key(op, sort_id)
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
                 debug!("ACCEPTED({}) leader block commit {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
-                self.insert_block_commit(op)
+                self.insert_block_commit(op, sort_id)
             },
             BlockstackOperationType::UserBurnSupport(ref op) => {
                 debug!("ACCEPTED({}) user burn support {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
-                self.insert_user_burn(op)
+                self.insert_user_burn(op, sort_id)
             }
         }
     }
@@ -1612,7 +1610,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// No validity checking will be done, beyond what is encoded in the leader_keys table
     /// constraints.  That is, type mismatches and serialization issues will be caught, but nothing else.
     /// The corresponding snapshot must already be inserted
-    pub fn insert_leader_key(&mut self, leader_key: &LeaderKeyRegisterOp) -> Result<(), db_error> {
+    fn insert_leader_key(&mut self, leader_key: &LeaderKeyRegisterOp, sort_id: &SortitionId) -> Result<(), db_error> {
         assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
 
         let args : &[&dyn ToSql] = &[
@@ -1623,10 +1621,11 @@ impl <'a> SortitionHandleTx <'a> {
             &leader_key.consensus_hash,
             &leader_key.public_key.to_hex(),
             &to_hex(&leader_key.memo),
-            &leader_key.address.to_string()
+            &leader_key.address.to_string(),
+            sort_id
         ];
 
-        self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }
@@ -1635,7 +1634,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// No validity checking will be done, beyond what is encoded in the block_commits table
     /// constraints.  That is, type mismatches and serialization issues will be caught, but nothing else.
     /// The corresponding snapshot must already be inserted
-    pub fn insert_block_commit(&mut self, block_commit: &LeaderBlockCommitOp) -> Result<(), db_error> {
+    fn insert_block_commit(&mut self, block_commit: &LeaderBlockCommitOp, sort_id: &SortitionId) -> Result<(), db_error> {
         assert!(block_commit.block_height < BLOCK_HEIGHT_MAX);
 
         // serialize tx input to JSON
@@ -1658,10 +1657,12 @@ impl <'a> SortitionHandleTx <'a> {
             &block_commit.key_vtxindex,
             &to_hex(&block_commit.memo[..]),
             &burn_fee_str,
-            &tx_input_str];
+            &tx_input_str,
+            sort_id
+        ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", args)?;
 
         Ok(())
     }
@@ -1671,7 +1672,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// constraints.  That is, type mismatches and serialization errors will be caught, but nothing
     /// else.
     /// The corresponding snapshot must already be inserted
-    pub fn insert_user_burn(&mut self, user_burn: &UserBurnSupportOp) -> Result<(), db_error> {
+    fn insert_user_burn(&mut self, user_burn: &UserBurnSupportOp, sort_id: &SortitionId) -> Result<(), db_error> {
         assert!(user_burn.block_height < BLOCK_HEIGHT_MAX);
 
         // represent burn fee as TEXT 
@@ -1688,10 +1689,12 @@ impl <'a> SortitionHandleTx <'a> {
             &user_burn.key_block_ptr,
             &user_burn.key_vtxindex,
             &user_burn.block_header_hash_160,
-            &burn_fee_str];
+            &burn_fee_str,
+            sort_id
+        ];
 
-        self.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, address, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", args)?;
+        self.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, address, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee, sortition_id) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)", args)?;
 
         Ok(())
     }
@@ -1727,12 +1730,14 @@ impl <'a> SortitionHandleTx <'a> {
             &u64_to_sql(snapshot.canonical_stacks_tip_height)?,
             &snapshot.canonical_stacks_tip_hash,
             &snapshot.canonical_stacks_tip_burn_hash,
+            &snapshot.sortition_id,
+            &snapshot.pox_id
         ];
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
-                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_burn_hash) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)", args)
+                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_burn_hash, sortition_id, pox_id) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -1780,7 +1785,7 @@ impl <'a> SortitionHandleTx <'a> {
             values.push(snapshot.burn_header_hash.to_hex());
 
             keys.push(db_keys::stacks_block_present(&snapshot.winning_stacks_block_hash));
-            values.push(snapshot.burn_header_hash.to_hex());
+            values.push(snapshot.sortition_id.to_hex());
         }
 
         // commit to all newly-arrived blocks
@@ -1794,6 +1799,7 @@ impl <'a> SortitionHandleTx <'a> {
 
         let root_hash = self.put_indexed_all(&keys, &values)?;
         self.indexed_commit()?;
+        self.context.chain_tip = snapshot.sortition_id.clone();
         Ok(root_hash)
     }
 
@@ -1928,6 +1934,7 @@ mod tests {
         sn.burn_header_hash = next_hash;
         sn.block_height += 1;
         sn.num_sortitions += 1;
+        sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
 
         let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, block_ops, consumed_leader_keys).unwrap();
         sn.index_root = index_root;
@@ -2116,6 +2123,7 @@ mod tests {
 
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.sortition_id = SortitionId(next_hash.0.clone());
             sn.burn_header_hash = next_hash;
             sn.block_height += 1;
             sn.num_sortitions += 1;
@@ -2258,6 +2266,7 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id,
+                    pox_id: PoxForkIdentifier::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2329,6 +2338,7 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id,
+                    pox_id: PoxForkIdentifier::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2351,8 +2361,7 @@ mod tests {
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 // should succeed within the tx
-                
-                let ch = tx.as_conn().get_consensus_at(i as u64 + 1).unwrap().unwrap_or(ConsensusHash::empty());
+                let ch = tx.as_conn().get_consensus_at(i as u64 + 1).unwrap().unwrap();
                 assert_eq!(ch, last_snapshot.consensus_hash);
 
                 tx.commit().unwrap();
@@ -2365,7 +2374,7 @@ mod tests {
             // should succeed within the conn
             let ic = db.index_handle(&tip.sortition_id);
             let expected_ch = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap();
-            let ch = ic.get_consensus_at(i+1).unwrap().unwrap_or(ConsensusHash::empty());
+            let ch = ic.get_consensus_at(i).unwrap().unwrap();
             assert_eq!(ch, expected_ch);
         }
     }
@@ -2469,6 +2478,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
+            pox_id: PoxForkIdentifier::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2492,6 +2502,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
+            pox_id: PoxForkIdentifier::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2515,6 +2526,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
+            pox_id: PoxForkIdentifier::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2636,6 +2648,7 @@ mod tests {
             next_snapshot.num_sortitions += 1;
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
             next_snapshot.burn_header_hash = BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
+            next_snapshot.sortition_id = SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             next_snapshot.consensus_hash = ConsensusHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             
             let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
@@ -2677,6 +2690,7 @@ mod tests {
                 next_snapshot.block_height = initial_block_height + (j - i) as u64;
                 next_snapshot.num_sortitions = initial_num_sortitions + (j - i) as u64;
                 next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
+                next_snapshot.sortition_id = SortitionId(block_hash.clone());
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
@@ -2720,6 +2734,7 @@ mod tests {
                 next_snapshot.block_height = last_snapshot.block_height + 1;
                 next_snapshot.num_sortitions = last_snapshot.num_sortitions + 1;
                 next_snapshot.parent_burn_header_hash = last_snapshot.burn_header_hash.clone();
+                next_snapshot.sortition_id = SortitionId(next_block_hash.clone());
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
@@ -2744,6 +2759,7 @@ mod tests {
             next_snapshot.block_height += 1;
             next_snapshot.num_sortitions += 1;
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
+            next_snapshot.sortition_id = SortitionId(next_block_hash.clone());
             next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
 
             let next_index_root = {
@@ -2782,6 +2798,7 @@ mod tests {
                 let snapshot_row = 
                     if i % 3 == 0 {
                         BlockSnapshot {
+                            pox_id: PoxForkIdentifier::stubbed(),
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2808,6 +2825,7 @@ mod tests {
                         total_burn += 1;
                         total_sortitions += 1;
                         BlockSnapshot {
+                            pox_id: PoxForkIdentifier::stubbed(),
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2988,6 +3006,7 @@ mod tests {
         let mut last_snapshot = start_snapshot.clone();
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
+                pox_id: PoxForkIdentifier::stubbed(),
                 block_height: last_snapshot.block_height + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),
@@ -3227,9 +3246,10 @@ mod tests {
         // set the stacks block at 0x29 and 0x2a as accepted as the 5th and 6th blocks
         {
             let mut tx = db.tx_begin().unwrap();
-            tx.set_stacks_block_accepted_stubbed(
+            let tip_snapshot = SortitionDB::get_block_snapshot(&tx, &SortitionId([0x2a; 32])).unwrap().unwrap();
+            tx.set_stacks_block_accepted_at_tip(&tip_snapshot,
                 &BurnchainHeaderHash([0x29; 32]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x29; 32]), 5).unwrap();
-            tx.set_stacks_block_accepted_stubbed(
+            tx.set_stacks_block_accepted_at_tip(&tip_snapshot,
                 &BurnchainHeaderHash([0x2a; 32]), &BlockHeaderHash([0x29; 32]), &BlockHeaderHash([0x2a; 32]), 6).unwrap();
             tx.commit().unwrap();
         }
