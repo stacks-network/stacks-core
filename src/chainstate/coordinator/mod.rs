@@ -6,7 +6,9 @@ use std::process;
 
 use burnchains::BurnchainHeaderHash;
 use chainstate::burn::{BlockHeaderHash, BlockSnapshot as BurnchainBlock};
-use chainstate::stacks::StacksBlock;
+use chainstate::stacks::{StacksBlock, TransactionPayload};
+use chainstate::stacks::db::StacksHeaderInfo;
+use chainstate::stacks::events::StacksTransactionReceipt;
 
 #[derive(Debug, Clone)]
 struct PoxIdentifier;
@@ -35,7 +37,7 @@ impl ChainStateDB {
         unimplemented!()
     }
 
-    pub fn process_blocks(&mut self, burnchain_db: &mut BurnchainDB, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
+    pub fn process_blocks(&mut self, burnchain_db: &mut BurnchainDB, pox_identifier: PoxIdentifier) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, ()> {
         unimplemented!()
     }
 }
@@ -64,6 +66,7 @@ impl BlocksDB {
     }
 
     pub fn get_blocks_ready_to_process(&self, sortition_id: &SortitionIdentifier, sortition_db: &SortitionDB) -> Option<Vec<StacksBlock>> {
+        // This method will be calling sortition_db::latest_stacks_blocks_processed
         unimplemented!()
     }
 }
@@ -79,10 +82,11 @@ impl PoxDB {
         unimplemented!()
     }
 
-    pub fn get_ordered_missing_anchors(&self) -> Vec<StacksBlockIdentifier> {
+    pub fn get_ordered_missing_anchors(&self, upper_bound: &StacksBlockIdentifier) -> Vec<StacksBlockIdentifier> {
         unimplemented!()
     }
 
+    // Note: we'd be temporary using an associated function instead of method, because this call is writing. 
     pub fn process_anchor(block: &StacksBlockIdentifier, chain_state: &ChainStateDB) -> Result<(), ()> {
         unimplemented!()
     }
@@ -194,12 +198,12 @@ impl ChainsCoordinator {
             };
 
             while let Some(blocks_ready_to_process) = self.blocks_db.get_blocks_ready_to_process(&sortition_id, &self.sortition_db) {
-                // todo(ludo): I think I'm supposed to use `SortitionDB::latest_stacks_blocks_processed`
                 for block in blocks_ready_to_process {
                     match self.process_block(&block) {
                         Ok(is_pox_anchor) => {
                             if is_pox_anchor == true {
-                                self.process_new_pox_anchor()?;
+                                // todo: can call this method when the BlockSnapshot struct is augmented with block_id field
+                                // self.process_new_pox_anchor(block.block_id)?;
                             }
                             Ok(())
                         }
@@ -215,22 +219,25 @@ impl ChainsCoordinator {
     pub fn handle_new_block(&mut self) -> Result<(), ()> {
         // Rebuild sortition id
         let sortition_id = match (&self.canonical_pox_id, &self.canonical_burnchain_chain_tip) {
-            (Some(pox_id), Some(burnchain_block)) => Ok(SortitionIdentifier(burnchain_block.burn_header_hash.clone(), pox_id.clone())),
+            (Some(pox_id), Some(burnchain_block)) => SortitionIdentifier(burnchain_block.burn_header_hash.clone(), pox_id.clone()),
             (_, _) => {
-                // We received a BlockDiscovered event before receiving a BurnchainBlockDiscovered event
-                Err(())
+                // We received our first BlockDiscovered event before even receiving a BurnchainBlockDiscovered event
+                return Err(())
             }
-        }?;
+        };
 
         while let Some(blocks_ready_to_process) = self.blocks_db.get_blocks_ready_to_process(&sortition_id, &self.sortition_db) {
-            // todo(ludo): I think I'm supposed to use `SortitionDB::latest_stacks_blocks_processed`
             for block in blocks_ready_to_process {
                 match self.process_block(&block) {
-                    Ok(is_pox_anchor) if is_pox_anchor == true => {
-                        self.process_new_pox_anchor()?;
+                    Ok(is_pox_anchor) => {
+                        if is_pox_anchor == true {
+                            // todo: can call this method when the BlockSnapshot struct is augmented with block_id field
+                            // self.process_new_pox_anchor(block.block_id)?;
+                        }
+                        Ok(())
                     }
-                    _ => {}
-                }
+                    Err(err) => Err(err)
+                }?;
                 self.canonical_chain_tip = Some(block);
             }
         }
@@ -238,8 +245,9 @@ impl ChainsCoordinator {
         Ok(())
     }
 
-    fn process_new_pox_anchor(&mut self) -> Result<(), ()> {
-        let ordered_missing_anchored_blocks = self.pox_db.get_ordered_missing_anchors();
+    fn process_new_pox_anchor(&mut self, block_id: &StacksBlockIdentifier) -> Result<(), ()> {
+        // Ensure that the chain of anchored blocks (up to block_id) has been processed  
+        let ordered_missing_anchored_blocks = self.pox_db.get_ordered_missing_anchors(block_id);
         for block_id in ordered_missing_anchored_blocks.iter() {
             match self.chain_state_db.is_block_processed(&block_id) {
                 Ok(is_processed) => {
@@ -262,15 +270,15 @@ impl ChainsCoordinator {
                 }
             }?;
         }
-        self.discover_new_pox_anchor()
+        self.discover_new_pox_anchor(block_id)
     }
 
     fn process_block(&self, block: &StacksBlock) -> Result<bool, ()> {
         unimplemented!()
     }
 
-    fn discover_new_pox_anchor(&mut self) -> Result<(), ()> {
-        unimplemented!()
+    fn discover_new_pox_anchor(&mut self, block_id: &StacksBlockIdentifier) -> Result<(), ()> {
+        PoxDB::process_anchor(block_id, self.chain_state_db)
     }
 }
 
