@@ -1,7 +1,10 @@
+use std::{
+    fs, io
+};
 use serde_json;
 use rusqlite::{
     Connection, Transaction, types::ToSql, NO_PARAMS,
-    OptionalExtension, Row
+    OptionalExtension, Row, OpenFlags
 };
 
 use burnchains::{
@@ -14,6 +17,10 @@ use burnchains::{
 
 use chainstate::burn::operations::{
     BlockstackOperationType
+};
+
+use chainstate::stacks::index::{
+    MarfTrieId
 };
 
 use util::db::{
@@ -67,6 +74,25 @@ impl FromRow<BurnchainBlockHeader> for BurnchainBlockHeader {
     }
 }
 
+const BURNCHAIN_DB_SCHEMA: &'static str = "
+CREATE TABLE burnchain_db_block_headers (
+    block_height INTEGER NOT NULL,
+    block_hash TEXT UNIQUE NOT NULL,
+    parent_block_hash TEXT NOT NULL,
+    num_txs INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL,
+
+    PRIMARY KEY(block_hash)
+);
+
+CREATE TABLE burnchain_db_block_ops (
+    block_hash TEXT NOT NULL,
+    op TEXT NOT NULL,
+
+    FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
+);
+";
+
 impl <'a> BurnchainDbTransaction <'a> {
     fn store_burnchain_db_entry(&self, header: &BurnchainBlockHeader) -> Result<i64, BurnchainError> {
         let sql = "INSERT INTO burnchain_db_block_headers
@@ -83,14 +109,14 @@ impl <'a> BurnchainDbTransaction <'a> {
         }
     }
 
-    fn store_blockstack_ops(&self, header_identifier: i64, block_ops: &[BlockstackOperationType]) -> Result<(), BurnchainError> {
-        let sql = "INSERT INTO burnchain_db_bock_ops
-                   (burnchain_db_block_id, op) VALUES (?, ?)";
+    fn store_blockstack_ops(&self, block_hash: &BurnchainHeaderHash, block_ops: &[BlockstackOperationType]) -> Result<(), BurnchainError> {
+        let sql = "INSERT INTO burnchain_db_block_ops
+                   (block_hash, op) VALUES (?, ?)";
         let mut stmt = self.sql_tx.prepare(sql)?;
         for op in block_ops.iter() {
             let serialized_op = serde_json::to_string(op)
                 .expect("Failed to serialize parsed BlockstackOp");
-            let args: &[&dyn ToSql] = &[&header_identifier,
+            let args: &[&dyn ToSql] = &[block_hash,
                                         &serialized_op];
             stmt.execute(args)?;
         }
@@ -104,12 +130,68 @@ impl <'a> BurnchainDbTransaction <'a> {
 }
 
 impl BurnchainDb {
-    pub fn connect(path: &str, readwrite: bool) -> Result<BurnchainDb, BurnchainError> {
-        panic!("Not implemented: {} {}", path, readwrite);
+    pub fn connect(path: &str, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash,
+                   first_burn_header_timestamp: u64, readwrite: bool) -> Result<BurnchainDb, BurnchainError> {
+        let mut create_flag = false;
+        let open_flags = match fs::metadata(path) {
+            Err(e) => {
+                if e.kind() == io::ErrorKind::NotFound {
+                    // need to create 
+                    if readwrite {
+                        create_flag = true;
+                        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                    } else {
+                        return Err(BurnchainError::from(DBError::NoDBError));
+                    }
+                } else {
+                    return Err(BurnchainError::from(DBError::IOError(e)));
+                }
+            },
+            Ok(_md) => {
+                // can just open 
+                if readwrite {
+                    OpenFlags::SQLITE_OPEN_READ_WRITE
+                }
+                else {
+                    OpenFlags::SQLITE_OPEN_READ_ONLY
+                }
+            }
+        };
+
+        let mut db = BurnchainDb {
+            conn: Connection::open_with_flags(path, open_flags)
+                .expect(&format!("FAILED to open: {}", path))
+        };
+
+        if create_flag {
+            let db_tx = db.start_transaction()?;
+            db_tx.sql_tx.execute_batch(BURNCHAIN_DB_SCHEMA)?;
+
+            let first_block_header = BurnchainBlockHeader {
+                block_height: first_block_height,
+                block_hash: first_burn_header_hash.clone(),
+                timestamp: first_burn_header_timestamp,
+                num_txs: 0,
+                parent_block_hash: BurnchainHeaderHash::sentinel()
+            };
+
+
+            let header_identifier = db_tx.store_burnchain_db_entry(&first_block_header)?;
+            db_tx.commit()?;
+        }
+
+        Ok(db)
     }
 
     pub fn open(path: &str, readwrite: bool) -> Result<BurnchainDb, BurnchainError> {
-        panic!("Not implemented: {} {}", path, readwrite);
+        let open_flags = if readwrite {
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+        };
+        let conn = Connection::open_with_flags(path, open_flags)?;
+
+        Ok(BurnchainDb { conn })
     }
 
     fn start_transaction<'a>(&'a mut self) -> Result<BurnchainDbTransaction<'a>, BurnchainError> {
@@ -137,7 +219,7 @@ impl BurnchainDb {
         let db_tx = self.start_transaction()?;
 
         let header_identifier = db_tx.store_burnchain_db_entry(&header)?;
-        db_tx.store_blockstack_ops(header_identifier, &blockstack_ops)?;
+        db_tx.store_blockstack_ops(&header.block_hash, &blockstack_ops)?;
 
         db_tx.commit()?;
 

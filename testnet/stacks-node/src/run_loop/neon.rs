@@ -3,7 +3,7 @@ use std::thread;
 
 use crate::{Config, NeonGenesisNode, BurnchainController, 
             BitcoinRegtestController, Keychain};
-use stacks::chainstate::burn::db::burndb::BurnDB;
+use stacks::chainstate::burn::db::burndb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Address;
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
@@ -128,6 +128,7 @@ impl RunLoop {
         loop {
             burnchain_tip = burnchain.sync();
 
+            let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
             if next_height <= block_height {
                 warn!("burnchain.sync() did not progress block height");
@@ -138,16 +139,15 @@ impl RunLoop {
             for block_to_process in (block_height+1)..(next_height+1) {
                 let block = {
                     let ic = burnchain.burndb_ref().index_conn();
-                    BurnDB::get_ancestor_snapshot(
-                        &ic, block_to_process, &burnchain_tip.block_snapshot.burn_header_hash)
+                    SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
                         .unwrap()
                         .expect("Failed to find block in fork processed by bitcoin indexer")
                 };
-                let burn_header_hash = block.burn_header_hash;
+                let sortition_id = &block.sortition_id;
 
                 // Have the node process the new block, that can include, or not, a sortition.
                 node.process_burnchain_state(burnchain.burndb_mut(), 
-                                             &burn_header_hash);
+                                             sortition_id);
                 // Now, tell the relayer to check if it won a sortition during this block,
                 //   and, if so, to process and advertize the block
                 //

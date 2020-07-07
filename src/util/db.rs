@@ -255,7 +255,7 @@ where
     if let Some(value) = result.next() {
         return_value = Some(value?);
     }
-    assert!(result.next().is_some(),
+    assert!(result.next().is_none(),
             "FATAL: Multiple values returned for query that expected a single result:\n {}", sql_query);
     Ok(return_value)
 }
@@ -264,7 +264,7 @@ pub fn query_row_panic<T, P, F>(conn: &Connection, sql_query: &str, sql_args: P,
 where
     P: IntoIterator,
     P::Item: ToSql,
-    T: FromRow<T>,  
+    T: FromRow<T>,
     F: FnOnce () -> String
 {
     let mut stmt = conn.prepare(sql_query)?;

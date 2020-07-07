@@ -9,16 +9,16 @@ use super::operations::BurnchainOpSigner;
 use std::time::Instant;
 
 use stacks::burnchains::BurnchainStateTransition;
-use stacks::chainstate::burn::db::burndb::{BurnDB};
-use stacks::chainstate::burn::{BlockSnapshot};
+use stacks::chainstate::burn::BlockSnapshot;
+use stacks::chainstate::burn::db::burndb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 
 pub trait BurnchainController {
     fn start(&mut self) -> BurnchainTip;
     fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) -> bool;
     fn sync(&mut self) -> BurnchainTip;
-    fn burndb_ref(&self) -> &BurnDB;
-    fn burndb_mut(&mut self) -> &mut BurnDB;
+    fn burndb_ref(&self) -> &SortitionDB;
+    fn burndb_mut(&mut self) -> &mut SortitionDB;
     fn get_chain_tip(&mut self) -> BurnchainTip;
 
     #[cfg(test)]

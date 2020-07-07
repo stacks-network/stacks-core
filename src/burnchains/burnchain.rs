@@ -422,7 +422,7 @@ impl Burnchain {
 
         let sortitiondb = SortitionDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
 
-        let burnchaindb = BurnchainDb::connect(&burnchain_db_path, readwrite)?;
+        let burnchaindb = BurnchainDb::connect(&burnchain_db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
 
         Ok((sortitiondb, burnchaindb))
     }
@@ -658,7 +658,7 @@ impl Burnchain {
         let (mut burndb, mut burnchain_db) = self.connect_db(indexer, true)?;
         let burn_chain_tip = burnchain_db.get_canonical_burn_chain_tip()
             .map_err(|e| {
-                error!("Failed to query burn chain tip from burn DB");
+                error!("Failed to query burn chain tip from burn DB: {}", e);
                 e
             })?;
 

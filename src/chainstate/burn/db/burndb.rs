@@ -376,7 +376,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         address TEXT NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
-        FOREIGN KEY(burn_header_hash) REFERENCES snapshots(burn_header_hash)
+        FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
     CREATE TABLE block_commits(
@@ -398,7 +398,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         input TEXT NOT NULL,        -- must match `address` in leader_keys
 
         PRIMARY KEY(txid,sortition_id),
-        FOREIGN KEY(burn_header_hash) REFERENCES snapshots(burn_header_hash)
+        FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
     CREATE TABLE user_burn_support(
@@ -418,7 +418,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         burn_fee TEXT NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
-        FOREIGN KEY(burn_header_hash) REFERENCES snapshots(burn_header_hash)
+        FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
     CREATE TABLE canonical_accepted_stacks_blocks(
@@ -572,11 +572,10 @@ impl <'a> SortitionHandleTx <'a> {
         }
 
         let tx = tx_begin_immediate(&mut conn.conn)?;
-        let mut handle = SortitionHandleTx::new(
+        let handle = SortitionHandleTx::new(
             tx, &mut conn.marf,
             SortitionHandleContext { chain_tip: parent_chain_tip.clone(),
                                      first_block_height: conn.first_block_height });
-//        handle.put_indexed_begin(parent_chain_tip, chain_tip)?;
 
         Ok(handle)
     }
@@ -1387,7 +1386,7 @@ impl SortitionDB {
 
     /// Get all user burns registered in a block on is fork.
     /// Returns list of user burns in order by vtxindex.
-    pub fn get_user_burns_by_block<'a>(conn: &Connection, sortition: &SortitionId) -> Result<Vec<UserBurnSupportOp>, db_error> {
+    pub fn get_user_burns_by_block(conn: &Connection, sortition: &SortitionId) -> Result<Vec<UserBurnSupportOp>, db_error> {
         let qry = "SELECT * FROM user_burn_support WHERE sortition_id = ?1 ORDER BY vtxindex ASC";
         let args: &[&dyn ToSql] = &[sortition];
 
@@ -1402,6 +1401,25 @@ impl SortitionDB {
 
         query_rows(conn, qry, args)
     }
+
+    /// Get all leader keys registered in a block on the burn chain's history in this fork.
+    /// Returns the list of leader keys in order by vtxindex.
+    pub fn get_leader_keys_by_block(conn: &Connection, sortition: &SortitionId) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
+        let qry = "SELECT * FROM leader_keys WHERE sortition_id = ?1 ORDER BY vtxindex ASC";
+        let args: &[&dyn ToSql] = &[sortition];
+
+        query_rows(conn, qry, args)
+    }
+
+    pub fn get_block_winning_vtxindex(conn: &Connection, sortition: &SortitionId) -> Result<Option<u16>, db_error> {
+        let qry = "SELECT vtxindex FROM block_commits WHERE sortition_id = ?1 
+                    AND txid = (
+                      SELECT winning_block_txid FROM snapshots WHERE sortition_id = ?2 LIMIT 1) LIMIT 1";
+        let args: &[&dyn ToSql] = &[sortition, sortition];
+        conn.query_row(qry, args, |row| row.get(0)).optional()
+            .map_err(db_error::from)
+    }
+
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
