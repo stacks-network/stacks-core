@@ -1,5 +1,6 @@
 use super::{Keychain, Config, BurnchainController, BurnchainTip, EventDispatcher};
 use crate::config::HELIUM_BLOCK_LIMIT;
+use crate::run_loop::RegisteredKey;
 
 use std::convert::{ TryFrom, TryInto };
 use std::{thread, thread::JoinHandle};
@@ -48,16 +49,14 @@ use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_BLOCK_HASH;
 use stacks::vm::costs::ExecutionCost;
 
+use stacks::monitoring::{
+    increment_stx_blocks_mined_counter,
+    increment_stx_blocks_processed_counter,
+};
+
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 pub const RELAYER_MAX_BUFFER: usize = 100;
-
-#[derive(Clone)]
-struct RegisteredKey {
-    block_height: u16,
-    op_vtxindex: u16,
-    vrf_public_key: VRFPublicKey,
-}
 
 struct AssembledAnchorBlock {
     parent_block_burn_hash: BurnchainHeaderHash,
@@ -257,22 +256,27 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
         let handler_args = RPCHandlerArgs { exit_at_block_height: exit_at_block_height.as_ref(),
                                             .. RPCHandlerArgs::default() };
 
-        loop {
+        let mut disconnected = false;
+        while !disconnected {
             let download_backpressure = results_with_data.len() > 0;
             let poll_ms = 
                 if !download_backpressure && this.has_more_downloads() {
                     // keep getting those blocks -- drive the downloader state-machine
-                    debug!("backpressure: {}, more downloads: {}", download_backpressure, this.has_more_downloads());
+                    debug!("P2P: backpressure: {}, more downloads: {}", download_backpressure, this.has_more_downloads());
                     100
                 }
                 else {
                     poll_timeout
                 };
 
-            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
-                                          download_backpressure, poll_ms,
-                                          &handler_args)
-                .unwrap();
+            let network_result = match this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
+                                                 download_backpressure, poll_ms, &handler_args) {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("P2P: Failed to process network dispatch: {:?}", &e);
+                    panic!();
+                }
+            };
 
             if network_result.has_data_to_store() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
@@ -281,7 +285,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             while let Some(next_result) = results_with_data.pop_front() {
                 // have blocks, microblocks, and/or transactions (don't care about anything else),
                 if let Err(e) = relay_channel.try_send(next_result) {
-                    debug!("{:?}: download backpressure detected", &this.local_peer);
+                    debug!("P2P: {:?}: download backpressure detected", &this.local_peer);
                     match e {
                         TrySendError::Full(directive) => {
                             // don't lose this data -- just try it again
@@ -289,13 +293,18 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                             break;
                         },
                         TrySendError::Disconnected(_) => {
-                            info!("Relayer hang up with p2p channel");
+                            info!("P2P: Relayer hang up with p2p channel");
+                            disconnected = true;
                             break;
                         }
                     }
                 }
+                else {
+                    debug!("P2P: Dispatched result to Relayer!");
+                }
             }
         }
+        debug!("P2P thread exit!");
     });
 
     let _jh = thread::spawn(move || {
@@ -353,6 +362,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
             block_on_recv = false;
             match directive {
                 RelayerDirective::TryProcessAttachable => {
+                    debug!("Relayer: Try process attacheable blocks");
+
                     // process any attachable blocks
                     let block_receipts = chainstate.process_blocks(&mut burndb, 1).expect("BUG: failure processing chainstate");
                     let mut num_processed = 0;
@@ -361,6 +372,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         if let Some((header_info, receipts)) = headers_and_receipts_opt {
                             dispatcher_announce_block(&blocks_path, &mut event_dispatcher, header_info, None, &mut burndb, receipts);
                             num_processed += 1;
+
+                            increment_stx_blocks_processed_counter();
                         }
                     }
                     if num_processed == 0 {
@@ -369,6 +382,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
+                    debug!("Relayer: Handle network result");
                     let net_receipts = relayer.process_network_result(&local_peer, net_result,
                                                                         &mut burndb, &mut chainstate, &mut mem_pool)
                         .expect("BUG: failure processing network results");
@@ -379,11 +393,13 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         dispatcher_announce_block(&blocks_path, &mut event_dispatcher, stacks_header, None, &mut burndb, tx_receipts);
                     }
 
-                    if net_receipts.mempool_txs_added.len() > 0 {
+                    let mempool_txs_added = net_receipts.mempool_txs_added.len();
+                    if mempool_txs_added > 0 {
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
                 },
                 RelayerDirective::ProcessTenure(burn_header_hash, parent_burn_header_hash, block_header_hash) => {
+                    debug!("Relayer: Process tenure");
                     if let Some(my_mined) = last_mined_block.take() {
                         let AssembledAnchorBlock {
                             parent_block_burn_hash,
@@ -396,6 +412,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             info!("Won sortition! stacks_header={}, burn_header={}",
                                   block_header_hash,
                                   mined_burn_hh);
+
+                            increment_stx_blocks_mined_counter();
 
                             match inner_process_tenure(&mined_block, &burn_header_hash, &parent_block_burn_hash,
                                                        &mut burndb, &mut chainstate, &mut event_dispatcher) {
@@ -459,17 +477,20 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
+                    debug!("Relayer: Run tenure");
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
                         registered_key, &mut chainstate, &burndb, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller);
                     bump_processed_counter(&blocks_processed);
                 },
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
+                    debug!("Relayer: Register key");
                     rotate_vrf_and_register(&mut keychain, last_burn_block, &mut bitcoin_controller);
                     bump_processed_counter(&blocks_processed);
                 }
             }
         }
+        debug!("Relayer exit!");
     });
 
     Ok(())
@@ -842,6 +863,8 @@ impl InitializedNeonNode {
             }
         }
 
+
+
         let key_registers = BurnDB::get_leader_keys_by_block(&ic, block_height, burn_hash)
             .expect("Unexpected BurnDB error fetching key registers");
         for op in key_registers.into_iter() {
@@ -853,8 +876,8 @@ impl InitializedNeonNode {
                 self.active_keys.push(
                     RegisteredKey {
                         vrf_public_key: op.public_key,
-                        block_height: op.block_height as u16,
-                        op_vtxindex: op.vtxindex as u16,
+                        block_height: op.block_height as u64,
+                        op_vtxindex: op.vtxindex as u32,
                     });
             }
         }

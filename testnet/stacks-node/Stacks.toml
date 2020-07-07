@@ -31,8 +31,8 @@ rpc_bind = "127.0.0.1:20443"
 ##
 # [burnchain]
 # chain = "bitcoin"
-# mode = "neon"
-# peer_host = "127.0.0.1" # todo(ludo): update URL with neon.blockstack.org when deployed
+# mode = "argon"
+# peer_host = "argon.blockstack.org"
 # burnchain_op_tx_fee = 1000
 # commit_anchor_block_within = 10000
 # rpc_port = 3000

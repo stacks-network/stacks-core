@@ -59,6 +59,7 @@ use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksPublicKey;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
+use monitoring;
 
 use std::net::SocketAddr;
 
@@ -813,6 +814,8 @@ impl ConversationP2P {
     /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
     /// No authentication from the peer is necessary.
     fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
+        monitoring::increment_p2p_msg_nat_punch_request_received_counter();
+
         let natpunch_data = NatPunchData {
             addrbytes: self.peer_addrbytes.clone(),
             port: self.peer_port,
@@ -900,6 +903,8 @@ impl ConversationP2P {
     /// Reply to a ping with a pong.
     /// Called from the p2p network thread.
     fn handle_ping(&mut self, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<Option<StacksMessage>, net_error> {
+        monitoring::increment_p2p_msg_ping_received_counter();
+
         let ping_data = match message.payload {
             StacksMessageType::Ping(ref data) => data,
             _ => panic!("Message is not a ping")
@@ -910,6 +915,8 @@ impl ConversationP2P {
 
     /// Handle an inbound GetNeighbors request.
     fn handle_getneighbors(&mut self, peer_dbconn: &DBConn, local_peer: &LocalPeer, chain_view: &BurnchainView, preamble: &Preamble) -> Result<ReplyHandleP2P, net_error> {
+        monitoring::increment_p2p_msg_get_neighbors_received_counter();
+        
         // get neighbors at random as long as they're fresh
         let mut neighbors = PeerDB::get_random_neighbors(peer_dbconn, self.network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
             .map_err(net_error::DBError)?;
@@ -941,6 +948,8 @@ impl ConversationP2P {
     /// Handle an inbound GetBlocksInv request.
     /// Returns a reply handle to the generated message (possibly a nack)
     fn handle_getblocksinv(&mut self, local_peer: &LocalPeer, sortdb: &SortitionDB, chainstate: &mut StacksChainState, burnchain_view: &BurnchainView, preamble: &Preamble, get_blocks_inv: &GetBlocksInv) -> Result<ReplyHandleP2P, net_error> {
+        monitoring::increment_p2p_msg_get_blocks_inv_received_counter();
+
         let block_hashes = {
             let num_headers = cmp::min(BLOCKS_INV_DATA_MAX_BITLEN as u64,
                                        get_blocks_inv.num_blocks as u64);
@@ -1081,6 +1090,8 @@ impl ConversationP2P {
             StacksMessageType::GetNeighbors => self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble),
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(local_peer, sortdb, chainstate, chain_view, &msg.preamble, get_blocks_inv),
             StacksMessageType::Blocks(_) => {
+                monitoring::increment_stx_blocks_received_counter();
+
                 // not handled here, but do some accounting -- we can't receive blocks too often,
                 // so close this conversation if we do.
                 match self.validate_blocks_push(local_peer, chain_view, &msg.preamble, msg.relayers.clone())? {
@@ -1092,6 +1103,8 @@ impl ConversationP2P {
                 }
             },
             StacksMessageType::Microblocks(_) => {
+                monitoring::increment_stx_micro_blocks_received_counter();
+
                 // not handled here, but do some accounting -- we can't receive too many
                 // unconfirmed microblocks per second
                 match self.validate_microblocks_push(local_peer, chain_view, &msg.preamble, msg.relayers.clone())? {
@@ -1103,6 +1116,8 @@ impl ConversationP2P {
                 }
             },
             StacksMessageType::Transaction(_) => {
+                monitoring::increment_txs_received_counter();
+
                 // not handled here, but do some accounting -- we can't receive too many
                 // unconfirmed transactions per second
                 match self.validate_transaction_push(local_peer, chain_view, &msg.preamble, msg.relayers.clone())? {
@@ -1266,6 +1281,8 @@ impl ConversationP2P {
         // already have public key; match payload
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
+                monitoring::increment_p2p_msg_authenticated_handshake_received_counter();
+
                 debug!("{:?}: Got Handshake", &self);
                 let (handshake_opt, handled) = self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
                 consume = handled;
@@ -1323,6 +1340,8 @@ impl ConversationP2P {
         let solicited = self.connection.is_solicited(&msg);
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
+                monitoring::increment_p2p_msg_unauthenticated_handshake_received_counter();
+
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
                 let (reply_opt, handled) = self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
                 consume = handled;
@@ -1377,6 +1396,8 @@ impl ConversationP2P {
                 test_debug!("{:?}: Got unauthenticated message (type {}), will NACK", &self, msg.payload.get_message_name());
                 let nack_payload = StacksMessageType::Nack(NackData::new(NackErrorCodes::HandshakeRequired));
                 let nack = StacksMessage::from_chain_view(self.version, self.network_id, burnchain_view, nack_payload);
+                
+                monitoring::increment_p2p_msg_nack_sent_counter();
 
                 // unauthenticated, so don't forward it (but do consume it, and do nack it)
                 consume = true;

@@ -73,3 +73,4 @@ tarpaulin-report.html
 osxcross
 osxcross*.tar.xz
 .DS_Store
+testnet/stacks-node/target

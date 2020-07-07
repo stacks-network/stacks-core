@@ -48,6 +48,9 @@ extern crate percent_encoding;
 #[macro_use]
 extern crate assert_json_diff;
 
+#[cfg(feature = "monitoring_prom")]
+#[macro_use] pub extern crate prometheus;
+
 #[macro_use]
 pub mod util;
 
@@ -64,6 +67,8 @@ pub mod deps;
 pub mod vm;
 
 pub mod clarity;
+
+pub mod monitoring;
 
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
