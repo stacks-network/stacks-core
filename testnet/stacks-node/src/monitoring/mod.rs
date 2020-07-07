@@ -9,6 +9,7 @@ pub use stacks::monitoring::{
 mod prometheus;
 
 pub fn start_serving_monitoring_metrics(bind_address: String) {
+    info!("Start serving monitoring metrics");
     #[cfg(feature = "monitoring_prom")]
     prometheus::start_serving_prometheus_metrics(bind_address);
 }
