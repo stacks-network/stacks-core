@@ -2495,13 +2495,13 @@ impl StacksChainState {
         */
         let blocks_per_year = 52596;
         if block_height < blocks_per_year * 5 {
-            500 * 100_000
+            500 * 1_000_000
         }
         else if block_height < blocks_per_year * 10 {
-            400 * 100_000
+            400 * 1_000_000
         }
         else {
-            300 * 100_000
+            300 * 1_000_000
         }
     }
 
