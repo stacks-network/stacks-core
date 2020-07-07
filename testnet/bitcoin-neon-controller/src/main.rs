@@ -304,7 +304,6 @@ fn build_request(config: &ConfigFile, body: Vec<u8>) -> Request {
     let mut req = Request::new(Method::Post, url);
     req.append_header("Authorization", config.neon.authorization_token()).unwrap();
     req.append_header("Content-Type", "application/json").unwrap();
-    req.append_header("Content-Length", format!("{}", body.len())).unwrap();
     req.append_header("Host", format!("{}", config.neon.bitcoind_rpc_host)).unwrap();
     req.set_body(body);
     req

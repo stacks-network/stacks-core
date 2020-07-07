@@ -60,7 +60,6 @@ impl EventObserver {
             let body = body.clone();
             let mut req = Request::new(Method::Post, url.clone());
             req.append_header("Content-Type", "application/json").expect("Unable to set header");
-            req.append_header("Content-Length", format!("{}", body.len())).expect("Unable to set header");
             req.set_body(body);
 
             let response = async_std::task::block_on(async {
