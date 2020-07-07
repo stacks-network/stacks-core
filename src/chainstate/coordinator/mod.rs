@@ -5,10 +5,10 @@ use std::sync::mpsc::{self, Sender};
 use std::process;
 
 use burnchains::BurnchainHeaderHash;
-use chainstate::burn::{BlockHeaderHash, BlockSnapshot as BurnchainBlock};
-use chainstate::stacks::{StacksBlock, TransactionPayload};
-use chainstate::stacks::db::StacksHeaderInfo;
-use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::burn::{BlockHeaderHash as HeaderHash, BlockSnapshot as BurnchainBlock};
+use chainstate::stacks::{StacksBlock as Block, TransactionPayload};
+use chainstate::stacks::db::{StacksHeaderInfo as HeaderInfo};
+use chainstate::stacks::events::{StacksTransactionReceipt as TransactionReceipt};
 
 #[derive(Debug, Clone)]
 struct PoxIdentifier;
@@ -20,9 +20,9 @@ pub struct SortitionIdentifier (
 );
 
 #[derive(Debug, Clone)]
-pub struct StacksBlockIdentifier {
+pub struct BlockIdentifier {
     burnchain_header_hash: BurnchainHeaderHash,
-    header_hash: BlockHeaderHash,
+    header_hash: HeaderHash,
     pox_identifier: PoxIdentifier,
 }
 
@@ -34,21 +34,21 @@ impl ChainStateDB {
     }
 
     #[allow(unused_variables)]
-    pub fn is_block_processed(&self, block_id: &StacksBlockIdentifier) -> Result<bool, ()> {
+    pub fn is_block_processed(&self, block_id: &BlockIdentifier) -> Result<bool, ()> {
         unimplemented!()
     }
 
     #[allow(unused_variables)]
-    pub fn process_blocks(&mut self, burnchain_db: &mut BurnchainDB, pox_identifier: PoxIdentifier) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, ()> {
+    pub fn process_blocks(&mut self, burnchain_blocks_db: &mut BurnchainBlocksDB, pox_identifier: PoxIdentifier) -> Result<Vec<(Option<(HeaderInfo, Vec<TransactionReceipt>)>, Option<TransactionPayload>)>, ()> {
         unimplemented!()
     }
 }
 
-struct BurnchainDB;
-impl BurnchainDB {
+struct BurnchainBlocksDB;
+impl BurnchainBlocksDB {
 
-    pub fn stubbed() -> BurnchainDB {
-        BurnchainDB {}
+    pub fn stubbed() -> BurnchainBlocksDB {
+        BurnchainBlocksDB {}
     }
 
     pub fn get_canonical_chain_tip(&self) -> BurnchainBlock {
@@ -69,7 +69,7 @@ impl BlocksDB {
     }
 
     #[allow(unused_variables)]
-    pub fn get_blocks_ready_to_process(&self, sortition_id: &SortitionIdentifier, sortition_db: &SortitionDB) -> Option<Vec<StacksBlock>> {
+    pub fn get_blocks_ready_to_process(&self, sortition_id: &SortitionIdentifier, sortition_db: &SortitionDB) -> Option<Vec<Block>> {
         // This method will be calling sortition_db::latest_stacks_blocks_processed
         unimplemented!()
     }
@@ -88,18 +88,18 @@ impl PoxDB {
     }
 
     #[allow(unused_variables)]
-    pub fn get_ordered_missing_anchors(&self, upper_bound: &StacksBlockIdentifier) -> Vec<StacksBlockIdentifier> {
+    pub fn get_ordered_missing_anchors(&self, upper_bound: &BlockIdentifier) -> Vec<BlockIdentifier> {
         unimplemented!()
     }
 
     #[allow(unused_variables)]
     // Note: we'd be temporary using an associated function instead of method, because this call is writing. 
-    pub fn process_anchor(block: &StacksBlockIdentifier, chain_state: &ChainStateDB) -> Result<(), ()> {
+    pub fn process_anchor(block: &BlockIdentifier, chain_state: &ChainStateDB) -> Result<(), ()> {
         unimplemented!()
     }
 
     #[allow(unused_variables)]
-    pub fn get_reward_set_start_for(&self, block: &StacksBlockIdentifier) -> &BurnchainHeaderHash {
+    pub fn get_reward_set_start_for(&self, block: &BlockIdentifier) -> &BurnchainHeaderHash {
         unimplemented!()
     }
 }
@@ -127,7 +127,7 @@ impl SortitionDB {
     }
 
     #[allow(unused_variables)]
-    pub fn is_stacks_block_in_sortition_set(sortition_id: &SortitionIdentifier, block_to_check: &BlockHeaderHash) -> Result<bool, ()> {
+    pub fn is_stacks_block_in_sortition_set(sortition_id: &SortitionIdentifier, block_to_check: &HeaderHash) -> Result<bool, ()> {
         unimplemented!()
     }
  
@@ -139,10 +139,10 @@ impl SortitionDB {
 
 struct ChainsCoordinator {
     canonical_burnchain_chain_tip: Option<BurnchainBlock>,
-    canonical_chain_tip: Option<StacksBlock>,
+    canonical_chain_tip: Option<Block>,
     canonical_pox_id: Option<PoxIdentifier>,
     blocks_db: BlocksDB,
-    burnchain_db: BurnchainDB,
+    burnchain_blocks_db: BurnchainBlocksDB,
     chain_state_db: ChainStateDB,
     pox_db: PoxDB, 
     sortition_db: SortitionDB,
@@ -153,7 +153,7 @@ impl ChainsCoordinator {
     pub fn new() -> ChainsCoordinator {
         
         let blocks_db = BlocksDB::stubbed();
-        let burnchain_db = BurnchainDB::stubbed();
+        let burnchain_blocks_db = BurnchainBlocksDB::stubbed();
         let chain_state_db = ChainStateDB::stubbed();
         let pox_db = PoxDB::stubbed(); 
         let sortition_db = SortitionDB::stubbed();
@@ -163,7 +163,7 @@ impl ChainsCoordinator {
             canonical_chain_tip: None,
             canonical_pox_id: None,
             blocks_db,
-            burnchain_db,
+            burnchain_blocks_db,
             chain_state_db,
             pox_db, 
             sortition_db
@@ -171,8 +171,8 @@ impl ChainsCoordinator {
     }
 
     pub fn handle_new_burnchain_block(&mut self) -> Result<(), ()> {
-        // Retrieve canonical burnchain chain tip from the BurnchainDB
-        let canonical_burnchain_tip = self.burnchain_db.get_canonical_chain_tip();
+        // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
+        let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip();
         
         // Early return: this block has already been processed
         match self.canonical_burnchain_chain_tip {
@@ -191,7 +191,7 @@ impl ChainsCoordinator {
             Ok(ref is_processed)  => !is_processed, // We halt the ancestry research as soon as we find a processed parent
             _ => false
         } {
-            if let Ok(block) = self.burnchain_db.get_burnchain_block(&cursor) {
+            if let Ok(block) = self.burnchain_blocks_db.get_burnchain_block(&cursor) {
                 let parent = block.parent_burn_header_hash.clone();
                 sortitions_to_process.push_front(block);
                 cursor = parent;
@@ -258,7 +258,7 @@ impl ChainsCoordinator {
         Ok(())
     }
 
-    fn process_new_pox_anchor(&mut self, block_id: &StacksBlockIdentifier) -> Result<(), ()> {
+    fn process_new_pox_anchor(&mut self, block_id: &BlockIdentifier) -> Result<(), ()> {
         // Ensure that the chain of anchored blocks (up to block_id) has been processed  
         let ordered_missing_anchored_blocks = self.pox_db.get_ordered_missing_anchors(block_id);
         for block_id in ordered_missing_anchored_blocks.iter() {
@@ -268,7 +268,7 @@ impl ChainsCoordinator {
                         PoxDB::process_anchor(&block_id, &self.chain_state_db)?;
                         let canonical_bhh = self.pox_db.get_reward_set_start_for(&block_id);
                         // Retrieve the corresponding block
-                        let canonical_block = self.burnchain_db.get_burnchain_block(canonical_bhh)?;
+                        let canonical_block = self.burnchain_blocks_db.get_burnchain_block(canonical_bhh)?;
                         self.canonical_burnchain_chain_tip = Some(canonical_block); 
                         self.canonical_pox_id = Some(self.pox_db.get_canonical_pox_id(&block_id.burnchain_header_hash));
                         self.canonical_chain_tip = None;
@@ -287,11 +287,11 @@ impl ChainsCoordinator {
     }
 
     #[allow(unused_variables)]
-    fn process_block(&self, block: &StacksBlock) -> Result<bool, ()> {
+    fn process_block(&self, block: &Block) -> Result<bool, ()> {
         unimplemented!()
     }
 
-    fn discover_new_pox_anchor(&mut self, block_id: &StacksBlockIdentifier) -> Result<(), ()> {
+    fn discover_new_pox_anchor(&mut self, block_id: &BlockIdentifier) -> Result<(), ()> {
         PoxDB::process_anchor(block_id, &self.chain_state_db)
     }
 }
