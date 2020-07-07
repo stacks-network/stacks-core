@@ -6,7 +6,7 @@ This is enabled by adding an entry to the node's `config.toml` file:
 ```toml
 ...
 [[events_observer]]
-endpoint = "http://listener:3700"
+endpoint = "listener:3700"
 events_keys = [
   "*"
 ]
