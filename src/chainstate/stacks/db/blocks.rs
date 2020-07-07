@@ -30,6 +30,7 @@ use rusqlite::Connection;
 use rusqlite::DatabaseName;
 
 use core::*;
+use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 
 use chainstate::burn::operations::*;
 
@@ -164,6 +165,8 @@ pub enum MemPoolRejection {
     BadAddressVersionByte,
     NoCoinbaseViaMempool,
     NoSuchChainTip(BurnchainHeaderHash,BlockHeaderHash),
+    ConflictingNonceInMempool,
+    TooMuchChaining,
     DBError(db_error),
     Other(String),
 }
@@ -176,6 +179,8 @@ impl MemPoolRejection {
                                         Some(json!({"message": e.to_string()}))),
             DeserializationFailure(e) => ("Deserialization",
                                           Some(json!({"message": e.to_string()}))),
+            TooMuchChaining => ("TooMuchChaining",
+                                Some(json!({"message": "Nonce would exceed chaining limit in mempool"}))),
             FailedToValidate(e) => ("SignatureValidation",
                                     Some(json!({"message": e.to_string()}))),
             FeeTooLow(actual, expected) => ("FeeTooLow", 
@@ -200,6 +205,7 @@ impl MemPoolRejection {
             NoSuchPublicFunction => ("NoSuchPublicFunction", None),
             BadFunctionArgument(e) => ("BadFunctionArgument",
                                        Some(json!({"message": e.to_string()}))),
+            ConflictingNonceInMempool => ("ConflictingNonceInMempool", None),
             ContractAlreadyExists(id) => ("ContractAlreadyExists",
                                           Some(json!({ "contract_identifier": id.to_string() }))),
             PoisonMicroblocksDoNotConflict => ("PoisonMicroblocksDoNotConflict", None),
@@ -3288,7 +3294,7 @@ impl StacksChainState {
     /// Check to see if a transaction can be (potentially) appended on top of a given chain tip.
     /// Note that this only checks the transaction against the _anchored chain tip_, not the
     /// unconfirmed microblock stream trailing off of it.
-    pub fn will_admit_mempool_tx(&mut self, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
+    pub fn will_admit_mempool_tx(&mut self, mempool_conn: &DBConn, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
         let conf = self.config();
         let staging_height = match self.get_stacks_block_height(current_burn, current_block) {
             Ok(Some(height)) => {
@@ -3318,13 +3324,15 @@ impl StacksChainState {
         };
         
         self.with_read_only_clarity_tx(current_burn, current_block, |conn| {
-            StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
+            StacksChainState::can_include_tx(mempool_conn, conn, &conf, has_microblock_pubk, tx, tx_size)
         })
     }
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?
     /// Used when mining transactions.
-    pub fn can_include_tx<T: ClarityConnection>(clarity_connection: &mut T, chainstate_config: &DBConfig, has_microblock_pubkey: bool, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
+    pub fn can_include_tx<T: ClarityConnection>(mempool: &DBConn, clarity_connection: &mut T,
+                                                chainstate_config: &DBConfig, has_microblock_pubkey: bool,
+                                                tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
         // 1: must parse (done)
 
         // 2: it must be validly signed.
@@ -3340,8 +3348,51 @@ impl StacksChainState {
         }
 
         // 4: the account nonces must be correct
-        let (origin, payer) = StacksChainState::check_transaction_nonces(clarity_connection, &tx)
-            .map_err(|e| MemPoolRejection::BadNonces(e))?;
+        let (origin, payer) = match StacksChainState::check_transaction_nonces(clarity_connection, &tx) {
+            Ok(x) => x,
+            Err((mut e, (origin, payer))) => {
+                // let's see if the tx has matching nonce in the mempool
+                //  ->  you can _only_ replace-by-fee or replace-across-fork
+                //      for nonces that increment the current chainstate's nonce.
+                //      if there are "chained" transactions in the mempool,
+                //      this check won't admit a rbf/raf for those.
+                let origin_addr = tx.origin_address();
+                let origin_nonce = tx.get_origin().nonce();
+                let origin_next_nonce = MemPoolDB::get_next_nonce_for_address(mempool, &origin_addr)?;
+                if origin_next_nonce < origin.nonce {
+                    return Err(e.into())
+                }
+                if origin_next_nonce - origin.nonce >= MAXIMUM_MEMPOOL_TX_CHAINING {
+                    return Err(MemPoolRejection::TooMuchChaining)
+                }
+                if origin_nonce != origin_next_nonce {
+                    e.is_origin = true;
+                    e.principal = origin_addr.into();
+                    e.expected = origin_next_nonce;
+                    e.actual = origin_nonce;
+                    return Err(e.into())
+                }
+
+                if let Some(sponsor_addr) = tx.sponsor_address() {
+                    let sponsor_nonce = tx.get_payer().nonce();
+                    let sponsor_next_nonce = MemPoolDB::get_next_nonce_for_address(mempool, &sponsor_addr)?;
+                    if sponsor_next_nonce < payer.nonce {
+                        return Err(e.into())
+                    }
+                    if sponsor_next_nonce - payer.nonce >= MAXIMUM_MEMPOOL_TX_CHAINING {
+                        return Err(MemPoolRejection::TooMuchChaining)
+                    }
+                    if sponsor_nonce != sponsor_next_nonce {
+                        e.is_origin = false;
+                        e.principal = sponsor_addr.into();
+                        e.expected = sponsor_next_nonce;
+                        e.actual = sponsor_nonce;
+                        return Err(e.into())
+                    }
+                }
+                (origin, payer)
+            },
+        };
 
         if !StacksChainState::is_valid_address_version(chainstate_config.mainnet, origin.principal.version())
             || !StacksChainState::is_valid_address_version(chainstate_config.mainnet, payer.principal.version()) {
