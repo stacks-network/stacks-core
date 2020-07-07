@@ -168,7 +168,7 @@ Moreover, transactions are processed in the same total order by all Stacks
 nodes.
 
 At its core, a transaction is an authorization statement (see below),
-a snippit of executable Clarity code, and a list of
+a snippet of executable Clarity code, and a list of
 _post-conditions_ that must be true before the transaction is accepted.  The
 transaction body supplies the Stacks blockchain this code, as well as all of
 the necessary metadata to describe how the transaction should be executed.
@@ -461,7 +461,7 @@ An _uncompressed secp256k1 public key_ has the following encoding:
 
 A _recoverable ECDSA secp256k1 signature_ has the following encoding:
 
-* A 1-byte **recovery ID**, which can have the value `0x00`, `0x01, `0x02`, or
+* A 1-byte **recovery ID**, which can have the value `0x00`, `0x01`, `0x02`, or
   `0x03`.
 * A 32-byte `r` curve coordinate
 * A 32-byte `s` curve coordinate.  Of the two possible `s` values that may be
@@ -816,7 +816,7 @@ A _block header_ is encoded as follows:
   chain (in particular, it must hash to its VRF seed), described below.
 * A 32-byte **parent block hash**, which must be the SHA512/256 hash of the last _anchored_ block
   that precedes this block in the fork to which this block is to be appended.
-* A 32-byte **parent microblock hash**, which must be the SHA512/256 hash of the last _stremaed_
+* A 32-byte **parent microblock hash**, which must be the SHA512/256 hash of the last _streamed_
   block that precedes this block in the fork to which this block is to be appended.
 * A 2-byte **parent microblock sequence number**, which indicates the sequence
   number of the parent microblock to which this anchored block is attached.
@@ -839,7 +839,7 @@ The _cumulative tunable proof score_ contains the following two fields:
 * An 8-byte unsigned integer that encodes the total proof-of-work done in this
   fork of the burn chain.
 
-In-between two consecuritve anchored blocks in the same fork there can exist
+In-between two consecutive anchored blocks in the same fork there can exist
 zero or more Stacks microblocks.
 
 A _microblock_ is comprised of two fields:
@@ -1066,9 +1066,9 @@ _fully-qualified name_ of the smart contract to:
      derive the contract account address and to query its code),
 
 The fully-qualified name of a smart contract is composed of the c32check-encoded
-standard account address that created it, as well as an ASCII-encoded string chosen by
-the standard account owner(s) when the contract is instantiated (subject to the
-constraints mentioned in the above sections).  Note that all
+standard account address that created it, followed by an ASCII period `.`, as well
+as an ASCII-encoded string chosen by the standard account owner(s) when the contract
+is instantiated (subject to the constraints mentioned in the above sections).  Note that all
 fully-qualified smart contract names are globally unique -- the same standard
 account cannot create two smart contracts with the same name.
 
@@ -1206,8 +1206,8 @@ the nonce of account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
 
 The STX balance is encoded as follows:
 
-* Key: the string "vm-account::", a c32check-encoded address, and the string
-  "::19"
+* Key: the string "vm-account::", a Principal Address (see below), and the string
+  `"::19"`
 * Value: a serialized Clarity `UInt`
 
 Example: `"vm-account::SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q::19"` refers to
@@ -1217,7 +1217,7 @@ A fungible token balance owned by an account is encoded as follows:
 
 * Key: the string `"vm::"`, the fully-qualified contract identifier, the string `"::2::"`,
   the name of the token as defined in its Clarity contract, the string `"::"`, and the
-c32check-encoded address of the account.
+Principal Address of the account owning the token (see below).
 * Value: a serialized Clarity `UInt`
 
 Example: `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::2::example-token::SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q"`
@@ -1229,12 +1229,14 @@ A non-fungible token owned by an account is encoded as follows:
 * Key: the string `"vm::"`, the fully-qualified contract identifier, the string `"::4::"`,
   the name of the token as defined in its Clarity contract, the string `"::"`,
 and the serialized Clarity value that represents the token.
-* Value: a serialized Clarity standard principal
+* Value: a serialized Clarity Principal (either a Standard Principal or a Contract Principal)
 
 Example: `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::4::example-nft::\x02\x00\x00\x00\x0b\x68\x65\x6c\x6c\x6f\x20\x77\x6f\x72\x6c\x64"` 
 refers to the non-fungible token `"hello world"` (which has type `buff` and is
 comprised of 11 bytes), defined in Clarity contract `SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`
 as a type of non-fungible token `example-nft`.
+
+A Principal Address is either a c32check-encoded address in the case of standard principal, or a c32check-encoded address, followed by an ASCII period `.`, and an ASCII-encoded string for a contract principal.
 
 #### Calculating the State of a Smart Contract
 
@@ -1257,7 +1259,7 @@ commitment is serialized as follows:
 * Bytes 65-72: the ASCII-encoding of the block height, itself as a big-endian
   unsigned 32-bit integer.
 
-Example: The contract commentment of a contract whose code's SHA512/256 hash is
+Example: The contract commitment of a contract whose code's SHA512/256 hash is
 `d8faa525ecb3661e7f88f0bd18b8f6676ec3c96fcd5915cf47d48778da1b7ce0` at block
 height 123456 would be `"d8faa525ecb3661e7f88f0bd18b8f6676ec3c96fcd5915cf47d48778da1b7ce0402e0100"`.
 
