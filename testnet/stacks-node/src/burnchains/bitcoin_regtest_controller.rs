@@ -941,7 +941,6 @@ impl BitcoinRPCRequest {
             }
         };
         request.append_header("Content-Type", "application/json").expect("Unable to set header");
-        request.append_header("Content-Length", format!("{}", body.len())).expect("Unable to set header");
         request.set_body(body);
 
         let mut response = async_std::task::block_on(async move {
