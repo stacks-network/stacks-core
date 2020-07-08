@@ -12,17 +12,15 @@
                 "args": [
                     "test",
                     "--no-run",
-                    "--workspace"
+                    "--lib",
+                    "--package=blockstack-core"
                 ],
                 "filter": {
-                    "name": "stacks-node",
-                    "kind": "bin"
+                    "name": "blockstack_lib",
+                    "kind": "lib"
                 }
             },
-            "env": {
-                "BITCOIND_TEST": "1",
-            },
-            "args": ["--test-threads", "1", "--ignored", "bitcoind_integration_test"],
+            "args": [],
             "cwd": "${workspaceFolder}"
         },
         {
