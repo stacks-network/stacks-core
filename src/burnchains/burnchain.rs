@@ -645,7 +645,7 @@ impl Burnchain {
     pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
         let (mut burndb, mut burnchain_db) = self.connect_db(indexer, true)?;
-        let burn_chain_tip = burnchain_db.get_canonical_burn_chain_tip()
+        let burn_chain_tip = burnchain_db.get_canonical_chain_tip()
             .map_err(|e| {
                 error!("Failed to query burn chain tip from burn DB: {}", e);
                 e

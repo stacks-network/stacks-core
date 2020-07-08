@@ -24,7 +24,8 @@ use chainstate::stacks::index::{
 };
 
 use util::db::{
-    u64_to_sql, query_row, FromRow, FromColumn, Error as DBError
+    u64_to_sql, query_row, query_rows,
+    FromRow, FromColumn, Error as DBError
 };
 
 pub struct BurnchainDb {
@@ -71,6 +72,16 @@ impl FromRow<BurnchainBlockHeader> for BurnchainBlockHeader {
         Ok(BurnchainBlockHeader {
             block_height, block_hash, timestamp, num_txs, parent_block_hash
         })
+    }
+}
+
+impl FromRow<BlockstackOperationType> for BlockstackOperationType {
+    fn from_row(row: &Row) -> Result<BlockstackOperationType, DBError> {
+        let serialized = row.get::<_, String>("op");
+        let deserialized = serde_json::from_str(&serialized)
+            .expect("CORRUPTION: db store un-deserializable block op");
+
+        Ok(deserialized)
     }
 }
 
@@ -204,6 +215,17 @@ impl BurnchainDb {
         Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
+    pub fn get_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<(BurnchainBlockHeader, Vec<BlockstackOperationType>), BurnchainError> {
+        let block_header_qry = "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
+        let block_ops_qry = "SELECT * FROM burnchain_db_block_ops WHERE block_hash = ?";
+
+        let block_header = query_row(&self.conn, block_header_qry, &[block])?
+            .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
+        let block_ops = query_rows(&self.conn, block_ops_qry, &[block])?;
+
+        Ok((block_header, block_ops))
+    }
+
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
     /// Return the ordered list of blockstack operations by vtxindex
     fn get_blockstack_transactions(block: &BurnchainBlock, block_header: &BurnchainBlockHeader) -> Vec<BlockstackOperationType> {
@@ -224,5 +246,106 @@ impl BurnchainDb {
         db_tx.commit()?;
 
         Ok(blockstack_ops)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burnchains::bitcoin::*;
+    use burnchains::bitcoin::blocks::*;
+    use chainstate::burn::operations;
+    use burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use util::hash::{hex_bytes, to_hex};
+    use deps::bitcoin::network::serialize::deserialize;
+    use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
+    use std::convert::TryInto;
+
+    fn make_tx(hex_str: &str) -> BtcTx {
+        let tx_bin = hex_bytes(hex_str).unwrap();
+        deserialize(&tx_bin.to_vec()).unwrap()
+    }
+
+    #[test]
+    fn test_store_and_fetch() {
+        let first_bhh = BurnchainHeaderHash([0; 32]);
+        let first_timestamp = 321;
+        let first_height = 1;
+
+        let mut burnchain_db = BurnchainDb::connect(":memory:", first_height, &first_bhh, first_timestamp, true).unwrap();
+
+        let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
+        assert_eq!(&first_block_header.block_hash, &first_bhh);
+        assert_eq!(&first_block_header.block_height, &first_height);
+        assert_eq!(&first_block_header.timestamp, &first_timestamp);
+        assert_eq!(&first_block_header.parent_block_hash, &BurnchainHeaderHash::sentinel());
+
+        let canon_hash = BurnchainHeaderHash([1; 32]);
+
+        let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, &vec![], 485));
+        let ops = burnchain_db.store_new_burnchain_block(&canonical_block).unwrap();
+        assert_eq!(ops.len(), 0);
+
+
+        let vtxindex = 1;
+        let noncanon_block_height = 400;
+        let non_canon_hash = BurnchainHeaderHash([2; 32]);
+
+        let fixtures = operations::leader_key_register::tests::get_test_fixtures(
+            vtxindex, noncanon_block_height, non_canon_hash);
+
+
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
+        let mut broadcast_ops = vec![];
+        let mut expected_ops = vec![];
+
+        for (ix, tx_fixture) in fixtures.iter().enumerate() {
+            let tx = make_tx(&tx_fixture.txstr);
+            let burnchain_tx = parser.parse_tx(&tx, ix + 1).unwrap();
+            if let Some(res) = &tx_fixture.result {
+                let mut res = res.clone();
+                res.vtxindex = (ix + 1).try_into().unwrap();
+                expected_ops.push(res.clone());
+            }
+            broadcast_ops.push(burnchain_tx);
+        }
+
+        let non_canonical_block = BurnchainBlock::Bitcoin(
+            BitcoinBlock::new(400, &non_canon_hash, &first_bhh, &broadcast_ops, 350));
+
+        let ops = burnchain_db.store_new_burnchain_block(&non_canonical_block).unwrap();
+        assert_eq!(ops.len(), expected_ops.len());
+        for op in ops.iter() {
+            let expected_op = expected_ops.iter().find(|candidate| {
+                candidate.txid == op.txid()
+            }).expect("FAILED to find parsed op in expected ops");
+            if let BlockstackOperationType::LeaderKeyRegister(op) = op {
+                assert_eq!(op, expected_op);
+            } else {
+                panic!("EXPECTED to parse a LeaderKeyRegister");
+            }
+        }
+
+        let (header, ops) = burnchain_db.get_burnchain_block(&non_canon_hash).unwrap();
+        assert_eq!(ops.len(), expected_ops.len());
+        for op in ops.iter() {
+            let expected_op = expected_ops.iter().find(|candidate| {
+                candidate.txid == op.txid()
+            }).expect("FAILED to find parsed op in expected ops");
+            if let BlockstackOperationType::LeaderKeyRegister(op) = op {
+                assert_eq!(op, expected_op);
+            } else {
+                panic!("EXPECTED to parse a LeaderKeyRegister");
+            }
+        }
+        assert_eq!(&header, &non_canonical_block.header());
+
+        let looked_up_canon = burnchain_db.get_canonical_chain_tip().unwrap();
+        assert_eq!(&looked_up_canon, &canonical_block.header());
+
+        let (header, ops) = burnchain_db.get_burnchain_block(&canon_hash).unwrap();
+        assert_eq!(ops.len(), 0);
+        assert_eq!(&header, &looked_up_canon);
     }
 }

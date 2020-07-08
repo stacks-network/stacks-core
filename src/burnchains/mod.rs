@@ -55,18 +55,16 @@ use self::bitcoin::indexer::{
 
 use core::*;
 
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::ConsensusHash;
-
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey; 
 use chainstate::stacks::index::TrieHash;
 
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::operations::BlockstackOperationType;
-
-use chainstate::burn::distribution::BurnSamplePoint;
-
 use chainstate::burn::operations::LeaderKeyRegisterOp;
+use chainstate::burn::db::burndb::PoxIdentifier;
+use chainstate::burn::distribution::BurnSamplePoint;
 
 use address::AddressHashMode;
 
@@ -320,6 +318,8 @@ pub enum Error {
     OpError(op_error),
     /// Try again error
     TrySyncAgain,
+    UnknownBlock(BurnchainHeaderHash),
+    NonCanonicalPoxId(PoxIdentifier, PoxIdentifier),
 }
 
 impl fmt::Display for Error {
@@ -337,6 +337,9 @@ impl fmt::Display for Error {
             Error::FSError(ref e) => fmt::Display::fmt(e, f),
             Error::OpError(ref e) => fmt::Display::fmt(e, f),
             Error::TrySyncAgain => write!(f, "Try synchronizing again"),
+            Error::UnknownBlock(block) => write!(f, "Unknown burnchain block {}", block),
+            Error::NonCanonicalPoxId(parent, child) => write!(f, "{} is not a descendant of the canonical parent PoXId: {}",
+                                                              parent, child),
         }
     }
 }
@@ -356,6 +359,8 @@ impl error::Error for Error {
             Error::FSError(ref e) => Some(e),
             Error::OpError(ref e) => Some(e),
             Error::TrySyncAgain => None,
+            Error::UnknownBlock(_) => None,
+            Error::NonCanonicalPoxId(_, _) => None,
         }
     }
 }
@@ -823,8 +828,8 @@ pub mod test {
             test_debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
             let header = block.header();
-            let mut sortition_db_handle = SortitionHandleTx::begin_stubbed(
-                db, &header.parent_block_hash).unwrap();
+            let sort_id = SortitionId::stubbed(&header.parent_block_hash);
+            let mut sortition_db_handle = SortitionHandleTx::begin(db, &sort_id).unwrap();
 
             let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&header.parent_block_hash)
                 .unwrap()

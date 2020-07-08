@@ -543,14 +543,6 @@ impl db_keys {
 impl <'a> SortitionHandleTx <'a> {
     /// begin a MARF transaction with this connection
     ///  this is used by _writing_ contexts
-    pub fn begin_stubbed(conn: &'a mut SortitionDB, parent_chain_tip: &BurnchainHeaderHash) -> Result<SortitionHandleTx<'a>, db_error> {
-        let parent_chain_tip = SortitionId(parent_chain_tip.0.clone());
-
-        SortitionHandleTx::begin(conn, &parent_chain_tip)
-    }
-
-    /// begin a MARF transaction with this connection
-    ///  this is used by _writing_ contexts
     pub fn begin(conn: &'a mut SortitionDB, parent_chain_tip: &SortitionId) -> Result<SortitionHandleTx<'a>, db_error> {
         if !conn.readwrite {
             return Err(db_error::ReadOnly);
@@ -1102,7 +1094,7 @@ impl SortitionDB {
     }
 
     fn instantiate(&mut self, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> Result<(), db_error> {
-        let mut db_tx = SortitionHandleTx::begin_stubbed(self, &BurnchainHeaderHash::sentinel())?;
+        let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 
         // create first (sentinel) snapshot
         let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash, first_burn_header_timestamp);
@@ -1301,7 +1293,7 @@ impl SortitionDB {
         let parent_sort_id = SortitionId::new(&burn_header.parent_block_hash, &parent_pox);
 
         if !pox_db.is_pox_id_a_child(&parent_pox, pox_id) {
-            return Err(BurnchainError::MissingParentBlock);
+            return Err(BurnchainError::NonCanonicalPoxId(parent_pox, pox_id.clone()));
         }
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
@@ -2031,7 +2023,7 @@ mod tests {
 
     fn test_append_snapshot(db: &mut SortitionDB, next_hash: BurnchainHeaderHash, block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>) -> BlockSnapshot {
         let mut sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
-        let mut tx = SortitionHandleTx::begin_stubbed(db, &sn.burn_header_hash).unwrap();
+        let mut tx = SortitionHandleTx::begin(db, &sn.sortition_id).unwrap();
 
         let sn_parent = sn.clone();
         sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -2223,7 +2215,7 @@ mod tests {
         let fork_snapshot = {
             let mut sn = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id).unwrap().unwrap();
             let next_hash = BurnchainHeaderHash([0x13; 32]);
-            let mut tx = SortitionHandleTx::begin_stubbed(&mut db, &sn.burn_header_hash).unwrap();
+            let mut tx = SortitionHandleTx::begin(&mut db, &sn.sortition_id).unwrap();
 
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();

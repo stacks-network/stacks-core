@@ -247,7 +247,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -275,10 +275,10 @@ mod tests {
         BlockstackOperationType
     };
 
-    struct OpFixture {
-        txstr: String,
-        opstr: String,
-        result: Option<LeaderKeyRegisterOp>,
+    pub struct OpFixture {
+        pub txstr: String,
+        pub opstr: String,
+        pub result: Option<LeaderKeyRegisterOp>,
     }
 
     struct CheckFixture {
@@ -294,13 +294,8 @@ mod tests {
         Ok(tx)
     }
 
-    #[test]
-    fn test_parse() {
-        let vtxindex = 1;
-        let block_height = 694;
-        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-
-        let tx_fixtures: Vec<OpFixture> = vec![
+    pub fn get_test_fixtures(vtxindex: u32, block_height: u64, burn_header_hash: BurnchainHeaderHash) -> Vec<OpFixture> {
+        vec![
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402203a176d95803e8d51e7884d38750322c4bfa55307a71291ef8db65191edd665f1022056f5d1720d1fde8d6a163c79f73f22f874ef9e186e98e5b60fa8ac64d298e77a012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
                 opstr: "69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a0102030405".to_string(),
@@ -355,7 +350,16 @@ mod tests {
                 opstr: "".to_string(),
                 result: None,
             }
-        ];
+        ]
+    }
+
+    #[test]
+    fn test_parse() {
+        let vtxindex = 1;
+        let block_height = 694;
+        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let tx_fixtures = get_test_fixtures(vtxindex, block_height, burn_header_hash);
 
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
 
