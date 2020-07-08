@@ -145,7 +145,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 
         //
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
-        let pox_id = PoxForkIdentifier::from_column(row, "pox_id")?;
+        let pox_id = PoxIdentifier::from_column(row, "pox_id")?;
 
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
@@ -505,12 +505,12 @@ impl_byte_array_newtype!(SortitionId, u8, 32);
 impl_byte_array_from_column!(SortitionId);
 impl_byte_array_message_codec!(SortitionId, 32);
 
-pub struct PoxForkIdentifier(pub [u8; 32]);
-impl_array_newtype!(PoxForkIdentifier, u8, 32);
-impl_array_hexstring_fmt!(PoxForkIdentifier);
-impl_byte_array_newtype!(PoxForkIdentifier, u8, 32);
-impl_byte_array_from_column!(PoxForkIdentifier);
-impl_byte_array_message_codec!(PoxForkIdentifier, 32);
+pub struct PoxIdentifier(pub [u8; 32]);
+impl_array_newtype!(PoxIdentifier, u8, 32);
+impl_array_hexstring_fmt!(PoxIdentifier);
+impl_byte_array_newtype!(PoxIdentifier, u8, 32);
+impl_byte_array_from_column!(PoxIdentifier);
+impl_byte_array_message_codec!(PoxIdentifier, 32);
 
 struct db_keys;
 impl db_keys {
@@ -928,9 +928,9 @@ impl <'a> SortitionHandleConn <'a> {
 
 }
 
-impl PoxForkIdentifier {
-    pub fn stubbed() -> PoxForkIdentifier {
-        PoxForkIdentifier([0; 32])
+impl PoxIdentifier {
+    pub fn stubbed() -> PoxIdentifier {
+        PoxIdentifier([0; 32])
     }
 }
 
@@ -1241,7 +1241,7 @@ impl SortitionDB {
     /// Get the last snapshot processed, in the provided PoX fork
     ///  on returning None, the caller may need to check the _parent_ of this PoXForkidentifier
     ///  (it should _never_ be the case that the parent is also None)
-    pub fn get_last_snapshot(conn: &Connection, pox_id: &PoxForkIdentifier) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_last_snapshot(conn: &Connection, pox_id: &PoxIdentifier) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE pox_id = ?1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         query_row(conn, qry, &[pox_id])
             
@@ -1251,7 +1251,7 @@ impl SortitionDB {
     /// Break ties deterministically by ordering on burnchain block hash.
     // PoX TODO: this method will need to be provided with a fork identifier
     pub fn get_canonical_burn_chain_tip_stubbed(conn: &Connection) -> Result<BlockSnapshot, db_error> {
-        SortitionDB::get_last_snapshot(conn, &PoxForkIdentifier::stubbed())
+        SortitionDB::get_last_snapshot(conn, &PoxIdentifier::stubbed())
             .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
@@ -2267,7 +2267,7 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id,
-                    pox_id: PoxForkIdentifier::stubbed(),
+                    pox_id: PoxIdentifier::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2339,7 +2339,7 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id,
-                    pox_id: PoxForkIdentifier::stubbed(),
+                    pox_id: PoxIdentifier::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2479,7 +2479,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxForkIdentifier::stubbed(),
+            pox_id: PoxIdentifier::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2503,7 +2503,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxForkIdentifier::stubbed(),
+            pox_id: PoxIdentifier::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2527,7 +2527,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxForkIdentifier::stubbed(),
+            pox_id: PoxIdentifier::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2799,7 +2799,7 @@ mod tests {
                 let snapshot_row = 
                     if i % 3 == 0 {
                         BlockSnapshot {
-                            pox_id: PoxForkIdentifier::stubbed(),
+                            pox_id: PoxIdentifier::stubbed(),
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2826,7 +2826,7 @@ mod tests {
                         total_burn += 1;
                         total_sortitions += 1;
                         BlockSnapshot {
-                            pox_id: PoxForkIdentifier::stubbed(),
+                            pox_id: PoxIdentifier::stubbed(),
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -3007,7 +3007,7 @@ mod tests {
         let mut last_snapshot = start_snapshot.clone();
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
-                pox_id: PoxForkIdentifier::stubbed(),
+                pox_id: PoxIdentifier::stubbed(),
                 block_height: last_snapshot.block_height + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),

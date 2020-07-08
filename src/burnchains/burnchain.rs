@@ -71,7 +71,7 @@ use chainstate::burn::operations::{
 };
 use chainstate::burn::db::burndb::{
     SortitionDB, SortitionHandleTx, SortitionHandleConn,
-    PoxForkIdentifier,
+    PoxIdentifier,
 };
 
 use chainstate::stacks::StacksAddress;
@@ -661,7 +661,7 @@ impl Burnchain {
                 e
             })?;
 
-        let last_snapshot_processed = match SortitionDB::get_last_snapshot(&burndb.conn, &PoxForkIdentifier::stubbed())? {
+        let last_snapshot_processed = match SortitionDB::get_last_snapshot(&burndb.conn, &PoxIdentifier::stubbed())? {
             Some(snapshot) => snapshot,
             None => {
                 warn!("No snapshot processed yet");
@@ -827,7 +827,7 @@ pub mod tests {
     use chainstate::burn::{ConsensusHash, OpsHash, BlockSnapshot, SortitionHash, VRFSeed, BlockHeaderHash};
 
     use chainstate::burn::db::burndb::{
-        SortitionHandleTx, SortitionDB, SortitionId, PoxForkIdentifier
+        SortitionHandleTx, SortitionDB, SortitionId, PoxIdentifier
     };
 
     use burnchains::Address;
@@ -1113,7 +1113,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_121_snapshot = BlockSnapshot {
-            pox_id: PoxForkIdentifier::stubbed(),
+            pox_id: PoxIdentifier::stubbed(),
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
             sortition_id: SortitionId(block_121_hash.0.clone()),
@@ -1146,7 +1146,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_122_snapshot = BlockSnapshot {
-            pox_id: PoxForkIdentifier::stubbed(),
+            pox_id: PoxIdentifier::stubbed(),
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
             sortition_id: SortitionId(block_122_hash.0.clone()),
@@ -1185,7 +1185,7 @@ pub mod tests {
             block_121_snapshot.consensus_hash.clone(),
         ];
         let mut block_123_snapshot = BlockSnapshot {
-            pox_id: PoxForkIdentifier::stubbed(),
+            pox_id: PoxIdentifier::stubbed(),
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
             sortition_id: SortitionId(block_123_hash.0.clone()),
@@ -1333,7 +1333,7 @@ pub mod tests {
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
             
             let mut block_124_snapshot = BlockSnapshot {
-                pox_id: PoxForkIdentifier::stubbed(),
+                pox_id: PoxIdentifier::stubbed(),
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
                 sortition_id: SortitionId(block_124_hash.0.clone()),

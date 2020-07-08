@@ -35,7 +35,7 @@ use util::db::Error as db_error;
 use core::*;
 
 use chainstate::burn::db::burndb::{
-    SortitionId, SortitionHandleConn, PoxForkIdentifier,
+    SortitionId, SortitionHandleConn, PoxIdentifier,
 };
 use chainstate::burn::{
     BlockSnapshot, BlockHeaderHash
@@ -90,7 +90,7 @@ impl BlockSnapshot {
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_burn_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             sortition_id: SortitionId::stubbed(first_burn_header_hash),
-            pox_id: PoxForkIdentifier([0; 32]),
+            pox_id: PoxIdentifier([0; 32]),
         }
     }
 
@@ -217,7 +217,7 @@ impl BlockSnapshot {
     /// 
     /// Call this *after* you store all of the block's transactions to the burn db.
     pub fn make_snapshot(ic: &SortitionHandleConn, burnchain: &Burnchain,
-                         my_sortition_id: &SortitionId, my_pox_id: &PoxForkIdentifier,
+                         my_sortition_id: &SortitionId, my_pox_id: &PoxIdentifier,
                          parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader,
                          burn_dist: &Vec<BurnSamplePoint>, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         assert_eq!(parent_snapshot.burn_header_hash, block_header.parent_block_hash);
@@ -363,7 +363,7 @@ mod test {
         let initial_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
 
         let snapshot_no_transactions = {
-            let pox_id = PoxForkIdentifier::stubbed();
+            let pox_id = PoxIdentifier::stubbed();
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let ic = db.index_handle(&sort_id);
             let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &pox_id, &initial_snapshot,
@@ -387,7 +387,7 @@ mod test {
 
         let snapshot_no_burns = {
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
-            let pox_id = PoxForkIdentifier::stubbed();
+            let pox_id = PoxIdentifier::stubbed();
             let ic = db.index_handle(&sort_id);
             let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &pox_id, &initial_snapshot, &empty_block_header,
                                                   &vec![empty_burn_point.clone()], &vec![key.txid.clone()]).unwrap();
