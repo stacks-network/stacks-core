@@ -52,6 +52,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::monitoring::{
     increment_stx_blocks_mined_counter,
     increment_stx_blocks_processed_counter,
+    update_active_miners_count_gauge,
 };
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
@@ -850,6 +851,9 @@ impl InitializedNeonNode {
 
         let block_commits = SortitionDB::get_block_commits_by_block(&ic, &block_snapshot.sortition_id)
             .expect("Unexpected SortitionDB error fetching block commits");
+
+        update_active_miners_count_gauge(block_commits.len() as i64);
+
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!("Received burnchain block #{} including block_commit_op (winning) - {}", block_height, op.input.to_testnet_address());

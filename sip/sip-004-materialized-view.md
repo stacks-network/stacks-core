@@ -22,7 +22,7 @@ validate a subsequent transaction.  The Stacks blockchain in particular not only
 maintains a materialized view of the state of every fork, but also requires
 miners to cryptographically commit to that view whenever they mine a block.
 This document describes a **Merklized Adaptive Radix Forest** (MARF), an
-authenticated index data structure structure for efficiently encoding a 
+authenticated index data structure for efficiently encoding a 
 cryptographic commitment to blockchain state.
 
 The MARF's structure is part of the consensus logic in the Stacks blockchain --
@@ -120,7 +120,7 @@ the materialized view for all forks.
 the runtime cost of calculating the materialized view must be _independent_ of the
 order in which forks are produced, as well as the order in which their blocks
 arrive.  This is required in order to avoid denial-of-service vulnerabilities,
-whereby an network attacker can control the schedules of both
+whereby a network attacker can control the schedules of both
 forks and block arrivals in a bid to force each peer to expend resources
 validating the fork.  It must be impossible for an attacker to
 significantly slow down the peer network by maliciously varying either schedule.
@@ -205,7 +205,7 @@ with is children `abcd`".
 If a leaf has a non-zero-byte path suffix, and another leaf is inserted that
 shares part of the suffix, the common bytes will be split off of the existing
 leaf to form a `node4`, whose two immediate children are the two leaves.  Each
-of the two leaves will store the path bytes that are unqiue to them.  For
+of the two leaves will store the path bytes that are unique to them.  For
 example, consider this trie with a root `node256` and a single leaf, located at
 path `aabbccddeeff00112233` and having value hash `123456`:
 
@@ -574,7 +574,7 @@ node256                                 | /* back-pointer to N - 10 */
 To generate a MARF Merkle proof, the client queries a Stacks peer for a
 particular value hash, and then requests the peer generate a proof that the key
 and value must have been included in the calculation of the current block's ART
-root hash (i.e. the digest of the materialized view of this fork. 
+root hash (i.e. the digest of the materialized view of this fork). 
 
 For example, given the key/value pair `aabbccddeeff99887766=98765` and the hash
 of the ART at block _N_, the peer would generate two segment proofs for the
