@@ -13,9 +13,9 @@ pub fn start_serving_prometheus_metrics(bind_address: String) {
     let addr = bind_address.clone();
 
     async_std::task::block_on(async {
-        let listener = TcpListener::bind(addr).await.expect("Prometheus monitoring: unable to bind {}", addr);
+        let listener = TcpListener::bind(addr).await.expect("Prometheus monitoring: unable to bind address");
         let addr = format!("http://{}", listener.local_addr().expect("Prometheus monitoring: unable to get addr"));
-        println!("Prometheus server listening on {}", addr);
+        info!("Prometheus monitoring: server listening on {}", addr);
     
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
@@ -38,7 +38,7 @@ pub fn start_serving_prometheus_metrics(bind_address: String) {
 }
 
 async fn accept(addr: String, stream: TcpStream) -> http_types::Result<()> {
-    println!("starting new connection from {}", stream.peer_addr()?);
+    info!("Prometheus monitoring: starting new connection from {}", stream.peer_addr()?);
     async_h1::accept(&addr, stream.clone(), |_| async {
         let encoder = TextEncoder::new();    
         let metric_families = gather();
