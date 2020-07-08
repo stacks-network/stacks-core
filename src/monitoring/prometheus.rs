@@ -1,4 +1,4 @@
-use prometheus::IntCounter;
+use prometheus::{IntCounter, IntGauge};
 
 lazy_static! {
     pub static ref RPC_CALL_COUNTER: IntCounter = register_int_counter!(opts!(
@@ -118,6 +118,12 @@ lazy_static! {
     pub static ref ERRORS_EMITTED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_errors_emitted_total",
         "Total number of error logs emitted by node.",
+        labels! {"handler" => "all",}
+    )).unwrap();
+
+    pub static ref ACTIVE_MINERS_COUNT_GAUGE: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_active_miners_total",
+        "Total number of active miners.",
         labels! {"handler" => "all",}
     )).unwrap();
 }
