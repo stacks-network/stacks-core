@@ -198,7 +198,7 @@ impl BurnchainDb {
         Ok(BurnchainDbTransaction { sql_tx: self.conn.transaction()? })
     }
 
-    pub fn get_canonical_burn_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
+    pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
         let opt = query_row(&self.conn, qry, NO_PARAMS)?;
         Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))

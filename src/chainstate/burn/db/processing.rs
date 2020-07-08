@@ -114,7 +114,7 @@ impl <'a> SortitionHandleTx <'a> {
         let txids = state_transition.accepted_ops.iter().map(|ref op| op.txid()).collect();
 
         let next_pox_id = &parent_snapshot.pox_id;
-        let next_sortition_id = SortitionId::stubbed(&this_block_hash);
+        let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox_id);
 
         // do the cryptographic sortition and pick the next winning block.
         let mut snapshot = BlockSnapshot::make_snapshot(&self.as_conn(), burnchain, &next_sortition_id, next_pox_id,

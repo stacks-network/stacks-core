@@ -71,7 +71,7 @@ use chainstate::burn::operations::{
 };
 use chainstate::burn::db::burndb::{
     SortitionDB, SortitionHandleTx, SortitionHandleConn,
-    PoxIdentifier,
+    PoxIdentifier, PoxDB
 };
 
 use chainstate::stacks::StacksAddress;
@@ -590,22 +590,12 @@ impl Burnchain {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
         let header = block.header();
-
-        let mut sortition_db_handle = SortitionHandleTx::begin_stubbed(
-            db, &header.parent_block_hash)?;
-
-        let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&header.parent_block_hash)?
-            .ok_or_else(|| {
-                warn!("Unknown block {:?}", header.parent_block_hash);
-                burnchain_error::MissingParentBlock
-            })?;
-
         let blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
-        let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)?;
 
-        // commit everything!
-        sortition_db_handle.commit()?;
-        Ok(new_snapshot)
+        let pox_id = PoxIdentifier::stubbed();
+        let pox_db = PoxDB::stubbed();
+
+        db.evaluate_sortition(&header, blockstack_txs, burnchain, &pox_id, &pox_db)
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
@@ -661,7 +651,10 @@ impl Burnchain {
                 e
             })?;
 
-        let last_snapshot_processed = match SortitionDB::get_last_snapshot(&burndb.conn, &PoxIdentifier::stubbed())? {
+        let pox_id = PoxIdentifier::stubbed();
+        let pox_db = PoxDB::stubbed();
+
+        let last_snapshot_processed = match SortitionDB::get_last_snapshot(&burndb.conn, &pox_id, &pox_db)? {
             Some(snapshot) => snapshot,
             None => {
                 warn!("No snapshot processed yet");
