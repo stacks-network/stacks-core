@@ -22,7 +22,7 @@ use chainstate::burn::{
 };
 
 use chainstate::burn::db::burndb::{
-    BurnDBTx, BurnDB, SortitionId, SortitionHandleTx
+    SortitionId, SortitionHandleTx
 };
 
 use chainstate::burn::operations::{

@@ -1371,7 +1371,7 @@ impl StacksChainState {
     }
 
     /// Generate a blocks inventory message, given the output of
-    /// BurnDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
+    /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
     /// BLOCKS_INV_DATA_MAX_BITLEN in order to generate a valid BlocksInvData payload.
     pub fn get_blocks_inventory(&mut self, header_hashes: &[(BurnchainHeaderHash, Option<BlockHeaderHash>)]) -> Result<BlocksInvData, Error> {
         if header_hashes.len() > (BLOCKS_INV_DATA_MAX_BITLEN as usize) {
@@ -2250,7 +2250,7 @@ impl StacksChainState {
     /// Pre-process and store an anchored block to staging, queuing it up for
     /// subsequent processing once all of its ancestors have been processed.
     ///
-    /// Caller must have called BurnDB::expects_stacks_block() to determine if this block belongs
+    /// Caller must have called SortitionDB::expects_stacks_block() to determine if this block belongs
     /// to the blockchain.  The burn_header_hash is the hash of the burnchain block whose sortition
     /// elected the given Stacks block.
     /// 

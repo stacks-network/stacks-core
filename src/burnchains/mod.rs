@@ -824,13 +824,13 @@ pub mod test {
 
             let header = block.header();
             let mut sortition_db_handle = SortitionHandleTx::begin_stubbed(
-                db, &header.parent_block_hash, &header.block_hash).unwrap();
+                db, &header.parent_block_hash).unwrap();
 
             let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&header.parent_block_hash)
                 .unwrap()
                 .expect("FATAL: failed to get burnchain linkage info");
 
-            let mut blockstack_txs = self.txs.clone();
+            let blockstack_txs = self.txs.clone();
 
             let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)
                 .unwrap();

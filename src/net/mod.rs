@@ -2011,7 +2011,7 @@ pub mod test {
             let block_height = {
                 let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&burndb.conn()).unwrap();
                 let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345), blockstack_ops.len() as u64);
-                let mut tx = SortitionHandleTx::begin(&mut burndb, &tip.sortition_id, &SortitionId::stubbed(&block_header.block_hash)).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut burndb, &tip.sortition_id).unwrap();
                 for op in blockstack_ops.iter_mut() {
                     match op {
                         BlockstackOperationType::LeaderKeyRegister(ref mut data) => {

@@ -43,7 +43,7 @@ use rusqlite::Connection;
 use rusqlite::Transaction;
 
 use chainstate::burn::db::burndb::{
-    BurnDB, BurnDBConn, SortitionId, SortitionHandleConn,
+    SortitionId, SortitionHandleConn,
     PoxForkIdentifier,
 };
 
@@ -375,7 +375,7 @@ mod tests {
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32]),
                 };
-                let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id, &snapshot_row.sortition_id).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
                 let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
                 burn_block_hashes.push(snapshot_row.sortition_id.clone());
                 tx.commit().unwrap();

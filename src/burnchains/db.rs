@@ -176,7 +176,7 @@ impl BurnchainDb {
             };
 
 
-            let header_identifier = db_tx.store_burnchain_db_entry(&first_block_header)?;
+            db_tx.store_burnchain_db_entry(&first_block_header)?;
             db_tx.commit()?;
         }
 
@@ -218,7 +218,7 @@ impl BurnchainDb {
 
         let db_tx = self.start_transaction()?;
 
-        let header_identifier = db_tx.store_burnchain_db_entry(&header)?;
+        db_tx.store_burnchain_db_entry(&header)?;
         db_tx.store_blockstack_ops(&header.block_hash, &blockstack_ops)?;
 
         db_tx.commit()?;

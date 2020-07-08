@@ -78,7 +78,7 @@ use burnchains::Burnchain;
 use burnchains::BurnchainView;
 
 use chainstate::burn::db::burndb::{
-    BurnDB, SortitionDB, SortitionId
+    SortitionDB, SortitionId
 };
 
 use chainstate::stacks::db::StacksChainState;

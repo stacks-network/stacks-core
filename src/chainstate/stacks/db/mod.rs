@@ -59,7 +59,6 @@ use chainstate::stacks::index::storage::TrieFileStorage;
 
 use chainstate::burn::db::burndb::{
     BlockHeaderCache,
-    BurnDB
 };
 
 use std::path::{Path, PathBuf};

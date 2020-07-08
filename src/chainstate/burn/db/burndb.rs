@@ -437,14 +437,6 @@ const BURNDB_SETUP : &'static [&'static str]= &[
     "#
 ];
 
-pub struct BurnDB {
-    pub conn: Connection,
-    pub readwrite: bool,
-    pub marf: MARF<BurnchainHeaderHash>,
-    pub first_block_height: u64,
-    pub first_burn_header_hash: BurnchainHeaderHash,
-}
-
 pub struct SortitionDB {
     pub conn: Connection,
     pub readwrite: bool,
@@ -463,14 +455,6 @@ pub struct SortitionHandleContext {
     pub first_block_height: u64,
     pub chain_tip: SortitionId
 }
-
-#[derive(Clone)]
-pub struct BurnDBTxContext {
-    pub first_block_height: u64,
-}
-
-pub type BurnDBTx<'a> = IndexDBTx<'a, BurnDBTxContext, BurnchainHeaderHash>;
-pub type BurnDBConn<'a> = IndexDBConn<'a, BurnDBTxContext, BurnchainHeaderHash>;
 
 pub type SortitionDBConn<'a> = IndexDBConn<'a, SortitionDBTxContext, SortitionId>;
 pub type SortitionDBTx<'a> = IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
@@ -557,16 +541,15 @@ impl db_keys {
 impl <'a> SortitionHandleTx <'a> {
     /// begin a MARF transaction with this connection
     ///  this is used by _writing_ contexts
-    pub fn begin_stubbed(conn: &'a mut SortitionDB, parent_chain_tip: &BurnchainHeaderHash, chain_tip: &BurnchainHeaderHash) -> Result<SortitionHandleTx<'a>, db_error> {
-        let chain_tip = SortitionId(chain_tip.0.clone());
+    pub fn begin_stubbed(conn: &'a mut SortitionDB, parent_chain_tip: &BurnchainHeaderHash) -> Result<SortitionHandleTx<'a>, db_error> {
         let parent_chain_tip = SortitionId(parent_chain_tip.0.clone());
 
-        SortitionHandleTx::begin(conn, &parent_chain_tip, &chain_tip)
+        SortitionHandleTx::begin(conn, &parent_chain_tip)
     }
 
     /// begin a MARF transaction with this connection
     ///  this is used by _writing_ contexts
-    pub fn begin(conn: &'a mut SortitionDB, parent_chain_tip: &SortitionId, chain_tip: &SortitionId) -> Result<SortitionHandleTx<'a>, db_error> {
+    pub fn begin(conn: &'a mut SortitionDB, parent_chain_tip: &SortitionId) -> Result<SortitionHandleTx<'a>, db_error> {
         if !conn.readwrite {
             return Err(db_error::ReadOnly);
         }
@@ -1099,7 +1082,7 @@ impl SortitionDB {
     }
 
     fn instantiate(&mut self, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> Result<(), db_error> {
-        let mut db_tx = SortitionHandleTx::begin_stubbed(self, &BurnchainHeaderHash::sentinel(), first_burn_header_hash)?;
+        let mut db_tx = SortitionHandleTx::begin_stubbed(self, &BurnchainHeaderHash::sentinel())?;
 
         // create first (sentinel) snapshot
         let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash, first_burn_header_timestamp);
@@ -1213,7 +1196,7 @@ impl <'a> SortitionDBConn <'a> {
             return Err(db_error::Corruption);
         }
 
-        let stable_block_height = cmp::min(burnchain.first_block_height,
+        let stable_block_height = cmp::max(burnchain.first_block_height,
                                            chain_tip.block_height - (burnchain.stable_confirmations as u64));
 
         let db_handle = SortitionHandleConn::open_reader(self, &chain_tip.sortition_id)?;
@@ -1945,7 +1928,7 @@ mod tests {
 
     fn test_append_snapshot(db: &mut SortitionDB, next_hash: BurnchainHeaderHash, block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>) -> BlockSnapshot {
         let mut sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
-        let mut tx = SortitionHandleTx::begin_stubbed(db, &sn.burn_header_hash, &next_hash).unwrap();
+        let mut tx = SortitionHandleTx::begin_stubbed(db, &sn.burn_header_hash).unwrap();
 
         let sn_parent = sn.clone();
         sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -2137,7 +2120,7 @@ mod tests {
         let fork_snapshot = {
             let mut sn = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id).unwrap().unwrap();
             let next_hash = BurnchainHeaderHash([0x13; 32]);
-            let mut tx = SortitionHandleTx::begin_stubbed(&mut db, &sn.burn_header_hash, &next_hash).unwrap();
+            let mut tx = SortitionHandleTx::begin_stubbed(&mut db, &sn.burn_header_hash).unwrap();
 
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -2278,7 +2261,7 @@ mod tests {
                     SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i-1 as u8])
                 };
 
-                let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id, &sortition_id).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id).unwrap();
                 let snapshot_row = BlockSnapshot {
                     block_height: i as u64 +1,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -2350,7 +2333,7 @@ mod tests {
                     SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i-1) as u8])
                 };
 
-                let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id, &sortition_id).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &parent_sortition_id).unwrap();
                 let snapshot_row = BlockSnapshot {
                     block_height: i as u64 +1,
                     burn_header_timestamp: get_epoch_time_secs(),
@@ -2565,7 +2548,7 @@ mod tests {
 
         {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
-            let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id, &snapshot_without_sortition.sortition_id).unwrap();
+            let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
             tx.append_chain_tip_snapshot(&chain_tip, &snapshot_without_sortition, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
@@ -2584,7 +2567,7 @@ mod tests {
 
         {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
-            let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id, &snapshot_without_sortition.sortition_id).unwrap();
+            let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
             tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
@@ -2669,7 +2652,7 @@ mod tests {
             next_snapshot.sortition_id = SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             next_snapshot.consensus_hash = ConsensusHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             
-            let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+            let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
             tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
 
@@ -2712,7 +2695,7 @@ mod tests {
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
-                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
                 let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
 
@@ -2757,7 +2740,7 @@ mod tests {
                 next_snapshot.consensus_hash = ConsensusHash([2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
                 let next_index_root = {
-                    let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+                    let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
                     let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                     tx.commit().unwrap();
                     next_index_root
@@ -2781,7 +2764,7 @@ mod tests {
             next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
 
             let next_index_root = {
-                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &next_snapshot.sortition_id).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
                 let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
                 next_index_root
@@ -2869,7 +2852,7 @@ mod tests {
 
                 // NOTE: we don't care about VRF keys or block commits here
 
-                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id, &snapshot_row.sortition_id).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
 
                 let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
                 last_snapshot = snapshot_row;
@@ -3047,7 +3030,7 @@ mod tests {
                 canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
             };
             {
-                let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id, &snapshot.sortition_id).unwrap();
+                let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
                 let _index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
             }

@@ -561,7 +561,6 @@ mod test {
     use burnchains::BurnchainView;
     use burnchains::BurnchainHeaderHash;
 
-    use chainstate::burn::db::burndb::BurnDB;
     use chainstate::burn::BlockHeaderHash;
     use chainstate::stacks::*;
     use chainstate::stacks::test::*;

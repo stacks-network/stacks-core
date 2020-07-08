@@ -35,7 +35,7 @@ use util::db::DBConn;
 use util::db::DBTx;
 
 use chainstate::burn::db::burndb::{
-    SortitionHandleConn, BurnDBTx
+    SortitionHandleConn
 };
 use chainstate::stacks::index::TrieHash;
 
@@ -519,7 +519,7 @@ mod tests {
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
                 };
-                let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id, &snapshot_row.sortition_id).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
 
                 let next_tip_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
                 snapshot_row.index_root = next_tip_root;
