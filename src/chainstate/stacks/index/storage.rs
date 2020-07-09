@@ -1355,7 +1355,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     }
 
     pub fn drop_unconfirmed_trie(&mut self, bhh: &T) {
-        if self.unconfirmed {
+        if !self.readonly && self.unconfirmed {
             let tx = tx_begin_immediate(&mut self.db)
                 .expect("Corruption: Failed to obtain db transaction");
             trie_sql::drop_unconfirmed_trie(&tx, bhh)
