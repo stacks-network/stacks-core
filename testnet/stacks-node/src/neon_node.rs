@@ -149,9 +149,9 @@ fn inner_process_tenure(
 
     for processed_block in processed_blocks.into_iter() {
         match processed_block {
-            (Some((header, receipts)), _) => {
+            (Some(epoch_receipt), _) => {
                 dispatcher_announce_block(&chain_state.blocks_path, dispatcher,
-                                          header, Some(parent_burn_header_hash), burn_db, receipts);
+                                          epoch_receipt.header, Some(parent_burn_header_hash), burn_db, epoch_receipt.tx_receipts);
             },
             _ => {}
         }
@@ -370,8 +370,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     let mut num_processed = 0;
                     for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
                         // TODO: pass the poison microblock transaction off to the miner!
-                        if let Some((header_info, receipts)) = headers_and_receipts_opt {
-                            dispatcher_announce_block(&blocks_path, &mut event_dispatcher, header_info, None, &mut burndb, receipts);
+                        if let Some(epoch_receipt) = headers_and_receipts_opt {
+                            dispatcher_announce_block(&blocks_path, &mut event_dispatcher, epoch_receipt.header, None, &mut burndb, epoch_receipt.tx_receipts);
                             num_processed += 1;
 
                             increment_stx_blocks_processed_counter();
@@ -390,8 +390,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
 
                     // TODO: extricate the poison block transaction(s) from the relayer and feed
                     // them to the miner
-                    for (stacks_header, tx_receipts) in net_receipts.blocks_processed {
-                        dispatcher_announce_block(&blocks_path, &mut event_dispatcher, stacks_header, None, &mut burndb, tx_receipts);
+                    for epoch_receipt in net_receipts.blocks_processed {
+                        dispatcher_announce_block(&blocks_path, &mut event_dispatcher, epoch_receipt.header, None, &mut burndb, epoch_receipt.tx_receipts);
                     }
 
                     let mempool_txs_added = net_receipts.mempool_txs_added.len();
@@ -777,7 +777,7 @@ impl InitializedNeonNode {
 
                 let coinbase_nonce = {
                     let principal = keychain.origin_address().unwrap().into();
-                    let account = chain_state.with_read_only_clarity_tx(&stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash, |conn| {
+                    let account = chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash), |conn| {
                         StacksChainState::get_account(conn, &principal)
                     });
                     account.nonce
