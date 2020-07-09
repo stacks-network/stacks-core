@@ -145,7 +145,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let canonical_stacks_tip_burn_hash = BurnchainHeaderHash::from_column(row, "canonical_stacks_tip_burn_hash")?;
 
 
-        //
+        // identifiers derived from PoX forking state
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
         let pox_id = PoxIdentifier::from_column(row, "pox_id")?;
 
