@@ -2821,6 +2821,10 @@ impl StacksChainState {
     /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
     /// processed yet.
     /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
+    /// In addition, returns the list of transaction receipts for both the preceeding microblock
+    /// stream that the block confirms, as well as the transaction receipts for the anchored
+    /// block's transactions.  Finally, it returns the execution costs for the microblock stream
+    /// and for the anchored block (separately).
     /// Returns None if we're out of blocks to process.
     fn append_block<'a>(chainstate_tx: &mut ChainstateTx<'a>,
                         clarity_instance: &'a mut ClarityInstance,
@@ -2831,7 +2835,7 @@ impl StacksChainState {
                         microblocks: &Vec<StacksMicroblock>,  // parent microblocks 
                         burnchain_commit_burn: u64, 
                         burnchain_sortition_burn: u64, 
-                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<(StacksHeaderInfo, Vec<StacksTransactionReceipt>), Error>
+                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<(StacksHeaderInfo, Vec<StacksTransactionReceipt>, ExecutionCost, ExecutionCost), Error>
     {
 
         debug!("Process block {:?} with {} transactions", &block.block_hash().to_hex(), block.txs.len());
@@ -2844,7 +2848,7 @@ impl StacksChainState {
             StacksChainState::find_mature_miner_rewards(&mut chainstate_tx.headers_tx, parent_chain_tip, Some(chainstate_tx.miner_payment_cache))?
         };
 
-        let (scheduled_miner_reward, txs_receipts) = {
+        let (scheduled_miner_reward, txs_receipts, microblock_execution_cost, block_execution_cost) = {
             let (parent_burn_header_hash, parent_block_hash) = 
                 if block.is_first_mined() {
                     // has to be the sentinal hashes if this block has no parent
@@ -2889,6 +2893,8 @@ impl StacksChainState {
                     (fees, burns, events)
                 }
             };
+
+            let microblock_cost = clarity_tx.cost_so_far();
             
             test_debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
                         chain_tip_burn_header_hash, block.block_hash(), parent_burn_header_hash, parent_block_hash,
@@ -2906,6 +2912,9 @@ impl StacksChainState {
                 },
                 Ok((block_fees, block_burns, txs_receipts)) => (block_fees, block_burns, txs_receipts)
             };
+
+            let mut block_cost = clarity_tx.cost_so_far();
+            block_cost.sub(&microblock_cost).expect("BUG: microblock cost + block cost < block cost");
 
             // grant matured miner rewards
             if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
@@ -2944,7 +2953,7 @@ impl StacksChainState {
 
             txs_receipts.append(&mut microblock_txs_receipts);
 
-            (scheduled_miner_reward, txs_receipts)
+            (scheduled_miner_reward, txs_receipts, microblock_cost, block_cost)
         };
 
         let microblock_tail_opt = match microblocks.len() {
@@ -2963,7 +2972,7 @@ impl StacksChainState {
                                                     user_burns)
             .expect("FATAL: failed to advance chain tip");
 
-        Ok((new_tip, txs_receipts))
+        Ok((new_tip, txs_receipts, microblock_execution_cost, block_execution_cost))
     }
 
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
@@ -2990,7 +2999,7 @@ impl StacksChainState {
     ///
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
-    fn process_next_staging_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>) -> Result<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>), Error> {
+    fn process_next_staging_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         self.clear_unconfirmed_state();
 
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
@@ -3131,17 +3140,18 @@ impl StacksChainState {
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
-        let (next_chain_tip, receipts) = match StacksChainState::append_block(&mut chainstate_tx, 
-                                                                              clarity_instance, 
-                                                                              &parent_block_header_info, 
-                                                                              &next_staging_block.burn_header_hash, 
-                                                                              next_staging_block.burn_header_timestamp,
-                                                                              &block,
-                                                                              &next_microblocks,
-                                                                              next_staging_block.commit_burn,
-                                                                              next_staging_block.sortition_burn,
-                                                                              &user_supports) {
-            Ok(next_chain_tip) => next_chain_tip,
+        let (next_chain_tip, receipts, microblocks_cost, block_cost) = 
+            match StacksChainState::append_block(&mut chainstate_tx, 
+                                                 clarity_instance, 
+                                                 &parent_block_header_info, 
+                                                 &next_staging_block.burn_header_hash, 
+                                                 next_staging_block.burn_header_timestamp,
+                                                 &block,
+                                                 &next_microblocks,
+                                                 next_staging_block.commit_burn,
+                                                 next_staging_block.sortition_burn,
+                                                 &user_supports) {
+            Ok(next_chain_tip_info) => next_chain_tip_info,
             Err(e) => {
                 // something's wrong with this epoch -- either a microblock was invalid, or the
                 // anchored block was invalid.  Either way, the anchored block will _never be_
@@ -3188,13 +3198,21 @@ impl StacksChainState {
         chainstate_tx.commit()
             .map_err(Error::DBError)?;
 
-        Ok((Some((next_chain_tip, receipts)), None))
+        let epoch_receipt = StacksEpochReceipt {
+            header: next_chain_tip, 
+            tx_receipts: receipts,
+            parent_microblocks_cost: microblocks_cost,
+            anchored_block_cost: block_cost
+        };
+
+        Ok((Some(epoch_receipt), None))
     }
 
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
-    /// found.
-    pub fn process_blocks(&mut self, burndb: &mut BurnDB, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
+    /// found.  For each chain tip produced, return the header info, receipts, parent microblock
+    /// stream execution cost, and block execution cost
+    pub fn process_blocks(&mut self, burndb: &mut BurnDB, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         debug!("Process up to {} blocks", max_blocks);
 
         let mut ret = vec![];
@@ -3319,8 +3337,9 @@ impl StacksChainState {
             },
             _ => false      // unused
         };
-        
-        self.with_read_only_clarity_tx(current_burn, current_block, |conn| {
+       
+        let current_tip = StacksChainState::get_parent_index_block(current_burn, current_block);
+        self.with_read_only_clarity_tx(&current_tip, |conn| {
             StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
         })
     }
