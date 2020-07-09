@@ -582,7 +582,7 @@ impl PeerNetwork {
 
     /// Broadcast a message to a list of neighbors
     pub fn broadcast_message(&mut self, mut neighbor_keys: Vec<NeighborKey>, relay_hints: Vec<RelayData>, message_payload: StacksMessageType) -> () {
-        debug!("{:?}: Will broadcast '{}' to {} neighbors", &self.local_peer, message_payload.get_message_name(), neighbor_keys.len());
+        debug!("{:?}: Will broadcast '{}' to up to {} neighbors", &self.local_peer, message_payload.get_message_name(), neighbor_keys.len());
         for nk in neighbor_keys.drain(..) {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
@@ -599,6 +599,7 @@ impl PeerNetwork {
                 }
             }
         }
+        debug!("{:?}: Done broadcasting '{}", &self.local_peer, message_payload.get_message_name());
     }
 
     /// Count how many outbound conversations are going on 
@@ -1480,7 +1481,7 @@ impl PeerNetwork {
             }
         }
 
-        for event_id in to_remove.drain(0..) {
+        for event_id in to_remove.into_iter() {
             self.deregister_peer(event_id);
         }
     }
@@ -2766,7 +2767,7 @@ impl PeerNetwork {
                poll_timeout: u64, handler_args: &RPCHandlerArgs) -> Result<NetworkResult, net_error> {
         let mut poll_states = match self.network {
             None => {
-                test_debug!("{:?}: network not connected", &self.local_peer);
+                debug!("{:?}: network not connected", &self.local_peer);
                 Err(net_error::NotConnected)
             },
             Some(ref mut network) => {
@@ -2777,6 +2778,7 @@ impl PeerNetwork {
             }
         }?;
 
+        debug!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>> Begin Dispatch >>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
         let p2p_poll_state = poll_states.remove(&self.p2p_network_handle).expect("BUG: no poll state for p2p network handle");
         let http_poll_state = poll_states.remove(&self.http_network_handle).expect("BUG: no poll state for http network handle");
   
@@ -2792,6 +2794,7 @@ impl PeerNetwork {
         
         self.dispatch_network(&mut result, burndb, chainstate, dns_client_opt, download_backpressure, p2p_poll_state)?;
 
+        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(result)
     }
 }
