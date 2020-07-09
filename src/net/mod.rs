@@ -877,6 +877,7 @@ pub struct RPCPeerInfoData {
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_burn_block: String,
+    pub unanchored_tip: StacksBlockId,
     pub exit_at_block_height: Option<u64>,
 }
 
@@ -1017,13 +1018,13 @@ pub enum HttpRequestType {
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
     PostTransaction(HttpRequestMetadata, StacksTransaction),
-    GetAccount(HttpRequestMetadata, PrincipalData, bool),
-    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, bool),
+    GetAccount(HttpRequestMetadata, PrincipalData, Option<StacksBlockId>, bool),
+    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, Option<StacksBlockId>, bool),
     CallReadOnlyFunction(HttpRequestMetadata, StacksAddress, ContractName,
-                         PrincipalData, ClarityName, Vec<Value>),
+                         PrincipalData, ClarityName, Vec<Value>, Option<StacksBlockId>),
     GetTransferCost(HttpRequestMetadata),
-    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, bool),
-    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
+    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, Option<StacksBlockId>, bool),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName, Option<StacksBlockId>),
     OptionsPreflight(HttpRequestMetadata, String),
     Unmatched(HttpRequestMetadata, String),     // catch-all if we can't parse the request
 }
