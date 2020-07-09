@@ -63,6 +63,7 @@ use chainstate::stacks::{
 
 use util::log;
 use util::hash::hex_bytes;
+use util::hash::to_hex;
 use util::retry::RetryReader;
 use util::retry::BoundReader;
 
@@ -1197,6 +1198,7 @@ impl HttpRequestType {
         }
 
         let path = preamble.path.clone();
+        test_debug!("Failed to parse '{}'", &path);
         return Ok(HttpRequestType::Unmatched(HttpRequestMetadata::from_preamble(preamble), path));
     }
 
@@ -1240,6 +1242,28 @@ impl HttpRequestType {
         !no_proof
     }
 
+    /// get the chain tip optional query argument (`tip`)
+    /// Take the first value we can parse.
+    fn get_chain_tip_query(query: Option<&str>) -> Option<StacksBlockId> {
+        match query {
+            Some(query_string) => {
+                for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
+                    if key != "tip" {
+                        continue;
+                    }
+
+                    if let Ok(tip) = StacksBlockId::from_hex(&value) {
+                        return Some(tip);
+                    }
+                }
+                return None;
+            },
+            None => {
+                return None;
+            }
+        }
+    }
+
     fn parse_get_account<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetAccount".to_string()));
@@ -1249,20 +1273,20 @@ impl HttpRequestType {
             .map_err(|_e| net_error::DeserializeError("Failed to parse account principal".into()))?;
 
         let with_proof = HttpRequestType::get_proof_query(query);
+        let tip = HttpRequestType::get_chain_tip_query(query);
 
-        Ok(HttpRequestType::GetAccount(HttpRequestMetadata::from_preamble(preamble), principal, with_proof))
+        Ok(HttpRequestType::GetAccount(HttpRequestMetadata::from_preamble(preamble), principal, tip, with_proof))
     }
 
     fn parse_get_map_entry<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, fd: &mut R) -> Result<HttpRequestType, net_error> {
         let content_len = preamble.get_content_length();
         if !(content_len > 0 && content_len < (BOUND_VALUE_SERIALIZATION_HEX)) {
-            return Err(net_error::DeserializeError("Invalid Http request: invalid body length for GetMapEntry".to_string()));
+            return Err(net_error::DeserializeError(format!("Invalid Http request: invalid body length for GetMapEntry ({})", content_len)));
         }
 
         if preamble.content_type != Some(HttpContentType::JSON) {
             return Err(net_error::DeserializeError("Invalid content-type: expected application/json".into()));
         }
-
 
         let contract_addr =  StacksAddress::from_string(&captures["address"])
             .ok_or_else(|| net_error::DeserializeError("Failed to parse contract address".into()))?;
@@ -1278,14 +1302,15 @@ impl HttpRequestType {
             .map_err(|_e| net_error::DeserializeError("Failed to deserialize key value".into()))?;
 
         let with_proof = HttpRequestType::get_proof_query(query);
+        let tip = HttpRequestType::get_chain_tip_query(query);
 
-        Ok(HttpRequestType::GetMapEntry(HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name, map_name, value, with_proof))
+        Ok(HttpRequestType::GetMapEntry(HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name, map_name, value, tip, with_proof))
     }
 
-    fn parse_call_read_only<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_call_read_only<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, fd: &mut R) -> Result<HttpRequestType, net_error> {
         let content_len = preamble.get_content_length();
         if !(content_len > 0 && content_len < protocol.maximum_call_argument_size) {
-            return Err(net_error::DeserializeError("Invalid Http request: invalid body length for GetMapEntry".to_string()));
+            return Err(net_error::DeserializeError(format!("Invalid Http request: invalid body length for CallReadOnly ({})", content_len)));
         }
 
         if preamble.content_type != Some(HttpContentType::JSON) {
@@ -1310,9 +1335,11 @@ impl HttpRequestType {
             .collect::<Option<Vec<Value>>>()
             .ok_or_else(|| net_error::DeserializeError("Failed to deserialize argument value".into()))?;
 
+        let tip = HttpRequestType::get_chain_tip_query(query);
+
         Ok(HttpRequestType::CallReadOnlyFunction(
             HttpRequestMetadata::from_preamble(preamble),
-            contract_addr, contract_name, sender, func_name, arguments))
+            contract_addr, contract_name, sender, func_name, arguments, tip))
     }
 
     fn parse_get_contract_arguments(preamble: &HttpRequestPreamble, captures: &Captures) -> Result<(HttpRequestMetadata, StacksAddress, ContractName), net_error> {
@@ -1328,15 +1355,17 @@ impl HttpRequestType {
         Ok((HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name))
     }
 
-    fn parse_get_contract_abi<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_get_contract_abi<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        let tip = HttpRequestType::get_chain_tip_query(query);
         HttpRequestType::parse_get_contract_arguments(preamble, captures)
-            .map(|(preamble, addr, name)| HttpRequestType::GetContractABI(preamble, addr, name))
+            .map(|(preamble, addr, name)| HttpRequestType::GetContractABI(preamble, addr, name, tip))
     }
 
     fn parse_get_contract_source<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         let with_proof = HttpRequestType::get_proof_query(query);
+        let tip = HttpRequestType::get_chain_tip_query(query);
         HttpRequestType::parse_get_contract_arguments(preamble, captures)
-            .map(|(preamble, addr, name)| HttpRequestType::GetContractSrc(preamble, addr, name, with_proof))
+            .map(|(preamble, addr, name)| HttpRequestType::GetContractSrc(preamble, addr, name, tip, with_proof))
     }
 
     fn parse_getblock<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1475,6 +1504,18 @@ impl HttpRequestType {
         }
     }
 
+    fn make_query_string(tip_opt: Option<&StacksBlockId>, with_proof: bool) -> String {
+        if let Some(tip) = tip_opt {
+            format!("?tip={}{}", tip, if with_proof { "" } else { "&proof=0" })
+        }
+        else if !with_proof {
+            format!("?proof=0")
+        }
+        else {
+            "".to_string()
+        }
+    }
+
     pub fn request_path(&self) -> String {
         match self {
             HttpRequestType::GetInfo(_md) => "/v2/info".to_string(),
@@ -1484,18 +1525,19 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksConfirmed(_md, block_hash) => format!("/v2/microblocks/confirmed/{}", block_hash.to_hex()),
             HttpRequestType::GetMicroblocksUnconfirmed(_md, block_hash, min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
             HttpRequestType::PostTransaction(_md, _tx) => "/v2/transactions".to_string(),
-            HttpRequestType::GetAccount(_md, principal, _with_proof) => 
-                format!("/v2/accounts/{}", &principal.to_string()[1..]),
-            HttpRequestType::GetMapEntry(_md, contract_addr, contract_name, map_name, _key, _with_proof) =>
-                format!("/v2/map_entry/{}/{}/{}",
-                        contract_addr, contract_name.as_str(), map_name.as_str()),
+            HttpRequestType::GetAccount(_md, principal, tip_opt, with_proof) => 
+                // format!("/v2/accounts/{}{}", &principal.to_string()[1..], HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)),
+                format!("/v2/accounts/{}{}", &principal.to_string(), HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)),
+            HttpRequestType::GetMapEntry(_md, contract_addr, contract_name, map_name, _key, tip_opt, with_proof) =>
+                format!("/v2/map_entry/{}/{}/{}{}",
+                        &contract_addr.to_string(), contract_name.as_str(), map_name.as_str(), HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)),
             HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
-            HttpRequestType::GetContractABI(_, contract_addr, contract_name) =>
-                format!("/v2/contracts/interface/{}/{}", contract_addr, contract_name.as_str()),
-            HttpRequestType::GetContractSrc(_, contract_addr, contract_name, _with_proof) => 
-                format!("/v2/contracts/source/{}/{}", contract_addr, contract_name.as_str()),
-            HttpRequestType::CallReadOnlyFunction(_, contract_addr, contract_name, _, func_name, ..) => {
-                format!("/v2/contracts/call-read/{}/{}/{}", contract_addr, contract_name.as_str(), func_name.as_str())
+            HttpRequestType::GetContractABI(_, contract_addr, contract_name, tip_opt) =>
+                format!("/v2/contracts/interface/{}/{}{}", contract_addr, contract_name.as_str(), HttpRequestType::make_query_string(tip_opt.as_ref(), true)),
+            HttpRequestType::GetContractSrc(_, contract_addr, contract_name, tip_opt, with_proof) => 
+                format!("/v2/contracts/source/{}/{}{}", contract_addr, contract_name.as_str(), HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)),
+            HttpRequestType::CallReadOnlyFunction(_, contract_addr, contract_name, _, func_name, _, tip_opt) => {
+                format!("/v2/contracts/call-read/{}/{}/{}{}", contract_addr, contract_name.as_str(), func_name.as_str(), HttpRequestType::make_query_string(tip_opt.as_ref(), true))
             },
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
             HttpRequestType::Unmatched(_md, path) => path.to_string(),
@@ -1511,6 +1553,33 @@ impl HttpRequestType {
                 HttpRequestPreamble::new_serialized(fd, &md.version, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
                 fd.write_all(&tx_bytes).map_err(net_error::WriteError)?;
             },
+            HttpRequestType::GetMapEntry(md, _contract_addr, _contract_name, _map_name, key, ..) => {
+                let mut request_bytes = vec![];
+                key.serialize_write(&mut request_bytes).map_err(net_error::WriteError)?;
+                let request_json = format!("\"{}\"", to_hex(&request_bytes));
+
+                HttpRequestPreamble::new_serialized(fd, &md.version, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(request_json.as_bytes().len() as u32), Some(&HttpContentType::JSON), empty_headers)?;
+                fd.write_all(&request_json.as_bytes()).map_err(net_error::WriteError)?;
+            },
+            HttpRequestType::CallReadOnlyFunction(md, _contract_addr, _contract_name, sender, _func_name, func_args, ..) => {
+                let mut args = vec![];
+                for arg in func_args.iter() {
+                    let mut arg_bytes = vec![];
+                    arg.serialize_write(&mut arg_bytes).map_err(net_error::WriteError)?;
+                    args.push(to_hex(&arg_bytes));
+                }
+
+                let request_body = CallReadOnlyRequestBody {
+                    sender: sender.to_string(),
+                    arguments: args
+                };
+
+                let mut request_body_bytes = vec![];
+                serde_json::to_writer(&mut request_body_bytes, &request_body).map_err(|e| net_error::SerializeError(format!("Failed to serialize read-only call to JSON: {:?}", &e)))?;
+
+                HttpRequestPreamble::new_serialized(fd, &md.version, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(request_body_bytes.len() as u32), Some(&HttpContentType::JSON), empty_headers)?;
+                fd.write_all(&request_body_bytes).map_err(net_error::WriteError)?;
+            }
             other_type => {
                 let md = other_type.metadata();
                 let request_path = other_type.request_path();
@@ -1677,18 +1746,33 @@ impl HttpResponseType {
         }
 
         // TODO: make this static somehow
-        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 7] = [
+        let RESPONSE_METHODS : &[(&Regex, &dyn Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>)] = &[
             (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
             (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
             (&PATH_GETMICROBLOCKS_INDEXED, &HttpResponseType::parse_microblocks),
             (&PATH_GETMICROBLOCKS_CONFIRMED, &HttpResponseType::parse_microblocks),
             (&PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpResponseType::parse_microblocks_unconfirmed),
-            (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid)
+            (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid),
+            (&PATH_GET_ACCOUNT, &HttpResponseType::parse_get_account),
+            (&PATH_GET_CONTRACT_SRC, &HttpResponseType::parse_get_contract_src),
+            (&PATH_GET_CONTRACT_ABI, &HttpResponseType::parse_get_contract_abi),
+            (&PATH_POST_CALL_READ_ONLY, &HttpResponseType::parse_call_read_only),
+            (&PATH_GET_MAP_ENTRY, &HttpResponseType::parse_get_map_entry),
         ];
+        
+        // use url::Url to parse path and query string
+        //   Url will refuse to parse just a path, so create a dummy URL
+        let local_url = format!("http://local{}", &request_path);
+        let url = Url::parse(&local_url)
+            .map_err(|_e| net_error::DeserializeError("Http request path could not be parsed".to_string()))?;
+
+        let decoded_path = percent_decode_str(url.path())
+            .decode_utf8()
+            .map_err(|_e| net_error::DeserializeError("Http response path could not be parsed as UTF-8".to_string()))?;
 
         for (regex, parser) in RESPONSE_METHODS.iter() {
-            match HttpResponseType::try_parse(protocol, regex, request_version, preamble, &request_path, fd, len_hint, parser) {
+            match HttpResponseType::try_parse(protocol, regex, request_version, preamble, &decoded_path.to_string(), fd, len_hint, parser) {
                 Ok(Some(request)) => {
                     return Ok(request);
                 },
@@ -1702,7 +1786,7 @@ impl HttpResponseType {
             }
         }
 
-        test_debug!("Failed to match request path {} to a handler", &request_path);
+        test_debug!("Failed to match request path '{}' to a handler", &request_path);
         return Err(net_error::DeserializeError("Http response could not be parsed".to_string()));
     }
 
@@ -1724,6 +1808,31 @@ impl HttpResponseType {
     fn parse_microblocks<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let microblocks : Vec<StacksMicroblock> = HttpResponseType::parse_bytestream(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(request_version, preamble), microblocks))
+    }
+    
+    fn parse_get_account<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        let account_entry = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetAccount(HttpResponseMetadata::from_preamble(request_version, preamble), account_entry))
+    }
+
+    fn parse_get_map_entry<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        let map_entry = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetMapEntry(HttpResponseMetadata::from_preamble(request_version, preamble), map_entry))
+    }
+
+    fn parse_get_contract_src<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        let src_data = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetContractSrc(HttpResponseMetadata::from_preamble(request_version, preamble), src_data))
+    }
+
+    fn parse_get_contract_abi<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        let abi = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetContractABI(HttpResponseMetadata::from_preamble(request_version, preamble), abi))
+    }
+
+    fn parse_call_read_only<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        let call_data = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::CallReadOnlyFunction(HttpResponseMetadata::from_preamble(request_version, preamble), call_data))
     }
 
     fn parse_microblocks_unconfirmed<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
@@ -3629,6 +3738,28 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_http_parse_proof_tip_query() {
+        let query_txt = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392";
+        assert_eq!(HttpRequestType::get_chain_tip_query(Some(query_txt)).unwrap(), StacksBlockId::from_hex("7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392").unwrap());
+        
+        // first parseable tip is taken
+        let query_txt_dup = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
+        assert_eq!(HttpRequestType::get_chain_tip_query(Some(query_txt_dup)).unwrap(), StacksBlockId::from_hex("7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392").unwrap());
+        
+        // first parseable tip is taken
+        let query_txt_dup = "tip=bad&tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
+        assert_eq!(HttpRequestType::get_chain_tip_query(Some(query_txt_dup)).unwrap(), StacksBlockId::from_hex("7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392").unwrap());
+        
+        // tip can be skipped
+        let query_txt_bad = "tip=bad";
+        assert_eq!(HttpRequestType::get_chain_tip_query(Some(query_txt_bad)), None);
+        
+        // tip can be skipped
+        let query_txt_none = "tip=bad";
+        assert_eq!(HttpRequestType::get_chain_tip_query(Some(query_txt_none)), None);
     }
 
     #[test]
