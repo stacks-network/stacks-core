@@ -308,16 +308,6 @@ impl MarfedKV {
     pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
         format!("clarity-contract::{}", contract)
     }
-
-    fn reopen_tip(&mut self) -> Result<()> {
-        self.marf.open_block(&self.chain_tip)
-            .map_err(|e| {
-                match e {
-                    MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(self.chain_tip.0.clone())).into(),
-                    _ => panic!("ERROR: Unexpected MARF failure: {}", e)
-                }
-            })
-    }
 }
 
 impl ClarityBackingStore for MarfedKV {
@@ -347,7 +337,6 @@ impl ClarityBackingStore for MarfedKV {
     }
 
     fn get_block_at_height(&mut self, block_height: u32) -> Option<StacksBlockId> {
-        self.reopen_tip().ok()?;
         self.marf.get_bhh_at_height(&self.chain_tip, block_height)
             .expect("Unexpected MARF failure.")
             .map(|x| StacksBlockId(x.to_bytes()))
@@ -367,7 +356,6 @@ impl ClarityBackingStore for MarfedKV {
     }
 
     fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
-        self.reopen_tip().ok()?;
         self.marf.get_with_proof(&self.chain_tip, key)
             .or_else(|e| {
                 match e {
@@ -387,7 +375,6 @@ impl ClarityBackingStore for MarfedKV {
 
     fn get(&mut self, key: &str) -> Option<String> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
-        self.reopen_tip().ok()?;
         self.marf.get(&self.chain_tip, key)
             .or_else(|e| {
                 match e {
@@ -409,12 +396,10 @@ impl ClarityBackingStore for MarfedKV {
     }
 
     fn put_all(&mut self, mut items: Vec<(String, String)>) {
-        self.reopen_tip().expect(&format!("Failed to reopen tip {:?}", &self.chain_tip));
-        
         let mut keys = Vec::new();
         let mut values = Vec::new();
         for (key, value) in items.drain(..) {
-            test_debug!("Put '{}' = '{}'", &key, &value);
+            trace!("MarfedKV put '{}' = '{}'", &key, &value);
             let marf_value = MARFValue::from_value(&value);
             self.side_store.put(&marf_value.to_hex(), &value);
             keys.push(key);
