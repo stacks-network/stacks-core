@@ -28,11 +28,11 @@ use util::db::{
     FromRow, FromColumn, Error as DBError
 };
 
-pub struct BurnchainDb {
+pub struct BurnchainDB {
     conn: Connection
 }
 
-struct BurnchainDbTransaction<'a> {
+struct BurnchainDBTransaction<'a> {
     sql_tx: Transaction<'a>
 }
 
@@ -104,7 +104,7 @@ CREATE TABLE burnchain_db_block_ops (
 );
 ";
 
-impl <'a> BurnchainDbTransaction <'a> {
+impl <'a> BurnchainDBTransaction <'a> {
     fn store_burnchain_db_entry(&self, header: &BurnchainBlockHeader) -> Result<i64, BurnchainError> {
         let sql = "INSERT INTO burnchain_db_block_headers
                    (block_height, block_hash, parent_block_hash, num_txs, timestamp)
@@ -140,9 +140,9 @@ impl <'a> BurnchainDbTransaction <'a> {
     }
 }
 
-impl BurnchainDb {
+impl BurnchainDB {
     pub fn connect(path: &str, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash,
-                   first_burn_header_timestamp: u64, readwrite: bool) -> Result<BurnchainDb, BurnchainError> {
+                   first_burn_header_timestamp: u64, readwrite: bool) -> Result<BurnchainDB, BurnchainError> {
         let mut create_flag = false;
         let open_flags = match fs::metadata(path) {
             Err(e) => {
@@ -169,13 +169,13 @@ impl BurnchainDb {
             }
         };
 
-        let mut db = BurnchainDb {
+        let mut db = BurnchainDB {
             conn: Connection::open_with_flags(path, open_flags)
                 .expect(&format!("FAILED to open: {}", path))
         };
 
         if create_flag {
-            let db_tx = db.start_transaction()?;
+            let db_tx = db.tx_begin()?;
             db_tx.sql_tx.execute_batch(BURNCHAIN_DB_SCHEMA)?;
 
             let first_block_header = BurnchainBlockHeader {
@@ -194,7 +194,7 @@ impl BurnchainDb {
         Ok(db)
     }
 
-    pub fn open(path: &str, readwrite: bool) -> Result<BurnchainDb, BurnchainError> {
+    pub fn open(path: &str, readwrite: bool) -> Result<BurnchainDB, BurnchainError> {
         let open_flags = if readwrite {
             OpenFlags::SQLITE_OPEN_READ_WRITE
         } else {
@@ -202,11 +202,11 @@ impl BurnchainDb {
         };
         let conn = Connection::open_with_flags(path, open_flags)?;
 
-        Ok(BurnchainDb { conn })
+        Ok(BurnchainDB { conn })
     }
 
-    fn start_transaction<'a>(&'a mut self) -> Result<BurnchainDbTransaction<'a>, BurnchainError> {
-        Ok(BurnchainDbTransaction { sql_tx: self.conn.transaction()? })
+    fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
+        Ok(BurnchainDBTransaction { sql_tx: self.conn.transaction()? })
     }
 
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
@@ -235,10 +235,10 @@ impl BurnchainDb {
 
     pub fn store_new_burnchain_block(&mut self, block: &BurnchainBlock) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
-        let mut blockstack_ops = BurnchainDb::get_blockstack_transactions(block, &header);
+        let mut blockstack_ops = BurnchainDB::get_blockstack_transactions(block, &header);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
-        let db_tx = self.start_transaction()?;
+        let db_tx = self.tx_begin()?;
 
         db_tx.store_burnchain_db_entry(&header)?;
         db_tx.store_blockstack_ops(&header.block_hash, &blockstack_ops)?;
@@ -273,7 +273,7 @@ mod tests {
         let first_timestamp = 321;
         let first_height = 1;
 
-        let mut burnchain_db = BurnchainDb::connect(":memory:", first_height, &first_bhh, first_timestamp, true).unwrap();
+        let mut burnchain_db = BurnchainDB::connect(":memory:", first_height, &first_bhh, first_timestamp, true).unwrap();
 
         let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&first_block_header.block_hash, &first_bhh);

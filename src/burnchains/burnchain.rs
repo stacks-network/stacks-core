@@ -44,7 +44,7 @@ use burnchains::{
 
 use burnchains::Error as burnchain_error;
 use burnchains::db::{
-    BurnchainDb
+    BurnchainDB
 };
 
 use burnchains::indexer::{BurnchainIndexer, BurnchainBlockParser, BurnchainBlockDownloader, BurnBlockIPC};
@@ -409,7 +409,7 @@ impl Burnchain {
         db_path
     }
 
-    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(SortitionDB, BurnchainDb), burnchain_error> {
+    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
         let first_block_height = indexer.get_first_block_height();
@@ -421,13 +421,13 @@ impl Burnchain {
 
         let sortitiondb = SortitionDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
 
-        let burnchaindb = BurnchainDb::connect(&burnchain_db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
+        let burnchaindb = BurnchainDB::connect(&burnchain_db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
 
         Ok((sortitiondb, burnchaindb))
     }
 
     /// Open the burn database.  It must already exist.
-    pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDb), burnchain_error> {
+    pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
 
@@ -442,7 +442,7 @@ impl Burnchain {
         }
 
         let sortition_db = SortitionDB::open(&db_path, readwrite)?;
-        let burnchain_db = BurnchainDb::open(&burnchain_db_path, readwrite)?;
+        let burnchain_db = BurnchainDB::open(&burnchain_db_path, readwrite)?;
 
         Ok((sortition_db, burnchain_db))
     }
@@ -586,7 +586,7 @@ impl Burnchain {
     }
 
     /// Top-level entry point to check and process a block.
-    pub fn process_block(db: &mut SortitionDB, burnchain_db: &mut BurnchainDb, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
+    pub fn process_block(db: &mut SortitionDB, burnchain_db: &mut BurnchainDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
         let header = block.header();
