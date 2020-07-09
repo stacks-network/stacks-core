@@ -197,7 +197,7 @@ fn microblock_integration_test() {
 
     conf.events_observers.push(
         EventObserverConfig {
-            endpoint: format!("http://localhost:{}/", test_observer::EVENT_OBSERVER_PORT),
+            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![ EventKeyType::AnyEvent ],
         });
 

@@ -32,7 +32,15 @@ pub use self::run_loop::{neon, helium};
 use pico_args::Arguments;
 use std::env;
 
+use std::panic;
+use std::process;
+
 fn main() {
+
+    panic::set_hook(Box::new(|_| {
+        eprintln!("Process abort due to thread panic");
+        process::exit(1);
+    }));
 
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();

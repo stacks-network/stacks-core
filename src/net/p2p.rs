@@ -2765,20 +2765,19 @@ impl PeerNetwork {
     pub fn run(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
                dns_client_opt: Option<&mut DNSClient>, download_backpressure: bool,
                poll_timeout: u64, handler_args: &RPCHandlerArgs) -> Result<NetworkResult, net_error> {
+        
+        debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
             None => {
                 debug!("{:?}: network not connected", &self.local_peer);
                 Err(net_error::NotConnected)
             },
             Some(ref mut network) => {
-                debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Poll {}ms >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
                 let poll_result = network.poll(poll_timeout);
-                debug!("<<<<<<<<<<<<<<<<<<<<<<<<<< End Poll <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
                 poll_result
             }
         }?;
 
-        debug!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>> Begin Dispatch >>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
         let p2p_poll_state = poll_states.remove(&self.p2p_network_handle).expect("BUG: no poll state for p2p network handle");
         let http_poll_state = poll_states.remove(&self.http_network_handle).expect("BUG: no poll state for http network handle");
   
@@ -2794,7 +2793,7 @@ impl PeerNetwork {
         
         self.dispatch_network(&mut result, burndb, chainstate, dns_client_opt, download_backpressure, p2p_poll_state)?;
 
-        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(result)
     }
 }

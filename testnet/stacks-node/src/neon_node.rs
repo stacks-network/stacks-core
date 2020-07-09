@@ -52,6 +52,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::monitoring::{
     increment_stx_blocks_mined_counter,
     increment_stx_blocks_processed_counter,
+    update_active_miners_count_gauge,
 };
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
@@ -256,22 +257,27 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
         let handler_args = RPCHandlerArgs { exit_at_block_height: exit_at_block_height.as_ref(),
                                             .. RPCHandlerArgs::default() };
 
-        loop {
+        let mut disconnected = false;
+        while !disconnected {
             let download_backpressure = results_with_data.len() > 0;
             let poll_ms = 
                 if !download_backpressure && this.has_more_downloads() {
                     // keep getting those blocks -- drive the downloader state-machine
-                    debug!("backpressure: {}, more downloads: {}", download_backpressure, this.has_more_downloads());
+                    debug!("P2P: backpressure: {}, more downloads: {}", download_backpressure, this.has_more_downloads());
                     100
                 }
                 else {
                     poll_timeout
                 };
 
-            let network_result = this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
-                                          download_backpressure, poll_ms,
-                                          &handler_args)
-                .unwrap();
+            let network_result = match this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
+                                                 download_backpressure, poll_ms, &handler_args) {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("P2P: Failed to process network dispatch: {:?}", &e);
+                    panic!();
+                }
+            };
 
             if network_result.has_data_to_store() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
@@ -280,7 +286,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             while let Some(next_result) = results_with_data.pop_front() {
                 // have blocks, microblocks, and/or transactions (don't care about anything else),
                 if let Err(e) = relay_channel.try_send(next_result) {
-                    debug!("{:?}: download backpressure detected", &this.local_peer);
+                    debug!("P2P: {:?}: download backpressure detected", &this.local_peer);
                     match e {
                         TrySendError::Full(directive) => {
                             // don't lose this data -- just try it again
@@ -288,13 +294,18 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                             break;
                         },
                         TrySendError::Disconnected(_) => {
-                            info!("Relayer hang up with p2p channel");
+                            info!("P2P: Relayer hang up with p2p channel");
+                            disconnected = true;
                             break;
                         }
                     }
                 }
+                else {
+                    debug!("P2P: Dispatched result to Relayer!");
+                }
             }
         }
+        debug!("P2P thread exit!");
     });
 
     let _jh = thread::spawn(move || {
@@ -352,6 +363,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
             block_on_recv = false;
             match directive {
                 RelayerDirective::TryProcessAttachable => {
+                    debug!("Relayer: Try process attacheable blocks");
+
                     // process any attachable blocks
                     let block_receipts = chainstate.process_blocks(&mut burndb, 1).expect("BUG: failure processing chainstate");
                     let mut num_processed = 0;
@@ -370,6 +383,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
+                    debug!("Relayer: Handle network result");
                     let net_receipts = relayer.process_network_result(&local_peer, net_result,
                                                                         &mut burndb, &mut chainstate, &mut mem_pool)
                         .expect("BUG: failure processing network results");
@@ -386,6 +400,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::ProcessTenure(burn_header_hash, parent_burn_header_hash, block_header_hash) => {
+                    debug!("Relayer: Process tenure");
                     if let Some(my_mined) = last_mined_block.take() {
                         let AssembledAnchorBlock {
                             parent_block_burn_hash,
@@ -463,17 +478,20 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
+                    debug!("Relayer: Run tenure");
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
                         registered_key, &mut chainstate, &burndb, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller);
                     bump_processed_counter(&blocks_processed);
                 },
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
+                    debug!("Relayer: Register key");
                     rotate_vrf_and_register(&mut keychain, last_burn_block, &mut bitcoin_controller);
                     bump_processed_counter(&blocks_processed);
                 }
             }
         }
+        debug!("Relayer exit!");
     });
 
     Ok(())
@@ -829,6 +847,8 @@ impl InitializedNeonNode {
 
         let block_commits = BurnDB::get_block_commits_by_block(&ic, block_height, burn_hash)
             .expect("Unexpected BurnDB error fetching block commits");
+
+        update_active_miners_count_gauge(block_commits.len() as i64);
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!("Received burnchain block #{} including block_commit_op (winning) - {}", block_height, op.input.to_testnet_address());
