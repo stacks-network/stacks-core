@@ -124,7 +124,7 @@ pub struct StacksChainState {
     cached_header_hashes: BlockHeaderCache,
     cached_miner_payments: MinerPaymentCache,
     pub block_limit: ExecutionCost,
-    unconfirmed_state: Option<UnconfirmedState>,
+    pub unconfirmed_state: Option<UnconfirmedState>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -161,6 +161,14 @@ pub struct StacksHeaderInfo {
     pub index_root: TrieHash,
     pub burn_header_hash: BurnchainHeaderHash,
     pub burn_header_timestamp: u64
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksEpochReceipt {
+    pub header: StacksHeaderInfo, 
+    pub tx_receipts: Vec<StacksTransactionReceipt>,
+    pub parent_microblocks_cost: ExecutionCost,
+    pub anchored_block_cost: ExecutionCost
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -916,19 +924,20 @@ impl StacksChainState {
                                                  parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
     
-    fn begin_read_only_clarity_tx<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> ClarityReadOnlyConnection<'a> {
-        let index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);
+    fn begin_read_only_clarity_tx<'a>(&'a mut self, index_block: &StacksBlockId) -> ClarityReadOnlyConnection<'a> {
         self.clarity_state.read_only_connection(&index_block, &self.headers_db)
     }
-
-    pub fn with_read_only_clarity_tx<F, R>(&mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, to_do: F) -> R
+    
+    /// Run to_do on the state of the Clarity VM at the given chain tip
+    pub fn with_read_only_clarity_tx<F, R>(&mut self, parent_tip: &StacksBlockId, to_do: F) -> R
     where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
-        let mut conn = self.begin_read_only_clarity_tx(parent_burn_hash, parent_block);
+        let mut conn = self.begin_read_only_clarity_tx(parent_tip);
         let result = to_do(&mut conn);
         conn.done();
         result
     }
 
+    /// Run to_do on the unconfirmed Clarity VM state
     pub fn with_read_only_unconfirmed_clarity_tx<F, R>(&mut self, to_do: F) -> Option<R>
     where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
         let mut unconfirmed_state_opt = self.unconfirmed_state.take();
@@ -946,10 +955,30 @@ impl StacksChainState {
         res
     }
 
+    /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the unconfirmed state;
+    /// otherwise run to_do on the confirmed state of the Clarity VM.  If the tip doesn't exist,
+    /// then return None.
+    pub fn maybe_read_only_clarity_tx<F, R>(&mut self, parent_tip: &StacksBlockId, to_do: F) -> R
+    where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
+        let unconfirmed =
+            if let Some(ref unconfirmed_state) = self.unconfirmed_state {
+                *parent_tip == unconfirmed_state.unconfirmed_chain_tip
+            }
+            else {
+                false
+            };
+
+        if unconfirmed {
+            self.with_read_only_unconfirmed_clarity_tx(to_do).expect("BUG: both have and do not have unconfirmed chain state")
+        }
+        else {
+            self.with_read_only_clarity_tx(parent_tip, to_do)
+        }
+    }
+
     fn get_parent_index_block(parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> StacksBlockId {
         if *parent_block == BOOT_BLOCK_HASH {
             // begin boot block
-            test_debug!("Begin processing boot block");
             TrieFileStorage::block_sentinel()
         }
         else if *parent_block == FIRST_STACKS_BLOCK_HASH {
