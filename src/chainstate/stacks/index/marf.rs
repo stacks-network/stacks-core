@@ -855,14 +855,18 @@ impl <T: MarfTrieId> MARF <T> {
         if !self.storage.readonly {
             self.storage.drop_extending_trie();
             self.open_chain_tip = None;
+            self.storage.open_block(&TrieFileStorage::block_sentinel())
+                .expect("BUG: should never fail to open the block sentinel");
         }
     }
 
     /// Drop the current trie from the MARF, and roll back all unconfirmed state
     pub fn drop_unconfirmed(&mut self) {
-        if !self.storage.readonly {
+        if !self.storage.readonly && self.storage.unconfirmed {
             if let Some(tip) = self.open_chain_tip.take() {
                 self.storage.drop_unconfirmed_trie(&tip.block_hash);
+                self.storage.open_block(&TrieFileStorage::block_sentinel())
+                    .expect("BUG: should never fail to open the block sentinel");
             }
         }
     }
