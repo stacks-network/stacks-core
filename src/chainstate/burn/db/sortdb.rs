@@ -1275,7 +1275,7 @@ impl PoxDB {
     }
     /// does the given pox identifier describe a child fork of the parent pox identifier? this returns true if they
     ///   are equal or child is a descendant.
-    pub fn is_pox_id_a_child(&self, parent: &PoxId, child: &PoxId) -> bool {
+    pub fn is_pox_id_descendant(&self, parent: &PoxId, child: &PoxId) -> bool {
         return parent == child || self.get_parent_pox_id(child).as_ref() == Ok(parent)
     }
     pub fn stubbed() -> PoxDB {
@@ -1303,7 +1303,7 @@ impl SortitionDB {
             .map_err(|_e| BurnchainError::MissingParentBlock)?;
         let parent_sort_id = SortitionId::new(&burn_header.parent_block_hash, &parent_pox);
 
-        if !pox_db.is_pox_id_a_child(&parent_pox, pox_id) {
+        if !pox_db.is_pox_id_descendant(&parent_pox, pox_id) {
             return Err(BurnchainError::NonCanonicalPoxId(parent_pox, pox_id.clone()));
         }
 
