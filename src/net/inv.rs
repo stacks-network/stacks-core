@@ -1866,7 +1866,7 @@ mod test {
         peer_2.dump_frontier();
 
         let peer_2_inv = peer_1.network.inv_state.as_ref().unwrap().block_stats.get(&peer_2.to_neighbor().addr).unwrap().inv.clone();
-        test_debug!("peer 1's view of peer 2: {:?}", &peer_2_inv);
+        info!("peer 1's view of peer 2: {:?}", &peer_2_inv);
 
         // peer 1 should have learned no more than its highest number of sortitions
         assert_eq!(peer_2_inv.num_sortitions, first_stacks_block_height - peer_1.config.burnchain.first_block_height);
@@ -1877,7 +1877,7 @@ mod test {
 
         // peer 2 should have learned no more than peer 1's highest number of sortitions
         let peer_1_inv = peer_2.network.inv_state.as_ref().unwrap().block_stats.get(&peer_1.to_neighbor().addr).unwrap().inv.clone();
-        test_debug!("peer 2's view of peer 1: {:?}", &peer_1_inv);
+        info!("peer 2's view of peer 1: {:?}", &peer_1_inv);
 
         assert_eq!(peer_1_inv.num_sortitions, first_stacks_block_height - peer_1.config.burnchain.first_block_height);
     }
