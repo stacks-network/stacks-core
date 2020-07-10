@@ -154,6 +154,7 @@ pub enum MemPoolRejection {
     FailedToValidate(Error),
     FeeTooLow(u64, u64),
     BadNonces(TransactionNonceMismatch),
+    IgnoreBadNonces(TransactionNonceMismatch),
     NotEnoughFunds(u128, u128),
     NoSuchContract,
     NoSuchPublicFunction,
@@ -190,6 +191,14 @@ impl MemPoolRejection {
             BadNonces(TransactionNonceMismatch {
                 expected, actual, principal, is_origin, .. }) =>
                 ("BadNonce",
+                 Some(json!({
+                     "expected": expected,
+                     "actual": actual,
+                     "principal": principal.to_string(),
+                     "is_origin": is_origin}))),
+            IgnoreBadNonces(TransactionNonceMismatch {
+                expected, actual, principal, is_origin, .. }) =>
+                ("IgnoreBadNonces",
                  Some(json!({
                      "expected": expected,
                      "actual": actual,
@@ -2641,7 +2650,8 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for tx in microblock.txs.iter() {
-                let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)
+                // TODO(psq): not quiet in this case???
+                let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx, true)
                     .map_err(|e| (e, microblock.block_hash()))?;
 
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
@@ -2659,7 +2669,8 @@ impl StacksChainState {
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
-            let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)?;
+            // TODO(psq): not quiet in this case
+            let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx, true)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
             burns = burns.checked_add(tx_receipt.stx_burned as u128).expect("Burns overflow");
             receipts.push(tx_receipt);
@@ -3296,7 +3307,7 @@ impl StacksChainState {
         }
 
         // 4: the account nonces must be correct
-        let (origin, payer) = match StacksChainState::check_transaction_nonces(clarity_connection, &tx) {
+        let (origin, payer) = match StacksChainState::check_transaction_nonces(clarity_connection, &tx, true) {
             Ok(x) => x,
             Err((mut e, (origin, payer))) => {
                 // let's see if the tx has matching nonce in the mempool

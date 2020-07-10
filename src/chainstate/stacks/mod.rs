@@ -133,6 +133,7 @@ impl AddressHashMode {
 #[derive(Debug)]
 pub enum Error {
     InvalidFee,
+    IgnoreStacksTransaction(String),
     InvalidStacksBlock(String),
     InvalidStacksMicroblock(String, BlockHeaderHash),
     InvalidStacksTransaction(String),
@@ -158,6 +159,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::InvalidFee => write!(f, "Invalid fee"),
+            Error::IgnoreStacksTransaction(ref s) => fmt::Display::fmt(s, f),
             Error::InvalidStacksBlock(ref s) => fmt::Display::fmt(s, f),
             Error::InvalidStacksMicroblock(ref s, _) => fmt::Display::fmt(s, f),
             Error::InvalidStacksTransaction(ref s) => fmt::Display::fmt(s, f),
@@ -185,6 +187,7 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::InvalidFee => None,
+            Error::IgnoreStacksTransaction(ref _s) => None,
             Error::InvalidStacksBlock(ref _s) => None,
             Error::InvalidStacksMicroblock(ref _s, ref _h) => None,
             Error::InvalidStacksTransaction(ref _s) => None,
