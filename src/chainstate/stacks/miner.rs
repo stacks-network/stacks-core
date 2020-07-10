@@ -4009,7 +4009,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), 100000000));
         }
 
-        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_too_expensive_transactions", 2012, 2013);
+        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_too_expensive_transactions", 2013, 2014);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
