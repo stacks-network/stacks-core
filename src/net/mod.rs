@@ -1490,8 +1490,8 @@ pub mod test {
 
     use chainstate::burn::*;
     use chainstate::burn::operations::*;
-    use chainstate::burn::db::burndb;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb;
+    use chainstate::burn::db::sortdb::*;
     use chainstate::*;
     use chainstate::stacks::miner::*;
     use chainstate::stacks::miner::test::*;
@@ -1823,7 +1823,7 @@ pub mod test {
     pub struct TestPeer {
         pub config: TestPeerConfig,
         pub network: PeerNetwork,
-        pub burndb: Option<BurnDB>,
+        pub sortdb: Option<SortitionDB>,
         pub miner: TestMiner,
         pub stacks_node: Option<TestStacksNode>,
         pub relayer: Relayer,
@@ -1846,7 +1846,7 @@ pub mod test {
             let mut miner_factory = TestMinerFactory::new();
             let mut miner = miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
 
-            let burndb_path = format!("{}/burn", &test_path);
+            let sortdb_path = format!("{}/burn", &test_path);
             let peerdb_path = format!("{}/peers.db", &test_path);
             let chainstate_path = format!("{}/chainstate", &test_path);
 
@@ -1854,28 +1854,25 @@ pub mod test {
                                              PeerAddress::from_ipv4(127,0,0,1), NETWORK_P2P_PORT, config.data_url.clone(), 
                                              &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
 
-            let mut burndb = BurnDB::connect(&burndb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
+            let mut sortdb = SortitionDB::connect(&sortdb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
             let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}, ExecutionCost::max_value()).unwrap();
             
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
             {
-                let prev_snapshot = {
-                    let ic = burndb.index_conn();
-                    BurnDB::get_first_block_snapshot(&ic).unwrap()
-                };
+                let prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
 
                 let mut fork = TestBurnchainFork::new(prev_snapshot.block_height, &prev_snapshot.burn_header_hash, &prev_snapshot.index_root, 0);
                 for i in prev_snapshot.block_height..config.current_block {
                     let burn_block = {
-                        let ic = burndb.index_conn();
+                        let ic = sortdb.index_conn();
                         let mut burn_block = fork.next_block(&ic);
                         stacks_node.add_key_register(&mut burn_block, &mut miner);
                         burn_block
                     };
                     fork.append_block(burn_block);
                     
-                    fork.mine_pending_blocks(&mut burndb, &config.burnchain);
+                    fork.mine_pending_blocks(&mut sortdb, &config.burnchain);
                 }
             }
 
@@ -1893,8 +1890,9 @@ pub mod test {
            
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
-                let ic = burndb.index_conn();
-                BurnDB::get_burnchain_view(&ic, &config.burnchain).unwrap()
+                let ic = sortdb.index_conn();
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                ic.get_burnchain_view(&config.burnchain, &chaintip).unwrap()
             };
             let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.peer_version, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
 
@@ -1905,7 +1903,7 @@ pub mod test {
             TestPeer {
                 config: config,
                 network: peer_network,
-                burndb: Some(burndb),
+                sortdb: Some(sortdb),
                 miner: miner,
                 stacks_node: Some(stacks_node),
                 relayer: relayer,
@@ -1916,12 +1914,13 @@ pub mod test {
 
         pub fn connect_initial(&mut self) -> Result<(), net_error> {
             let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
-            let chain_view = match self.burndb {
-                Some(ref mut burndb) => {
-                    let ic = burndb.index_conn();
-                    BurnDB::get_burnchain_view(&ic, &self.config.burnchain).unwrap()
+            let chain_view = match self.sortdb {
+                Some(ref mut sortdb) => {
+                    let ic = sortdb.index_conn();
+                    let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                    ic.get_burnchain_view(&self.config.burnchain, &chaintip).unwrap()
                 }
-                None => panic!("Misconfigured peer: no burndb")
+                None => panic!("Misconfigured peer: no sortdb")
             };
 
             self.network.local_peer = local_peer;
@@ -1935,13 +1934,13 @@ pub mod test {
         }
 
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
-            let mut burndb = self.burndb.take().unwrap();
+            let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, false, 10, &RPCHandlerArgs::default());
+            let ret = self.network.run(&mut sortdb, &mut stacks_node.chainstate, &mut mempool, None, false, 10, &RPCHandlerArgs::default());
 
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
 
@@ -1949,13 +1948,13 @@ pub mod test {
         }
         
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {
-            let mut burndb = self.burndb.take().unwrap();
+            let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10, &RPCHandlerArgs::default());
+            let ret = self.network.run(&mut sortdb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), false, 10, &RPCHandlerArgs::default());
 
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
 
@@ -1998,22 +1997,21 @@ pub mod test {
 
         fn make_empty_burnchain_block(&mut self) -> BurnchainBlock {
             let empty_block = {
-                let burndb = self.burndb.take().unwrap();
-                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
+                let sortdb = self.sortdb.take().unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
                 let empty_block = self.empty_burnchain_block(sn.block_height);
-                self.burndb = Some(burndb);
+                self.sortdb = Some(sortdb);
                 empty_block
             };
             empty_block
         }
 
         pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> u64 {
-            let mut burndb = self.burndb.take().unwrap();
+            let mut sortdb = self.sortdb.take().unwrap();
             let block_height = {
-                let mut tx = burndb.tx_begin().unwrap();
-                let tip = BurnDB::get_canonical_burn_chain_tip(&tx.as_conn()).unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn()).unwrap();
                 let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345), blockstack_ops.len() as u64);
-
+                let mut tx = SortitionHandleTx::begin(&mut sortdb, &tip.sortition_id).unwrap();
                 for op in blockstack_ops.iter_mut() {
                     match op {
                         BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
@@ -2029,22 +2027,22 @@ pub mod test {
                         }
                     }
                 }
-                        
-                Burnchain::process_block_txs(&mut tx, &tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
+
+                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
                 tx.commit().unwrap();
                 block_header.block_height
             };
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             block_height
         }
 
         pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
-            let burndb = self.burndb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
-                let ic = burndb.index_conn();
-                let tip = BurnDB::get_canonical_burn_chain_tip(&ic).unwrap();
-                let sn_opt = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap();
+                let ic = sortdb.index_conn();
+                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap();
                 if sn_opt.is_none() {
                     return Err(format!("No such block in canonical burn fork: {}", &block.block_hash()));
                 }
@@ -2052,20 +2050,20 @@ pub mod test {
                 node.chainstate.preprocess_anchored_block(&ic, &sn.burn_header_hash, sn.burn_header_timestamp, block, &sn.parent_burn_header_hash)
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
             res
         }
         
         pub fn preprocess_stacks_microblocks(&mut self, microblocks: &Vec<StacksMicroblock>) -> Result<bool, String> {
             assert!(microblocks.len() > 0);
-            let burndb = self.burndb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
-                let ic = burndb.index_conn();
-                let tip = BurnDB::get_canonical_burn_chain_tip(&ic).unwrap();
+                let ic = sortdb.index_conn();
+                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
                 let anchor_block_hash = microblocks[0].header.prev_block.clone();
-                let sn_opt = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &anchor_block_hash).unwrap();
+                let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &anchor_block_hash).unwrap();
                 if sn_opt.is_none() {
                     return Err(format!("No such anchor block in canonical burn fork: {:?}", anchor_block_hash));
                 }
@@ -2082,22 +2080,22 @@ pub mod test {
                 res
             };
             
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
             res
         }
 
         pub fn process_stacks_epoch_at_tip(&mut self, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> () {
-            let mut burndb = self.burndb.take().unwrap();
+            let mut sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
-                let ic = burndb.index_conn();
-                let tip = BurnDB::get_canonical_burn_chain_tip(&ic).unwrap();
+                let ic = sortdb.index_conn();
+                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
                 node.chainstate.preprocess_stacks_epoch(&ic, &tip, block, microblocks).unwrap();
             }
     
             loop {
-                let processed = node.chainstate.process_blocks(&mut burndb, 1).unwrap();
+                let processed = node.chainstate.process_blocks(&mut sortdb, 1).unwrap();
                 if processed.len() == 0 {
                     break;
                 }
@@ -2111,7 +2109,7 @@ pub mod test {
                 }
             }
 
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
         }
 
@@ -2123,34 +2121,34 @@ pub mod test {
             &mut self.stacks_node.as_mut().unwrap().chainstate
         }
 
-        pub fn burndb(&mut self) -> &mut BurnDB {
-            self.burndb.as_mut().unwrap()
+        pub fn sortdb(&mut self) -> &mut SortitionDB {
+            self.sortdb.as_mut().unwrap()
         }
 
         pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
-            F: FnOnce(&mut BurnDB, &mut StacksChainState, &mut Relayer, &mut MemPoolDB) -> Result<R, net_error>
+            F: FnOnce(&mut SortitionDB, &mut StacksChainState, &mut Relayer, &mut MemPoolDB) -> Result<R, net_error>
         {
-            let mut burndb = self.burndb.take().unwrap();
+            let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
-            let res = f(&mut burndb, &mut stacks_node.chainstate, &mut self.relayer, &mut mempool);
+            let res = f(&mut sortdb, &mut stacks_node.chainstate, &mut self.relayer, &mut mempool);
 
             self.stacks_node = Some(stacks_node);
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             self.mempool = Some(mempool);
             res
         }
 
         pub fn with_mining_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
-            F: FnOnce(&mut BurnDB, &mut TestMiner, &mut TestMiner, &mut TestStacksNode) -> Result<R, net_error>
+            F: FnOnce(&mut SortitionDB, &mut TestMiner, &mut TestMiner, &mut TestStacksNode) -> Result<R, net_error>
         {
             let mut stacks_node = self.stacks_node.take().unwrap();
-            let mut burndb = self.burndb.take().unwrap();
-            let res = f(&mut burndb, &mut self.miner, &mut self.config.spending_account, &mut stacks_node);
-            self.burndb = Some(burndb);
+            let mut sortdb = self.sortdb.take().unwrap();
+            let res = f(&mut sortdb, &mut self.miner, &mut self.config.spending_account, &mut stacks_node);
+            self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
             res
         }
@@ -2158,15 +2156,15 @@ pub mod test {
         // Make a tenure
         pub fn make_tenure<F>(&mut self, mut tenure_builder: F) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>)
         where
-            F: FnMut(&mut TestMiner, &mut BurnDB, &mut StacksChainState, VRFProof, Option<&StacksBlock>, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) 
+            F: FnMut(&mut TestMiner, &mut SortitionDB, &mut StacksChainState, VRFProof, Option<&StacksBlock>, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) 
         {
-            let mut burndb = self.burndb.take().unwrap();
+            let mut sortdb = self.sortdb.take().unwrap();
             let mut burn_block = {
-                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
             };
 
-            let last_sortition_block = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();        // no forks here
+            let last_sortition_block = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();        // no forks here
           
             let mut stacks_node = self.stacks_node.take().unwrap();
 
@@ -2181,21 +2179,21 @@ pub mod test {
             let proof = self.miner.make_proof(&last_key.public_key, &burn_block.parent_snapshot.sortition_hash)
                 .expect(&format!("FATAL: no private key for {}", last_key.public_key.to_hex()));
         
-            let (stacks_block, microblocks) = tenure_builder(&mut self.miner, &mut burndb, &mut stacks_node.chainstate, proof, parent_block_opt.as_ref(), parent_microblock_header_opt.as_ref());
+            let (stacks_block, microblocks) = tenure_builder(&mut self.miner, &mut sortdb, &mut stacks_node.chainstate, proof, parent_block_opt.as_ref(), parent_microblock_header_opt.as_ref());
 
-            let block_commit_op = stacks_node.make_tenure_commitment(&mut burndb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
+            let block_commit_op = stacks_node.make_tenure_commitment(&mut sortdb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
 
             self.stacks_node = Some(stacks_node);
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             (vec![BlockstackOperationType::LeaderKeyRegister(leader_key_op), BlockstackOperationType::LeaderBlockCommit(block_commit_op)], stacks_block, microblocks)
         }
 
         // have this peer produce an anchored block and microblock tail using its internal miner.
         pub fn make_default_tenure(&mut self) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>) {
-            let mut burndb = self.burndb.take().unwrap();
+            let mut sortdb = self.sortdb.take().unwrap();
             let mut burn_block = {
-                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
             };
           
@@ -2209,7 +2207,7 @@ pub mod test {
             let chainstate_path = self.chainstate_path.clone();
             let burn_block_height = burn_block.block_height;
 
-            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut burndb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut sortdb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 let mut miner_chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
 
@@ -2222,7 +2220,7 @@ pub mod test {
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
 
             self.stacks_node = Some(stacks_node);
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             (vec![BlockstackOperationType::LeaderKeyRegister(leader_key_op), BlockstackOperationType::LeaderBlockCommit(block_commit_op)], stacks_block, microblocks)
         }
 
@@ -2244,12 +2242,13 @@ pub mod test {
         }
 
         pub fn get_burnchain_view(&mut self) -> Result<BurnchainView, db_error> {
-            let burndb = self.burndb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let view_res = {
-                let ic = burndb.index_conn();
-                BurnDB::get_burnchain_view(&ic, &self.config.burnchain)
+                let ic = sortdb.index_conn();
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                ic.get_burnchain_view(&self.config.burnchain, &chaintip)
             };
-            self.burndb = Some(burndb);
+            self.sortdb = Some(sortdb);
             view_res
         }
 

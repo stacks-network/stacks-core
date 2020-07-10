@@ -425,7 +425,7 @@ impl Config {
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
-        format!("{}/burnchain/db/{}/{}/burn.db/", self.node.working_dir, self.burnchain.chain, "regtest")
+        format!("{}/burnchain/db/{}/{}/sortition.db/", self.node.working_dir, self.burnchain.chain, "regtest")
     }
 
 

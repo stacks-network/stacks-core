@@ -56,6 +56,21 @@ pub struct VRFPublicKey(pub ed25519_PublicKey);
 
 pub struct VRFPrivateKey(pub ed25519_PrivateKey);
 
+impl serde::Serialize for VRFPublicKey {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let inst = self.to_hex();
+        s.serialize_str(inst.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for VRFPublicKey {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<VRFPublicKey, D::Error> {
+        let inst_str = String::deserialize(d)?;
+        VRFPublicKey::from_hex(&inst_str)
+            .ok_or_else(|| serde::de::Error::custom("Failed to parse VRF Public Key from hex"))
+    }
+}
+
 // have to do Clone separately since ed25519_PrivateKey doesn't implement Clone
 impl Clone for VRFPrivateKey {
     fn clone(&self) -> VRFPrivateKey {

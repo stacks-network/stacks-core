@@ -24,7 +24,7 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
 use stacks::burnchains::bitcoin::spv::SpvClient; 
 use stacks::burnchains::PublicKey;
-use stacks::chainstate::burn::db::burndb::BurnDB;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
     LeaderKeyRegisterOp,
@@ -50,7 +50,7 @@ use stacks::monitoring::{
 pub struct BitcoinRegtestController {
     config: Config,
     indexer_config: BitcoinIndexerConfig,
-    db: Option<BurnDB>,
+    db: Option<SortitionDB>,
     chain_tip: Option<BurnchainTip>,
 }
 
@@ -531,11 +531,11 @@ impl BitcoinRegtestController {
 
 impl BurnchainController for BitcoinRegtestController {
     
-    fn burndb_ref(&self) -> &BurnDB {
+    fn sortdb_ref(&self) -> &SortitionDB {
         self.db.as_ref().expect("BUG: did not instantiate the burn DB")
     }
 
-    fn burndb_mut(&mut self) -> &mut BurnDB {
+    fn sortdb_mut(&mut self) -> &mut SortitionDB {
         let network = "regtest".to_string();
         let working_dir = self.config.get_burn_db_path();
         let burnchain = match Burnchain::new(&working_dir,  &self.config.burnchain.chain, &network) {
@@ -546,11 +546,11 @@ impl BurnchainController for BitcoinRegtestController {
             }
         };
 
-        let db = burnchain.open_db(true).unwrap();
+        let (db, _) = burnchain.open_db(true).unwrap();
         self.db = Some(db);
 
         match self.db {
-            Some(ref mut burndb) => burndb,
+            Some(ref mut sortdb) => sortdb,
             None => {
                 unreachable!()
             }

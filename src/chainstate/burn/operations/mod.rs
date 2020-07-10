@@ -38,7 +38,7 @@ use burnchains::Burnchain;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::BurnDBConn;
+use chainstate::burn::db::sortdb::SortitionHandleConn;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
 use burnchains::{
@@ -136,9 +136,10 @@ impl From<db_error> for Error {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct LeaderBlockCommitOp {
     pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (double-sha256)
+    
     pub new_seed: VRFSeed,                  // new seed for this block
     pub parent_block_ptr: u32,              // pointer to the block that contains the parent block hash 
     pub parent_vtxindex: u16,               // offset in the parent block where the parent block hash can be found
@@ -156,7 +157,7 @@ pub struct LeaderBlockCommitOp {
     pub burn_header_hash: BurnchainHeaderHash,      // hash of the burn chain block header
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct LeaderKeyRegisterOp {
     pub consensus_hash: ConsensusHash,      // consensus hash at time of issuance
     pub public_key: VRFPublicKey,           // EdDSA public key 
@@ -170,7 +171,7 @@ pub struct LeaderKeyRegisterOp {
     pub burn_header_hash: BurnchainHeaderHash,    // hash of burn chain block 
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct UserBurnSupportOp {
     pub address: StacksAddress,
     pub consensus_hash: ConsensusHash,
@@ -188,12 +189,12 @@ pub struct UserBurnSupportOp {
 }
 
 pub trait BlockstackOperation {
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), Error>;
+    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), Error>;
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<Self, Error>
         where Self: Sized;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),

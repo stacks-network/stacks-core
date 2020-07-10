@@ -34,7 +34,6 @@ use net::rpc::*;
 use net::http::*;
 use net::p2p::*;
 
-use chainstate::burn::db::burndb::BurnDB;
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksBlockId;
@@ -42,8 +41,9 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 
 use core::mempool::*;
 
-use chainstate::burn::db::burndb::BurnDBTx;
-use chainstate::burn::db::burndb::BurnDBConn;
+use chainstate::burn::db::sortdb::{
+    SortitionHandleConn, SortitionDB, SortitionId, SortitionDBConn,
+};
 
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -438,12 +438,16 @@ impl Relayer {
     }
 
     /// Given blocks pushed to us, verify that they correspond to expected block data.
-    pub fn validate_blocks_push(conn: &DBConn, blocks_data: &BlocksData) -> Result<(), net_error> {
+    pub fn validate_blocks_push(conn: &SortitionDBConn, blocks_data: &BlocksData) -> Result<(), net_error> {
         for (burn_header_hash, block) in blocks_data.blocks.iter() { 
             let block_hash = block.block_hash();
 
             // is this the right Stacks block for this sortition?
-            let sn = match BurnDB::get_block_snapshot(conn, burn_header_hash)? {
+            // PoX TODO: this function will need to be able to figure out the
+            //   current PoX fork -- either by getting a reference to the chain controller
+            //   or by querying the PoX database
+            let sortition_id = SortitionId::stubbed(burn_header_hash);
+            let sn = match SortitionDB::get_block_snapshot(conn, &sortition_id)? {
                 Some(sn) => sn,
                 None => {
                     // we don't know about this burn block (yet)
@@ -464,8 +468,10 @@ impl Relayer {
     }
 
     /// Insert a staging block
-    fn process_new_anchored_block<'a>(burn_ic: &BurnDBConn<'a>, chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
-        let sn = match BurnDB::get_block_snapshot(burn_ic, burn_header_hash)? {
+    fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
+        let db_handle = SortitionHandleConn::open_reader_stubbed(sort_ic, burn_header_hash)?;
+
+        let sn = match db_handle.get_block_snapshot(burn_header_hash)? {
             Some(sn) => sn,
             None => {
                 debug!("Received unknown block {}/{}", burn_header_hash, block.block_hash());
@@ -474,15 +480,15 @@ impl Relayer {
         };
 
         // find the snapshot of the parent of this block
-        let parent_block_snapshot = match StacksChainState::get_block_snapshot_of_parent_stacks_block(burn_ic, burn_header_hash, &block.block_hash())? {
-            Some(sn) => sn,
+        let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(burn_header_hash, &block.block_hash())? {
+            Some((_, sn)) => sn,
             None => {
                 debug!("Received block with unknown parent snapshot: {}/{}", burn_header_hash, &block.block_hash());
                 return Ok(false);
             }
         };
         
-        chainstate.preprocess_anchored_block(burn_ic, burn_header_hash, sn.burn_header_timestamp, block, &parent_block_snapshot.burn_header_hash)
+        chainstate.preprocess_anchored_block(sort_ic, burn_header_hash, sn.burn_header_timestamp, block, &parent_block_snapshot.burn_header_hash)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -560,11 +566,11 @@ impl Relayer {
     /// Preprocess all our downloaded blocks.
     /// Return burn block hashes for the blocks that we got.
     /// Does not fail on invalid blocks; just logs a warning.
-    fn preprocess_downloaded_blocks<'a>(burn_ic: &BurnDBConn<'a>, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<BurnchainHeaderHash> {
+    fn preprocess_downloaded_blocks(sort_ic: &SortitionDBConn, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<BurnchainHeaderHash> {
         let mut new_blocks = HashSet::new();
 
         for (burn_header_hash, block) in network_result.blocks.iter() {
-            match Relayer::process_new_anchored_block(burn_ic, chainstate, burn_header_hash, block) {
+            match Relayer::process_new_anchored_block(sort_ic, chainstate, burn_header_hash, block) {
                 Ok(accepted) => {
                     if accepted {
                         new_blocks.insert((*burn_header_hash).clone());
@@ -589,7 +595,7 @@ impl Relayer {
     /// Return burn block hashes for blocks we got, as well as the list of peers that served us
     /// invalid data.
     /// Does not fail; just logs warnings.
-    fn preprocess_pushed_blocks<'a>(burn_ic: &BurnDBConn<'a>, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> (HashSet<BurnchainHeaderHash>, Vec<NeighborKey>) {
+    fn preprocess_pushed_blocks(sort_ic: &SortitionDBConn, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> (HashSet<BurnchainHeaderHash>, Vec<NeighborKey>) {
         let mut new_blocks = HashSet::new();
         let mut bad_neighbors = vec![];
 
@@ -597,7 +603,7 @@ impl Relayer {
         // If a neighbor sends us an invalid block, ban them.
         for (neighbor_key, blocks_datas) in network_result.pushed_blocks.iter() {
             for blocks_data in blocks_datas.iter() {
-                match Relayer::validate_blocks_push(burn_ic, blocks_data) {
+                match Relayer::validate_blocks_push(sort_ic, blocks_data) {
                     Ok(_) => {},
                     Err(_) => {
                         // punish this peer 
@@ -608,7 +614,7 @@ impl Relayer {
 
                 for (burn_header_hash, block) in blocks_data.blocks.iter() {
                     debug!("Received pushed block {}/{} from {}", burn_header_hash, block.block_hash(), neighbor_key);
-                    match Relayer::process_new_anchored_block(burn_ic, chainstate, burn_header_hash, block) {
+                    match Relayer::process_new_anchored_block(sort_ic, chainstate, burn_header_hash, block) {
                         Ok(accepted) => {
                             if accepted {
                                 new_blocks.insert((*burn_header_hash).clone());
@@ -720,7 +726,7 @@ impl Relayer {
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
     /// * list of transaction receipts for the processed blocks (a tuple of block header info and associated receipts)
-    pub fn process_new_blocks(network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState)
+    pub fn process_new_blocks(network_result: &mut NetworkResult, sortdb: &mut SortitionDB, chainstate: &mut StacksChainState)
                               -> Result<(Vec<BurnchainHeaderHash>,
                                          Vec<BurnchainHeaderHash>, 
                                          Vec<(Vec<RelayData>, MicroblocksData)>,
@@ -730,16 +736,16 @@ impl Relayer {
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
         {
-            let burn_ic = burndb.index_conn();
+            let sort_ic = sortdb.index_conn();
 
             // process blocks we downloaded
-            let mut new_dled_blocks = Relayer::preprocess_downloaded_blocks(&burn_ic, network_result, chainstate);
+            let mut new_dled_blocks = Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
             for new_dled_block in new_dled_blocks.drain() {
                 new_blocks.insert(new_dled_block);
             }
 
             // process blocks pushed to us
-            let (mut new_pushed_blocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_blocks(&burn_ic, network_result, chainstate);
+            let (mut new_pushed_blocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_blocks(&sort_ic, network_result, chainstate);
             for new_pushed_block in new_pushed_blocks.drain() {
                 new_blocks.insert(new_pushed_block);
             }
@@ -760,17 +766,18 @@ impl Relayer {
         
         // process as many epochs as we can.
         let max_epochs = if new_blocks.len() < 1024 { 1024 } else { new_blocks.len() };
-        let receipts: Vec<_> = chainstate.process_blocks(burndb, max_epochs)?.into_iter()
+        let receipts: Vec<_> = chainstate.process_blocks(sortdb, max_epochs)?.into_iter()
             .filter_map(|block_result| block_result.0).collect();
 
         Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, receipts))
     }
     
     /// Produce blocks-available messages from blocks we just got.
-    pub fn load_blocks_available_data(burndb: &BurnDB, mut burn_header_hashes: Vec<BurnchainHeaderHash>) -> Result<BlocksAvailableMap, net_error> {
+    pub fn load_blocks_available_data(sortdb: &SortitionDB, burn_header_hashes: Vec<BurnchainHeaderHash>) -> Result<BlocksAvailableMap, net_error> {
         let mut ret = BlocksAvailableMap::new();
-        for bhh in burn_header_hashes.drain(..) {
-            let sn = match BurnDB::get_block_snapshot(&burndb.conn(), &bhh)? {
+        for bhh in burn_header_hashes.into_iter() {
+            let sortid = SortitionId::stubbed(&bhh);
+            let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid)? {
                 Some(sn) => sn,
                 None => {
                     continue;
@@ -801,8 +808,8 @@ impl Relayer {
 
     /// Store all new transactions we received, and return the list of transactions that we need to
     /// forward (as well as their relay hints).  Also, garbage-collect the mempool.
-    fn process_transactions(network_result: &mut NetworkResult, burndb: &BurnDB, chainstate: &StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
-        let (burn_header_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip(burndb)? {
+    fn process_transactions(network_result: &mut NetworkResult, sortdb: &SortitionDB, chainstate: &StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
+        let (burn_header_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip(sortdb)? {
             Some(tip) => (tip.burn_header_hash, tip.anchored_block_hash, tip.height),
             None => {
                 debug!("No Stacks chain tip; dropping {} transaction(s)", network_result.pushed_transactions.len());
@@ -870,10 +877,10 @@ impl Relayer {
     /// * Forward transactions we didn't already have.
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
-    pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB)
-                                  -> Result<ProcessedNetReceipts, net_error> {
-        let blocks_processed = match Relayer::process_new_blocks(network_result, burndb, chainstate) {
-            Ok((new_blocks, new_confirmed_microblocks, mut new_microblocks, bad_block_neighbors, receipts)) => {
+    pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult,
+                                  sortdb: &mut SortitionDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<ProcessedNetReceipts, net_error> {
+        let blocks_processed = match Relayer::process_new_blocks(network_result, sortdb, chainstate) {
+            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors, receipts)) => {
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
                 test_debug!("{:?}: Ban {} peers", &_local_peer, bad_block_neighbors.len());
@@ -882,14 +889,14 @@ impl Relayer {
                 }
 
                 // have the p2p thread tell our neighbors about newly-discovered blocks
-                let available = Relayer::load_blocks_available_data(burndb, new_blocks)?;
+                let available = Relayer::load_blocks_available_data(sortdb, new_blocks)?;
                 test_debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
                 if let Err(e) = self.p2p.advertize_blocks(available) {
                     warn!("Failed to advertize new blocks: {:?}", &e);
                 }
                 
                 // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
-                let mblocks_available = Relayer::load_blocks_available_data(burndb, new_confirmed_microblocks)?;
+                let mblocks_available = Relayer::load_blocks_available_data(sortdb, new_confirmed_microblocks)?;
                 test_debug!("{:?}: Confirmed microblock streams available: {}", &_local_peer, mblocks_available.len());
                 if let Err(e) = self.p2p.advertize_microblocks(mblocks_available) {
                     warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
@@ -897,7 +904,7 @@ impl Relayer {
 
                 // have the p2p thread forward all new unconfirmed microblocks
                 test_debug!("{:?}: Unconfirmed microblocks: {}", &_local_peer, new_microblocks.len());
-                for (relayers, mblocks_msg) in new_microblocks.drain(..) {
+                for (relayers, mblocks_msg) in new_microblocks.into_iter() {
                     test_debug!("{:?}: Send {} microblocks for {}", &_local_peer, mblocks_msg.microblocks.len(), &mblocks_msg.index_anchor_block);
                     let msg = StacksMessageType::Microblocks(mblocks_msg);
                     if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
@@ -923,7 +930,7 @@ impl Relayer {
 
         // store all transactions, and forward the novel ones to neighbors
         test_debug!("{:?}: Process {} transaction(s)", &_local_peer, network_result.pushed_transactions.len());
-        let new_txs = Relayer::process_transactions(network_result, burndb, chainstate, mempool)?;
+        let new_txs = Relayer::process_transactions(network_result, sortdb, chainstate, mempool)?;
 
         if new_txs.len() > 0 {
             debug!("{:?}: Send {} transactions to neighbors", &_local_peer, new_txs.len());
@@ -1535,7 +1542,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -1685,7 +1692,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            let saved_copy : Vec<(BurnchainHeaderHash, StacksBlock, Vec<StacksMicroblock>)> = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
@@ -1803,7 +1810,7 @@ mod test {
       
         let cost_limits = peer.config.connection_opts.read_only_call_limit.clone();
 
-        let tx_contract = peer.with_mining_state(|ref mut burndb, ref mut miner, ref mut spending_account, ref mut stacks_node| {
+        let tx_contract = peer.with_mining_state(|ref mut sortdb, ref mut miner, ref mut spending_account, ref mut stacks_node| {
             let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                          spending_account.as_transaction_auth().unwrap().into(),
                                                          TransactionPayload::new_smart_contract(&name.to_string(), &contract.to_string()).unwrap());
@@ -1884,7 +1891,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            *blocks_and_microblocks.borrow_mut() = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();

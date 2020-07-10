@@ -101,6 +101,7 @@ pub fn increment_errors_emitted_counter() {
     prometheus::ERRORS_EMITTED_COUNTER.inc();    
 }
 
+#[allow(unused_variables)]
 pub fn update_active_miners_count_gauge(value: i64) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::ACTIVE_MINERS_COUNT_GAUGE.set(value);    

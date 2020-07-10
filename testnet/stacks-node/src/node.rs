@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::default::Default;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
-use stacks::chainstate::burn::db::burndb::{BurnDB};
+use stacks::chainstate::burn::db::sortdb::{SortitionDB};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{
@@ -79,7 +79,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
 
 
         loop {
-            let burndb = match BurnDB::open(&burn_db_path, false) {
+            let sortdb = match SortitionDB::open(&burn_db_path, false) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Error while connecting burnchain db in peer loop: {}", e);
@@ -107,7 +107,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            let net_result = this.run(&burndb, &mut chainstate, &mut mem_pool, None,
+            let net_result = this.run(&sortdb, &mut chainstate, &mut mem_pool, None,
                                       false, poll_timeout, &handler_args)
                 .unwrap();
             if net_result.has_transactions() {
@@ -170,7 +170,7 @@ impl Node {
         }
 
         let chainstate_path = config.get_chainstate_path();
-        let burndb_path = config.get_burn_db_file_path();
+        let sortdb_path = config.get_burn_db_file_path();
 
         let chain_state = match StacksChainState::open(
             false, 
@@ -198,8 +198,8 @@ impl Node {
         node.spawn_peer_server();
 
         loop {
-            let burndb = BurnDB::open(&burndb_path, false).expect("BUG: failed to open burn database");
-            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&burndb) {
+            let sortdb = SortitionDB::open(&sortdb_path, false).expect("BUG: failed to open burn database");
+            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&sortdb) {
                 if chain_tip.burn_header_hash == burnchain_tip.block_snapshot.burn_header_hash {
                     info!("Syncing Stacks blocks - completed");
                     break;
@@ -217,7 +217,7 @@ impl Node {
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
+        let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
         let burnchain = Burnchain::new(
@@ -225,9 +225,12 @@ impl Node {
             &self.config.burnchain.chain,
             "regtest").expect("Error while instantiating burnchain");
 
+
         let view = {
-            let ic = burndb.index_conn();
-            BurnDB::get_burnchain_view(&ic, &burnchain).unwrap()
+            let ic = sortdb.index_conn();
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)
+                .expect("Failed to get sortition tip");
+            ic.get_burnchain_view(&burnchain, &sortition_tip).unwrap()
         };
 
         // create a new peerdb
@@ -473,7 +476,7 @@ impl Node {
         burn_header_hash: &BurnchainHeaderHash, 
         parent_burn_header_hash: &BurnchainHeaderHash, 
         microblocks: Vec<StacksMicroblock>, 
-        db: &mut BurnDB) -> ChainTip {
+        db: &mut SortitionDB) -> ChainTip {
 
         {
             // let mut db = burn_db.lock().unwrap();

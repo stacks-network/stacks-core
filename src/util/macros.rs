@@ -63,7 +63,7 @@ macro_rules! define_named_enum {
 macro_rules! define_u8_enum {
     ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
     {
-        #[derive(PartialEq)]
+        #[derive(Debug, Clone, PartialEq)]
         #[repr(u8)]
         pub enum $Name {
             $($Variant = $Val),*,

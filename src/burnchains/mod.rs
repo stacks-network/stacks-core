@@ -22,6 +22,7 @@
 pub mod bitcoin;
 pub mod indexer;
 pub mod burnchain;
+pub mod db;
 
 use std::fmt;
 use std::error;
@@ -54,22 +55,22 @@ use self::bitcoin::indexer::{
 
 use core::*;
 
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::ConsensusHash;
-
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey; 
 use chainstate::stacks::index::TrieHash;
 
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::operations::BlockstackOperationType;
-
-use chainstate::burn::distribution::BurnSamplePoint;
-
 use chainstate::burn::operations::LeaderKeyRegisterOp;
+use chainstate::burn::db::sortdb::PoxId;
+use chainstate::burn::distribution::BurnSamplePoint;
 
 use address::AddressHashMode;
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+
+use rusqlite::Error as sqlite_error;
 
 use util::hash::Hash160;
 use util::db::Error as db_error;
@@ -253,7 +254,6 @@ pub struct BurnchainBlockHeader {
     pub block_height: u64,
     pub block_hash: BurnchainHeaderHash,
     pub parent_block_hash: BurnchainHeaderHash,
-    pub parent_index_root: TrieHash,
     pub num_txs: u64,
     pub timestamp: u64,
 }
@@ -318,6 +318,8 @@ pub enum Error {
     OpError(op_error),
     /// Try again error
     TrySyncAgain,
+    UnknownBlock(BurnchainHeaderHash),
+    NonCanonicalPoxId(PoxId, PoxId),
 }
 
 impl fmt::Display for Error {
@@ -335,6 +337,9 @@ impl fmt::Display for Error {
             Error::FSError(ref e) => fmt::Display::fmt(e, f),
             Error::OpError(ref e) => fmt::Display::fmt(e, f),
             Error::TrySyncAgain => write!(f, "Try synchronizing again"),
+            Error::UnknownBlock(block) => write!(f, "Unknown burnchain block {}", block),
+            Error::NonCanonicalPoxId(parent, child) => write!(f, "{} is not a descendant of the canonical parent PoXId: {}",
+                                                              parent, child),
         }
     }
 }
@@ -354,6 +359,8 @@ impl error::Error for Error {
             Error::FSError(ref e) => Some(e),
             Error::OpError(ref e) => Some(e),
             Error::TrySyncAgain => None,
+            Error::UnknownBlock(_) => None,
+            Error::NonCanonicalPoxId(_, _) => None,
         }
     }
 }
@@ -361,6 +368,12 @@ impl error::Error for Error {
 impl From<db_error> for Error {
     fn from(e: db_error) -> Error {
         Error::DBError(e)
+    }
+}
+
+impl From<sqlite_error> for Error {
+    fn from(e: sqlite_error) -> Error {
+        Error::DBError(db_error::SqliteError(e))
     }
 }
 
@@ -410,7 +423,7 @@ pub mod test {
 
     use burnchains::Burnchain;
     use chainstate::burn::operations::BlockstackOperationType;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
 
     use chainstate::burn::*;
     use chainstate::burn::operations::*;
@@ -455,7 +468,6 @@ pub mod test {
                 block_height: parent_sn.block_height + 1,
                 block_hash: block_hash,
                 parent_block_hash: parent_sn.burn_header_hash.clone(),
-                parent_index_root: parent_sn.index_root.clone(),
                 num_txs: num_txs,
                 timestamp: get_epoch_time_secs()
             }
@@ -483,7 +495,7 @@ pub mod test {
     }
 
     pub struct TestBurnchainNode {
-        pub burndb: BurnDB,
+        pub sortdb: SortitionDB,
         pub dirty: bool,
         pub burnchain: Burnchain
     }
@@ -726,14 +738,14 @@ pub mod test {
             txop
         }
 
-        pub fn add_leader_block_commit<'a>(&mut self, 
-                                           ic: &BurnDBConn<'a>,
-                                           miner: &mut TestMiner, 
-                                           block_hash: &BlockHeaderHash, 
-                                           burn_fee: u64, 
-                                           leader_key: &LeaderKeyRegisterOp, 
-                                           fork_snapshot: Option<&BlockSnapshot>, 
-                                           parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp 
+        pub fn add_leader_block_commit(&mut self, 
+                                       ic: &SortitionDBConn,
+                                       miner: &mut TestMiner, 
+                                       block_hash: &BlockHeaderHash, 
+                                       burn_fee: u64, 
+                                       leader_key: &LeaderKeyRegisterOp, 
+                                       fork_snapshot: Option<&BlockSnapshot>, 
+                                       parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp 
         {
             let pubks = miner.privks.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
             let input = BurnchainSigner {
@@ -744,12 +756,12 @@ pub mod test {
             
             let last_snapshot = match fork_snapshot {
                 Some(sn) => sn.clone(),
-                None => BurnDB::get_canonical_burn_chain_tip(ic).unwrap()
+                None => SortitionDB::get_canonical_burn_chain_tip_stubbed(ic).unwrap()
             };
 
             let last_snapshot_with_sortition = match parent_block_snapshot {
                 Some(sn) => sn.clone(),
-                None => BurnDB::get_first_block_snapshot(ic).unwrap()
+                None => SortitionDB::get_first_block_snapshot(ic).unwrap()
             };
              
             // prove on the last-ever sortition's hash to produce the new seed
@@ -758,8 +770,11 @@ pub mod test {
 
             let new_seed = VRFSeed::from_proof(&proof);
 
-            let mut txop = match BurnDB::get_block_commit(ic, &last_snapshot_with_sortition.winning_block_txid, &last_snapshot_with_sortition.burn_header_hash)
-                .expect("FATAL: failed to read block commit") {
+            let get_commit_res = ic.as_handle(&last_snapshot_with_sortition.sortition_id)
+                .get_block_commit(&last_snapshot_with_sortition.winning_block_txid,
+                                  &last_snapshot_with_sortition.burn_header_hash)
+                .expect("FATAL: failed to read block commit");
+            let mut txop = match get_commit_res {
                 Some(parent) => {
                     let txop = LeaderBlockCommitOp::new(block_hash, self.block_height, &new_seed, &parent, leader_key.block_height as u32, leader_key.vtxindex as u16, burn_fee, &input);
                     txop
@@ -773,7 +788,7 @@ pub mod test {
         
             txop.block_height = self.block_height;
             txop.vtxindex = self.txs.len() as u32;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_snapshot.index_root, self.fork_id);     // NOTE: override this if you intend to insert into the burndb!
+            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_snapshot.index_root, self.fork_id);     // NOTE: override this if you intend to insert into the sortdb!
             txop.txid = Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
 
             self.txs.push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
@@ -803,7 +818,7 @@ pub mod test {
             }
         }
 
-        pub fn mine<'a>(&self, tx: &mut BurnDBTx<'a>, burnchain: &Burnchain) -> BlockSnapshot {
+        pub fn mine(&self, db: &mut SortitionDB, burnchain: &Burnchain) -> BlockSnapshot {
             let block_hash = BurnchainHeaderHash::from_test_data(self.block_height, &self.parent_snapshot.index_root, self.fork_id);
             let mock_bitcoin_block = BitcoinBlock::new(self.block_height, &block_hash, &self.parent_snapshot.burn_header_hash, &vec![], get_epoch_time_secs());
             let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
@@ -812,13 +827,21 @@ pub mod test {
 
             test_debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
-            let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(tx, &block).expect("FATAL: failed to get burnchain linkage info");
-            let mut blockstack_txs = self.txs.clone();
+            let header = block.header();
+            let sort_id = SortitionId::stubbed(&header.parent_block_hash);
+            let mut sortition_db_handle = SortitionHandleTx::begin(db, &sort_id).unwrap();
 
-            Burnchain::apply_blockstack_txs_safety_checks(self.block_height, &mut blockstack_txs);
-            
-            let (new_snapshot, _) = Burnchain::process_block_ops(tx, burnchain, &parent_snapshot, &header, &blockstack_txs).expect("FATAL: failed to generate snapshot");
-            new_snapshot
+            let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&header.parent_block_hash)
+                .unwrap()
+                .expect("FATAL: failed to get burnchain linkage info");
+
+            let blockstack_txs = self.txs.clone();
+
+            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)
+                .unwrap();
+            sortition_db_handle.commit().unwrap();
+
+            new_snapshot.0
         }
     }
 
@@ -845,17 +868,18 @@ pub mod test {
             self.pending_blocks.push(b);
         }
 
-        pub fn get_tip<'a>(&mut self, ic: &BurnDBConn<'a>) -> BlockSnapshot {
+        pub fn get_tip(&mut self, ic: &SortitionDBConn) -> BlockSnapshot {
             test_debug!("Get tip snapshot at {}", &self.tip_header_hash);
-            BurnDB::get_block_snapshot(ic, &self.tip_header_hash).unwrap().unwrap()
+            SortitionDB::get_block_snapshot(ic, &SortitionId(self.tip_header_hash.0.clone()))
+                .unwrap().unwrap()
         }
 
-        pub fn next_block<'a>(&mut self, ic: &BurnDBConn<'a>) -> TestBurnchainBlock {
+        pub fn next_block(&mut self, ic: &SortitionDBConn) -> TestBurnchainBlock {
             let fork_tip = self.get_tip(ic);
             TestBurnchainBlock::new(&fork_tip, self.fork_id)
         }
 
-        pub fn mine_pending_blocks(&mut self, db: &mut BurnDB, burnchain: &Burnchain) -> BlockSnapshot {
+        pub fn mine_pending_blocks(&mut self, db: &mut SortitionDB, burnchain: &Burnchain) -> BlockSnapshot {
             let mut snapshot = {
                 let ic = db.index_conn();
                 self.get_tip(&ic)
@@ -866,9 +890,7 @@ pub mod test {
                 // to next_block (since we can call next_block() many times without mining blocks)
                 block.patch_from_chain_tip(&snapshot);
                 
-                let mut tx = db.tx_begin().unwrap();
-                snapshot = block.mine(&mut tx, burnchain);
-                tx.commit().unwrap();
+                snapshot = block.mine(db, burnchain);
 
                 self.blocks.push(block);
                 self.mined += 1;
@@ -885,24 +907,16 @@ pub mod test {
         pub fn new() -> TestBurnchainNode {
             let first_block_height = 100;
             let first_block_hash = FIRST_BURNCHAIN_BLOCK_HASH.clone();
-            let db = BurnDB::connect_test(first_block_height, &first_block_hash).unwrap();
+            let db = SortitionDB::connect_test(first_block_height, &first_block_hash).unwrap();
             TestBurnchainNode {
-                burndb: db,
+                sortdb: db,
                 dirty: false,
                 burnchain: Burnchain::default_unittest(first_block_height, &first_block_hash),
             }
         }
 
-        pub fn from_burndb(burndb: BurnDB, burnchain: Burnchain) -> TestBurnchainNode {
-            TestBurnchainNode {
-                burndb: burndb,
-                dirty: false,
-                burnchain: burnchain
-            }
-        }
-
         pub fn mine_fork(&mut self, fork: &mut TestBurnchainFork) -> BlockSnapshot {
-            fork.mine_pending_blocks(&mut self.burndb, &self.burnchain)
+            fork.mine_pending_blocks(&mut self.sortdb, &self.burnchain)
         }
     }
 
@@ -915,7 +929,7 @@ pub mod test {
         assert_eq!(miners.len(), block_hashes.len());
 
         let mut block = {
-            let ic = node.burndb.index_conn();
+            let ic = node.sortdb.index_conn();
             fork.next_block(&ic)
         };
 
@@ -928,7 +942,7 @@ pub mod test {
             // make a Stacks block (hash) for each of the prior block's keys
             for j in 0..miners.len() {
                 let block_commit_op = {
-                    let ic = node.burndb.index_conn();
+                    let ic = node.sortdb.index_conn();
                     let hash = block_hashes[j].clone();
                     block.add_leader_block_commit(&ic, &mut miners[j], &hash, ((j + 1) as u64) * 1000, &prev_keys[j], None, None)
                 };
@@ -954,7 +968,7 @@ pub mod test {
     fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) -> () {
         // all keys accepted
         for key in prev_keys.iter() {
-            let tx_opt = BurnDB::get_burnchain_transaction(node.burndb.conn(), &key.txid).unwrap();
+            let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &key.txid).unwrap();
             assert!(tx_opt.is_some());
 
             let tx = tx_opt.unwrap();
@@ -972,7 +986,7 @@ pub mod test {
     fn verify_commits_accepted(node: &TestBurnchainNode, next_block_commits: &Vec<LeaderBlockCommitOp>) -> () {
         // all commits accepted
         for commit in next_block_commits.iter() {
-            let tx_opt = BurnDB::get_burnchain_transaction(node.burndb.conn(), &commit.txid).unwrap();
+            let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &commit.txid).unwrap();
             assert!(tx_opt.is_some());
 
             let tx = tx_opt.unwrap();
@@ -997,7 +1011,7 @@ pub mod test {
             miners.push(miner_factory.next_miner(&node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH));
         }
 
-        let first_snapshot = BurnDB::get_first_block_snapshot(node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(node.sortdb.conn()).unwrap();
         let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         let mut prev_keys = vec![];
 
@@ -1029,7 +1043,7 @@ pub mod test {
             miners.push(miner_factory.next_miner(&node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH));
         }
 
-        let first_snapshot = BurnDB::get_first_block_snapshot(node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(node.sortdb.conn()).unwrap();
         let mut fork_1 = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         let mut prev_keys_1 = vec![];
 
@@ -1110,7 +1124,7 @@ pub mod test {
             miners.push(miner_factory.next_miner(&node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH));
         }
 
-        let first_snapshot = BurnDB::get_first_block_snapshot(node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(node.sortdb.conn()).unwrap();
         let mut fork_1 = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         let mut prev_keys_1 = vec![];
 

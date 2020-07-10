@@ -30,7 +30,6 @@ use chainstate::stacks::db::{
 };
 use chainstate::stacks::index::TrieHash;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::BurnDB;
 use chainstate::stacks::events::StacksTransactionReceipt;
 
 use net::StacksMessageCodec;
@@ -697,7 +696,7 @@ pub mod test {
     use chainstate::stacks::db::*;
     use chainstate::stacks::db::test::*;
     use chainstate::burn::*;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
         LeaderBlockCommitOp,
         LeaderKeyRegisterOp,
@@ -970,7 +969,7 @@ pub mod test {
             }
         }
 
-        // NOTE: can't do this if instatniated via from_chainstate()
+        // NOTE: can't do this if instantiated via from_chainstate()
         pub fn fork(&self, new_test_name: &str) -> TestStacksNode {
             if !self.forkable {
                 panic!("Tried to fork an unforkable chainstate instance");
@@ -997,9 +996,9 @@ pub mod test {
             }
         }
 
-        pub fn next_burn_block(burndb: &mut BurnDB, fork: &mut TestBurnchainFork) -> TestBurnchainBlock {
+        pub fn next_burn_block(sortdb: &mut SortitionDB, fork: &mut TestBurnchainFork) -> TestBurnchainBlock {
             let burn_block = {
-                let ic = burndb.index_conn();
+                let ic = sortdb.index_conn();
                 fork.next_block(&ic)
             };
             burn_block
@@ -1017,9 +1016,9 @@ pub mod test {
             self.key_ops.insert(op.public_key.clone(), self.prev_keys.len()-1);
         }
 
-        pub fn add_block_commit(burndb: &mut BurnDB, burn_block: &mut TestBurnchainBlock, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_amount: u64, key_op: &LeaderKeyRegisterOp, parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
+        pub fn add_block_commit(sortdb: &mut SortitionDB, burn_block: &mut TestBurnchainBlock, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_amount: u64, key_op: &LeaderKeyRegisterOp, parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
             let block_commit_op = {
-                let ic = burndb.index_conn();
+                let ic = sortdb.index_conn();
                 let parent_snapshot = burn_block.parent_snapshot.clone();
                 burn_block.add_leader_block_commit(&ic, miner, block_hash, burn_amount, key_op, Some(&parent_snapshot), parent_block_snapshot)
             };
@@ -1073,9 +1072,9 @@ pub mod test {
             }
         }
 
-        pub fn get_last_winning_snapshot<'a>(ic: &BurnDBConn<'a>, fork_tip: &BlockSnapshot, miner: &TestMiner) -> Option<BlockSnapshot> {
+        pub fn get_last_winning_snapshot(ic: &SortitionDBConn, fork_tip: &BlockSnapshot, miner: &TestMiner) -> Option<BlockSnapshot> {
             for commit_op in miner.block_commits.iter().rev() {
-                match BurnDB::get_block_snapshot_for_winning_stacks_block(ic, &fork_tip.burn_header_hash, &commit_op.block_header_hash).unwrap() {
+                match SortitionDB::get_block_snapshot_for_winning_stacks_block(ic, &fork_tip.sortition_id, &commit_op.block_header_hash).unwrap() {
                     Some(sn) => {
                         return Some(sn);
                     }
@@ -1142,7 +1141,7 @@ pub mod test {
         }
 
         pub fn make_tenure_commitment(&mut self, 
-                                      burndb: &mut BurnDB, 
+                                      sortdb: &mut SortitionDB, 
                                       burn_block: &mut TestBurnchainBlock, 
                                       miner: &mut TestMiner, 
                                       stacks_block: &StacksBlock,
@@ -1157,7 +1156,7 @@ pub mod test {
             test_debug!("Miner {}: Commit to stacks block {} (work {},{})", miner.id, stacks_block.block_hash(), stacks_block.header.total_work.burn, stacks_block.header.total_work.work);
 
             // send block commit for this block
-            let block_commit_op = TestStacksNode::add_block_commit(burndb, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt);
+            let block_commit_op = TestStacksNode::add_block_commit(sortdb, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt);
             
             test_debug!("Miner {}: Block commit transaction builds on {},{} (parent snapshot is {:?})", miner.id, block_commit_op.parent_block_ptr, block_commit_op.parent_vtxindex, &parent_block_snapshot_opt);
             self.commit_ops.insert(block_commit_op.block_header_hash.clone(), self.anchored_blocks.len()-1);
@@ -1165,7 +1164,7 @@ pub mod test {
         }
 
         pub fn mine_stacks_block<F>(&mut self,
-                                    burndb: &mut BurnDB,
+                                    sortdb: &mut SortitionDB,
                                     miner: &mut TestMiner, 
                                     burn_block: &mut TestBurnchainBlock, 
                                     miner_key: &LeaderKeyRegisterOp, 
@@ -1187,9 +1186,9 @@ pub mod test {
                 Some(parent_stacks_block) => {
                     // building off an existing stacks block
                     let parent_stacks_block_snapshot = {
-                        let ic = burndb.index_conn();
-                        let parent_stacks_block_snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &burn_block.parent_snapshot.burn_header_hash, &parent_stacks_block.block_hash()).unwrap().unwrap();
-                        let burned_last = BurnDB::get_block_burn_amount(&ic, burn_block.parent_snapshot.block_height, &burn_block.parent_snapshot.burn_header_hash).unwrap();
+                        let ic = sortdb.index_conn();
+                        let parent_stacks_block_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &burn_block.parent_snapshot.sortition_id, &parent_stacks_block.block_hash()).unwrap().unwrap();
+                        let burned_last = SortitionDB::get_block_burn_amount(&ic, &burn_block.parent_snapshot).unwrap();
                         parent_stacks_block_snapshot
                     };
 
@@ -1209,7 +1208,7 @@ pub mod test {
             test_debug!("Miner {}: Assemble stacks block from {}", miner.id, miner.origin_address().unwrap().to_string());
 
             let (stacks_block, microblocks) = block_assembler(builder, miner);
-            let block_commit_op = self.make_tenure_commitment(burndb, burn_block, miner, &stacks_block, &microblocks, burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
+            let block_commit_op = self.make_tenure_commitment(sortdb, burn_block, miner, &stacks_block, &microblocks, burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
 
             (stacks_block, microblocks, block_commit_op)
         }
@@ -1220,8 +1219,9 @@ pub mod test {
     fn preprocess_stacks_block_data(node: &mut TestStacksNode, burn_node: &mut TestBurnchainNode, fork_snapshot: &BlockSnapshot, stacks_block: &StacksBlock, stacks_microblocks: &Vec<StacksMicroblock>, block_commit_op: &LeaderBlockCommitOp) -> Option<bool> {
         let block_hash = stacks_block.block_hash();
 
-        let ic = burn_node.burndb.index_conn();
-        let parent_block_burn_header_hash = match BurnDB::get_block_commit_parent(&ic, block_commit_op.parent_block_ptr.into(), block_commit_op.parent_vtxindex.into(), &fork_snapshot.burn_header_hash).unwrap() {
+        let ic = burn_node.sortdb.index_conn();
+        let parent_block_burn_header_hash = match SortitionDB::get_block_commit_parent(
+            &ic, block_commit_op.parent_block_ptr.into(), block_commit_op.parent_vtxindex.into(), &fork_snapshot.sortition_id).unwrap() {
             Some(parent_commit) => parent_commit.burn_header_hash.clone(),
             None => {
                 // only allowed if this is the first-ever block in the stacks fork
@@ -1233,7 +1233,7 @@ pub mod test {
             }
         };
     
-        let commit_snapshot = match BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &fork_snapshot.burn_header_hash, &block_hash).unwrap() {
+        let commit_snapshot = match SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &fork_snapshot.sortition_id, &block_hash).unwrap() {
             Some(sn) => sn,
             None => {
                 test_debug!("Block commit did not win sorition: {:?}", block_commit_op);
@@ -1368,10 +1368,10 @@ pub mod test {
         let mut miner_factory = TestMinerFactory::new();
         let mut miner = miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
 
-        let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
         let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner);
@@ -1386,7 +1386,7 @@ pub mod test {
         // next, build up some stacks blocks
         for i in 0..rounds {
             let mut burn_block = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork.next_block(&ic)
             };
             
@@ -1397,7 +1397,7 @@ pub mod test {
             // next key
             node.add_key_register(&mut burn_block, &mut miner);
 
-            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1421,7 +1421,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash(), microblocks.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 1).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 1).unwrap();
 
             let expect_success = check_oracle(&stacks_block, &microblocks);
             if expect_success {
@@ -1464,10 +1464,10 @@ pub mod test {
 
         let mut sortition_winners = vec![];
 
-        let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
         let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -1482,7 +1482,7 @@ pub mod test {
         // next, build up some stacks blocks
         for i in 0..rounds/2 {
             let mut burn_block = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork.next_block(&ic)
             };
             
@@ -1494,7 +1494,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1518,7 +1518,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash(), microblocks.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 1).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 1).unwrap();
 
             // processed _this_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1545,7 +1545,7 @@ pub mod test {
         // miner 2 begins mining
         for i in rounds/2..rounds {
             let mut burn_block = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork.next_block(&ic)
             };
             
@@ -1553,10 +1553,12 @@ pub mod test {
             let last_key_2 = node.get_last_key(&miner_2);
 
             let last_winning_snapshot = {
-                let first_block_height = burn_node.burndb.first_block_height;
-                let ic = burn_node.burndb.index_conn();
+                let first_block_height = burn_node.sortdb.first_block_height;
+                let ic = burn_node.sortdb.index_conn();
                 let chain_tip = fork.get_tip(&ic);
-                BurnDB::get_last_snapshot_with_sortition(&ic, first_block_height + (i as u64) + 1, &chain_tip.burn_header_hash).expect("FATAL: no prior snapshot with sortition")
+                ic.as_handle(&chain_tip.sortition_id)
+                    .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
+                    .expect("FATAL: no prior snapshot with sortition")
             };
 
             let parent_block_opt = Some(node.get_anchored_block(&last_winning_snapshot.winning_stacks_block_hash).expect("FATAL: no prior block from last winning snapshot"));
@@ -1570,7 +1572,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1585,7 +1587,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1617,7 +1619,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash);
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
 
             // processed exactly one block, but got back two tip-infos
             assert_eq!(tip_info_list.len(), 1);
@@ -1685,10 +1687,10 @@ pub mod test {
 
         let mut sortition_winners = vec![];
 
-        let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
         let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -1704,7 +1706,7 @@ pub mod test {
         // miner 1 and 2 cooperate to build a shared fork
         for i in 0..fork_height {
             let mut burn_block = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork.next_block(&ic)
             };
             
@@ -1712,10 +1714,12 @@ pub mod test {
             let last_key_2 = node.get_last_key(&miner_2);
 
             let last_winning_snapshot = {
-                let first_block_height = burn_node.burndb.first_block_height;
-                let ic = burn_node.burndb.index_conn();
+                let first_block_height = burn_node.sortdb.first_block_height;
+                let ic = burn_node.sortdb.index_conn();
                 let chain_tip = fork.get_tip(&ic);
-                BurnDB::get_last_snapshot_with_sortition(&ic, first_block_height + (i as u64) + 1, &chain_tip.burn_header_hash).expect("FATAL: no prior snapshot with sortition")
+                ic.as_handle(&chain_tip.sortition_id)
+                    .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
+                    .expect("FATAL: no prior snapshot with sortition")
             };
 
             let (parent_block_opt, last_microblock_header_opt) = 
@@ -1737,7 +1741,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1752,7 +1756,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1778,7 +1782,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1817,7 +1821,7 @@ pub mod test {
         let mut sortition_winners_1 = sortition_winners.clone();
         let mut sortition_winners_2 = sortition_winners.clone();
         let snapshot_at_fork = {
-            let ic = burn_node.burndb.index_conn();
+            let ic = burn_node.sortdb.index_conn();
             let tip = fork.get_tip(&ic);
             tip
         };
@@ -1832,7 +1836,7 @@ pub mod test {
         // miner 2 begins working on its own fork.
         for i in fork_height..rounds {
             let mut burn_block = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork.next_block(&ic)
             };
             
@@ -1840,20 +1844,20 @@ pub mod test {
             let last_key_2 = node_2.get_last_key(&miner_2);
 
             let mut last_winning_snapshot_1 = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 let tip = fork.get_tip(&ic);
                 match TestStacksNode::get_last_winning_snapshot(&ic, &tip, &miner_1) {
                     Some(sn) => sn,
-                    None => BurnDB::get_first_block_snapshot(&ic).unwrap()
+                    None => SortitionDB::get_first_block_snapshot(&ic).unwrap()
                 }
             };
 
             let mut last_winning_snapshot_2 = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 let tip = fork.get_tip(&ic);
                 match TestStacksNode::get_last_winning_snapshot(&ic, &tip, &miner_2) {
                     Some(sn) => sn,
-                    None => BurnDB::get_first_block_snapshot(&ic).unwrap()
+                    None => SortitionDB::get_first_block_snapshot(&ic).unwrap()
                 }
             };
 
@@ -1875,7 +1879,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node_2.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Miner {}: Produce anchored stacks block in stacks fork 1 via {}", miner.id, miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1890,7 +1894,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node_2.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node_2.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Miner {}: Produce anchored stacks block in stacks fork 2 via {}", miner.id, miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name_2);
@@ -1922,8 +1926,8 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash);
-            let mut tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
-            let mut tip_info_list_2 = node_2.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
+            let mut tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let mut tip_info_list_2 = node_2.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
 
             tip_info_list.append(&mut tip_info_list_2);
 
@@ -1965,8 +1969,8 @@ pub mod test {
             // block data.
             preprocess_stacks_block_data(&mut node, &mut burn_node, &fork_snapshot, &stacks_block_2, &microblocks_2, &block_commit_op_2);
             preprocess_stacks_block_data(&mut node_2, &mut burn_node, &fork_snapshot, &stacks_block_1, &microblocks_1, &block_commit_op_1);
-            let _ = node.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
-            let _ = node_2.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
+            let _ = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let _ = node_2.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
         }
         
         TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
@@ -1985,10 +1989,10 @@ pub mod test {
         let mut miner_1 = miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
         let mut miner_2 = miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
 
-        let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
         let mut fork_1 = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork_1);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork_1);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -2004,7 +2008,7 @@ pub mod test {
         // next, build up some stacks blocks, cooperatively
         for i in 0..rounds/2 {
             let mut burn_block = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork_1.next_block(&ic)
             };
             
@@ -2012,10 +2016,12 @@ pub mod test {
             let last_key_2 = node.get_last_key(&miner_2);
 
             let last_winning_snapshot = {
-                let first_block_height = burn_node.burndb.first_block_height;
-                let ic = burn_node.burndb.index_conn();
+                let first_block_height = burn_node.sortdb.first_block_height;
+                let ic = burn_node.sortdb.index_conn();
                 let chain_tip = fork_1.get_tip(&ic);
-                BurnDB::get_last_snapshot_with_sortition(&ic, first_block_height + (i as u64) + 1, &chain_tip.burn_header_hash).expect("FATAL: no prior snapshot with sortition")
+                ic.as_handle(&chain_tip.sortition_id)
+                    .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
+                    .expect("FATAL: no prior snapshot with sortition")
             };
 
             let (parent_block_opt, last_microblock_header_opt) = 
@@ -2037,7 +2043,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block from miner 1");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2052,7 +2058,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block from miner 2");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2078,7 +2084,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -2119,11 +2125,11 @@ pub mod test {
         // send the same leader key register transactions to both forks.
         for i in rounds/2..rounds {
             let mut burn_block_1 = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork_1.next_block(&ic)
             };
             let mut burn_block_2 = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork_2.next_block(&ic)
             };
             
@@ -2131,17 +2137,21 @@ pub mod test {
             let last_key_2 = node.get_last_key(&miner_2);
 
             let block_1_snapshot = {
-                let first_block_height = burn_node.burndb.first_block_height;
-                let ic = burn_node.burndb.index_conn();
+                let first_block_height = burn_node.sortdb.first_block_height;
+                let ic = burn_node.sortdb.index_conn();
                 let chain_tip = fork_1.get_tip(&ic);
-                BurnDB::get_last_snapshot_with_sortition(&ic, first_block_height + (i as u64) + 1, &chain_tip.burn_header_hash).expect("FATAL: no prior snapshot with sortition")
+                ic.as_handle(&chain_tip.sortition_id)
+                    .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
+                    .expect("FATAL: no prior snapshot with sortition")
             };
 
             let block_2_snapshot = {
-                let first_block_height = burn_node.burndb.first_block_height;
-                let ic = burn_node.burndb.index_conn();
+                let first_block_height = burn_node.sortdb.first_block_height;
+                let ic = burn_node.sortdb.index_conn();
                 let chain_tip = fork_2.get_tip(&ic);
-                BurnDB::get_last_snapshot_with_sortition(&ic, first_block_height + (i as u64) + 1, &chain_tip.burn_header_hash).expect("FATAL: no prior snapshot with sortition")
+                ic.as_handle(&chain_tip.sortition_id)
+                    .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
+                    .expect("FATAL: no prior snapshot with sortition")
             };
 
             let parent_block_opt_1 = node.get_anchored_block(&block_1_snapshot.winning_stacks_block_hash);
@@ -2154,7 +2164,7 @@ pub mod test {
             let last_microblock_header_opt_1 = get_last_microblock_header(&node, &miner_1, parent_block_opt_1.as_ref());
             let last_microblock_header_opt_2 = get_last_microblock_header(&node, &miner_2, parent_block_opt_2.as_ref());
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2169,7 +2179,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2202,7 +2212,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process all Stacks blocks: {}, {}", &stacks_block_1.block_hash(), &stacks_block_2.block_hash());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
 
             // processed all stacks blocks -- one on each burn chain fork
             assert_eq!(tip_info_list.len(), 2);
@@ -2265,10 +2275,10 @@ pub mod test {
         let mut miner_1 = miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
         let mut miner_2 = miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
 
-        let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
         let mut fork_1 = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork_1);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork_1);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -2284,7 +2294,7 @@ pub mod test {
         // next, build up some stacks blocks. miners cooperate
         for i in 0..rounds/2 {
             let mut burn_block = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork_1.next_block(&ic)
             };
             
@@ -2292,7 +2302,7 @@ pub mod test {
             let last_key_2 = node.get_last_key(&miner_2);
 
             let (block_1_snapshot_opt, block_2_snapshot_opt) = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 let chain_tip = fork_1.get_tip(&ic);
                 let block_1_snapshot_opt = TestStacksNode::get_last_winning_snapshot(&ic, &chain_tip, &miner_1);
                 let block_2_snapshot_opt = TestStacksNode::get_last_winning_snapshot(&ic, &chain_tip, &miner_2);
@@ -2316,7 +2326,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2331,7 +2341,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2357,7 +2367,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -2401,23 +2411,23 @@ pub mod test {
         // miner 2 works on fork 2
         for i in rounds/2..rounds {
             let mut burn_block_1 = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork_1.next_block(&ic)
             };
             let mut burn_block_2 = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 fork_2.next_block(&ic)
             };
             
             let last_key_1 = node.get_last_key(&miner_1);
             let last_key_2 = node.get_last_key(&miner_2);
             let block_1_snapshot_opt = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 let chain_tip = fork_1.get_tip(&ic);
                 TestStacksNode::get_last_winning_snapshot(&ic, &chain_tip, &miner_1)
             };
             let block_2_snapshot_opt = {
-                let ic = burn_node.burndb.index_conn();
+                let ic = burn_node.sortdb.index_conn();
                 let chain_tip = fork_2.get_tip(&ic);
                 TestStacksNode::get_last_winning_snapshot(&ic, &chain_tip, &miner_2)
             };
@@ -2439,7 +2449,7 @@ pub mod test {
             let last_microblock_header_opt_1 = get_last_microblock_header(&node, &miner_1, parent_block_opt_1.as_ref());
             let last_microblock_header_opt_2 = get_last_microblock_header(&node, &miner_2, parent_block_opt_2.as_ref());
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2454,7 +2464,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2487,7 +2497,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process all Stacks blocks: {}, {}", &stacks_block_1.block_hash(), &stacks_block_2.block_hash());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.burndb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
 
             // processed all stacks blocks -- one on each burn chain fork
             assert_eq!(tip_info_list.len(), 2);
@@ -2697,7 +2707,7 @@ pub mod test {
                                 
                                     // process all the blocks we can 
                                     test_debug!("Process Stacks block {} and microblock {} {}", &stacks_block.block_hash(), mblock.block_hash(), mblock.header.sequence);
-                                    let tip_info_list = node.chainstate.process_blocks(&mut miner_trace.burn_node.burndb, expected_num_blocks).unwrap();
+                                    let tip_info_list = node.chainstate.process_blocks(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
 
                                     num_processed += tip_info_list.len();
                                 }
@@ -2705,7 +2715,7 @@ pub mod test {
                             else {
                                 // process all the blocks we can 
                                 test_debug!("Process Stacks block {} and {} microblocks in {}", &stacks_block.block_hash(), microblocks.len(), &node_name);
-                                let tip_info_list = node.chainstate.process_blocks(&mut miner_trace.burn_node.burndb, expected_num_blocks).unwrap();
+                                let tip_info_list = node.chainstate.process_blocks(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
 
                                 num_processed += tip_info_list.len();
                             }
@@ -3377,28 +3387,28 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block : Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
             if let Some(block) = last_block {
                 assert_eq!(tip.winning_stacks_block_hash, block.block_hash());
             }
 
-            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3437,7 +3447,7 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3448,16 +3458,17 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
-            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3522,7 +3533,7 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3533,16 +3544,16 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
-            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3629,7 +3640,7 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3640,16 +3651,16 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
-            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3746,23 +3757,23 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
-            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3840,23 +3851,23 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
-            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
@@ -3923,23 +3934,23 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
-            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };

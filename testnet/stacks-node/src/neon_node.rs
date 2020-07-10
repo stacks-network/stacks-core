@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::default::Default;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, PublicKey};
-use stacks::chainstate::burn::db::burndb::{BurnDB};
+use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{
@@ -112,7 +112,7 @@ fn inner_process_tenure(
     anchored_block: &StacksBlock, 
     burn_header_hash: &BurnchainHeaderHash, 
     parent_burn_header_hash: &BurnchainHeaderHash, 
-    burn_db: &mut BurnDB,
+    burn_db: &mut SortitionDB,
     chain_state: &mut StacksChainState,
     dispatcher: &mut EventDispatcher) -> Result<(), ChainstateError> {
     {
@@ -239,7 +239,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
 
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
-    let burndb = BurnDB::open(&burn_db_path, false)
+    let sortdb = SortitionDB::open(&burn_db_path, false)
         .map_err(NetError::DBError)?;
 
     let mut chainstate = StacksChainState::open_with_block_limit(
@@ -270,7 +270,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                     poll_timeout
                 };
 
-            let network_result = match this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
+            let network_result = match this.run(&sortdb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
                                                  download_backpressure, poll_ms, &handler_args) {
                 Ok(res) => res,
                 Err(e) => {
@@ -324,10 +324,10 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
     //   no other codepaths should be writing once this is spawned.
     //
-    // the relayer _should not_ be modifying the burndb,
+    // the relayer _should not_ be modifying the sortdb,
     //   however, it needs a mut reference to create read TXs.
     //   should address via #1449
-    let mut burndb = BurnDB::open(&burn_db_path, true)
+    let mut sortdb = SortitionDB::open(&burn_db_path, true)
         .map_err(NetError::DBError)?;
 
     let mut chainstate = StacksChainState::open_with_block_limit(
@@ -366,12 +366,12 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     debug!("Relayer: Try process attacheable blocks");
 
                     // process any attachable blocks
-                    let block_receipts = chainstate.process_blocks(&mut burndb, 1).expect("BUG: failure processing chainstate");
+                    let block_receipts = chainstate.process_blocks(&mut sortdb, 1).expect("BUG: failure processing chainstate");
                     let mut num_processed = 0;
                     for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
                         // TODO: pass the poison microblock transaction off to the miner!
                         if let Some((header_info, receipts)) = headers_and_receipts_opt {
-                            dispatcher_announce_block(&blocks_path, &mut event_dispatcher, header_info, None, &mut burndb, receipts);
+                            dispatcher_announce_block(&blocks_path, &mut event_dispatcher, header_info, None, &mut sortdb, receipts);
                             num_processed += 1;
 
                             increment_stx_blocks_processed_counter();
@@ -385,13 +385,13 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
                     debug!("Relayer: Handle network result");
                     let net_receipts = relayer.process_network_result(&local_peer, net_result,
-                                                                        &mut burndb, &mut chainstate, &mut mem_pool)
+                                                                        &mut sortdb, &mut chainstate, &mut mem_pool)
                         .expect("BUG: failure processing network results");
 
                     // TODO: extricate the poison block transaction(s) from the relayer and feed
                     // them to the miner
                     for (stacks_header, tx_receipts) in net_receipts.blocks_processed {
-                        dispatcher_announce_block(&blocks_path, &mut event_dispatcher, stacks_header, None, &mut burndb, tx_receipts);
+                        dispatcher_announce_block(&blocks_path, &mut event_dispatcher, stacks_header, None, &mut sortdb, tx_receipts);
                     }
 
                     let mempool_txs_added = net_receipts.mempool_txs_added.len();
@@ -417,7 +417,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             increment_stx_blocks_mined_counter();
 
                             match inner_process_tenure(&mined_block, &burn_header_hash, &parent_block_burn_hash,
-                                                       &mut burndb, &mut chainstate, &mut event_dispatcher) {
+                                                       &mut sortdb, &mut chainstate, &mut event_dispatcher) {
                                 Ok(x) => x,
                                 Err(e) => {
                                     warn!("Error processing my tenure, bad block produced: {}", e);
@@ -426,7 +426,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             };
 
                             // advertize _and_ push blocks for now
-                            let blocks_available = Relayer::load_blocks_available_data(&burndb, vec![burn_header_hash.clone()])
+                            let blocks_available = Relayer::load_blocks_available_data(&sortdb, vec![burn_header_hash.clone()])
                                 .expect("Failed to obtain block information for a block we mined.");
                             if let Err(e) = relayer.advertize_blocks(blocks_available) {
                                 warn!("Failed to advertise new block: {}", e);
@@ -480,7 +480,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
                     debug!("Relayer: Run tenure");
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
-                        registered_key, &mut chainstate, &burndb, last_burn_block,
+                        registered_key, &mut chainstate, &sortdb, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller);
                     bump_processed_counter(&blocks_processed);
                 },
@@ -500,7 +500,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
 fn dispatcher_announce_block(blocks_path: &str, event_dispatcher: &mut EventDispatcher,
                              metadata: StacksHeaderInfo,
                              parent_burn_header_hash: Option<&BurnchainHeaderHash>,
-                             burndb: &mut BurnDB,
+                             sortdb: &mut SortitionDB,
                              receipts: Vec<StacksTransactionReceipt>) {
     let block: StacksBlock = {
         let block_path = StacksChainState::get_block_path(
@@ -514,7 +514,7 @@ fn dispatcher_announce_block(blocks_path: &str, event_dispatcher: &mut EventDisp
         Some(x) => StacksBlockHeader::make_index_block_hash(x, &block.header.parent_block),
         None => {
             let parent_burn_header_hash = StacksChainState::get_parent_burn_header_hash(
-                &burndb.index_conn(), &block.header.parent_block, &metadata.burn_header_hash)
+                &sortdb.index_conn(), &block.header.parent_block, &metadata.burn_header_hash)
                 .expect("Failed to get parent burn header hash for processed block")
                 .expect("Failed to get parent burn header hash for processed block");
             StacksBlockHeader::make_index_block_hash(&parent_burn_header_hash, &block.header.parent_block)
@@ -536,8 +536,8 @@ impl InitializedNeonNode {
            miner: bool, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let burndb = BurnDB::open(&config.get_burn_db_file_path(), false)
-            .expect("Error while instantiating burnchain db");
+        let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
+            .expect("Error while instantiating sortition db");
 
         let burnchain = Burnchain::new(
             &config.get_burn_db_path(),
@@ -545,8 +545,10 @@ impl InitializedNeonNode {
             "regtest").expect("Error while instantiating burnchain");
 
         let view = {
-            let ic = burndb.index_conn();
-            BurnDB::get_burnchain_view(&ic, &burnchain).unwrap()
+            let ic = sortdb.index_conn();
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)
+                .expect("Failed to get sortition tip");
+            ic.get_burnchain_view(&burnchain, &sortition_tip).unwrap()
         };
 
         // create a new peerdb
@@ -716,7 +718,7 @@ impl InitializedNeonNode {
     //        the burn header hash of the burnchain tip
     fn relayer_run_tenure(registered_key: RegisteredKey,
                           chain_state: &mut StacksChainState,
-                          burn_db: &BurnDB,
+                          burn_db: &SortitionDB,
                           burn_block: BlockSnapshot,
                           keychain: &mut Keychain,
                           mem_pool: &mut MemPoolDB,
@@ -751,23 +753,24 @@ impl InitializedNeonNode {
 
                 // the stacks block I'm mining off of's burn header hash and vtx index:
                 let parent_burn_hash = stacks_tip.burn_header_hash.clone();
+                let parent_sortition_id = SortitionId::stubbed(&parent_burn_hash);
                 let parent_winning_vtxindex =
-                    match BurnDB::get_block_winning_vtxindex(burn_db.conn(), &parent_burn_hash)
-                    .expect("BurnDB failure.") {
+                    match SortitionDB::get_block_winning_vtxindex(burn_db.conn(), &parent_sortition_id)
+                    .expect("SortitionDB failure.") {
                         Some(x) => x,
                         None => {
-                            warn!("Failed to find winning vtx index for the parent burn block {}",
-                                  &parent_burn_hash);
+                            warn!("Failed to find winning vtx index for the parent sortition {}",
+                                  &parent_sortition_id);
                             return None
                         }
                     };
 
-                let parent_block = match BurnDB::get_block_snapshot(burn_db.conn(), &parent_burn_hash)
-                    .expect("BurnDB failure.") {
+                let parent_block = match SortitionDB::get_block_snapshot(burn_db.conn(), &parent_sortition_id)
+                    .expect("SortitionDB failure.") {
                         Some(x) => x,
                         None => {
-                            warn!("Failed to find block snapshot for the parent burn block {}",
-                                  &parent_burn_hash);
+                            warn!("Failed to find block snapshot for the parent sortition {}",
+                                  &parent_sortition_id);
                             return None
                         }
                     };
@@ -833,23 +836,24 @@ impl InitializedNeonNode {
         })
     }
 
-    /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
+    /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
     /// and inspecting if a sortition was won.
-    pub fn process_burnchain_state(&mut self, burndb: &BurnDB, burn_hash: &BurnchainHeaderHash) -> (Option<BlockSnapshot>, bool) {
+    pub fn process_burnchain_state(&mut self, sortdb: &SortitionDB, sort_id: &SortitionId) -> (Option<BlockSnapshot>, bool) {
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
 
-        let ic = burndb.index_conn();
+        let ic = sortdb.index_conn();
 
-        let block_snapshot = BurnDB::get_block_snapshot(&ic, burn_hash)
+        let block_snapshot = SortitionDB::get_block_snapshot(&ic, sort_id)
             .expect("Failed to obtain block snapshot for processed burn block.")
             .expect("Failed to obtain block snapshot for processed burn block.");
         let block_height = block_snapshot.block_height;
 
-        let block_commits = BurnDB::get_block_commits_by_block(&ic, block_height, burn_hash)
-            .expect("Unexpected BurnDB error fetching block commits");
+        let block_commits = SortitionDB::get_block_commits_by_block(&ic, &block_snapshot.sortition_id)
+            .expect("Unexpected SortitionDB error fetching block commits");
 
         update_active_miners_count_gauge(block_commits.len() as i64);
+
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!("Received burnchain block #{} including block_commit_op (winning) - {}", block_height, op.input.to_testnet_address());
@@ -868,8 +872,8 @@ impl InitializedNeonNode {
 
 
 
-        let key_registers = BurnDB::get_leader_keys_by_block(&ic, block_height, burn_hash)
-            .expect("Unexpected BurnDB error fetching key registers");
+        let key_registers = SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
+            .expect("Unexpected SortitionDB error fetching key registers");
         for op in key_registers.into_iter() {
             if self.is_miner {
                 info!("Received burnchain block #{} including key_register_op - {}", block_height, op.address);
