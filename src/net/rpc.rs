@@ -36,6 +36,7 @@ use net::HttpResponseType;
 use net::HttpRequestMetadata;
 use net::HttpResponseMetadata;
 use net::PeerAddress;
+use net::ClientError;
 use net::RPCPeerInfoData;
 use net::NeighborAddress;
 use net::NeighborsData;
@@ -769,9 +770,15 @@ impl ConversationHttp {
                 response.send(&mut self.connection.protocol, &mut reply).map(|_| ())?;
                 None
             },
-            HttpRequestType::Unmatched(ref _md, ref path) => {
+            HttpRequestType::ClientError(ref _md, ref err) => {
                 let response_metadata = HttpResponseMetadata::from(&req);
-                let response = HttpResponseType::NotFound(response_metadata, path.clone());
+                let response = match err {
+                    ClientError::Message(s) => HttpResponseType::BadRequestJSON(
+                        response_metadata, serde_json::Value::String(s.to_string())),
+                    ClientError::NotFound(path) => HttpResponseType::NotFound(
+                        response_metadata, path.clone())
+                };
+
                 response.send(&mut self.connection.protocol, &mut reply).map(|_| ())?;
                 None
             }
