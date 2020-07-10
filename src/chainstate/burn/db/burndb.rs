@@ -361,6 +361,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
     CREATE UNIQUE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);
     CREATE UNIQUE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);
     CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);
+    CREATE INDEX arrival_indexes ON snapshots(arrival_index);
     "#,
     r#"
     -- all leader keys registered in the blockchain.
@@ -1383,7 +1384,7 @@ impl SortitionDB {
 
     /// Get the maximum arrival index for any known snapshot.
     fn get_max_arrival_index(conn: &Connection) -> Result<u64, db_error> {
-        match conn.query_row("SELECT arrival_index FROM snapshots ORDER BY arrival_index DESC LIMIT 1", NO_PARAMS,
+        match conn.query_row("SELECT MAX(arrival_index) FROM snapshots", NO_PARAMS,
                              |row| u64::from_column(row, "arrival_index"))
             .optional()? {
             Some(arrival_index) => Ok(arrival_index?),
