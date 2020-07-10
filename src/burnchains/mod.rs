@@ -63,7 +63,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::burn::operations::LeaderKeyRegisterOp;
-use chainstate::burn::db::sortdb::PoxIdentifier;
+use chainstate::burn::db::sortdb::PoxId;
 use chainstate::burn::distribution::BurnSamplePoint;
 
 use address::AddressHashMode;
@@ -319,7 +319,7 @@ pub enum Error {
     /// Try again error
     TrySyncAgain,
     UnknownBlock(BurnchainHeaderHash),
-    NonCanonicalPoxId(PoxIdentifier, PoxIdentifier),
+    NonCanonicalPoxId(PoxId, PoxId),
 }
 
 impl fmt::Display for Error {

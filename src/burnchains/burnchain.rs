@@ -71,7 +71,7 @@ use chainstate::burn::operations::{
 };
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionHandleTx, SortitionHandleConn,
-    PoxIdentifier, PoxDB
+    PoxId, PoxDB
 };
 
 use chainstate::stacks::StacksAddress;
@@ -592,7 +592,7 @@ impl Burnchain {
         let header = block.header();
         let blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
 
-        let pox_id = PoxIdentifier::stubbed();
+        let pox_id = PoxId::stubbed();
         let pox_db = PoxDB::stubbed();
 
         db.evaluate_sortition(&header, blockstack_txs, burnchain, &pox_id, &pox_db)
@@ -651,7 +651,7 @@ impl Burnchain {
                 e
             })?;
 
-        let pox_id = PoxIdentifier::stubbed();
+        let pox_id = PoxId::stubbed();
         let pox_db = PoxDB::stubbed();
 
         let last_snapshot_processed = match SortitionDB::get_last_snapshot(&sortdb.conn, &pox_id, &pox_db)? {
@@ -820,7 +820,7 @@ pub mod tests {
     use chainstate::burn::{ConsensusHash, OpsHash, BlockSnapshot, SortitionHash, VRFSeed, BlockHeaderHash};
 
     use chainstate::burn::db::sortdb::{
-        SortitionHandleTx, SortitionDB, SortitionId, PoxIdentifier
+        SortitionHandleTx, SortitionDB, SortitionId, PoxId
     };
 
     use burnchains::Address;
@@ -1106,7 +1106,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_121_snapshot = BlockSnapshot {
-            pox_id: PoxIdentifier::stubbed(),
+            pox_id: PoxId::stubbed(),
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
             sortition_id: SortitionId(block_121_hash.0.clone()),
@@ -1139,7 +1139,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_122_snapshot = BlockSnapshot {
-            pox_id: PoxIdentifier::stubbed(),
+            pox_id: PoxId::stubbed(),
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
             sortition_id: SortitionId(block_122_hash.0.clone()),
@@ -1178,7 +1178,7 @@ pub mod tests {
             block_121_snapshot.consensus_hash.clone(),
         ];
         let mut block_123_snapshot = BlockSnapshot {
-            pox_id: PoxIdentifier::stubbed(),
+            pox_id: PoxId::stubbed(),
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
             sortition_id: SortitionId(block_123_hash.0.clone()),
@@ -1326,7 +1326,7 @@ pub mod tests {
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
             
             let mut block_124_snapshot = BlockSnapshot {
-                pox_id: PoxIdentifier::stubbed(),
+                pox_id: PoxId::stubbed(),
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
                 sortition_id: SortitionId(block_124_hash.0.clone()),

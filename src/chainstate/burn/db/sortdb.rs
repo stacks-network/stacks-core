@@ -147,7 +147,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 
         // identifiers derived from PoX forking state
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
-        let pox_id = PoxIdentifier::from_column(row, "pox_id")?;
+        let pox_id = PoxId::from_column(row, "pox_id")?;
 
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
@@ -501,6 +501,11 @@ fn get_ancestor_sort_id<C: SortitionContext>(ic: &IndexDBConn<'_, C, SortitionId
     ic.get_ancestor_block_hash(block_height - first_block_height, &tip_block_hash)
 }
 
+/// Identifier used to identify "sortitions" in the
+///  SortitionDB. A sortition is the collection of
+///  valid burnchain operations (and any dependent
+///  variables, e.g., the sortition winner, the
+///  consensus hash, the next VRF key)
 pub struct SortitionId(pub [u8; 32]);
 impl_array_newtype!(SortitionId, u8, 32);
 impl_array_hexstring_fmt!(SortitionId);
@@ -508,12 +513,17 @@ impl_byte_array_newtype!(SortitionId, u8, 32);
 impl_byte_array_from_column!(SortitionId);
 impl_byte_array_message_codec!(SortitionId, 32);
 
-pub struct PoxIdentifier(pub [u8; 32]);
-impl_array_newtype!(PoxIdentifier, u8, 32);
-impl_array_hexstring_fmt!(PoxIdentifier);
-impl_byte_array_newtype!(PoxIdentifier, u8, 32);
-impl_byte_array_from_column!(PoxIdentifier);
-impl_byte_array_message_codec!(PoxIdentifier, 32);
+/// Identifier used to identify Proof-of-Transfer forks
+///  (or Rewards Cycle forks). These identifiers are opaque
+///  outside of the PoX DB, however, they are sufficient
+///  to uniquely identify a "sortition" when paired with
+///  a burn header hash
+pub struct PoxId(pub [u8; 32]);
+impl_array_newtype!(PoxId, u8, 32);
+impl_array_hexstring_fmt!(PoxId);
+impl_byte_array_newtype!(PoxId, u8, 32);
+impl_byte_array_from_column!(PoxId);
+impl_byte_array_message_codec!(PoxId, 32);
 
 struct db_keys;
 impl db_keys {
@@ -923,15 +933,15 @@ impl <'a> SortitionHandleConn <'a> {
 
 }
 
-impl PoxIdentifier {
-    const BASE_FORK: PoxIdentifier = PoxIdentifier([0; 32]);
+impl PoxId {
+    const BASE_FORK: PoxId = PoxId([0; 32]);
 
-    pub fn stubbed() -> PoxIdentifier {
-        PoxIdentifier::BASE_FORK.clone()
+    pub fn stubbed() -> PoxId {
+        PoxId::BASE_FORK.clone()
     }
 
-    pub fn base_fork() -> &'static PoxIdentifier {
-        &PoxIdentifier::BASE_FORK
+    pub fn base_fork() -> &'static PoxId {
+        &PoxId::BASE_FORK
     }
 }
 
@@ -939,11 +949,11 @@ impl SortitionId {
     /// PoX Todo: any caller of this would need to instead
     ///  construct a sortition ID with a burn header hash + pox fork identifier
     pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
-        SortitionId::new(from, PoxIdentifier::base_fork())
+        SortitionId::new(from, PoxId::base_fork())
     }
 
-    pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxIdentifier) -> SortitionId {
-        if pox == PoxIdentifier::base_fork() {
+    pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
+        if pox == PoxId::base_fork() {
             SortitionId(bhh.0.clone())
         } else {
             let mut hasher = Sha512Trunc256::new();
@@ -1254,18 +1264,18 @@ pub struct PoxDB;
 impl PoxDB {
     /// Get the canonical PoX identifier for a given burnchain header hash.
     ///   this result may change if a previously unknown PoX anchor is processed.
-    pub fn get_canonical_pox_id(&self, _burnchain_header_hash: &BurnchainHeaderHash) -> Result<PoxIdentifier, ()> {
-        Ok(PoxIdentifier::stubbed())
+    pub fn get_canonical_pox_id(&self, _burnchain_header_hash: &BurnchainHeaderHash) -> Result<PoxId, ()> {
+        Ok(PoxId::stubbed())
     }
     /// Get the parent PoX identifier for a given identifier.
     ///  If the PoX identifier does not have a parent (should only be true for the "base" PoX identifier)
     ///    return an error.
-    pub fn get_parent_pox_id(&self, _pox_id: &PoxIdentifier) -> Result<PoxIdentifier, ()> {
+    pub fn get_parent_pox_id(&self, _pox_id: &PoxId) -> Result<PoxId, ()> {
         Err(())
     }
     /// does the given pox identifier describe a child fork of the parent pox identifier? this returns true if they
     ///   are equal or child is a descendant.
-    pub fn is_pox_id_a_child(&self, parent: &PoxIdentifier, child: &PoxIdentifier) -> bool {
+    pub fn is_pox_id_a_child(&self, parent: &PoxId, child: &PoxId) -> bool {
         return parent == child || self.get_parent_pox_id(child).as_ref() == Ok(parent)
     }
     pub fn stubbed() -> PoxDB {
@@ -1275,10 +1285,10 @@ impl PoxDB {
 
 // High-level functions used by ChainsCoordinator
 impl SortitionDB {
-    pub fn get_sortition_id(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxIdentifier) -> Result<SortitionId, ()> {
+    pub fn get_sortition_id(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxId) -> Result<SortitionId, ()> {
         Ok(SortitionId::new(burnchain_header_hash, pox_id))
     }
-    pub fn is_sortition_processed(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxIdentifier) -> Result<bool, BurnchainError> {
+    pub fn is_sortition_processed(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxId) -> Result<bool, BurnchainError> {
         let sort_id = SortitionId::new(burnchain_header_hash, pox_id);
 
         match SortitionDB::get_block_snapshot(&self.conn, &sort_id) {
@@ -1288,7 +1298,7 @@ impl SortitionDB {
     }
 
     pub fn evaluate_sortition(&mut self, burn_header: &BurnchainBlockHeader, ops: Vec<BlockstackOperationType>,
-                              burnchain: &Burnchain, pox_id: &PoxIdentifier, pox_db: &PoxDB) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+                              burnchain: &Burnchain, pox_id: &PoxId, pox_db: &PoxDB) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let parent_pox = pox_db.get_canonical_pox_id(&burn_header.parent_block_hash)
             .map_err(|_e| BurnchainError::MissingParentBlock)?;
         let parent_sort_id = SortitionId::new(&burn_header.parent_block_hash, &parent_pox);
@@ -1328,7 +1338,7 @@ impl SortitionDB {
 // Querying methods
 impl SortitionDB {
     /// Get the last snapshot processed, in the provided PoX fork
-    pub fn get_last_snapshot(conn: &Connection, pox_id: &PoxIdentifier, pox_db: &PoxDB) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_last_snapshot(conn: &Connection, pox_id: &PoxId, pox_db: &PoxDB) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE pox_id = ?1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         let opt_result = query_row(conn, qry, &[pox_id])?;
         if let None = opt_result {
@@ -1344,10 +1354,11 @@ impl SortitionDB {
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
-    // PoX TODO: this method will need to be provided with a fork identifier
+    // PoX TODO: this method should go away -- callers will need to call `get_last_snapshot` with a PoX identifier
+    //            to obtain the last snapshot
     pub fn get_canonical_burn_chain_tip_stubbed(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let pox_db = PoxDB::stubbed();
-        SortitionDB::get_last_snapshot(conn, &PoxIdentifier::stubbed(), &pox_db)
+        SortitionDB::get_last_snapshot(conn, &PoxId::stubbed(), &pox_db)
             .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
@@ -2363,7 +2374,7 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id,
-                    pox_id: PoxIdentifier::stubbed(),
+                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2435,7 +2446,7 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id,
-                    pox_id: PoxIdentifier::stubbed(),
+                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2575,7 +2586,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxIdentifier::stubbed(),
+            pox_id: PoxId::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2599,7 +2610,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxIdentifier::stubbed(),
+            pox_id: PoxId::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2623,7 +2634,7 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxIdentifier::stubbed(),
+            pox_id: PoxId::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
@@ -2895,7 +2906,7 @@ mod tests {
                 let snapshot_row = 
                     if i % 3 == 0 {
                         BlockSnapshot {
-                            pox_id: PoxIdentifier::stubbed(),
+                            pox_id: PoxId::stubbed(),
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2922,7 +2933,7 @@ mod tests {
                         total_burn += 1;
                         total_sortitions += 1;
                         BlockSnapshot {
-                            pox_id: PoxIdentifier::stubbed(),
+                            pox_id: PoxId::stubbed(),
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -3103,7 +3114,7 @@ mod tests {
         let mut last_snapshot = start_snapshot.clone();
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
-                pox_id: PoxIdentifier::stubbed(),
+                pox_id: PoxId::stubbed(),
                 block_height: last_snapshot.block_height + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),

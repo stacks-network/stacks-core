@@ -44,7 +44,7 @@ use rusqlite::Transaction;
 
 use chainstate::burn::db::sortdb::{
     SortitionId, SortitionHandleConn,
-    PoxIdentifier,
+    PoxId,
 };
 
 use util::db::Error as db_error;
@@ -137,7 +137,7 @@ pub struct BlockSnapshot {
     pub canonical_stacks_tip_hash: BlockHeaderHash,     // memoized canonical stacks chain tip
     pub canonical_stacks_tip_burn_hash: BurnchainHeaderHash,    // memoized canonical stacks chain tip
     pub sortition_id: SortitionId,
-    pub pox_id: PoxIdentifier,
+    pub pox_id: PoxId,
 }
 
 impl BlockHeaderHash {
@@ -357,7 +357,7 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id: SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]),
-                    pox_id: PoxIdentifier::stubbed(),
+                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i-1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
