@@ -2835,7 +2835,7 @@ impl StacksChainState {
                         microblocks: &Vec<StacksMicroblock>,  // parent microblocks 
                         burnchain_commit_burn: u64, 
                         burnchain_sortition_burn: u64, 
-                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<(StacksHeaderInfo, Vec<StacksTransactionReceipt>, ExecutionCost, ExecutionCost), Error>
+                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksEpochReceipt, Error>
     {
 
         debug!("Process block {:?} with {} transactions", &block.block_hash().to_hex(), block.txs.len());
@@ -2972,7 +2972,14 @@ impl StacksChainState {
                                                     user_burns)
             .expect("FATAL: failed to advance chain tip");
 
-        Ok((new_tip, txs_receipts, microblock_execution_cost, block_execution_cost))
+        let epoch_receipt = StacksEpochReceipt {
+            header: new_tip, 
+            tx_receipts: txs_receipts,
+            parent_microblocks_cost: microblock_execution_cost,
+            anchored_block_cost: block_execution_cost
+        };
+
+        Ok(epoch_receipt)
     }
 
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
@@ -3140,7 +3147,7 @@ impl StacksChainState {
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
-        let (next_chain_tip, receipts, microblocks_cost, block_cost) = 
+        let epoch_receipt = 
             match StacksChainState::append_block(&mut chainstate_tx, 
                                                  clarity_instance, 
                                                  &parent_block_header_info, 
@@ -3182,28 +3189,21 @@ impl StacksChainState {
             }
         };
 
-        assert_eq!(next_chain_tip.anchored_header.block_hash(), block.block_hash());
-        assert_eq!(next_chain_tip.burn_header_hash, next_staging_block.burn_header_hash);
-        assert_eq!(next_chain_tip.anchored_header.parent_microblock, last_microblock_hash);
-        assert_eq!(next_chain_tip.anchored_header.parent_microblock_sequence, last_microblock_seq);
+        assert_eq!(epoch_receipt.header.anchored_header.block_hash(), block.block_hash());
+        assert_eq!(epoch_receipt.header.burn_header_hash, next_staging_block.burn_header_hash);
+        assert_eq!(epoch_receipt.header.anchored_header.parent_microblock, last_microblock_hash);
+        assert_eq!(epoch_receipt.header.anchored_header.parent_microblock_sequence, last_microblock_seq);
 
-        debug!("Reached chain tip {}/{} from {}/{}", next_chain_tip.burn_header_hash, next_chain_tip.anchored_header.block_hash(), next_staging_block.parent_burn_header_hash, next_staging_block.parent_anchored_block_hash);
+        debug!("Reached chain tip {}/{} from {}/{}", epoch_receipt.header.burn_header_hash, epoch_receipt.header.anchored_header.block_hash(), next_staging_block.parent_burn_header_hash, next_staging_block.parent_anchored_block_hash);
 
         if next_staging_block.parent_microblock_hash != EMPTY_MICROBLOCK_PARENT_HASH || next_staging_block.parent_microblock_seq != 0 {
             // confirmed one or more parent microblocks
             StacksChainState::set_microblocks_confirmed(&mut chainstate_tx.blocks_tx, &next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash, last_microblock_seq)?;
         }
-        StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(burn_tx), &next_chain_tip.burn_header_hash, &next_chain_tip.anchored_header.block_hash(), true)?;
+        StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(burn_tx), &epoch_receipt.header.burn_header_hash, &epoch_receipt.header.anchored_header.block_hash(), true)?;
        
         chainstate_tx.commit()
             .map_err(Error::DBError)?;
-
-        let epoch_receipt = StacksEpochReceipt {
-            header: next_chain_tip, 
-            tx_receipts: receipts,
-            parent_microblocks_cost: microblocks_cost,
-            anchored_block_cost: block_cost
-        };
 
         Ok((Some(epoch_receipt), None))
     }
