@@ -64,7 +64,7 @@ use util::db::u64_to_sql;
 
 use util::retry::BoundReader;
 
-use chainstate::burn::db::burndb::*;
+use chainstate::burn::db::sortdb::*;
 
 use net::MAX_MESSAGE_LEN;
 use net::BLOCKS_INV_DATA_MAX_BITLEN;
@@ -3414,7 +3414,7 @@ pub mod test {
         
     use burnchains::*;
     use chainstate::burn::*;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
     use util::db::Error as db_error;
     use util::db::*;
     use util::hash::*;

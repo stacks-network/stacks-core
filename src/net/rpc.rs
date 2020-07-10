@@ -58,7 +58,7 @@ use burnchains::Burnchain;
 use burnchains::BurnchainView;
 use burnchains::BurnchainHeaderHash;
 
-use chainstate::burn::db::burndb::SortitionDB;
+use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::db::{
     StacksChainState,
@@ -1215,26 +1215,26 @@ mod test {
         convo_send_recv(&mut convo_1, peer_1.chainstate(), &mut convo_2, peer_2.chainstate());
 
         // hack around the borrow-checker
-        let mut peer_1_burndb = peer_1.burndb.take().unwrap();
+        let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
-        convo_1.chat(&view_1, &PeerMap::new(), &mut peer_1_burndb, &peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate, &mut peer_1_mempool, &RPCHandlerArgs::default()).unwrap();
+        convo_1.chat(&view_1, &PeerMap::new(), &mut peer_1_sortdb, &peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate, &mut peer_1_mempool, &RPCHandlerArgs::default()).unwrap();
 
-        peer_1.burndb = Some(peer_1_burndb);
+        peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
         peer_1.mempool = Some(peer_1_mempool);
         
         test_debug!("convo2 sends to convo1");
         
         // hack around the borrow-checker
-        let mut peer_2_burndb = peer_2.burndb.take().unwrap();
+        let mut peer_2_sortdb = peer_2.sortdb.take().unwrap();
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let mut peer_2_mempool = peer_2.mempool.take().unwrap();
 
-        convo_2.chat(&view_2, &PeerMap::new(), &mut peer_2_burndb, &peer_2.network.peerdb, &mut peer_2_stacks_node.chainstate, &mut peer_2_mempool, &RPCHandlerArgs::default()).unwrap();
+        convo_2.chat(&view_2, &PeerMap::new(), &mut peer_2_sortdb, &peer_2.network.peerdb, &mut peer_2_stacks_node.chainstate, &mut peer_2_mempool, &RPCHandlerArgs::default()).unwrap();
         
-        peer_2.burndb = Some(peer_2_burndb);
+        peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
         peer_2.mempool = Some(peer_2_mempool);
         
@@ -1245,13 +1245,13 @@ mod test {
         // hack around the borrow-checker
         convo_send_recv(&mut convo_1, peer_1.chainstate(), &mut convo_2, peer_2.chainstate());
         
-        let mut peer_1_burndb = peer_1.burndb.take().unwrap();
+        let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
-        convo_1.chat(&view_1, &PeerMap::new(), &mut peer_1_burndb, &peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate, &mut peer_1_mempool, &RPCHandlerArgs::default()).unwrap();
+        convo_1.chat(&view_1, &PeerMap::new(), &mut peer_1_sortdb, &peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate, &mut peer_1_mempool, &RPCHandlerArgs::default()).unwrap();
         
-        peer_1.burndb = Some(peer_1_burndb);
+        peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
         peer_1.mempool = Some(peer_1_mempool);
 
@@ -1271,7 +1271,7 @@ mod test {
         let peer_server_info = RefCell::new(None);
         test_rpc("test_rpc_getinfo", 40000, 40001, 50000, 50001,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
-                     let peer_info = RPCPeerInfoData::from_db(&peer_server.config.burnchain, peer_server.burndb.as_mut().unwrap(), &peer_server.network.peerdb, &None).unwrap();
+                     let peer_info = RPCPeerInfoData::from_db(&peer_server.config.burnchain, peer_server.sortdb.as_mut().unwrap(), &peer_server.network.peerdb, &None).unwrap();
                      *peer_server_info.borrow_mut() = Some(peer_info);
                      
                      convo_client.new_getinfo()

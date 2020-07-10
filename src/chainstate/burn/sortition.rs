@@ -34,7 +34,7 @@ use util::db::Error as db_error;
 
 use core::*;
 
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionId, SortitionHandleConn, PoxIdentifier,
 };
 use chainstate::burn::{
@@ -321,7 +321,7 @@ mod test {
     use burnchains::test::*;
     use chainstate::stacks::*;
     use chainstate::burn::operations::*;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
     use chainstate::burn::VRFSeed;
     use chainstate::burn::BlockHeaderHash;
     use util::vrf::VRFPublicKey;

@@ -537,7 +537,7 @@ impl db_keys {
 
     /// MARF index key for the highest arrival index processed in a fork
     pub fn stacks_block_max_arrival_index() -> String {
-        "burndb::stacks::block::max_arrival_index".to_string()
+        "sortdb::stacks::block::max_arrival_index".to_string()
     }
 }
 
@@ -1004,7 +1004,7 @@ impl SortitionDB {
             };
 
         let (db_path, index_path) = db_mkdirs(path)?;
-        debug!("Open burndb '{}' as '{}', with index as '{}'",
+        debug!("Open sortdb '{}' as '{}', with index as '{}'",
                db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
         
         let conn = Connection::open_with_flags(&db_path, open_flags)?;
@@ -1053,7 +1053,7 @@ impl SortitionDB {
         };
 
         let (db_path, index_path) = db_mkdirs(path)?;
-        debug!("Connect/Open burndb '{}' as '{}', with index as '{}'",
+        debug!("Connect/Open sortdb '{}' as '{}', with index as '{}'",
                db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
 
         let conn = Connection::open_with_flags(&db_path, open_flags)?;
@@ -1088,7 +1088,7 @@ impl SortitionDB {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-burndb-{}", to_hex(&buf));
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
 
         SortitionDB::connect(&db_path_dir, first_block_height, first_burn_hash,
                              get_epoch_time_secs(), true)
@@ -1384,8 +1384,8 @@ impl SortitionDB {
 
     /// Get the maximum arrival index for any known snapshot.
     fn get_max_arrival_index(conn: &Connection) -> Result<u64, db_error> {
-        match conn.query_row("SELECT MAX(arrival_index) FROM snapshots", NO_PARAMS,
-                             |row| u64::from_column(row, "arrival_index"))
+        match conn.query_row("SELECT IFNULL(MAX(arrival_index), 0) FROM snapshots", NO_PARAMS,
+                             |row| u64::from_row(row))
             .optional()? {
             Some(arrival_index) => Ok(arrival_index?),
             None => Ok(0)
@@ -1841,11 +1841,11 @@ impl <'a> SortitionHandleTx <'a> {
     }
 
     /// Record fork information to the index and calculate the new fork index root hash.
-    /// * burndb::vrf::${VRF_PUBLIC_KEY} --> 0 or 1 (1 if available, 0 if consumed), for each VRF public key we process
-    /// * burndb::last_sortition --> $BURN_BLOCK_HASH, for each block that had a sortition
-    /// * burndb::sortition_block_hash::${STACKS_BLOCK_HASH} --> $BURN_BLOCK_HASH for each winning block sortition
-    /// * burndb::stacks::block::${STACKS_BLOCK_HASH} --> ${STACKS_BLOCK_HEIGHT} for each block that has been accepted so far
-    /// * burndb::stacks::block::max_arrival_index --> ${ARRIVAL_INDEX} to set the maximum arrival index processed in this fork
+    /// * sortdb::vrf::${VRF_PUBLIC_KEY} --> 0 or 1 (1 if available, 0 if consumed), for each VRF public key we process
+    /// * sortdb::last_sortition --> $BURN_BLOCK_HASH, for each block that had a sortition
+    /// * sortdb::sortition_block_hash::${STACKS_BLOCK_HASH} --> $BURN_BLOCK_HASH for each winning block sortition
+    /// * sortdb::stacks::block::${STACKS_BLOCK_HASH} --> ${STACKS_BLOCK_HEIGHT} for each block that has been accepted so far
+    /// * sortdb::stacks::block::max_arrival_index --> ${ARRIVAL_INDEX} to set the maximum arrival index processed in this fork
     /// NOTE: the resulting index root must be globally unique.  This is guaranteed because each
     /// burn block hash is unique, no matter what fork it's on (and this index uses burn block
     /// hashes as its index's block hash data).

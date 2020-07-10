@@ -7,7 +7,7 @@ use super::super::operations::BurnchainOpSigner;
 
 use stacks::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransition};
 use stacks::burnchains::bitcoin::BitcoinBlock;
-use stacks::chainstate::burn::db::burndb::{
+use stacks::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionHandleTx
 };
 use stacks::chainstate::burn::{BlockSnapshot};
@@ -65,13 +65,13 @@ impl MocknetController {
 
 impl BurnchainController for MocknetController {
     
-    fn burndb_ref(&self) -> &SortitionDB {
+    fn sortdb_ref(&self) -> &SortitionDB {
         self.db.as_ref().expect("BUG: did not instantiate burn DB")
     }
 
-    fn burndb_mut(&mut self) -> &mut SortitionDB {
+    fn sortdb_mut(&mut self) -> &mut SortitionDB {
         match self.db {
-            Some(ref mut burndb) => burndb,
+            Some(ref mut sortdb) => sortdb,
             None => {
                 unreachable!();
             }

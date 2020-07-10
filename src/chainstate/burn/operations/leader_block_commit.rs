@@ -24,7 +24,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
-use chainstate::burn::db::burndb::SortitionHandleConn;
+use chainstate::burn::db::sortdb::SortitionHandleConn;
 
 use chainstate::stacks::index::TrieHash;
 
@@ -420,7 +420,7 @@ mod tests {
     use chainstate::stacks::StacksAddress;
     use chainstate::stacks::StacksPublicKey;
 
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
     use chainstate::burn::db::*;
     use chainstate::burn::*;
 

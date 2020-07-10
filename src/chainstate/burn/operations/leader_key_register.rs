@@ -34,7 +34,7 @@ use chainstate::burn::operations::{
 use util::db::DBConn;
 use util::db::DBTx;
 
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionHandleConn
 };
 use chainstate::stacks::index::TrieHash;
@@ -265,7 +265,7 @@ pub mod tests {
     use util::hash::{hex_bytes, to_hex};
     use util::log;
     use util::get_epoch_time_secs;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
 
     use chainstate::burn::operations::{
         LeaderBlockCommitOp,

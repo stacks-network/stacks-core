@@ -17,7 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-pub mod burndb;
+pub mod sortdb;
 pub mod processing;
 
 use std::fmt;

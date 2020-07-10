@@ -42,7 +42,7 @@ use ripemd160::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;
 
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionId, SortitionHandleConn,
     PoxIdentifier,
 };
@@ -328,7 +328,7 @@ mod tests {
 
     use super::*;
 
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
 
     use burnchains::BurnchainHeaderHash;
 

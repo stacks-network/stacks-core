@@ -69,7 +69,7 @@ use chainstate::burn::operations::{
     BlockstackOperation,
     BlockstackOperationType,
 };
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionHandleTx, SortitionHandleConn,
     PoxIdentifier, PoxDB
 };
@@ -644,7 +644,7 @@ impl Burnchain {
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
     pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
-        let (mut burndb, mut burnchain_db) = self.connect_db(indexer, true)?;
+        let (mut sortdb, mut burnchain_db) = self.connect_db(indexer, true)?;
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip()
             .map_err(|e| {
                 error!("Failed to query burn chain tip from burn DB: {}", e);
@@ -654,11 +654,11 @@ impl Burnchain {
         let pox_id = PoxIdentifier::stubbed();
         let pox_db = PoxDB::stubbed();
 
-        let last_snapshot_processed = match SortitionDB::get_last_snapshot(&burndb.conn, &pox_id, &pox_db)? {
+        let last_snapshot_processed = match SortitionDB::get_last_snapshot(&sortdb.conn, &pox_id, &pox_db)? {
             Some(snapshot) => snapshot,
             None => {
                 warn!("No snapshot processed yet");
-                SortitionDB::get_first_block_snapshot(&burndb.conn)?
+                SortitionDB::get_first_block_snapshot(&sortdb.conn)?
             }
         };
 
@@ -761,7 +761,7 @@ impl Burnchain {
                 }
                 
                 let insert_start = get_epoch_time_ms();
-                let (tip, transition) = Burnchain::process_block(&mut burndb, &mut burnchain_db, &burnchain_config, &burnchain_block)?;
+                let (tip, transition) = Burnchain::process_block(&mut sortdb, &mut burnchain_db, &burnchain_config, &burnchain_block)?;
                 last_processed = (tip, Some(transition));
                 let insert_end = get_epoch_time_ms();
 
@@ -819,7 +819,7 @@ pub mod tests {
     use burnchains::{Txid, BurnchainHeaderHash};
     use chainstate::burn::{ConsensusHash, OpsHash, BlockSnapshot, SortitionHash, VRFSeed, BlockHeaderHash};
 
-    use chainstate::burn::db::burndb::{
+    use chainstate::burn::db::sortdb::{
         SortitionHandleTx, SortitionDB, SortitionId, PoxIdentifier
     };
 

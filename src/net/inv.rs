@@ -47,7 +47,7 @@ use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::Secp256k1PrivateKey;
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionId,
 };
 use chainstate::burn::BlockSnapshot;
@@ -1538,7 +1538,7 @@ mod test {
 
         let num_blocks = 5;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1551,15 +1551,15 @@ mod test {
         }
 
         let (tip, num_burn_blocks) = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             let num_burn_blocks = sn.block_height - peer_1.config.burnchain.first_block_height;
             (sn, num_burn_blocks)
         };
 
         let nk = peer_1.to_neighbor().addr;
 
-        let burndb = peer_1.burndb.take().unwrap();
-        peer_1.network.init_inv_sync(&burndb);
+        let sortdb = peer_1.sortdb.take().unwrap();
+        peer_1.network.init_inv_sync(&sortdb);
         match peer_1.network.inv_state {
             Some(ref mut inv) => {
                 inv.add_peer(nk.clone());
@@ -1568,63 +1568,63 @@ mod test {
                 panic!("No inv state");
             }
         };
-        peer_1.burndb = Some(burndb);
+        peer_1.sortdb = Some(sortdb);
         
         for i in 0..num_blocks {
-            let burndb = peer_1.burndb.take().unwrap();
+            let sortdb = peer_1.sortdb.take().unwrap();
             let sn = {
-                let ic = burndb.index_conn();
+                let ic = sortdb.index_conn();
                 let sn = SortitionDB::get_ancestor_snapshot(
                     &ic, i + 1 + first_stacks_block_height, &tip.sortition_id).unwrap().unwrap();
                 eprintln!("{:?}", &sn);
                 sn
             };
-            peer_1.burndb = Some(burndb);
+            peer_1.sortdb = Some(sortdb);
         }
 
         for i in 0..num_blocks {
-            let burndb = peer_1.burndb.take().unwrap();
+            let sortdb = peer_1.sortdb.take().unwrap();
             match peer_1.network.inv_state {
                 Some(ref mut inv) => {
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
                     let sn = {
-                        let ic = burndb.index_conn();
+                        let ic = sortdb.index_conn();
                         let sn = SortitionDB::get_ancestor_snapshot(
                             &ic, i + first_stacks_block_height + 1, &tip.sortition_id).unwrap().unwrap();
                         eprintln!("{:?}", &sn);
                         sn
                     };
                     
-                    let sh = inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &BurnchainHeaderHash([0xfe; 32])).unwrap();
+                    let sh = inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &BurnchainHeaderHash([0xfe; 32])).unwrap();
                     assert_eq!(None, sh);
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
-                    let sh = inv.set_block_available(&nk, &burndb, &ConsensusHash([0xfe; 20]), &sn.burn_header_hash).unwrap();
+                    let sh = inv.set_block_available(&nk, &sortdb, &ConsensusHash([0xfe; 20]), &sn.burn_header_hash).unwrap();
                     assert_eq!(None, sh);
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
                     
-                    let sh = inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
+                    let sh = inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
 
-                    assert_eq!(Some(i + first_stacks_block_height - burndb.first_block_height), sh);
+                    assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
                     assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     
-                    let sh = inv.set_microblocks_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
+                    let sh = inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
 
-                    assert_eq!(Some(i + first_stacks_block_height - burndb.first_block_height), sh);
+                    assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
                     assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
-                    assert!(inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
-                    assert!(inv.set_microblocks_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
+                    assert!(inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
+                    assert!(inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
                 },
                 None => {
                     panic!("No inv state");
                 }
             }
-            peer_1.burndb = Some(burndb);
+            peer_1.sortdb = Some(sortdb);
         }
     }
      
@@ -1680,7 +1680,7 @@ mod test {
 
         let num_blocks = (BLOCKS_INV_DATA_MAX_BITLEN * 2) as u64;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1694,7 +1694,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1802,7 +1802,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1815,7 +1815,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1904,7 +1904,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1928,7 +1928,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         

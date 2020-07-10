@@ -60,7 +60,7 @@ use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::Secp256k1PrivateKey;
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionId,
 };
 use chainstate::burn::BlockSnapshot;
@@ -589,7 +589,7 @@ impl BlockDownloader {
         let sn = SortitionDB::get_block_snapshot(&sortdb.conn, &sortid)?
             .ok_or_else(|| net_error::DBError(db_error::NotFoundError))?;
 
-        let block_height = sn.block_height - 1;      // burndb is 1-indexed
+        let block_height = sn.block_height - 1;      // sortdb is 1-indexed
 
         if sn.winning_stacks_block_hash != *block_hash {
             test_debug!("Snapshot of {} (height {}) does not have winning block hash {}", burn_header_hash, block_height, block_hash);
@@ -1495,8 +1495,8 @@ pub mod test {
 
     fn get_peer_availability(peer: &mut TestPeer, start_height: u64, end_height: u64) -> Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> {
         let inv_state = peer.network.inv_state.take().unwrap();
-        let availability = peer.with_db_state(|ref mut burndb, ref mut chainstate, ref mut _relayer, ref mut _mempool| {
-            BlockDownloader::get_block_availability(&inv_state, burndb, chainstate, start_height, end_height)
+        let availability = peer.with_db_state(|ref mut sortdb, ref mut chainstate, ref mut _relayer, ref mut _mempool| {
+            BlockDownloader::get_block_availability(&inv_state, sortdb, chainstate, start_height, end_height)
         }).unwrap();
         peer.network.inv_state = Some(inv_state);
         availability
@@ -1519,7 +1519,7 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1531,12 +1531,12 @@ pub mod test {
             peer_2.next_burnchain_block(burn_ops.clone());
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_2.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_2.sortdb.as_ref().unwrap().conn()).unwrap();
             block_data.push((sn.burn_header_hash.clone(), stacks_block, microblocks));
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - peer_1.config.burnchain.first_block_height
         };
         
@@ -1624,7 +1624,7 @@ pub mod test {
 
         let block_hashes = {
             let num_headers = end_height - start_height;
-            let ic = peer.burndb.as_mut().unwrap().index_conn();
+            let ic = peer.sortdb.as_mut().unwrap().index_conn();
             let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
             let ancestor = SortitionDB::get_ancestor_snapshot(&ic, end_height, &tip.sortition_id).unwrap().unwrap();
             ic.get_stacks_header_hashes(num_headers, &ancestor.consensus_hash, None).unwrap()
@@ -1680,14 +1680,14 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let block_data = block_generator(num_blocks, &mut peers);
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1715,13 +1715,13 @@ pub mod test {
                 let mut result = peer.step_dns(&mut dns_clients[i]).unwrap();
 
                 let lp = peer.network.local_peer.clone();
-                peer.with_db_state(|burndb, chainstate, relayer, mempool| {
-                    relayer.process_network_result(&lp, &mut result, burndb, chainstate, mempool)
+                peer.with_db_state(|sortdb, chainstate, relayer, mempool| {
+                    relayer.process_network_result(&lp, &mut result, sortdb, chainstate, mempool)
                 }).unwrap();
 
                 test_debug!("Peer {} processes {} blocks and {} microblock streams", i, result.blocks.len(), result.confirmed_microblocks.len());
-                let peer_work = peer.with_db_state(|burndb, chainstate, relayer, mempool| {
-                    chainstate.process_blocks(burndb, result.blocks.len() + 1).unwrap();
+                let peer_work = peer.with_db_state(|sortdb, chainstate, relayer, mempool| {
+                    chainstate.process_blocks(sortdb, result.blocks.len() + 1).unwrap();
                     Ok(())
                 }).unwrap();
                 test_debug!("Peer {} processed headers: {:?}", i, &peer_work);
@@ -1819,7 +1819,7 @@ pub mod test {
                                                peers[1].next_burnchain_block(burn_ops.clone());
                                                peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[1].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[1].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -1885,7 +1885,7 @@ pub mod test {
                                                    peers[i].next_burnchain_block(burn_ops.clone());
                                                }
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -1942,7 +1942,7 @@ pub mod test {
                                                    peers[i].next_burnchain_block(burn_ops.clone());
                                                }
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -2006,7 +2006,7 @@ pub mod test {
                                                    peers[i].next_burnchain_block(burn_ops.clone());
                                                }
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -2067,7 +2067,7 @@ pub mod test {
                                                    peers[i].next_burnchain_block(burn_ops.clone());
                                                }
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data

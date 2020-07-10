@@ -57,7 +57,7 @@ use chainstate::stacks::index::marf::{
 
 use chainstate::stacks::index::storage::TrieFileStorage;
 
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     BlockHeaderCache,
 };
 
@@ -79,7 +79,7 @@ use util::db::{
 
 use util::hash::to_hex;
 
-use chainstate::burn::db::burndb::*;
+use chainstate::burn::db::sortdb::*;
 
 use net::Error as net_error;
 

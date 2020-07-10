@@ -49,8 +49,8 @@ use util::secp256k1::Secp256k1PrivateKey;
 
 use burnchains::PublicKey;
 
-use chainstate::burn::db::burndb;
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb;
+use chainstate::burn::db::sortdb::{
     SortitionDB
 };
 
@@ -1564,7 +1564,7 @@ mod test {
     use burnchains::burnchain::*;
     use chainstate::*;
     use chainstate::burn::*;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
 
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -1592,15 +1592,15 @@ mod test {
 
         fs::create_dir_all(&test_path).unwrap();
 
-        let burndb_path = format!("{}/burn", &test_path);
+        let sortdb_path = format!("{}/burn", &test_path);
         let peerdb_path = format!("{}/peers.db", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
         let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, None, key_expires, PeerAddress::from_ipv4(127, 0, 0, 1), NETWORK_P2P_PORT, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
-        let burndb = SortitionDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
+        let sortdb = SortitionDB::connect(&sortdb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
         let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
 
-        (peerdb, burndb, chainstate)
+        (peerdb, sortdb, chainstate)
     }
 
     fn convo_send_recv(sender: &mut ConversationP2P, mut sender_handles: Vec<&mut ReplyHandleP2P>, receiver: &mut ConversationP2P) -> () {
@@ -1634,13 +1634,13 @@ mod test {
         eprintln!("pipe_write = {:?}", pipe_write);
     }
 
-    fn db_setup(peerdb: &mut PeerDB, burndb: &mut SortitionDB, socketaddr: &SocketAddr, chain_view: &BurnchainView) -> () {
+    fn db_setup(peerdb: &mut PeerDB, sortdb: &mut SortitionDB, socketaddr: &SocketAddr, chain_view: &BurnchainView) -> () {
         {
             let mut tx = peerdb.tx_begin().unwrap();
             PeerDB::set_local_ipaddr(&mut tx, &PeerAddress::from_socketaddr(socketaddr), socketaddr.port()).unwrap();
             tx.commit().unwrap();
         }
-        let mut prev_snapshot = SortitionDB::get_first_block_snapshot(burndb.conn()).unwrap();
+        let mut prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
         for i in prev_snapshot.block_height..chain_view.burn_block_height+1 {
             let mut next_snapshot = prev_snapshot.clone();
 
@@ -1670,7 +1670,7 @@ mod test {
             next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
             next_snapshot.num_sortitions += 1;
 
-            let mut tx = SortitionHandleTx::begin(burndb, &prev_snapshot.sortition_id).unwrap();
+            let mut tx = SortitionHandleTx::begin(sortdb, &prev_snapshot.sortition_id).unwrap();
 
             let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
             next_snapshot.index_root = next_index_root;
@@ -1714,11 +1714,11 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -1739,12 +1739,12 @@ mod test {
         // it along to the chat caller (us)
         test_debug!("send handshake");
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         test_debug!("send handshake-accept");
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -1817,11 +1817,11 @@ mod test {
         };
         chain_view.make_test_data();
         
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_reject_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_reject_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_reject_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_reject_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -1842,11 +1842,11 @@ mod test {
 
         // convo_2 receives it and automatically rejects it.
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a handshakreject
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -1897,11 +1897,11 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_badsignature_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_badsignature_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_badsignature_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_badsignature_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -1927,11 +1927,11 @@ mod test {
 
         // convo_2 receives it and processes it, and barfs
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2_err = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view);
+        let unhandled_2_err = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view);
 
         // convo_1 gets a nack and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         // the waiting reply aborts on disconnect
         let reply_1_err = rh_1.recv(0);
@@ -1977,11 +1977,11 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_self_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_self_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_self_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_self_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -2000,11 +2000,11 @@ mod test {
 
         // convo_2 receives it and processes it automatically (consuming it), and give back a handshake reject
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         // convo_1 gets a handshake reject and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // get back handshake reject
         let reply_1 = rh_1.recv(0).unwrap();
@@ -2056,11 +2056,11 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_ping_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_ping_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_ping_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_ping_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -2083,13 +2083,13 @@ mod test {
         test_debug!("send handshake {:?}", &handshake_1);
         test_debug!("send ping {:?}", &ping_1);
         convo_send_recv(&mut convo_1, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         test_debug!("reply handshake-accept");
         test_debug!("send pong");
         convo_send_recv(&mut convo_2, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
         let reply_ping_1 = rh_ping_1.recv(0).unwrap();
@@ -2149,11 +2149,11 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_ping_loop_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_ping_loop_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_ping_loop_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_ping_loop_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -2178,11 +2178,11 @@ mod test {
             // convo_2 receives the handshake and ping and processes both, and since no one is waiting for the handshake, will forward
             // it along to the chat caller (us)
             convo_send_recv(&mut convo_1, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_2);
-            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
             // convo_1 has a handshakeaccept 
             convo_send_recv(&mut convo_2, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_1);
-            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
             let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
             let reply_ping_1 = rh_ping_1.recv(0).unwrap();
@@ -2275,11 +2275,11 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_nack_unsolicited_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_nack_unsolicited_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_nack_unsolicited_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_nack_unsolicited_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -2298,11 +2298,11 @@ mod test {
 
         // convo_2 will reply with a nack since peer_1 hasn't authenticated yet
         convo_send_recv(&mut convo_1, vec![&mut rh_ping_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a nack 
         convo_send_recv(&mut convo_2, vec![&mut rh_ping_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_ping_1.recv(0).unwrap();
        
@@ -2360,11 +2360,11 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -2385,12 +2385,12 @@ mod test {
         // it along to the chat caller (us)
         test_debug!("send handshake");
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         test_debug!("send handshake-accept");
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -2424,7 +2424,7 @@ mod test {
         };
 
         // convo_1 sends a getblocksinv to convo_2 for all the blocks
-        let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(burndb_1.conn()).unwrap();
+        let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb_1.conn()).unwrap();
         let getblocksdata_1 = GetBlocksInv { consensus_hash: convo_1_chaintip.consensus_hash, num_blocks: BLOCKS_INV_DATA_MAX_BITLEN as u16 };
         let getblocksdata_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_1.clone())).unwrap();
         let mut rh_1 = convo_1.send_signed_request(getblocksdata_1_msg, 10000000).unwrap();
@@ -2432,12 +2432,12 @@ mod test {
         // convo_2 receives it, and handles it
         test_debug!("send getblocksinv");
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 gets back a blocksinv message
         test_debug!("send blocksinv");
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -2469,12 +2469,12 @@ mod test {
         // convo_2 receives it, and handles it
         test_debug!("send getblocksinv (diverged)");
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 gets back a nack message
         test_debug!("send nack (diverged)");
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -2524,11 +2524,11 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let (mut peerdb_1, mut burndb_1, mut chainstate_1) = make_test_chain_dbs("convo_natpunch_1", &burnchain, 0x9abcdef0, 12352, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut burndb_2, mut chainstate_2) = make_test_chain_dbs("convo_natpunch_2", &burnchain, 0x9abcdef0, 12353, "http://peer2.com".into(), &vec![], &vec![]);
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs("convo_natpunch_1", &burnchain, 0x9abcdef0, 12352, "http://peer1.com".into(), &vec![], &vec![]);
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs("convo_natpunch_2", &burnchain, 0x9abcdef0, 12353, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
@@ -2543,12 +2543,12 @@ mod test {
         // convo_2 receives the natpunch request and processes it
         test_debug!("send natpunch {:?}", &natpunch_1);
         convo_send_recv(&mut convo_1, vec![&mut rh_natpunch_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burndb_2, &mut chainstate_2, &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &mut chainstate_2, &chain_view).unwrap();
 
         // convo_1 gets back a natpunch reply
         test_debug!("reply natpunch-reply");
         convo_send_recv(&mut convo_2, vec![&mut rh_natpunch_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burndb_1, &mut chainstate_1, &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &mut chainstate_1, &chain_view).unwrap();
 
         let natpunch_reply_1 = rh_natpunch_1.recv(0).unwrap();
 
@@ -2599,10 +2599,10 @@ mod test {
         chain_view.make_test_data();
 
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut burndb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
+        let mut sortdb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
+        let mut sortdb_2 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
         
-        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         
@@ -2647,7 +2647,7 @@ mod test {
             chain_view_bad.burn_stable_block_height -= MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
             chain_view_bad.burn_block_height -= MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
             
-            db_setup(&mut peerdb_1, &mut burndb_2, &socketaddr_2, &chain_view_bad);
+            db_setup(&mut peerdb_1, &mut sortdb_2, &socketaddr_2, &chain_view_bad);
             
             assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(false));
         }

@@ -40,7 +40,7 @@ use sha2::Digest;
 use std::hash::Hash;
 use chainstate::burn::BlockHeaderHash;
 use burnchains::BurnchainHeaderHash;
-use chainstate::burn::db::burndb::SortitionId;
+use chainstate::burn::db::sortdb::SortitionId;
 use chainstate::stacks::StacksBlockId;
 
 use util::log;

@@ -77,7 +77,7 @@ use burnchains::PublicKey;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionId
 };
 

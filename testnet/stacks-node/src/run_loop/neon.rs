@@ -3,7 +3,7 @@ use std::thread;
 
 use crate::{Config, NeonGenesisNode, BurnchainController, 
             BitcoinRegtestController, Keychain};
-use stacks::chainstate::burn::db::burndb::SortitionDB;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Address;
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
@@ -111,8 +111,8 @@ impl RunLoop {
             node.into_initialized_node(burnchain_tip.clone(), self.get_blocks_processed_arc())
         };
 
-        // TODO (hack) instantiate the burndb in the burnchain
-        let _ = burnchain.burndb_mut();
+        // TODO (hack) instantiate the sortdb in the burnchain
+        let _ = burnchain.sortdb_mut();
 
         // Start the runloop
         info!("Begin run loop");
@@ -138,7 +138,7 @@ impl RunLoop {
             // first, let's process all blocks in (block_height, next_height]
             for block_to_process in (block_height+1)..(next_height+1) {
                 let block = {
-                    let ic = burnchain.burndb_ref().index_conn();
+                    let ic = burnchain.sortdb_ref().index_conn();
                     SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
                         .unwrap()
                         .expect("Failed to find block in fork processed by bitcoin indexer")
@@ -146,7 +146,7 @@ impl RunLoop {
                 let sortition_id = &block.sortition_id;
 
                 // Have the node process the new block, that can include, or not, a sortition.
-                node.process_burnchain_state(burnchain.burndb_mut(), 
+                node.process_burnchain_state(burnchain.sortdb_mut(), 
                                              sortition_id);
                 // Now, tell the relayer to check if it won a sortition during this block,
                 //   and, if so, to process and advertize the block

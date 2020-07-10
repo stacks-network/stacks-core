@@ -40,7 +40,7 @@ use net::rpc::*;
 use net::http::*;
 use net::p2p::PeerMap;
 
-use chainstate::burn::db::burndb::SortitionDB;
+use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::stacks::db::StacksChainState;
 
 use burnchains::Burnchain;

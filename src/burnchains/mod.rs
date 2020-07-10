@@ -63,7 +63,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::burn::operations::LeaderKeyRegisterOp;
-use chainstate::burn::db::burndb::PoxIdentifier;
+use chainstate::burn::db::sortdb::PoxIdentifier;
 use chainstate::burn::distribution::BurnSamplePoint;
 
 use address::AddressHashMode;
@@ -423,7 +423,7 @@ pub mod test {
 
     use burnchains::Burnchain;
     use chainstate::burn::operations::BlockstackOperationType;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
 
     use chainstate::burn::*;
     use chainstate::burn::operations::*;
@@ -495,7 +495,7 @@ pub mod test {
     }
 
     pub struct TestBurnchainNode {
-        pub burndb: SortitionDB,
+        pub sortdb: SortitionDB,
         pub dirty: bool,
         pub burnchain: Burnchain
     }
@@ -788,7 +788,7 @@ pub mod test {
         
             txop.block_height = self.block_height;
             txop.vtxindex = self.txs.len() as u32;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_snapshot.index_root, self.fork_id);     // NOTE: override this if you intend to insert into the burndb!
+            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_snapshot.index_root, self.fork_id);     // NOTE: override this if you intend to insert into the sortdb!
             txop.txid = Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
 
             self.txs.push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
@@ -909,14 +909,14 @@ pub mod test {
             let first_block_hash = FIRST_BURNCHAIN_BLOCK_HASH.clone();
             let db = SortitionDB::connect_test(first_block_height, &first_block_hash).unwrap();
             TestBurnchainNode {
-                burndb: db,
+                sortdb: db,
                 dirty: false,
                 burnchain: Burnchain::default_unittest(first_block_height, &first_block_hash),
             }
         }
 
         pub fn mine_fork(&mut self, fork: &mut TestBurnchainFork) -> BlockSnapshot {
-            fork.mine_pending_blocks(&mut self.burndb, &self.burnchain)
+            fork.mine_pending_blocks(&mut self.sortdb, &self.burnchain)
         }
     }
 
@@ -929,7 +929,7 @@ pub mod test {
         assert_eq!(miners.len(), block_hashes.len());
 
         let mut block = {
-            let ic = node.burndb.index_conn();
+            let ic = node.sortdb.index_conn();
             fork.next_block(&ic)
         };
 
@@ -942,7 +942,7 @@ pub mod test {
             // make a Stacks block (hash) for each of the prior block's keys
             for j in 0..miners.len() {
                 let block_commit_op = {
-                    let ic = node.burndb.index_conn();
+                    let ic = node.sortdb.index_conn();
                     let hash = block_hashes[j].clone();
                     block.add_leader_block_commit(&ic, &mut miners[j], &hash, ((j + 1) as u64) * 1000, &prev_keys[j], None, None)
                 };
@@ -968,7 +968,7 @@ pub mod test {
     fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) -> () {
         // all keys accepted
         for key in prev_keys.iter() {
-            let tx_opt = SortitionDB::get_burnchain_transaction(node.burndb.conn(), &key.txid).unwrap();
+            let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &key.txid).unwrap();
             assert!(tx_opt.is_some());
 
             let tx = tx_opt.unwrap();
@@ -986,7 +986,7 @@ pub mod test {
     fn verify_commits_accepted(node: &TestBurnchainNode, next_block_commits: &Vec<LeaderBlockCommitOp>) -> () {
         // all commits accepted
         for commit in next_block_commits.iter() {
-            let tx_opt = SortitionDB::get_burnchain_transaction(node.burndb.conn(), &commit.txid).unwrap();
+            let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &commit.txid).unwrap();
             assert!(tx_opt.is_some());
 
             let tx = tx_opt.unwrap();
@@ -1011,7 +1011,7 @@ pub mod test {
             miners.push(miner_factory.next_miner(&node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH));
         }
 
-        let first_snapshot = SortitionDB::get_first_block_snapshot(node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(node.sortdb.conn()).unwrap();
         let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         let mut prev_keys = vec![];
 
@@ -1043,7 +1043,7 @@ pub mod test {
             miners.push(miner_factory.next_miner(&node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH));
         }
 
-        let first_snapshot = SortitionDB::get_first_block_snapshot(node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(node.sortdb.conn()).unwrap();
         let mut fork_1 = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         let mut prev_keys_1 = vec![];
 
@@ -1124,7 +1124,7 @@ pub mod test {
             miners.push(miner_factory.next_miner(&node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH));
         }
 
-        let first_snapshot = SortitionDB::get_first_block_snapshot(node.burndb.conn()).unwrap();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(node.sortdb.conn()).unwrap();
         let mut fork_1 = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         let mut prev_keys_1 = vec![];
 

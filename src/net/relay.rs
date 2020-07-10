@@ -41,7 +41,7 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 
 use core::mempool::*;
 
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionHandleConn, SortitionDB, SortitionId, SortitionDBConn,
 };
 
@@ -1542,7 +1542,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -1692,7 +1692,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            let saved_copy : Vec<(BurnchainHeaderHash, StacksBlock, Vec<StacksMicroblock>)> = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
@@ -1810,7 +1810,7 @@ mod test {
       
         let cost_limits = peer.config.connection_opts.read_only_call_limit.clone();
 
-        let tx_contract = peer.with_mining_state(|ref mut burndb, ref mut miner, ref mut spending_account, ref mut stacks_node| {
+        let tx_contract = peer.with_mining_state(|ref mut sortdb, ref mut miner, ref mut spending_account, ref mut stacks_node| {
             let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                          spending_account.as_transaction_auth().unwrap().into(),
                                                          TransactionPayload::new_smart_contract(&name.to_string(), &contract.to_string()).unwrap());
@@ -1891,7 +1891,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            *blocks_and_microblocks.borrow_mut() = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();

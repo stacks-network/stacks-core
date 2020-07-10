@@ -21,7 +21,7 @@ use chainstate::burn::{
     BlockSnapshot,
 };
 
-use chainstate::burn::db::burndb::{
+use chainstate::burn::db::sortdb::{
     SortitionId, SortitionHandleTx
 };
 

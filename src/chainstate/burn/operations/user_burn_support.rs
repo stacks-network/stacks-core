@@ -23,7 +23,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb::{ SortitionHandleConn };
+use chainstate::burn::db::sortdb::{ SortitionHandleConn };
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -273,7 +273,7 @@ mod tests {
     };
 
     use chainstate::burn::*;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
     
     use chainstate::stacks::StacksAddress;
     
