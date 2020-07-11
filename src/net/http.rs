@@ -56,6 +56,7 @@ use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::HTTP_REQUEST_ID_RESERVED;
 
 use burnchains::{ Txid, Address };
+use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
     StacksAddress, StacksTransaction, StacksBlock, StacksMicroblock, StacksPublicKey,
     StacksBlockId
@@ -97,6 +98,7 @@ lazy_static! {
     static ref PATH_GETMICROBLOCKS_CONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/confirmed/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_UNCONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
     static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+    static ref PATH_POSTMICROBLOCK : Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$", *PRINCIPAL_DATA_REGEX)).unwrap();
     static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
@@ -1167,6 +1169,7 @@ impl HttpRequestType {
             ("GET", &PATH_GETMICROBLOCKS_CONFIRMED, &HttpRequestType::parse_getmicroblocks_confirmed),
             ("GET", &PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpRequestType::parse_getmicroblocks_unconfirmed),
             ("POST", &PATH_POSTTRANSACTION, &HttpRequestType::parse_posttransaction),
+            ("POST", &PATH_POSTMICROBLOCK, &HttpRequestType::parse_postmicroblock),
             ("GET", &PATH_GET_ACCOUNT, &HttpRequestType::parse_get_account),
             ("POST", &PATH_GET_MAP_ENTRY, &HttpRequestType::parse_get_map_entry),
             ("GET", &PATH_GET_TRANSFER_COST, &HttpRequestType::parse_get_transfer_cost),
@@ -1459,6 +1462,29 @@ impl HttpRequestType {
         let tx = StacksTransaction::consensus_deserialize(fd)?;
         Ok(HttpRequestType::PostTransaction(HttpRequestMetadata::from_preamble(preamble), tx))
     }
+    
+    fn parse_postmicroblock<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, query: Option<&str>, fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() == 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected non-zero-length body for PostMicroblock".to_string()));
+        }
+
+        // content-type must be given, and must be application/octet-stream
+        match preamble.content_type {
+            None => {
+                return Err(net_error::DeserializeError("Missing Content-Type for microblock".to_string()));
+            },
+            Some(ref c) => {
+                if *c != HttpContentType::Bytes {
+                    return Err(net_error::DeserializeError("Wrong Content-Type for microblock; expected application/octet-stream".to_string()));
+                }
+            }
+        };
+
+        let mb = StacksMicroblock::consensus_deserialize(fd)?;
+        let tip = HttpRequestType::get_chain_tip_query(query);
+
+        Ok(HttpRequestType::PostMicroblock(HttpRequestMetadata::from_preamble(preamble), mb, tip))
+    }
 
     fn parse_options_preflight<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         Ok(HttpRequestType::OptionsPreflight(HttpRequestMetadata::from_preamble(preamble), preamble.path.to_string()))
@@ -1473,6 +1499,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksConfirmed(ref md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
             HttpRequestType::PostTransaction(ref md, _) => md,
+            HttpRequestType::PostMicroblock(ref md, ..) => md,
             HttpRequestType::GetAccount(ref md, ..) => md,
             HttpRequestType::GetMapEntry(ref md, ..) => md,
             HttpRequestType::GetTransferCost(ref md) => md,
@@ -1493,6 +1520,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksConfirmed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
             HttpRequestType::PostTransaction(ref mut md, _) => md,
+            HttpRequestType::PostMicroblock(ref mut md, ..) => md,
             HttpRequestType::GetAccount(ref mut md, ..) => md,
             HttpRequestType::GetMapEntry(ref mut md, ..) => md,
             HttpRequestType::GetTransferCost(ref mut md) => md,
@@ -1524,9 +1552,10 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksIndexed(_md, block_hash) => format!("/v2/microblocks/{}", block_hash.to_hex()),
             HttpRequestType::GetMicroblocksConfirmed(_md, block_hash) => format!("/v2/microblocks/confirmed/{}", block_hash.to_hex()),
             HttpRequestType::GetMicroblocksUnconfirmed(_md, block_hash, min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
-            HttpRequestType::PostTransaction(_md, _tx) => "/v2/transactions".to_string(),
+            HttpRequestType::PostTransaction(_md, ..) => "/v2/transactions".to_string(),
+            HttpRequestType::PostMicroblock(_md, _, tip_opt) =>
+                format!("/v2/microblocks{}", HttpRequestType::make_query_string(tip_opt.as_ref(), true)),
             HttpRequestType::GetAccount(_md, principal, tip_opt, with_proof) => 
-                // format!("/v2/accounts/{}{}", &principal.to_string()[1..], HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)),
                 format!("/v2/accounts/{}{}", &principal.to_string(), HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)),
             HttpRequestType::GetMapEntry(_md, contract_addr, contract_name, map_name, _key, tip_opt, with_proof) =>
                 format!("/v2/map_entry/{}/{}/{}{}",
@@ -1552,6 +1581,13 @@ impl HttpRequestType {
 
                 HttpRequestPreamble::new_serialized(fd, &md.version, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
                 fd.write_all(&tx_bytes).map_err(net_error::WriteError)?;
+            },
+            HttpRequestType::PostMicroblock(md, mb, ..) => {
+                let mut mb_bytes = vec![];
+                write_next(&mut mb_bytes, mb)?;
+
+                HttpRequestPreamble::new_serialized(fd, &md.version, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(mb_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
+                fd.write_all(&mb_bytes).map_err(net_error::WriteError)?;
             },
             HttpRequestType::GetMapEntry(md, _contract_addr, _contract_name, _map_name, key, ..) => {
                 let mut request_bytes = vec![];
@@ -1754,6 +1790,7 @@ impl HttpResponseType {
             (&PATH_GETMICROBLOCKS_CONFIRMED, &HttpResponseType::parse_microblocks),
             (&PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpResponseType::parse_microblocks_unconfirmed),
             (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid),
+            (&PATH_POSTMICROBLOCK, &HttpResponseType::parse_microblock_hash),
             (&PATH_GET_ACCOUNT, &HttpResponseType::parse_get_account),
             (&PATH_GET_CONTRACT_SRC, &HttpResponseType::parse_get_contract_src),
             (&PATH_GET_CONTRACT_ABI, &HttpResponseType::parse_get_contract_abi),
@@ -1874,6 +1911,17 @@ impl HttpResponseType {
             .map_err(|_e|net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
         Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(request_version, preamble), txid))
     }
+    
+    fn parse_microblock_hash<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        let mblock_hex: String = HttpResponseType::parse_json(preamble, fd, len_hint, 66)?;
+        if mblock_hex.len() != 64 {
+            return Err(net_error::DeserializeError("Invalid microblock hash: expected 64 bytes".to_string()));
+        }
+
+        let mblock_hash = BlockHeaderHash::from_hex(&mblock_hex)
+            .map_err(|_e|net_error::DeserializeError("Failed to decode microblock hash hex".to_string()))?;
+        Ok(HttpResponseType::MicroblockHash(HttpResponseMetadata::from_preamble(request_version, preamble), mblock_hash))
+    }
 
     fn error_reason(code: u16) -> &'static str {
         match code {
@@ -1904,6 +1952,7 @@ impl HttpResponseType {
             HttpResponseType::Microblocks(ref md, _) => md,
             HttpResponseType::MicroblockStream(ref md) => md,
             HttpResponseType::TransactionID(ref md, _) => md,
+            HttpResponseType::MicroblockHash(ref md, _) => md,
             HttpResponseType::TokenTransferCost(ref md, _) => md,
             HttpResponseType::GetMapEntry(ref md, _) => md,
             HttpResponseType::GetAccount(ref md, _) => md,
@@ -2026,6 +2075,11 @@ impl HttpResponseType {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_json(protocol, md, fd, &txid_bytes)?;
             },
+            HttpResponseType::MicroblockHash(ref md, ref mblock_hash) => {
+                let mblock_bytes = mblock_hash.to_hex();
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_json(protocol, md, fd, &mblock_bytes)?;
+            },
             HttpResponseType::OptionsPreflight(ref md) => {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_text(protocol, md, fd, "".as_bytes())?;
@@ -2103,6 +2157,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetMicroblocksConfirmed(_, _) => "HTTP(GetMicroblocksConfirmed)",
                 HttpRequestType::GetMicroblocksUnconfirmed(_, _, _) => "HTTP(GetMicroblocksUnconfirmed)",
                 HttpRequestType::PostTransaction(_, _) => "HTTP(PostTransaction)",
+                HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
                 HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
                 HttpRequestType::GetMapEntry(..) => "HTTP(GetMapEntry)",
                 HttpRequestType::GetTransferCost(_) => "HTTP(GetTransferCost)",
@@ -2126,6 +2181,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::Microblocks(_, _) => "HTTP(Microblocks)",
                 HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",
+                HttpResponseType::MicroblockHash(_, _) => "HTTP(Microblock)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => "HTTP(400)",
                 HttpResponseType::Unauthorized(_, _) => "HTTP(401)",
