@@ -2402,22 +2402,23 @@ impl StacksChainState {
     /// The anchored block this microblock builds off of must have already been stored somewhere,
     /// staging or accepted, so we can verify the signature over this block.
     ///
-    /// Because microblocks are stored in a file named after their tail block's hash, the file will
-    /// be renamed.
-    ///
     /// This method is `&mut self` to ensure that concurrent renames don't corrupt our chain state.
     ///
     /// If we find the same microblock in multiple burnchain forks, insert it into both.
+    ///
+    /// Return true if we stored the microblock.
+    /// Return false if we did not store it (i.e. we already had it, we don't have its parent)
+    /// Return Err(..) if the microblock is invalid, or we couldn't process it
     pub fn preprocess_streamed_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<bool, Error> {
-        test_debug!("preprocess microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
+        debug!("preprocess microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
 
         // already queued or already processed?
         if StacksChainState::has_staging_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? || 
            StacksChainState::has_confirmed_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? {
-            test_debug!("Microblock already stored and/or processed: {}/{} {} {}", burn_header_hash, &anchored_block_hash, microblock.block_hash(), microblock.header.sequence);
+            debug!("Microblock already stored and/or processed: {}/{} {} {}", burn_header_hash, &anchored_block_hash, microblock.block_hash(), microblock.header.sequence);
 
             // try to process it nevertheless
-            return Ok(true);
+            return Ok(false);
         }
 
         let mainnet = self.mainnet;
@@ -2442,15 +2443,17 @@ impl StacksChainState {
 
         let mut dup = microblock.clone();
         if dup.verify(&pubkey_hash).is_err() {
-            warn!("Invalid microblock {}: failed to verify signature with {}", microblock.block_hash(), pubkey_hash);
-            return Ok(false);
+            let msg = format!("Invalid microblock {}: failed to verify signature with {}", microblock.block_hash(), pubkey_hash);
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksMicroblock(msg, microblock.block_hash()));
         }
 
         // static checks on transactions all pass
         let valid = microblock.validate_transactions_static(mainnet, chain_id);
         if !valid {
-            warn!("Invalid microblock {}: one or more transactions failed static tests", microblock.block_hash());
-            return Ok(false);
+            let msg = format!("Invalid microblock {}: one or more transactions failed static tests", microblock.block_hash());
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksMicroblock(msg, microblock.block_hash()));
         }
 
         // add to staging
@@ -3007,8 +3010,6 @@ impl StacksChainState {
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
     fn process_next_staging_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
-        self.clear_unconfirmed_state();
-
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
