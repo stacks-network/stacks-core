@@ -42,6 +42,7 @@ use net::NeighborsData;
 use net::StacksHttp;
 use net::PeerHost;
 use net::UrlString;
+use net::MicroblocksData;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::StacksMessageType;
 use net::connection::ConnectionHttp;
@@ -672,6 +673,31 @@ impl ConversationHttp {
             }
         }
     }
+    
+    fn handle_load_stacks_chain_tip_hashes<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, tip_opt: Option<&StacksBlockId>, burndb: &BurnDB, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+        match tip_opt {
+            Some(tip) => {
+                match chainstate.get_block_header_hashes(&tip)? {
+                    Some((bh, bl)) => {
+                        return Ok(Some((bh, bl)));
+                    }
+                    None => {}
+                }
+            },
+            None => {
+                match chainstate.get_stacks_chain_tip(burndb)? {
+                    Some(tip) => {
+                        return Ok(Some((tip.burn_header_hash, tip.anchored_block_hash)));
+                    }
+                    None => {}
+                }
+            }
+        }
+        let response_metadata = HttpResponseMetadata::from(req);
+        warn!("Failed to load Stacks chain tip");
+        let response = HttpResponseType::ServerError(response_metadata, format!("Failed to load Stacks chain tip"));
+        response.send(http, fd).and_then(|_| Ok(None))
+    }
 
     /// Handle a transaction.  Directly submit it to the mempool so the client can see any
     /// rejection reasons up-front (different from how the peer network handles it).  Indicate
@@ -694,6 +720,31 @@ impl ConversationHttp {
                     }
                 }
             };
+
+        response.send(http, fd).and_then(|_| Ok(accepted))
+    }
+
+    /// Handle a microblock.  Directly submit it to the microblock store so the client can see any
+    /// rejection reasons up-front (different from how the peer network handles it).  Indicate
+    /// whether or not the microblock was accepted (and thus needs to be forwarded) in the return
+    /// value.
+    fn handle_post_microblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burn_header_hash: BurnchainHeaderHash, block_hash: BlockHeaderHash, chainstate: &mut StacksChainState, microblock: StacksMicroblock) -> Result<bool, net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let (response, accepted) = match chainstate.preprocess_streamed_microblock(&burn_header_hash, &block_hash, &microblock) {
+            Ok(accepted) => {
+                if accepted {
+                    debug!("Accepted uploaded microblock {}/{}-{}", &burn_header_hash, &block_hash, &microblock.block_hash());
+                }
+                else {
+                    debug!("Did not accept microblock {}/{}-{}", &burn_header_hash, &block_hash, &microblock.block_hash());
+                }
+
+                (HttpResponseType::MicroblockHash(response_metadata, microblock.block_hash()), accepted)
+            }
+            Err(e) => {
+                (HttpResponseType::BadRequestJSON(response_metadata, e.into_json()), false)
+            }
+        };
 
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
@@ -788,6 +839,17 @@ impl ConversationHttp {
                         warn!("Failed to load Stacks chain tip");
                         let response = HttpResponseType::ServerError(response_metadata, format!("Failed to load Stacks chain tip"));
                         response.send(&mut self.connection.protocol, &mut reply)?;
+                    }
+                }
+                None
+            },
+            HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {
+                if let Some((burn_header_hash, block_hash)) = ConversationHttp::handle_load_stacks_chain_tip_hashes(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), burndb, chainstate)? {
+                    let accepted = ConversationHttp::handle_post_microblock(&mut self.connection.protocol, &mut reply, &req, burn_header_hash, block_hash, chainstate, mblock.clone())?;
+                    if accepted {
+                        // forward to peer network
+                        let tip = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &block_hash);
+                        ret = Some(StacksMessageType::Microblocks(MicroblocksData { index_anchor_block: tip, microblocks: vec![(*mblock).clone()] }));
                     }
                 }
                 None
@@ -1150,6 +1212,11 @@ impl ConversationHttp {
     /// Make a new post-transaction request
     pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
         HttpRequestType::PostTransaction(HttpRequestMetadata::from_host(self.peer_host.clone()), tx)
+    }
+    
+    /// Make a new post-microblock request
+    pub fn new_post_microblock(&self, mblock: StacksMicroblock, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+        HttpRequestType::PostMicroblock(HttpRequestMetadata::from_host(self.peer_host.clone()), mblock, tip_opt)
     }
 
     /// Make a new request for an account
