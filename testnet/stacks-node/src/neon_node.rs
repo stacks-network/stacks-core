@@ -128,33 +128,36 @@ fn inner_process_tenure(
             &parent_burn_header_hash)?;
     }
 
-    let mut processed_blocks = vec![];
+    let mut epoch_receipts = vec![];
     loop {
         match chain_state.process_blocks(burn_db, 1) {
             Err(e) => panic!("Error while processing block - {:?}", e),
-            Ok(ref mut blocks) => {
+            Ok(blocks) => {
                 if blocks.len() == 0 {
                     break;
                 } else {
-                    processed_blocks.append(blocks);
+                    for (epoch_receipt_opt, _) in blocks.into_iter() {
+                        if let Some(epoch_receipt) = epoch_receipt_opt {
+                            epoch_receipts.push(epoch_receipt);
+                        }
+                    }
                 }
             }
         }
     }
 
-    if processed_blocks.len() == 0 {
+    if epoch_receipts.len() == 0 {
         warn!("Chainstate expected to process a new block, but we didn't");
         return Err(ChainstateError::InvalidStacksBlock("Could not process expected block".into()));
     }
+    
+    if let Err(e) = Relayer::setup_unconfirmed_state(chain_state, burn_db, &epoch_receipts) {
+        warn!("Failed to set up unconfirmed state: {:?}", &e);
+    }
 
-    for processed_block in processed_blocks.into_iter() {
-        match processed_block {
-            (Some(epoch_receipt), _) => {
-                dispatcher_announce_block(&chain_state.blocks_path, dispatcher,
-                                          epoch_receipt.header, Some(parent_burn_header_hash), burn_db, epoch_receipt.tx_receipts);
-            },
-            _ => {}
-        }
+    for epoch_receipt in epoch_receipts.into_iter() {
+        dispatcher_announce_block(&chain_state.blocks_path, dispatcher,
+                                  epoch_receipt.header, Some(parent_burn_header_hash), burn_db, epoch_receipt.tx_receipts); 
     }
     Ok(())
 }
@@ -270,6 +273,13 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                     poll_timeout
                 };
 
+            // update p2p's read-only view of the unconfirmed state
+            let (canonical_burn_tip, canonical_block_tip) = BurnDB::get_canonical_stacks_chain_tip_hash(burndb.conn())
+                .expect("Failed to read canonical stacks chain tip");
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_burn_tip, &canonical_block_tip);
+            chainstate.refresh_unconfirmed_state_readonly(canonical_tip)
+                .expect("Failed to open unconfirmed Clarity state");
+
             let network_result = match this.run(&burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client),
                                                  download_backpressure, poll_ms, &handler_args) {
                 Ok(res) => res,
@@ -367,19 +377,26 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
 
                     // process any attachable blocks
                     let block_receipts = chainstate.process_blocks(&mut burndb, 1).expect("BUG: failure processing chainstate");
+                    let mut epoch_receipts = vec![];
                     let mut num_processed = 0;
                     for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
                         // TODO: pass the poison microblock transaction off to the miner!
                         if let Some(epoch_receipt) = headers_and_receipts_opt {
-                            dispatcher_announce_block(&blocks_path, &mut event_dispatcher, epoch_receipt.header, None, &mut burndb, epoch_receipt.tx_receipts);
+                            dispatcher_announce_block(&blocks_path, &mut event_dispatcher, epoch_receipt.header.clone(), None, &mut burndb, epoch_receipt.tx_receipts.clone());
                             num_processed += 1;
 
                             increment_stx_blocks_processed_counter();
+                            epoch_receipts.push(epoch_receipt);
                         }
                     }
                     if num_processed == 0 {
                         // out of blocks to process.
                         block_on_recv = true;
+                    }
+                    else if epoch_receipts.len() > 0 {
+                        if let Err(e) = Relayer::setup_unconfirmed_state(&mut chainstate, &mut burndb, &epoch_receipts) {
+                            warn!("Failed to setup unconfirmed state: {:?}", &e);
+                        }
                     }
                 },
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -463,9 +480,13 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                         continue
                                     },
                                 }
-                                // successfully preprocessed microblock. broadcast to peers
+                                // update unconfirmed state
+                                if let Err(e) = chainstate.refresh_unconfirmed_state() {
+                                    warn!("Failed to refresh unconfirmed state after processing microblock {}/{}-{}: {:?}", &mined_burn_hh, &block_header_hash, mined_microblock.block_hash(), &e);
+                                }
+                                // broadcast to peers
                                 let microblock_hash = mined_microblock.header.block_hash();
-                                if let Err(e) = relayer.broadcast_microblock(&block_header_hash, &mined_burn_hh,
+                                if let Err(e) = relayer.broadcast_microblock(&block_header_hash, &burn_header_hash,
                                                                              mined_microblock) {
                                     error!("Failure trying to broadcast microblock {}: {}",
                                            microblock_hash, e);
