@@ -1318,9 +1318,11 @@ pub mod test {
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
             test_debug!("Preprocess Stacks microblock {}-{} (seq {})", &block_hash, mblock.block_hash(), mblock.header.sequence);
-            let mblock_res = node.chainstate.preprocess_streamed_microblock(&commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock).unwrap();
-            if !mblock_res {
-                return Some(mblock_res)
+            match node.chainstate.preprocess_streamed_microblock(&commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock) {
+                Ok(_) => {},
+                Err(_) => {
+                    return Some(false);
+                }
             }
         }
 
