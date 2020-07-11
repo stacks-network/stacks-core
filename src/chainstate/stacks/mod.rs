@@ -208,6 +208,44 @@ impl error::Error for Error {
     }
 }
 
+impl Error {
+    fn name(&self) -> &'static str {
+        match self {
+            Error::InvalidFee => "InvalidFee",
+            Error::InvalidStacksBlock(ref _s) => "InvalidStacksBlock",
+            Error::InvalidStacksMicroblock(ref _s, ref _h) => "InvalidStacksMicroblock",
+            Error::InvalidStacksTransaction(ref _s) => "InvalidStacksTransaction",
+            Error::PostConditionFailed(ref _s) => "PostConditionFailed",
+            Error::NoSuchBlockError => "NoSuchBlockError",
+            Error::InvalidChainstateDB => "InvalidChainstateDB",
+            Error::BlockTooBigError => "BlockTooBigError",
+            Error::BlockCostExceeded => "BlockCostExceeded",
+            Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",
+            Error::IncompatibleSpendingConditionError => "IncompatibleSpendingConditionError",
+            Error::CostOverflowError(..) => "CostOverflowError",
+            Error::ClarityError(ref _e) => "ClarityError",
+            Error::DBError(ref _e) => "DBError",
+            Error::NetError(ref _e) => "NetError",
+            Error::MARFError(ref _e) => "MARFError",
+            Error::ReadError(ref _e) => "ReadError",
+            Error::WriteError(ref _e) => "WriteError",
+            Error::MemPoolError(ref _s) => "MemPoolError",
+            Error::NoTransactionsToMine => "NoTransactionsToMine",
+        }
+    }
+
+    pub fn into_json(&self) -> serde_json::Value {
+        let reason_code = self.name();
+        let reason_data = format!("{:?}", &self);
+        let result = json!({
+            "error": "chainstate error",
+            "reason": reason_code,
+            "reason_data": reason_data
+        });
+        result
+    }
+}
+
 impl From<db_error> for Error {
     fn from(e: db_error) -> Error {
         Error::DBError(e)
