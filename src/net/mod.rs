@@ -1018,6 +1018,7 @@ pub enum HttpRequestType {
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
     PostTransaction(HttpRequestMetadata, StacksTransaction),
+    PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
     GetAccount(HttpRequestMetadata, PrincipalData, Option<StacksBlockId>, bool),
     GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, Option<StacksBlockId>, bool),
     CallReadOnlyFunction(HttpRequestMetadata, StacksAddress, ContractName,
@@ -1093,6 +1094,7 @@ pub enum HttpResponseType {
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
     MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
+    MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
@@ -1378,6 +1380,7 @@ pub struct NetworkResult {
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,                                                  // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,                      // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>,                                                         // transactions sent to us by the http server
+    pub uploaded_microblocks: Vec<MicroblocksData>,                                                            // microblocks sent to us by the http server
 }
 
 impl NetworkResult {
@@ -1390,6 +1393,7 @@ impl NetworkResult {
             pushed_blocks: HashMap::new(),
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
+            uploaded_microblocks: vec![],
         }
     }
 
@@ -1398,7 +1402,7 @@ impl NetworkResult {
     }
 
     pub fn has_microblocks(&self) -> bool {
-        self.confirmed_microblocks.len() > 0 || self.pushed_microblocks.len() > 0
+        self.confirmed_microblocks.len() > 0 || self.pushed_microblocks.len() > 0 || self.uploaded_microblocks.len() > 0
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -1463,6 +1467,9 @@ impl NetworkResult {
                 StacksMessageType::Transaction(tx_data) => {
                     self.uploaded_transactions.push(tx_data);
                 },
+                StacksMessageType::Microblocks(mblock_data) => {
+                    self.uploaded_microblocks.push(mblock_data);
+                }
                 _ => {
                     // drop
                     warn!("Dropping unknown HTTP message");
