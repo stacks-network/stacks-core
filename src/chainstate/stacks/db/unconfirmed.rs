@@ -78,6 +78,21 @@ impl UnconfirmedState {
         })
     }
 
+    pub fn open_readonly(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
+        let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
+        let clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+        let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
+        
+        Ok(UnconfirmedState {
+            confirmed_chain_tip: tip,
+            unconfirmed_chain_tip: unconfirmed_tip,
+            clarity_inst: clarity_instance,
+
+            last_mblock: None,
+            last_mblock_seq: u16::max_value()
+        })
+    }
+
     /// Append a sequence of microblocks to this unconfirmed state.
     /// Microblocks with sequence less than the self.last_mblock_seq will be silently ignored.
     /// Produce the total fees, total burns, and total list of transaction receipts.
@@ -88,6 +103,8 @@ impl UnconfirmedState {
             // drop them
             return Ok((0, 0, vec![]));
         }
+
+        debug!("Refresh unconfirmed chain state off of {} with {} microblocks", &self.confirmed_chain_tip, mblocks.len());
 
         let mut last_mblock = self.last_mblock.take();
         let mut last_mblock_seq = self.last_mblock_seq;
@@ -150,6 +167,11 @@ impl UnconfirmedState {
 
     /// Update the view of the current confiremd chain tip's unconfirmed microblock state
     pub fn refresh(&mut self, chainstate: &StacksChainState) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
+        if self.last_mblock_seq == u16::max_value() {
+            // no-op
+            return Ok((0, 0, vec![]));
+        }
+
         match self.load_child_microblocks(chainstate)? {
             Some(microblocks) => {
                 self.append_microblocks(chainstate, microblocks)
@@ -164,6 +186,7 @@ impl UnconfirmedState {
 impl StacksChainState {
     /// Clear the current unconfirmed state
     fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState) {
+        debug!("Drop unconfirmed state off of {}", &unconfirmed.confirmed_chain_tip);
         let clarity_tx = StacksChainState::begin_unconfirmed(self.config(), &NULL_HEADER_DB, &mut unconfirmed.clarity_inst, &unconfirmed.confirmed_chain_tip);
         clarity_tx.rollback_unconfirmed();
     }
@@ -176,19 +199,14 @@ impl StacksChainState {
         Ok((unconfirmed_state, fees, burns, receipts))
     }
 
-    /// Clear the current unconfirmed state, if we have any
-    pub fn clear_unconfirmed_state(&mut self) {
-        if let Some(unconfirmed) = self.unconfirmed_state.take() {
-            self.drop_unconfirmed_state(unconfirmed);
-        }
-    }
-
     /// Reload the unconfirmed view from a new chain tip.
     /// -- if the canonical chain tip hasn't changed, then just apply any new microblocks that have arrived.
     /// -- if the canonical chain tip has changed, then drop the current view, make a new view, and
     /// process that new view's unconfirmed microblocks.
     /// Call after storing all microblocks from the network.
     pub fn reload_unconfirmed_state(&mut self, canonical_tip: StacksBlockId, block_cost: ExecutionCost) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
+        debug!("Reload unconfirmed state off of {}", &canonical_tip);
+
         let unconfirmed_state = self.unconfirmed_state.take();
 
         if let Some(mut unconfirmed_state) = unconfirmed_state {
@@ -217,13 +235,40 @@ impl StacksChainState {
         let mut unconfirmed_state = self.unconfirmed_state.take();
         let res = 
             if let Some(ref mut unconfirmed_state) = unconfirmed_state {
+                debug!("Refresh unconfirmed state off of {}", &unconfirmed_state.confirmed_chain_tip);
                 unconfirmed_state.refresh(self)
             }
             else {
+                warn!("No unconfirmed state instantiated");
                 Ok((0, 0, vec![]))
             };
         self.unconfirmed_state = unconfirmed_state;
         res
+    }
+
+    /// Refresh the current unconfirmed state in a read-only fashion -- just make sure it's
+    /// pointing to the given stacks block ID.
+    /// Don't apply any new microblocks.
+    pub fn refresh_unconfirmed_state_readonly(&mut self, canonical_tip: StacksBlockId) -> Result<(), Error> {
+        debug!("Refresh read-only unconfirmed state off of {}", &canonical_tip);
+       
+        let unconfirmed_state_opt = self.unconfirmed_state.take();
+        if let Some(unconfirmed_state) = unconfirmed_state_opt {
+            if unconfirmed_state.confirmed_chain_tip == canonical_tip {
+                self.unconfirmed_state = Some(unconfirmed_state);
+                Ok(())
+            }
+            else {
+                let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
+                self.unconfirmed_state = Some(new_unconfirmed_state);
+                Ok(())
+            }
+        }
+        else {
+            let new_unconfirmed_state = UnconfirmedState::open_readonly(self, canonical_tip)?;
+            self.unconfirmed_state = Some(new_unconfirmed_state);
+            Ok(())
+        }
     }
 }
 
