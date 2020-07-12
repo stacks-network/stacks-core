@@ -5,7 +5,7 @@ mod mempool;
 
 use stacks::chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
 use stacks::chainstate::stacks::{TransactionPayload, StacksTransactionSigner, StacksPublicKey,TransactionPostConditionMode, TransactionSmartContract, TransactionAuth,TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    StacksMicroblockHeader, StacksPrivateKey, TransactionAnchorMode,
+    StacksMicroblockHeader, StacksPrivateKey, TransactionAnchorMode, miner::StacksMicroblockBuilder, db::StacksChainState, StacksBlock, StacksMicroblock,
     TokenTransferMemo, CoinbasePayload, TransactionContractCall, StacksAddress, StacksTransaction, TransactionSpendingCondition};
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::{hex_bytes};
@@ -13,6 +13,9 @@ use stacks::util::strings::StacksString;
 use stacks::vm::{ContractName, ClarityName, Value};
 use stacks::vm::types::PrincipalData;
 use stacks::address::AddressHashMode;
+use stacks::burnchains::BurnchainHeaderHash;
+use stacks::core::mempool::MemPoolTxInfo;
+use stacks::vm::costs::ExecutionCost;
 
 use std::convert::TryInto;
 use rand::RngCore; 
@@ -170,7 +173,27 @@ pub fn make_contract_call(
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
+fn make_microblock(privk: &StacksPrivateKey, chainstate: &mut StacksChainState, burn_block_hash: BurnchainHeaderHash, block: StacksBlock, block_cost: ExecutionCost, txs: Vec<StacksTransaction>) -> StacksMicroblock {
+    let mut block_bytes = vec![];
+    block.consensus_serialize(&mut block_bytes).unwrap();
+    let block_size = block_bytes.len() as u64;
 
+    let mut microblock_builder = StacksMicroblockBuilder::new(block.block_hash(), burn_block_hash.clone(), chainstate, block_cost, block_size).unwrap();
+    let mempool_txs : Vec<_> = txs.into_iter()
+        .map(|tx| {
+            // TODO: better fee estimation
+            let mut tx_bytes = vec![];
+            tx.consensus_serialize(&mut tx_bytes).unwrap();
+            let estimated_fee = (tx_bytes.len() as u64) * tx.get_fee_rate();
+            MemPoolTxInfo::from_tx(tx, estimated_fee, burn_block_hash.clone(), block.block_hash(), block.header.total_work.work)
+        })
+        .collect();
+
+    // NOTE: we intentionally do not check the block's microblock pubkey hash against the private
+    // key, because we may need to test that microblocks get rejected due to bad signatures.
+    let microblock = microblock_builder.mine_next_microblock_from_txs(mempool_txs, privk).unwrap();
+    microblock
+}
 
 #[test]
 fn should_succeed_mining_valid_txs() {

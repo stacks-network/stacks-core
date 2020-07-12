@@ -100,71 +100,8 @@ impl <'a> StacksMicroblockBuilder <'a> {
         })
     }
 
-    pub fn mine_next_microblock(&mut self,
-                                mem_pool: &MemPoolDB,
-                                miner_key: &Secp256k1PrivateKey,
-                                miner_pubkey_hash: &Hash160) -> Result<StacksMicroblock, Error> {
-        let mut txs_to_broadcast = vec![];
-
-        let mut clarity_tx = self.clarity_tx.take()
-            .expect("Microblock already open and processing");
-
-        let mut considered = self.considered.take()
-            .expect("Microblock already open and processing");
-
-        let mut bytes_so_far = self.bytes_so_far;
-
-        let result = mem_pool.iterate_candidates(
-            &self.anchor_block_bhh, &self.anchor_block, self.anchor_block_height, &mut self.header_reader,
-            |micro_txs| {
-                for mempool_tx in micro_txs.into_iter() {
-                    if mempool_tx.tx.anchor_mode != TransactionAnchorMode::OffChainOnly && mempool_tx.tx.anchor_mode != TransactionAnchorMode::Any {
-                        continue;
-                    }
-                    if considered.contains(&mempool_tx.metadata.txid) {
-                        continue;
-                    } else {
-                        considered.insert(mempool_tx.metadata.txid.clone());
-                    }
-                    if bytes_so_far + mempool_tx.metadata.len >= MAX_EPOCH_SIZE.into() {
-                        return Err(Error::BlockTooBigError);
-                    }
-                    match StacksChainState::process_transaction(&mut clarity_tx, &mempool_tx.tx) {
-                        Ok(_) => {
-                            bytes_so_far += mempool_tx.metadata.len;
-                            txs_to_broadcast.push(mempool_tx.tx);
-                        },
-                        Err(e) => {
-                            match e {
-                                Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
-                                    warn!("Transaction {} reached block cost {}; budget was {}", mempool_tx.tx.txid(), &cost_after, &total_budget);
-                                    clarity_tx.reset_cost(cost_before.clone());
-                                },
-                                _ => {
-                                    warn!("Error processing TX {}: {}", mempool_tx.tx.txid(), e);
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok(())
-            });
-
-        self.bytes_so_far = bytes_so_far;
-        self.clarity_tx.replace(clarity_tx);
-        self.considered.replace(considered);
-
-        match result {
-            Ok(_) => {},
-            Err(Error::BlockTooBigError) => {
-                info!("Block budget reached with microblocks");
-            },
-            Err(e) => {
-                warn!("Error producing microblock: {}", e);
-                return Err(e);
-            }
-        }
-
+    fn make_next_microblock(&mut self, txs_to_broadcast: Vec<StacksTransaction>, miner_key: &Secp256k1PrivateKey) -> Result<StacksMicroblock, Error> {
+        let miner_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(miner_key).to_bytes());
         if txs_to_broadcast.len() == 0 {
             return Err(Error::NoTransactionsToMine)
         }
@@ -186,7 +123,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
             };
 
         next_microblock_header.sign(miner_key).unwrap();
-        next_microblock_header.verify(miner_pubkey_hash).unwrap();
+        next_microblock_header.verify(&miner_pubkey_hash).unwrap();
 
         self.prev_microblock_header = Some(next_microblock_header.clone());
 
@@ -199,10 +136,142 @@ impl <'a> StacksMicroblockBuilder <'a> {
                microblock.block_hash(), microblock.header.sequence, microblock.txs.len());
         Ok(microblock)
     }
+
+    fn mine_next_transaction(clarity_tx: &mut ClarityTx<'a>, mempool_tx: MemPoolTxInfo, considered: &mut HashSet<Txid>, bytes_so_far: u64) -> Result<Option<(StacksTransaction, u64)>, Error> {
+        if mempool_tx.tx.anchor_mode != TransactionAnchorMode::OffChainOnly && mempool_tx.tx.anchor_mode != TransactionAnchorMode::Any {
+            return Ok(None);
+        }
+        if considered.contains(&mempool_tx.metadata.txid) {
+            return Ok(None);
+        }
+        else {
+            considered.insert(mempool_tx.metadata.txid.clone());
+        }
+        if bytes_so_far + mempool_tx.metadata.len >= MAX_EPOCH_SIZE.into() {
+            return Err(Error::BlockTooBigError);
+        }
+        match StacksChainState::process_transaction(clarity_tx, &mempool_tx.tx) {
+            Ok(_) => {
+                return Ok(Some((mempool_tx.tx, mempool_tx.metadata.len)))
+            },
+            Err(e) => {
+                match e {
+                    Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
+                        warn!("Transaction {} reached block cost {}; budget was {}", mempool_tx.tx.txid(), &cost_after, &total_budget);
+                        clarity_tx.reset_cost(cost_before.clone());
+                    },
+                    _ => {
+                        warn!("Error processing TX {}: {}", mempool_tx.tx.txid(), e);
+                    }
+                }
+            }
+        }
+        return Ok(None);
+    }
+
+    pub fn mine_next_microblock_from_txs(&mut self, txs: Vec<MemPoolTxInfo>, miner_key: &Secp256k1PrivateKey) -> Result<StacksMicroblock, Error> {
+        let mut txs_to_broadcast = vec![];
+
+        let mut clarity_tx = self.clarity_tx.take()
+            .expect("Microblock already open and processing");
+
+        let mut considered = self.considered.take()
+            .expect("Microblock already open and processing");
+
+        let mut bytes_so_far = self.bytes_so_far;
+
+        let mut result = Ok(());
+        for mempool_tx in txs.into_iter() {
+            match StacksMicroblockBuilder::mine_next_transaction(&mut clarity_tx, mempool_tx, &mut considered, bytes_so_far) {
+                Ok(Some((tx, tx_len))) => {
+                    bytes_so_far += tx_len;
+                    txs_to_broadcast.push(tx);
+                },
+                Ok(None) => {
+                    continue;
+                },
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
+            }
+        }
+
+        self.bytes_so_far = bytes_so_far;
+        self.clarity_tx.replace(clarity_tx);
+        self.considered.replace(considered);
+
+        match result {
+            Err(Error::BlockTooBigError) => {
+                info!("Block budget reached with microblocks");
+            },
+            Err(e) => {
+                warn!("Error producing microblock: {}", e);
+                return Err(e);
+            }
+            _ => {}
+        }
+
+        return self.make_next_microblock(txs_to_broadcast, miner_key);
+    }
+
+    pub fn mine_next_microblock(&mut self,
+                                mem_pool: &MemPoolDB,
+                                miner_key: &Secp256k1PrivateKey) -> Result<StacksMicroblock, Error> {
+        let mut txs_to_broadcast = vec![];
+
+        let mut clarity_tx = self.clarity_tx.take()
+            .expect("Microblock already open and processing");
+
+        let mut considered = self.considered.take()
+            .expect("Microblock already open and processing");
+
+        let mut bytes_so_far = self.bytes_so_far;
+
+        let result = mem_pool.iterate_candidates(
+            &self.anchor_block_bhh, &self.anchor_block, self.anchor_block_height, &mut self.header_reader,
+            |micro_txs| {
+                let mut result = Ok(());
+                for mempool_tx in micro_txs.into_iter() {
+                    match StacksMicroblockBuilder::mine_next_transaction(&mut clarity_tx, mempool_tx, &mut considered, bytes_so_far) {
+                        Ok(Some((tx, tx_len))) => {
+                            bytes_so_far += tx_len;
+                            txs_to_broadcast.push(tx);
+                        },
+                        Ok(None) => {
+                            continue;
+                        },
+                        Err(e) => {
+                            result = Err(e);
+                            break;
+                        }
+                    }
+                }
+                result
+            });
+
+        self.bytes_so_far = bytes_so_far;
+        self.clarity_tx.replace(clarity_tx);
+        self.considered.replace(considered);
+
+        match result {
+            Ok(_) => {},
+            Err(Error::BlockTooBigError) => {
+                info!("Block budget reached with microblocks");
+            },
+            Err(e) => {
+                warn!("Error producing microblock: {}", e);
+                return Err(e);
+            }
+        }
+        
+        return self.make_next_microblock(txs_to_broadcast, miner_key);
+    }
 }
 
 impl <'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
+        test_debug!("Drop StacksMicroblockBuilder");
         self.clarity_tx.take().expect("Attempted to reclose closed microblock builder")
             .rollback_block()
     }
@@ -553,22 +622,23 @@ impl StacksBlockBuilder {
     
     /// Unconditionally build an anchored block from a list of transactions.
     /// Used when we are re-building a valid block after we exceed budget
-    fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate: &mut StacksChainState, mut txs: Vec<StacksTransaction>) -> Result<StacksBlock, Error> {
+    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate: &mut StacksChainState, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let mut epoch_tx = builder.epoch_begin(chainstate)?;
         for tx in txs.drain(..) {
             builder.try_mine_tx(&mut epoch_tx, &tx)?;
         }
         let block = builder.mine_anchored_block(&mut epoch_tx);
-        builder.epoch_finish(epoch_tx);
-        Ok(block)
+        let size = builder.bytes_so_far;
+        let cost = builder.epoch_finish(epoch_tx);
+        Ok((block, size, cost))
     }
 
     /// Create a block builder for mining
-    fn make_block_builder(stacks_parent_header: &StacksHeaderInfo,
-                          proof: VRFProof,
-                          total_burn: u64,
-                          pubkey_hash: Hash160) -> Result<StacksBlockBuilder, Error> {
+    pub fn make_block_builder(stacks_parent_header: &StacksHeaderInfo,
+                              proof: VRFProof,
+                              total_burn: u64,
+                              pubkey_hash: Hash160) -> Result<StacksBlockBuilder, Error> {
 
         let builder = 
             if stacks_parent_header.burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH {
@@ -1248,9 +1318,11 @@ pub mod test {
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
             test_debug!("Preprocess Stacks microblock {}-{} (seq {})", &block_hash, mblock.block_hash(), mblock.header.sequence);
-            let mblock_res = node.chainstate.preprocess_streamed_microblock(&commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock).unwrap();
-            if !mblock_res {
-                return Some(mblock_res)
+            match node.chainstate.preprocess_streamed_microblock(&commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock) {
+                Ok(_) => {},
+                Err(_) => {
+                    return Some(false);
+                }
             }
         }
 
@@ -1260,7 +1332,7 @@ pub mod test {
     /// Verify that the stacks block's state root matches the state root in the chain state
     fn check_block_state_index_root(chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, stacks_header: &StacksBlockHeader) -> bool {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &stacks_header.block_hash());
-        let mut state_root_index = StacksChainState::open_index(&chainstate.clarity_state_index_path, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH))).unwrap();
+        let mut state_root_index = StacksChainState::open_index(&chainstate.clarity_state_index_path).unwrap();
         let state_root = state_root_index.borrow_storage_backend().read_block_root_hash(&index_block_hash).unwrap();
         state_root == stacks_header.state_index_root
     }
@@ -1432,7 +1504,7 @@ pub mod test {
                 assert!(chain_tip_opt.is_some());
                 assert!(poison_opt.is_none());
 
-                let (chain_tip, _) = chain_tip_opt.unwrap();
+                let chain_tip = chain_tip_opt.unwrap().header;
 
                 assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
                 assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
@@ -1527,7 +1599,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let (chain_tip, _) = chain_tip_opt.unwrap();
+            let chain_tip = chain_tip_opt.unwrap().header;
 
             assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
             assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
@@ -1626,7 +1698,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let (chain_tip, _) = chain_tip_opt.unwrap();
+            let chain_tip = chain_tip_opt.unwrap().header;
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
@@ -1787,7 +1859,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let chain_tip = chain_tip_opt.unwrap();
+            let chain_tip = chain_tip_opt.unwrap().header;
 
             let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
@@ -1934,7 +2006,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let (chain_tip, _) = chain_tip_opt.unwrap();
+            let chain_tip = chain_tip_opt.unwrap().header;
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
@@ -2087,7 +2159,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let (chain_tip, _) = chain_tip_opt.unwrap();
+            let chain_tip = chain_tip_opt.unwrap().header;
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
@@ -2215,7 +2287,7 @@ pub mod test {
             // fork 1?
             let mut found_fork_1 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
-                let (chain_tip, _) = chain_tip_opt.clone().unwrap();
+                let chain_tip = chain_tip_opt.clone().unwrap().header;
                 if chain_tip.burn_header_hash == fork_snapshot_1.burn_header_hash {
                     found_fork_1 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_1.block_hash());
@@ -2229,7 +2301,7 @@ pub mod test {
 
             let mut found_fork_2 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
-                let (chain_tip, _) = chain_tip_opt.clone().unwrap();
+                let chain_tip = chain_tip_opt.clone().unwrap().header;
                 if chain_tip.burn_header_hash == fork_snapshot_2.burn_header_hash {
                     found_fork_2 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_2.block_hash());
@@ -2366,7 +2438,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let (chain_tip, _) = chain_tip_opt.unwrap();
+            let chain_tip = chain_tip_opt.unwrap().header;
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
@@ -2500,7 +2572,7 @@ pub mod test {
             // fork 1?
             let mut found_fork_1 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
-                let (chain_tip, _) = chain_tip_opt.clone().unwrap();
+                let chain_tip = chain_tip_opt.clone().unwrap().header;
                 if chain_tip.burn_header_hash == fork_snapshot_1.burn_header_hash {
                     found_fork_1 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_1.block_hash());
@@ -2514,7 +2586,7 @@ pub mod test {
 
             let mut found_fork_2 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
-                let (chain_tip, _) = chain_tip_opt.clone().unwrap();
+                let chain_tip = chain_tip_opt.clone().unwrap().header;
                 if chain_tip.burn_header_hash == fork_snapshot_2.burn_header_hash {
                     found_fork_2 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_2.block_hash());

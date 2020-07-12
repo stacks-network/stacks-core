@@ -877,6 +877,7 @@ pub struct RPCPeerInfoData {
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_burn_block: String,
+    pub unanchored_tip: StacksBlockId,
     pub exit_at_block_height: Option<u64>,
 }
 
@@ -1017,13 +1018,14 @@ pub enum HttpRequestType {
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
     PostTransaction(HttpRequestMetadata, StacksTransaction),
-    GetAccount(HttpRequestMetadata, PrincipalData, bool),
-    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, bool),
+    PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
+    GetAccount(HttpRequestMetadata, PrincipalData, Option<StacksBlockId>, bool),
+    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, Option<StacksBlockId>, bool),
     CallReadOnlyFunction(HttpRequestMetadata, StacksAddress, ContractName,
-                         PrincipalData, ClarityName, Vec<Value>),
+                         PrincipalData, ClarityName, Vec<Value>, Option<StacksBlockId>),
     GetTransferCost(HttpRequestMetadata),
-    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, bool),
-    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
+    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, Option<StacksBlockId>, bool),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName, Option<StacksBlockId>),
     OptionsPreflight(HttpRequestMetadata, String),
     Unmatched(HttpRequestMetadata, String),     // catch-all if we can't parse the request
 }
@@ -1092,6 +1094,7 @@ pub enum HttpResponseType {
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
     MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
+    MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
@@ -1377,6 +1380,7 @@ pub struct NetworkResult {
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,                                                  // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,                      // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>,                                                         // transactions sent to us by the http server
+    pub uploaded_microblocks: Vec<MicroblocksData>,                                                            // microblocks sent to us by the http server
 }
 
 impl NetworkResult {
@@ -1389,6 +1393,7 @@ impl NetworkResult {
             pushed_blocks: HashMap::new(),
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
+            uploaded_microblocks: vec![],
         }
     }
 
@@ -1397,7 +1402,7 @@ impl NetworkResult {
     }
 
     pub fn has_microblocks(&self) -> bool {
-        self.confirmed_microblocks.len() > 0 || self.pushed_microblocks.len() > 0
+        self.confirmed_microblocks.len() > 0 || self.pushed_microblocks.len() > 0 || self.uploaded_microblocks.len() > 0
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -1462,6 +1467,9 @@ impl NetworkResult {
                 StacksMessageType::Transaction(tx_data) => {
                     self.uploaded_transactions.push(tx_data);
                 },
+                StacksMessageType::Microblocks(mblock_data) => {
+                    self.uploaded_microblocks.push(mblock_data);
+                }
                 _ => {
                     // drop
                     warn!("Dropping unknown HTTP message");
@@ -2007,12 +2015,13 @@ pub mod test {
             empty_block
         }
 
-        pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> u64 {
+        pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> (u64, BurnchainHeaderHash) {
             let mut burndb = self.burndb.take().unwrap();
-            let block_height = {
+            let (block_height, block_hash) = {
                 let mut tx = burndb.tx_begin().unwrap();
                 let tip = BurnDB::get_canonical_burn_chain_tip(&tx.as_conn()).unwrap();
-                let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345), blockstack_ops.len() as u64);
+                let block_header_hash = BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345);
+                let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, block_header_hash.clone(), blockstack_ops.len() as u64);
 
                 for op in blockstack_ops.iter_mut() {
                     match op {
@@ -2032,10 +2041,10 @@ pub mod test {
                         
                 Burnchain::process_block_txs(&mut tx, &tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
                 tx.commit().unwrap();
-                block_header.block_height
+                (block_header.block_height, block_header_hash)
             };
             self.burndb = Some(burndb);
-            block_height
+            (block_height, block_hash)
         }
 
         pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
@@ -2115,7 +2124,7 @@ pub mod test {
             self.stacks_node = Some(node);
         }
 
-        pub fn add_empty_burnchain_block(&mut self) -> u64 {
+        pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash) {
             self.next_burnchain_block(vec![])
         }
 

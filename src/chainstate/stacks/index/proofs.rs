@@ -1356,7 +1356,7 @@ mod test {
         use std::env;
         env::set_var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID", "1");
 
-        let mut m = MARF::from_path(":memory:", None).unwrap();
+        let mut m = MARF::from_path(":memory:").unwrap();
 
         let sentinel_block = TrieFileStorage::block_sentinel();
         let block_0 = BlockHeaderHash([0u8; 32]);

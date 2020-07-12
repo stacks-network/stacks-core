@@ -518,8 +518,8 @@ impl Node {
         let processed_block = processed_blocks[0].clone().0.unwrap();
         
         // Handle events
-        let receipts = processed_block.1;
-        let metadata = processed_block.0;
+        let receipts = processed_block.tx_receipts;
+        let metadata = processed_block.header;
         let block: StacksBlock = {
             let block_path = StacksChainState::get_block_path(
                 &self.chain_state.blocks_path, 

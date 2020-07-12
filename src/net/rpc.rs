@@ -42,6 +42,7 @@ use net::NeighborsData;
 use net::StacksHttp;
 use net::PeerHost;
 use net::UrlString;
+use net::MicroblocksData;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::StacksMessageType;
 use net::connection::ConnectionHttp;
@@ -143,7 +144,7 @@ impl fmt::Debug for ConversationHttp {
 }
 
 impl RPCPeerInfoData {
-    pub fn from_db(burnchain: &Burnchain, burndb: &BurnDB, peerdb: &PeerDB, exit_at_block_height: &Option<&u64>) -> Result<RPCPeerInfoData, net_error> {
+    pub fn from_db(burnchain: &Burnchain, burndb: &BurnDB, chainstate: &StacksChainState, peerdb: &PeerDB, exit_at_block_height: &Option<&u64>) -> Result<RPCPeerInfoData, net_error> {
         let burnchain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn())?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn())?;
         let stable_burnchain_tip = {
@@ -166,6 +167,10 @@ impl RPCPeerInfoData {
         let stacks_tip_burn_block = burnchain_tip.canonical_stacks_tip_burn_hash;
         let stacks_tip = burnchain_tip.canonical_stacks_tip_hash;
         let stacks_tip_height = burnchain_tip.canonical_stacks_tip_height;
+        let unconfirmed_tip = match chainstate.unconfirmed_state {
+            Some(ref unconfirmed) => unconfirmed.unconfirmed_chain_tip.clone(),
+            None => StacksBlockId([0x00; 32])
+        };
 
         Ok(RPCPeerInfoData {
             peer_version: burnchain.peer_version,
@@ -179,6 +184,7 @@ impl RPCPeerInfoData {
             stacks_tip_height,
             stacks_tip,
             stacks_tip_burn_block: stacks_tip_burn_block.to_hex(),
+            unanchored_tip: unconfirmed_tip,
             exit_at_block_height: exit_at_block_height.cloned()
         })
     }
@@ -316,9 +322,9 @@ impl ConversationHttp {
     /// Handle a GET peer info.
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
     fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain,
-                                burndb: &BurnDB, peerdb: &PeerDB, handler_args: &RPCHandlerArgs) -> Result<(), net_error> {
+                                burndb: &BurnDB, chainstate: &StacksChainState, peerdb: &PeerDB, handler_args: &RPCHandlerArgs) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        match RPCPeerInfoData::from_db(burnchain, burndb, peerdb, &handler_args.exit_at_block_height) {
+        match RPCPeerInfoData::from_db(burnchain, burndb, chainstate, peerdb, &handler_args.exit_at_block_height) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
                 response.send(http, fd)
@@ -451,11 +457,11 @@ impl ConversationHttp {
     /// Handle a GET on an existing account, given the current chain tip.  Optionally supplies a
     /// MARF proof for each account detail loaded from the chain tip.
     fn handle_get_account_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                          chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                          chainstate: &mut StacksChainState, tip: &StacksBlockId,
                                           account: &PrincipalData, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
                 let (balance, balance_proof) = clarity_db.get_with_proof::<u128>(&key)
@@ -490,19 +496,23 @@ impl ConversationHttp {
     /// Handle a GET on a smart contract's data map, given the current chain tip.  Optionally
     /// supplies a MARF proof for the value.
     fn handle_get_map_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                      chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                      chainstate: &mut StacksChainState, tip: &StacksBlockId,
                                       contract_addr: &StacksAddress, contract_name: &ContractName,
                                       map_name: &ClarityName, key: &Value, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
                 let (value, marf_proof) = clarity_db.get_with_proof::<Value>(&key)
                     .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                    .unwrap_or_else(|| (Value::none(), "".into()));
+                    .unwrap_or_else(|| {
+                        test_debug!("No value for '{}' in {}", &key, tip);
+                        (Value::none(), "".into())
+                    });
                 let marf_proof = if with_proof {
+                    test_debug!("Return a MARF proof of '{}' of {} bytes", &key, marf_proof.as_bytes().len());
                     Some(marf_proof)
                 } else {
                     None
@@ -522,8 +532,8 @@ impl ConversationHttp {
     /// Handle a POST to run a read-only function call with the given parameters on the given chain
     /// tip.  Returns the result of the function call.  Returns a CallReadOnlyResponse on success.
     fn handle_readonly_function_call<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                               chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash,
-                                               cur_block: &BlockHeaderHash, contract_addr: &StacksAddress, contract_name: &ContractName,
+                                               chainstate: &mut StacksChainState, tip: &StacksBlockId,
+                                               contract_addr: &StacksAddress, contract_name: &ContractName,
                                                function: &ClarityName, sender: &PrincipalData, args: &[Value], options: &ConnectionOptions) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
@@ -532,7 +542,7 @@ impl ConversationHttp {
 
         let args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
-        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
             clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
                 env.execute_contract(&contract_identifier, function.as_str(), &args, true)
             })
@@ -553,12 +563,12 @@ impl ConversationHttp {
     /// Handle a GET to fetch a contract's source code, given the chain tip.  Optionally returns a
     /// MARF proof as well.
     fn handle_get_contract_src<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                         chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                         chainstate: &mut StacksChainState, tip: &StacksBlockId,
                                          contract_addr: &StacksAddress, contract_name: &ContractName, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|db| {
                 let source = db.get_contract_src(&contract_identifier)?;
                 let contract_commit_key = MarfedKV::make_contract_hash_key(&contract_identifier);
@@ -588,12 +598,12 @@ impl ConversationHttp {
     /// Callers who don't trust the Stacks node should just fetch the contract source
     /// code and analyze it offline.
     fn handle_get_contract_abi<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                         chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                         chainstate: &mut StacksChainState, tip: &StacksBlockId,
                                          contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
             clarity_tx.with_analysis_db_readonly(|db| {
                 let contract = db.load_contract(&contract_identifier)?;
                 contract.contract_interface
@@ -641,16 +651,52 @@ impl ConversationHttp {
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block 
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
-    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burndb: &BurnDB, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
-        match chainstate.get_stacks_chain_tip(burndb)? {
-            Some(tip) => Ok(Some((tip.burn_header_hash, tip.anchored_block_hash))),
+    /// tip_opt is given by the HTTP request as the optional query parameter for the chain tip
+    /// hash.  It will be None if there was no paramter given.
+    /// The order of chain tips this method prefers is as follows:
+    /// * tip_opt, if it's Some(..),
+    /// * the unconfirmed canonical stacks chain tip, if initialized
+    /// * the confirmed canonical stacks chain tip
+    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, tip_opt: Option<&StacksBlockId>, burndb: &BurnDB, chainstate: &StacksChainState) -> Result<Option<StacksBlockId>, net_error> {
+        match tip_opt {
+            Some(tip) => Ok(Some(*tip).clone()),
             None => {
-                let response_metadata = HttpResponseMetadata::from(req);
-                warn!("Failed to load Stacks chain tip");
-                let response = HttpResponseType::ServerError(response_metadata, format!("Failed to load Stacks chain tip"));
-                response.send(http, fd).and_then(|_| Ok(None))
+                match chainstate.get_stacks_chain_tip(burndb)? {
+                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(&tip.burn_header_hash, &tip.anchored_block_hash))),
+                    None => {
+                        let response_metadata = HttpResponseMetadata::from(req);
+                        warn!("Failed to load Stacks chain tip");
+                        let response = HttpResponseType::ServerError(response_metadata, format!("Failed to load Stacks chain tip"));
+                        response.send(http, fd).and_then(|_| Ok(None))
+                    }
+                }
             }
         }
+    }
+    
+    fn handle_load_stacks_chain_tip_hashes<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, tip_opt: Option<&StacksBlockId>, burndb: &BurnDB, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+        match tip_opt {
+            Some(tip) => {
+                match chainstate.get_block_header_hashes(&tip)? {
+                    Some((bh, bl)) => {
+                        return Ok(Some((bh, bl)));
+                    }
+                    None => {}
+                }
+            },
+            None => {
+                match chainstate.get_stacks_chain_tip(burndb)? {
+                    Some(tip) => {
+                        return Ok(Some((tip.burn_header_hash, tip.anchored_block_hash)));
+                    }
+                    None => {}
+                }
+            }
+        }
+        let response_metadata = HttpResponseMetadata::from(req);
+        warn!("Failed to load Stacks chain tip");
+        let response = HttpResponseType::ServerError(response_metadata, format!("Failed to load Stacks chain tip"));
+        response.send(http, fd).and_then(|_| Ok(None))
     }
 
     /// Handle a transaction.  Directly submit it to the mempool so the client can see any
@@ -678,6 +724,31 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
+    /// Handle a microblock.  Directly submit it to the microblock store so the client can see any
+    /// rejection reasons up-front (different from how the peer network handles it).  Indicate
+    /// whether or not the microblock was accepted (and thus needs to be forwarded) in the return
+    /// value.
+    fn handle_post_microblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burn_header_hash: BurnchainHeaderHash, block_hash: BlockHeaderHash, chainstate: &mut StacksChainState, microblock: StacksMicroblock) -> Result<bool, net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let (response, accepted) = match chainstate.preprocess_streamed_microblock(&burn_header_hash, &block_hash, &microblock) {
+            Ok(accepted) => {
+                if accepted {
+                    debug!("Accepted uploaded microblock {}/{}-{}", &burn_header_hash, &block_hash, &microblock.block_hash());
+                }
+                else {
+                    debug!("Did not accept microblock {}/{}-{}", &burn_header_hash, &block_hash, &microblock.block_hash());
+                }
+
+                (HttpResponseType::MicroblockHash(response_metadata, microblock.block_hash()), accepted)
+            }
+            Err(e) => {
+                (HttpResponseType::BadRequestJSON(response_metadata, e.into_json()), false)
+            }
+        };
+
+        response.send(http, fd).and_then(|_| Ok(accepted))
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
@@ -695,7 +766,7 @@ impl ConversationHttp {
         let stream_opt = match req {
             HttpRequestType::GetInfo(ref _md) => {
                 ConversationHttp::handle_getinfo(&mut self.connection.protocol, &mut reply, &req, &self.burnchain,
-                                                 burndb, peerdb, handler_opts)?;
+                                                 burndb, chainstate, peerdb, handler_opts)?;
                 None
             },
             HttpRequestType::GetNeighbors(ref _md) => {
@@ -714,16 +785,16 @@ impl ConversationHttp {
             HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref index_anchor_block_hash, ref min_seq) => {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
             },
-            HttpRequestType::GetAccount(ref _md, ref principal, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
+            HttpRequestType::GetAccount(ref _md, ref principal, ref tip_opt, ref with_proof) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), burndb, chainstate)? {
                     ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate,
-                                                               &burn_block, &block, principal, *with_proof)?;
+                                                               &tip, principal, *with_proof)?;
                 }
                 None
             },
-            HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
-                    ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+            HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key, ref tip_opt, ref with_proof) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), burndb, chainstate)? {
+                    ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
                                                            contract_addr, contract_name, map_name, key, *with_proof)?;
                 }
                 None
@@ -732,34 +803,53 @@ impl ConversationHttp {
                 ConversationHttp::handle_token_transfer_cost(&mut self.connection.protocol, &mut reply, &req)?;
                 None
             },
-            HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
-                    ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+            HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name, ref tip_opt) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), burndb, chainstate)? {
+                    ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
                                                               contract_addr, contract_name)?;
                 }
                 None
             },
-            HttpRequestType::CallReadOnlyFunction(ref _md, ref ctrct_addr, ref ctrct_name, ref as_sender, ref func_name, ref args) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
+            HttpRequestType::CallReadOnlyFunction(ref _md, ref ctrct_addr, ref ctrct_name, ref as_sender, ref func_name, ref args, ref tip_opt) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), burndb, chainstate)? {
                     ConversationHttp::handle_readonly_function_call(
-                        &mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                        &mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
                         ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
                 }
                 None
             },
-            HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name, ref with_proof) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
-                    ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+            HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name, ref tip_opt, ref with_proof) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), burndb, chainstate)? {
+                    ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
                                                               contract_addr, contract_name, *with_proof)?;
                 }
                 None
             },
             HttpRequestType::PostTransaction(ref _md, ref tx) => {
-                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb, chainstate)? {
-                    let accepted = ConversationHttp::handle_post_transaction(&mut self.connection.protocol, &mut reply, &req, burn_block, block, mempool, tx.clone())?;
+                match chainstate.get_stacks_chain_tip(burndb)? {
+                    Some(tip) => {
+                        let accepted = ConversationHttp::handle_post_transaction(&mut self.connection.protocol, &mut reply, &req, tip.burn_header_hash, tip.anchored_block_hash, mempool, tx.clone())?;
+                        if accepted {
+                            // forward to peer network
+                            ret = Some(StacksMessageType::Transaction(tx.clone()));
+                        }
+                    }
+                    None => {
+                        let response_metadata = HttpResponseMetadata::from(&req);
+                        warn!("Failed to load Stacks chain tip");
+                        let response = HttpResponseType::ServerError(response_metadata, format!("Failed to load Stacks chain tip"));
+                        response.send(&mut self.connection.protocol, &mut reply)?;
+                    }
+                }
+                None
+            },
+            HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {
+                if let Some((burn_header_hash, block_hash)) = ConversationHttp::handle_load_stacks_chain_tip_hashes(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), burndb, chainstate)? {
+                    let accepted = ConversationHttp::handle_post_microblock(&mut self.connection.protocol, &mut reply, &req, burn_header_hash, block_hash, chainstate, mblock.clone())?;
                     if accepted {
                         // forward to peer network
-                        ret = Some(StacksMessageType::Transaction(tx.clone()));
+                        let tip = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &block_hash);
+                        ret = Some(StacksMessageType::Microblocks(MicroblocksData { index_anchor_block: tip, microblocks: vec![(*mblock).clone()] }));
                     }
                 }
                 None
@@ -1123,6 +1213,36 @@ impl ConversationHttp {
     pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
         HttpRequestType::PostTransaction(HttpRequestMetadata::from_host(self.peer_host.clone()), tx)
     }
+    
+    /// Make a new post-microblock request
+    pub fn new_post_microblock(&self, mblock: StacksMicroblock, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+        HttpRequestType::PostMicroblock(HttpRequestMetadata::from_host(self.peer_host.clone()), mblock, tip_opt)
+    }
+
+    /// Make a new request for an account
+    pub fn new_getaccount(&self, principal: PrincipalData, tip_opt: Option<StacksBlockId>, with_proof: bool) -> HttpRequestType {
+        HttpRequestType::GetAccount(HttpRequestMetadata::from_host(self.peer_host.clone()), principal, tip_opt, with_proof)
+    }
+
+    /// Make a new request for a data map
+    pub fn new_getmapentry(&self, contract_addr: StacksAddress, contract_name: ContractName, map_name: ClarityName, key: Value, tip_opt: Option<StacksBlockId>, with_proof: bool) -> HttpRequestType {
+        HttpRequestType::GetMapEntry(HttpRequestMetadata::from_host(self.peer_host.clone()), contract_addr, contract_name, map_name, key, tip_opt, with_proof)
+    }
+
+    /// Make a new request to get a contract's source
+    pub fn new_getcontractsrc(&self, contract_addr: StacksAddress, contract_name: ContractName, tip_opt: Option<StacksBlockId>, with_proof: bool) -> HttpRequestType {
+        HttpRequestType::GetContractSrc(HttpRequestMetadata::from_host(self.peer_host.clone()), contract_addr, contract_name, tip_opt, with_proof)
+    }
+    
+    /// Make a new request to get a contract's ABI
+    pub fn new_getcontractabi(&self, contract_addr: StacksAddress, contract_name: ContractName, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+        HttpRequestType::GetContractABI(HttpRequestMetadata::from_host(self.peer_host.clone()), contract_addr, contract_name, tip_opt)
+    }
+    
+    /// Make a new request to run a read-only function
+    pub fn new_callreadonlyfunction(&self, contract_addr: StacksAddress, contract_name: ContractName, sender: PrincipalData, function_name: ClarityName, function_args: Vec<Value>, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+        HttpRequestType::CallReadOnlyFunction(HttpRequestMetadata::from_host(self.peer_host.clone()), contract_addr, contract_name, sender, function_name, function_args, tip_opt)
+    }
 }
 
 #[cfg(test)]
@@ -1146,10 +1266,31 @@ mod test {
     use chainstate::stacks::db::blocks::test::*;
     use chainstate::stacks::Error as chain_error;
     use chainstate::stacks::*;
+    use chainstate::stacks::miner::*;
     use burnchains::*;
+
+    use address::*;
    
     use util::pipe::*;
     use util::get_epoch_time_secs;
+    use util::hash::hex_bytes;
+
+    use std::convert::TryInto;
+
+    use vm::types::*;
+
+    const TEST_CONTRACT : &'static str = "
+        (define-data-var bar int 0)
+        (define-map unit-map ((account principal)) ((units int)))
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))
+        (define-public (add-unit)
+          (begin 
+            (map-set unit-map ((account tx-sender)) ((units 1)) )
+            (ok 1)))
+        (begin
+          (map-set unit-map ((account 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R)) ((units 123))))";
 
     fn convo_send_recv(sender: &mut ConversationHttp, sender_chainstate: &mut StacksChainState, receiver: &mut ConversationHttp, receiver_chainstate: &mut StacksChainState) -> () {
         let (mut pipe_read, mut pipe_write) = Pipe::new();
@@ -1179,16 +1320,145 @@ mod test {
     fn test_rpc<F, C>(test_name: &str, peer_1_p2p: u16, peer_1_http: u16, peer_2_p2p: u16, peer_2_http: u16, make_request: F, check_result: C) -> ()
     where
         F: FnOnce(&mut TestPeer, &mut ConversationHttp, &mut TestPeer, &mut ConversationHttp) -> HttpRequestType,
-        C: FnOnce(&HttpRequestType, &HttpResponseType, &mut TestPeer, &mut TestPeer) -> bool
+        C: FnOnce(&HttpRequestType, &HttpResponseType, &mut TestPeer, &mut TestPeer) -> bool,
     {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
+
+        // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
+        let privk1 = StacksPrivateKey::from_hex("9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001").unwrap();
+
+        // STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW
+        let privk2 = StacksPrivateKey::from_hex("94c319327cc5cd04da7147d32d836eb2e4c44f4db39aa5ede7314a761183d0c701").unwrap();
+        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+
+        let addr1 = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk1)]).unwrap();
+        let addr2 = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk2)]).unwrap();
+
+        peer_1_config.initial_balances = vec![
+            (addr1.to_account_principal(), 1000000000),
+            (addr2.to_account_principal(), 1000000000),
+        ];
+
+        peer_2_config.initial_balances = vec![
+            (addr1.to_account_principal(), 1000000000),
+            (addr2.to_account_principal(), 1000000000),
+        ];
 
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
+
+        // mine one block with a contract in it
+        // first the coinbase
+        // make a coinbase for this miner
+        let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet, TransactionAuth::from_p2pkh(&privk1).unwrap(), TransactionPayload::Coinbase(CoinbasePayload([0x00; 32])));
+        tx_coinbase.chain_id = 0x80000000;
+        tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        tx_coinbase.auth.set_origin_nonce(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
+        tx_signer.sign_origin(&privk1).unwrap();
+        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
+
+        // next the contract
+        let contract = TEST_CONTRACT.clone();
+        let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
+                                                     TransactionAuth::from_p2pkh(&privk1).unwrap(),
+                                                     TransactionPayload::new_smart_contract(&format!("hello-world"), &contract.to_string()).unwrap());
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.auth.set_origin_nonce(1);
+        tx_contract.set_fee_rate(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
+        tx_signer.sign_origin(&privk1).unwrap();
+        let tx_contract_signed = tx_signer.get_tx().unwrap();
+        
+        // update account and state in a microblock that will be unconfirmed
+        let mut tx_cc = StacksTransaction::new(TransactionVersion::Testnet,
+                                               TransactionAuth::from_p2pkh(&privk1).unwrap(),
+                                               TransactionPayload::new_contract_call(addr1.clone(), "hello-world", "add-unit", vec![]).unwrap());
+
+        tx_cc.chain_id = 0x80000000;
+        tx_cc.auth.set_origin_nonce(2);
+        tx_cc.set_fee_rate(123);
+        
+        let mut tx_signer = StacksTransactionSigner::new(&tx_cc);
+        tx_signer.sign_origin(&privk1).unwrap();
+        let tx_cc_signed = tx_signer.get_tx().unwrap();
+
+        // make an unconfirmed contract
+        let unconfirmed_contract = "(define-read-only (ro-test) (ok 1))";
+        let mut tx_unconfirmed_contract = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                 TransactionAuth::from_p2pkh(&privk1).unwrap(),
+                                                                 TransactionPayload::new_smart_contract(&format!("hello-world-unconfirmed"), &unconfirmed_contract.to_string()).unwrap());
+
+        tx_unconfirmed_contract.chain_id = 0x80000000;
+        tx_unconfirmed_contract.auth.set_origin_nonce(3);
+        tx_unconfirmed_contract.set_fee_rate(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx_unconfirmed_contract);
+        tx_signer.sign_origin(&privk1).unwrap();
+        let tx_unconfirmed_contract_signed = tx_signer.get_tx().unwrap();
+            
+        let tip = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+        let mut anchor_cost = ExecutionCost::zero();
+        let mut anchor_size = 0;
+
+        // make a block and a microblock.
+        // Put the coinbase and smart-contract in the anchored block.
+        // Put the contract-call in the microblock
+        let (burn_ops, stacks_block, microblocks) = peer_1.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
+            let parent_tip = match parent_opt {
+                None => {
+                    StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                }
+                Some(block) => {
+                    let ic = burndb.index_conn();
+                    let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                    StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                }
+            };
+
+            let mut block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+            let (anchored_block, anchored_block_size, anchored_block_cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, vec![tx_coinbase_signed.clone(), tx_contract_signed.clone()]).unwrap();
+
+            anchor_size = anchored_block_size;
+            anchor_cost = anchored_block_cost;
+            
+            (anchored_block, vec![])
+        });
+        
+        let (_, burn_header_hash) = peer_1.next_burnchain_block(burn_ops.clone());
+        peer_2.next_burnchain_block(burn_ops.clone());
+
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
+        peer_2.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
+
+        // build 1-block microblock stream with the contract-call and the unconfirmed contract
+        let microblock = {
+            let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), burn_header_hash.clone(), peer_1.chainstate(), anchor_cost.clone(), anchor_size).unwrap();
+            let microblock = microblock_builder.mine_next_microblock_from_txs(
+                vec![
+                    MemPoolTxInfo::from_tx(tx_cc_signed, 0, burn_header_hash.clone(), stacks_block.block_hash(), tip.block_height),
+                    MemPoolTxInfo::from_tx(tx_unconfirmed_contract_signed, 0, burn_header_hash.clone(), stacks_block.block_hash(), tip.block_height)
+                ], 
+                &microblock_privkey).unwrap();
+            microblock
+        };
+
+        // store microblock stream
+        peer_1.chainstate().preprocess_streamed_microblock(&burn_header_hash, &stacks_block.block_hash(), &microblock).unwrap();
+        peer_2.chainstate().preprocess_streamed_microblock(&burn_header_hash, &stacks_block.block_hash(), &microblock).unwrap();
+
+        // process microblock stream to generate unconfirmed state
+        let canonical_tip = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &stacks_block.block_hash());
+        peer_1.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
+        peer_2.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
@@ -1266,14 +1536,14 @@ mod test {
         let resp = resp_opt.unwrap();
         assert!(check_result(&req, &resp, &mut peer_1, &mut peer_2));
     }
-
+    
     #[test]
     #[ignore]
     fn test_rpc_getinfo() {
         let peer_server_info = RefCell::new(None);
         test_rpc("test_rpc_getinfo", 40000, 40001, 50000, 50001,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
-                     let peer_info = RPCPeerInfoData::from_db(&peer_server.config.burnchain, peer_server.burndb.as_mut().unwrap(), &peer_server.network.peerdb, &None).unwrap();
+                     let peer_info = RPCPeerInfoData::from_db(&peer_server.config.burnchain, peer_server.burndb.as_mut().unwrap(), &peer_server.stacks_node.as_ref().unwrap().chainstate, &peer_server.network.peerdb, &None).unwrap();
                      *peer_server_info.borrow_mut() = Some(peer_info);
                      
                      convo_client.new_getinfo()
@@ -1620,6 +1890,249 @@ mod test {
                        }
                     }
                 });
+    }
+   
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_src() {
+        test_rpc("test_rpc_get_contract_src", 40090, 40091, 50090, 50091,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     convo_client.new_getcontractsrc(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(), "hello-world".try_into().unwrap(), None, false)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::GetContractSrc(response_md, data) => {
+                             assert_eq!(data.source, TEST_CONTRACT);
+                             true
+                         },
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_src_unconfirmed() {
+        test_rpc("test_rpc_get_contract_src_unconfirmed", 40100, 40101, 50100, 50101,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let unconfirmed_tip = peer_client.chainstate().unconfirmed_state.as_ref().unwrap().unconfirmed_chain_tip.clone();
+                     convo_client.new_getcontractsrc(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(), "hello-world".try_into().unwrap(), Some(unconfirmed_tip), false)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::GetContractSrc(response_md, data) => {
+                             assert_eq!(data.source, TEST_CONTRACT);
+                             true
+                         },
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_get_account() {
+        test_rpc("test_rpc_get_account", 40110, 40111, 50110, 50111,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     convo_client.new_getaccount(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap().to_account_principal(), None, false)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::GetAccount(response_md, data) => {
+                             assert_eq!(data.nonce, 2);
+                             let balance = u128::from_str_radix(&data.balance[2..], 16).unwrap();
+                             assert_eq!(balance, 1000000000);
+                             true
+                         },
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_get_account_unconfirmed() {
+        test_rpc("test_rpc_get_account_unconfirmed", 40120, 40121, 50120, 50121,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let unconfirmed_tip = peer_client.chainstate().unconfirmed_state.as_ref().unwrap().unconfirmed_chain_tip.clone();
+                     convo_client.new_getaccount(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap().to_account_principal(), Some(unconfirmed_tip), false)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::GetAccount(response_md, data) => {
+                             assert_eq!(data.nonce, 4);
+                             let balance = u128::from_str_radix(&data.balance[2..], 16).unwrap();
+                             assert_eq!(balance, 1000000000 - 123);
+                             true
+                         },
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_get_map_entry() {
+        test_rpc("test_rpc_get_map_entry", 40130, 40131, 50130, 50131,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let principal = StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap().to_account_principal();
+                     convo_client.new_getmapentry(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+                                                  "hello-world".try_into().unwrap(), "unit-map".try_into().unwrap(),
+                                                  Value::Tuple(TupleData::from_data(vec![("account".into(), Value::Principal(principal))]).unwrap()), None, false)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::GetMapEntry(response_md, data) => {
+                             assert_eq!(Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                                        Value::some(Value::Tuple(TupleData::from_data(vec![("units".into(), Value::Int(123))]).unwrap())).unwrap());
+                             true
+                         },
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_get_map_entry_unconfirmed() {
+        test_rpc("test_rpc_get_map_entry_unconfirmed", 40140, 40141, 50140, 50141,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let unconfirmed_tip = peer_client.chainstate().unconfirmed_state.as_ref().unwrap().unconfirmed_chain_tip.clone();
+                     let principal = StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap().to_account_principal();
+                     convo_client.new_getmapentry(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+                                                  "hello-world".try_into().unwrap(), "unit-map".try_into().unwrap(),
+                                                  Value::Tuple(TupleData::from_data(vec![("account".into(), Value::Principal(principal))]).unwrap()), Some(unconfirmed_tip), false)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::GetMapEntry(response_md, data) => {
+                             assert_eq!(Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                                        Value::some(Value::Tuple(TupleData::from_data(vec![("units".into(), Value::Int(1))]).unwrap())).unwrap());
+                             true
+                         },
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_abi() {
+        test_rpc("test_rpc_get_contract_abi", 40150, 40151, 50150, 50151,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     convo_client.new_getcontractabi(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(), "hello-world-unconfirmed".try_into().unwrap(), None)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::NotFound(..) => {
+                             // not confirmed yet
+                             true
+                         }
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_abi_unconfirmed() {
+        test_rpc("test_rpc_get_contract_abi_unconfirmed", 40160, 40161, 50160, 50161,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let unconfirmed_tip = peer_client.chainstate().unconfirmed_state.as_ref().unwrap().unconfirmed_chain_tip.clone();
+                     convo_client.new_getcontractabi(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(), "hello-world-unconfirmed".try_into().unwrap(), Some(unconfirmed_tip))
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::GetContractABI(response_md, data) => {
+                             true
+                         },
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_call_read_only() {
+        test_rpc("test_rpc_call_read_only", 40170, 40171, 50170, 50171,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     convo_client.new_callreadonlyfunction(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(), "hello-world-unconfirmed".try_into().unwrap(), 
+                                                           StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap().to_account_principal(), "ro-test".try_into().unwrap(), vec![], None)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::CallReadOnlyFunction(response_md, data) => {
+                             assert!(data.cause.is_some());
+                             assert!(data.cause.clone().unwrap().find("NoSuchContract").is_some());
+                             assert!(!data.okay);
+                             assert!(data.result.is_none());
+                             true
+                         }
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_rpc_call_read_only_unconfirmed() {
+        test_rpc("test_rpc_call_read_only_unconfirmed", 40180, 40181, 50180, 50181,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let unconfirmed_tip = peer_client.chainstate().unconfirmed_state.as_ref().unwrap().unconfirmed_chain_tip.clone();
+                     convo_client.new_callreadonlyfunction(StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(), "hello-world-unconfirmed".try_into().unwrap(), 
+                                                           StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap().to_account_principal(), "ro-test".try_into().unwrap(), vec![], Some(unconfirmed_tip))
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                         HttpResponseType::CallReadOnlyFunction(response_md, data) => {
+                             assert!(data.okay);
+                             assert_eq!(Value::try_deserialize_hex_untyped(&data.result.clone().unwrap()).unwrap(), Value::okay(Value::Int(1)).unwrap());
+                             assert!(data.cause.is_none());
+                             true
+                         },
+                         _ => {
+                             error!("Invalid response; {:?}", &http_response);
+                             false
+                         }
+                     }
+                 });
     }
 }
 
