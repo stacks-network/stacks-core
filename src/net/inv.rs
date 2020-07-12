@@ -1817,9 +1817,10 @@ mod test {
         let mut inv_1_count = 0;
         let mut inv_2_count = 0;
 
-        let mut peer_1_stale = false;
+        let mut peer_1_check = false;
+        let mut peer_2_check = false;
         
-        while !peer_1_stale && inv_1_count < first_stacks_block_height - peer_1.config.burnchain.first_block_height {
+        while !peer_1_check || !peer_2_check {
             let _ = peer_1.step();
             let _ = peer_2.step();
 
@@ -1838,6 +1839,16 @@ mod test {
                     assert_eq!(inv.broken_peers.len(), 0);
                     assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
+
+                    if let Some(ref peer_2_inv) = inv.block_stats.get(&peer_2.to_neighbor().addr) {
+                        if peer_2_inv.inv.num_sortitions == first_stacks_block_height - peer_1.config.burnchain.first_block_height {
+                            for i in 0..first_stacks_block_height {
+                                assert!(!peer_2_inv.inv.has_ith_block(i));
+                                assert!(!peer_2_inv.inv.has_ith_microblock_stream(i));
+                            }
+                            peer_2_check = true;
+                        }
+                    }
                 },
                 None => {}
             }
@@ -1847,9 +1858,11 @@ mod test {
                     assert_eq!(inv.broken_peers.len(), 0);
                     assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
-                    
-                    if inv.stale_peers.contains(&peer_1.to_neighbor().addr) {
-                        peer_1_stale = true;
+
+                    if let Some(ref peer_1_inv) = inv.block_stats.get(&peer_1.to_neighbor().addr) {
+                        if peer_1_inv.inv.num_sortitions == first_stacks_block_height - peer_1.config.burnchain.first_block_height {
+                            peer_1_check = true;
+                        }
                     }
                 },
                 None => {}
@@ -1857,29 +1870,13 @@ mod test {
 
             round += 1;
 
-            test_debug!("\n\npeer_1_stale = {}, inv_1_count = {}, inv_2_count = {}, first_stacks_block_height = {}\n\n", peer_1_stale, inv_1_count, inv_2_count, first_stacks_block_height);
+            test_debug!("\n\npeer_1_check = {}, peer_2_check = {}, inv_1_count = {}, inv_2_count = {}, first_stacks_block_height = {}\n\n", peer_1_check, peer_2_check, inv_1_count, inv_2_count, first_stacks_block_height);
         }
 
         info!("Completed walk round {} step(s)", round);
 
         peer_1.dump_frontier();
         peer_2.dump_frontier();
-
-        let peer_2_inv = peer_1.network.inv_state.as_ref().unwrap().block_stats.get(&peer_2.to_neighbor().addr).unwrap().inv.clone();
-        info!("peer 1's view of peer 2: {:?}", &peer_2_inv);
-
-        // peer 1 should have learned no more than its highest number of sortitions
-        assert_eq!(peer_2_inv.num_sortitions, first_stacks_block_height - peer_1.config.burnchain.first_block_height);
-        for i in 0..first_stacks_block_height {
-            assert!(!peer_2_inv.has_ith_block(i));
-            assert!(!peer_2_inv.has_ith_microblock_stream(i));
-        }
-
-        // peer 2 should have learned no more than peer 1's highest number of sortitions
-        let peer_1_inv = peer_2.network.inv_state.as_ref().unwrap().block_stats.get(&peer_1.to_neighbor().addr).unwrap().inv.clone();
-        info!("peer 2's view of peer 1: {:?}", &peer_1_inv);
-
-        assert_eq!(peer_1_inv.num_sortitions, first_stacks_block_height - peer_1.config.burnchain.first_block_height);
     }
     
     #[test]
