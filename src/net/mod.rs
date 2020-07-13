@@ -126,7 +126,7 @@ pub enum Error {
     ReadError(io::Error),
     /// Failed to decode 
     DeserializeError(String),
-    /// Filaed to write
+    /// Failed to write
     WriteError(io::Error),
     /// Underflow -- not enough bytes to form the message
     UnderflowError(String),
@@ -210,6 +210,32 @@ pub enum Error {
     ClarityError(clarity_error),
     /// Catch-all for chainstate errors that don't map cleanly into network errors
     ChainstateError(String),
+    /// Catch-all for errors that a client should receive more information about
+    ClientError(ClientError),
+}
+
+/// Enum for passing data for ClientErrors
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClientError {
+    /// Catch-all
+    Message(String),
+    /// 404
+    NotFound(String),
+}
+
+impl error::Error for ClientError {
+    fn cause(&self) -> Option<&dyn error::Error> {
+        None
+    }
+}
+
+impl fmt::Display for ClientError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ClientError::Message(s) => write!(f, "{}", s),
+            ClientError::NotFound(s) => write!(f, "HTTP path not matched: {}", s),
+        }
+    }
 }
 
 impl fmt::Display for Error {
@@ -260,6 +286,7 @@ impl fmt::Display for Error {
             Error::ChainstateError(ref s) => fmt::Display::fmt(s, f),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
+            Error::ClientError(ref e) => write!(f, "ClientError: {}", e),
         }
     }
 }
@@ -310,6 +337,7 @@ impl error::Error for Error {
             Error::PeerThrottled => None,
             Error::LookupError(ref _s) => None,
             Error::ChainstateError(ref _s) => None,
+            Error::ClientError(ref e) => Some(e),
             Error::ClarityError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
         }
@@ -1027,7 +1055,8 @@ pub enum HttpRequestType {
     GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, Option<StacksBlockId>, bool),
     GetContractABI(HttpRequestMetadata, StacksAddress, ContractName, Option<StacksBlockId>),
     OptionsPreflight(HttpRequestMetadata, String),
-    Unmatched(HttpRequestMetadata, String),     // catch-all if we can't parse the request
+    /// catch-all for any errors we should surface from parsing
+    ClientError(HttpRequestMetadata, ClientError),
 }
 
 /// The fields that Actually Matter to http responses
