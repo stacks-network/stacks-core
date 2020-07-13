@@ -34,7 +34,7 @@ use net::rpc::*;
 use net::http::*;
 use net::p2p::*;
 
-use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, StacksEpochReceipt};
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::events::StacksTransactionReceipt;
@@ -54,6 +54,8 @@ use util::get_epoch_time_secs;
 use rand::prelude::*;
 use rand::Rng;
 use rand::thread_rng;
+
+use vm::costs::ExecutionCost;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -84,7 +86,7 @@ pub struct RelayerStats {
 }
 
 pub struct ProcessedNetReceipts {
-    pub blocks_processed: Vec<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
+    pub blocks_processed: Vec<StacksEpochReceipt>,
     pub mempool_txs_added: Vec<StacksTransaction>
 }
 
@@ -714,9 +716,43 @@ impl Relayer {
                 }
             }
         }
+
+        // process uploaded microblocks.  We will have already stored them, so just reconstruct the
+        // data we need to forward them to neighbors.
+        for uploaded_mblock in network_result.uploaded_microblocks.iter() {
+            for mblock in uploaded_mblock.microblocks.iter() {
+                if let Some((_, mblocks_map)) = new_microblocks.get_mut(&uploaded_mblock.index_anchor_block) {
+                    mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                }
+                else {
+                    let mut mblocks_map = HashMap::new();
+                    mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                    new_microblocks.insert(uploaded_mblock.index_anchor_block.clone(), (vec![], mblocks_map));
+                }
+            }
+        }
         
         let mblock_datas = Relayer::make_microblocksdata_messages(new_microblocks);
         Ok((mblock_datas, bad_neighbors))
+    }
+
+    /// Set up the unconfirmed chain state off of the canonical chain tip
+    pub fn setup_unconfirmed_state(chainstate: &mut StacksChainState, sortdb: &SortitionDB, block_receipts: &Vec<StacksEpochReceipt>) -> Result<(), Error> {
+        let (canonical_burn_hash, canonical_block_hash) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(sortdb.conn())?;
+        let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_burn_hash, &canonical_block_hash);
+        for receipt in block_receipts.iter() {
+            if receipt.header.anchored_header.block_hash() == canonical_block_hash && receipt.header.burn_header_hash == canonical_burn_hash {
+                // setup unconfirmed state off of this tip
+                debug!("Reload unconfirmed state");
+                chainstate.reload_unconfirmed_state(canonical_tip, receipt.anchored_block_cost.clone())?;
+                return Ok(());
+            }
+        }
+
+        // canonical chain was not updated, so just refresh
+        debug!("Refresh unconfirmed state");
+        chainstate.refresh_unconfirmed_state()?;
+        Ok(())
     }
 
     /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
@@ -731,7 +767,7 @@ impl Relayer {
                                          Vec<BurnchainHeaderHash>, 
                                          Vec<(Vec<RelayData>, MicroblocksData)>,
                                          Vec<NeighborKey>,
-                                         Vec<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>), net_error> {
+                                         Vec<StacksEpochReceipt>), net_error> {
         let mut new_blocks = HashSet::new();
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
@@ -768,6 +804,10 @@ impl Relayer {
         let max_epochs = if new_blocks.len() < 1024 { 1024 } else { new_blocks.len() };
         let receipts: Vec<_> = chainstate.process_blocks(sortdb, max_epochs)?.into_iter()
             .filter_map(|block_result| block_result.0).collect();
+
+        if receipts.len() > 0 || network_result.uploaded_microblocks.len() > 0 {
+            Relayer::setup_unconfirmed_state(chainstate, sortdb, &receipts)?;
+        }
 
         Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, receipts))
     }
@@ -1815,7 +1855,8 @@ mod test {
                                                          spending_account.as_transaction_auth().unwrap().into(),
                                                          TransactionPayload::new_smart_contract(&name.to_string(), &contract.to_string()).unwrap());
 
-            let cur_nonce = stacks_node.chainstate.with_read_only_clarity_tx(burn_header_hash, block_hash, |clarity_tx| {
+            let chain_tip = StacksBlockHeader::make_index_block_hash(burn_header_hash, block_hash);
+            let cur_nonce = stacks_node.chainstate.with_read_only_clarity_tx(&chain_tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     clarity_db.get_account_nonce(&spending_account.origin_address().unwrap().into())
                 })

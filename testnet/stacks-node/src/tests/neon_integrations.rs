@@ -1,14 +1,15 @@
-use super::{make_stacks_transfer_mblock_only, SK_1, ADDR_4, to_addr,
+use super::{make_stacks_transfer_mblock_only, SK_1, ADDR_4, to_addr, make_microblock,
             make_contract_publish, make_contract_publish_microblock_only};
-use stacks::burnchains::Address;
+use stacks::burnchains::{ Address, PublicKey, BurnchainHeaderHash };
 use stacks::chainstate::stacks::{
-    StacksTransaction, StacksPrivateKey, StacksAddress };
+    StacksTransaction, StacksPrivateKey, StacksPublicKey, StacksAddress, db::StacksChainState, StacksBlock, StacksBlockHeader };
 use stacks::net::StacksMessageCodec;
 use stacks::vm::types::PrincipalData;
+use stacks::vm::costs::ExecutionCost;
 
 use crate::{
     neon, Config, Keychain, config::InitialBalance, BitcoinRegtestController, BurnchainController,
-    config::EventObserverConfig, config::EventKeyType,
+    config::EventObserverConfig, config::EventKeyType, node::TESTNET_CHAIN_ID
 };
 use stacks::net::{AccountEntryResponse, RPCPeerInfoData};
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -17,6 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, Duration};
 use stacks::util::hash::bytes_to_hex;
+use stacks::util::hash::Hash160;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -98,7 +100,7 @@ mod test_observer {
     }
 }
 
-const PANIC_TIMEOUT_SECS: u64 = 60;
+const PANIC_TIMEOUT_SECS: u64 = 600;
 fn next_block_and_wait(btc_controller: &mut BitcoinRegtestController, blocks_processed: &Arc<AtomicU64>) {
     let current = blocks_processed.load(Ordering::SeqCst);
     eprintln!("Issuing block, waiting for bump");
@@ -120,6 +122,38 @@ fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
         }
         thread::sleep(Duration::from_millis(100));
     }
+}
+
+fn get_tip_anchored_block(conf: &Config) -> (BurnchainHeaderHash, StacksBlock) {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
+
+    // get the canonical chain tip
+    let path = format!("{}/v2/info", &http_origin);
+    let tip_info = client.get(&path).send().unwrap().json::<RPCPeerInfoData>().unwrap();
+    let stacks_tip = tip_info.stacks_tip;
+    let stacks_tip_burn_hash = BurnchainHeaderHash::from_hex(&tip_info.stacks_tip_burn_block).unwrap();
+
+    let stacks_id_tip = StacksBlockHeader::make_index_block_hash(&stacks_tip_burn_hash, &stacks_tip);
+
+    // get the associated anchored block
+    let path = format!("{}/v2/blocks/{}", &http_origin, &stacks_id_tip);
+    let block_bytes = client.get(&path).send().unwrap().bytes().unwrap();
+    let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
+
+    (stacks_tip_burn_hash, block)
+}
+
+fn find_microblock_privkey(conf: &Config, pubkey_hash: &Hash160, max_tries: u64) -> Option<StacksPrivateKey> {
+    let mut keychain = Keychain::default(conf.node.seed.clone());
+    for _ in 0..max_tries {
+        let privk = keychain.rotate_microblock_keypair();
+        let pubkh = Hash160::from_data(&StacksPublicKey::from_private(&privk).to_bytes());
+        if pubkh == *pubkey_hash {
+            return Some(privk);
+        }
+    }
+    return None;
 }
 
 #[test]
@@ -192,7 +226,7 @@ fn microblock_integration_test() {
     });
 
     conf.node.mine_microblocks = true;
-
+    
     test_observer::spawn();
 
     conf.events_observers.push(
@@ -211,7 +245,7 @@ fn microblock_integration_test() {
 
     eprintln!("Chain bootstrapped...");
 
-    let mut run_loop = neon::RunLoop::new(conf);
+    let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let client = reqwest::blocking::Client::new();
 
@@ -272,6 +306,39 @@ fn microblock_integration_test() {
     //    which *should* have also confirmed the microblock.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    // push another transaction that is marked microblock only
+    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(&spender_sk, 1, 1000, &recipient.into(), 1000);
+    let unconfirmed_tx = StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..]).unwrap();
+
+    // put it into a microblock
+    let microblock = {
+        let (burn_header_hash, stacks_block) = get_tip_anchored_block(&conf);
+        let privk = find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024).unwrap();
+        let mut chainstate = StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
+
+        // NOTE: it's not a zero execution cost, but there's currently not an easy way to get the
+        // block's cost (and it's not like we're going to overflow the block budget in this test).
+        make_microblock(&privk, &mut chainstate, burn_header_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
+    };
+
+    let mut microblock_bytes = vec![];
+    microblock.consensus_serialize(&mut microblock_bytes).unwrap();
+
+    // post it
+    let path = format!("{}/v2/microblocks",
+                       &http_origin);
+    let res : String = client.post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(microblock_bytes.clone())
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+
+    assert_eq!(res, format!("{}", &microblock.block_hash()));
+
+    eprintln!("\n\nBegin testing\nmicroblock: {:?}\n\n", &microblock);
 
     let path = format!("{}/v2/accounts/{}?proof=0",
                        &http_origin, &spender_addr);
@@ -285,7 +352,6 @@ fn microblock_integration_test() {
     assert!(tip_info.stacks_tip_height >= 3);
 
     eprintln!("{:#?}", client.get(&path).send().unwrap().json::<serde_json::Value>().unwrap());
-
 
     let memtx_events = test_observer::get_memtxs();
     assert_eq!(memtx_events.len(), 1);
@@ -309,6 +375,15 @@ fn microblock_integration_test() {
 
         prior = Some(my_index_hash);
     }
+    
+    // we can query unconfirmed state from the microblock we announced
+    let path = format!("{}/v2/accounts/{}?proof=0&tip={}",
+                       &http_origin, &spender_addr, &tip_info.unanchored_tip);
+    let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+    eprintln!("{:?}", &path);
+    eprintln!("{:#?}", res);
+    assert_eq!(res.nonce, 2);
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
 }
 
 #[test]

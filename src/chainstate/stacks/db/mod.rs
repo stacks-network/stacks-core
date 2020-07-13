@@ -22,6 +22,7 @@ pub mod blocks;
 pub mod contracts;
 pub mod headers;
 pub mod transactions;
+pub mod unconfirmed;
 
 use rusqlite::Transaction;
 use rusqlite::Connection;
@@ -90,7 +91,8 @@ use vm::contexts::OwnedEnvironment;
 use vm::database::marf::MarfedKV;
 use vm::database::{
     SqliteConnection,
-    ClarityDatabase
+    ClarityDatabase,
+    HeadersDB
 };
 use vm::clarity::{
     ClarityInstance,
@@ -105,6 +107,8 @@ use vm::costs::ExecutionCost;
 
 use core::CHAINSTATE_VERSION;
 
+use chainstate::stacks::db::unconfirmed::UnconfirmedState;
+
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
@@ -113,10 +117,13 @@ pub struct StacksChainState {
     pub blocks_db: DBConn,
     pub headers_state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
-    pub clarity_state_index_path: String,
+    pub clarity_state_index_path: String,       // path to clarity MARF
+    pub clarity_state_index_root: String,       // path to dir containing clarity MARF and side-store
     pub root_path: String,
     cached_header_hashes: BlockHeaderCache,
     cached_miner_payments: MinerPaymentCache,
+    pub block_limit: ExecutionCost,
+    pub unconfirmed_state: Option<UnconfirmedState>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -153,6 +160,14 @@ pub struct StacksHeaderInfo {
     pub index_root: TrieHash,
     pub burn_header_hash: BurnchainHeaderHash,
     pub burn_header_timestamp: u64
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksEpochReceipt {
+    pub header: StacksHeaderInfo, 
+    pub tx_receipts: Vec<StacksTransactionReceipt>,
+    pub parent_microblocks_cost: ExecutionCost,
+    pub anchored_block_cost: ExecutionCost
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -280,6 +295,10 @@ impl<'a> ClarityTx<'a> {
         self.block.get_root_hash()
     }
 
+    pub fn cost_so_far(&self) -> ExecutionCost {
+        self.block.cost_so_far()
+    }
+
     #[cfg(test)]
     pub fn commit_block(self) -> () {
         self.block.commit_block();
@@ -294,9 +313,17 @@ impl<'a> ClarityTx<'a> {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, block_hash);
         self.block.commit_to_block(&index_block_hash);
     }
+    
+    pub fn commit_unconfirmed(self) -> () {
+        self.block.commit_unconfirmed();
+    }
 
     pub fn rollback_block(self) -> () {
         self.block.rollback_block()
+    }
+    
+    pub fn rollback_unconfirmed(self) -> () {
+        self.block.rollback_unconfirmed()
     }
 
     pub fn reset_cost(&mut self, cost: ExecutionCost) -> () {
@@ -512,7 +539,7 @@ impl StacksChainState {
         tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)", &[&CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        let mut marf = StacksChainState::open_index(marf_path, None)?;
+        let mut marf = StacksChainState::open_index(marf_path)?;
         let mut dbtx = StacksDBTx::new(tx, &mut marf, ());
         
         dbtx.instantiate_index().map_err(Error::DBError)?;
@@ -566,9 +593,9 @@ impl StacksChainState {
         Ok(conn)
     }
     
-    pub fn open_index(marf_path: &str, miner_tip: Option<&StacksBlockId>) -> Result<MARF<StacksBlockId>, Error> {
-        test_debug!("Open MARF index at {}, set miner tip = {:?}", marf_path, miner_tip);
-        let marf = MARF::from_path(marf_path, miner_tip).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
+    pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, Error> {
+        test_debug!("Open MARF index at {}", marf_path);
+        let marf = MARF::from_path(marf_path).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
         Ok(marf)
     }
 
@@ -786,12 +813,12 @@ impl StacksChainState {
         let headers_db = StacksChainState::open_headers_db(mainnet, chain_id, &headers_db_path, &header_index_root)?;
         let blocks_db = StacksChainState::open_blocks_db(&blocks_db_path)?;
 
-        let headers_state_index = StacksChainState::open_index(&header_index_root, None)?;
+        let headers_state_index = StacksChainState::open_index(&header_index_root)?;
 
         let vm_state = MarfedKV::open(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
             .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(vm_state, block_limit);
+        let clarity_state = ClarityInstance::new(vm_state, block_limit.clone());
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -802,9 +829,12 @@ impl StacksChainState {
             headers_state_index: headers_state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
+            clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
             cached_header_hashes: BlockHeaderCache::new(),
             cached_miner_payments: MinerPaymentCache::new(),
+            block_limit: block_limit,
+            unconfirmed_state: None
         };
 
         if !index_exists {
@@ -898,23 +928,61 @@ impl StacksChainState {
         self.clarity_state.with_marf(f)
     }
     
-    fn begin_read_only_clarity_tx<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> ClarityReadOnlyConnection<'a> {
-        let index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);
+    fn begin_read_only_clarity_tx<'a>(&'a mut self, index_block: &StacksBlockId) -> ClarityReadOnlyConnection<'a> {
         self.clarity_state.read_only_connection(&index_block, &self.headers_db)
     }
-
-    pub fn with_read_only_clarity_tx<F, R>(&mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, to_do: F) -> R
+    
+    /// Run to_do on the state of the Clarity VM at the given chain tip
+    pub fn with_read_only_clarity_tx<F, R>(&mut self, parent_tip: &StacksBlockId, to_do: F) -> R
     where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
-        let mut conn = self.begin_read_only_clarity_tx(parent_burn_hash, parent_block);
+        let mut conn = self.begin_read_only_clarity_tx(parent_tip);
         let result = to_do(&mut conn);
         conn.done();
         result
     }
 
+    /// Run to_do on the unconfirmed Clarity VM state
+    pub fn with_read_only_unconfirmed_clarity_tx<F, R>(&mut self, to_do: F) -> Option<R>
+    where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
+        let mut unconfirmed_state_opt = self.unconfirmed_state.take();
+        let res = 
+            if let Some(ref mut unconfirmed_state) = unconfirmed_state_opt {
+                let mut conn = unconfirmed_state.clarity_inst.read_only_connection(&unconfirmed_state.unconfirmed_chain_tip, &self.headers_db);
+                let result = to_do(&mut conn);
+                conn.done();
+                Some(result)
+            }
+            else {
+                None
+            };
+        self.unconfirmed_state = unconfirmed_state_opt;
+        res
+    }
+
+    /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the unconfirmed state;
+    /// otherwise run to_do on the confirmed state of the Clarity VM.  If the tip doesn't exist,
+    /// then return None.
+    pub fn maybe_read_only_clarity_tx<F, R>(&mut self, parent_tip: &StacksBlockId, to_do: F) -> R
+    where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
+        let unconfirmed =
+            if let Some(ref unconfirmed_state) = self.unconfirmed_state {
+                *parent_tip == unconfirmed_state.unconfirmed_chain_tip
+            }
+            else {
+                false
+            };
+
+        if unconfirmed {
+            self.with_read_only_unconfirmed_clarity_tx(to_do).expect("BUG: both have and do not have unconfirmed chain state")
+        }
+        else {
+            self.with_read_only_clarity_tx(parent_tip, to_do)
+        }
+    }
+
     fn get_parent_index_block(parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> StacksBlockId {
         if *parent_block == BOOT_BLOCK_HASH {
             // begin boot block
-            test_debug!("Begin processing boot block");
             TrieFileStorage::block_sentinel()
         }
         else if *parent_block == FIRST_STACKS_BLOCK_HASH {
@@ -924,6 +992,15 @@ impl StacksChainState {
         else {
             // subsequent block
             StacksBlockHeader::make_index_block_hash(parent_burn_hash, parent_block)
+        }
+    }
+
+    /// Begin an unconfirmed VM transaction, if there's no other open transaction for it.
+    pub fn begin_unconfirmed<'a>(conf: DBConfig, headers_db: &'a dyn HeadersDB, clarity_instance: &'a mut ClarityInstance, tip: &StacksBlockId) -> ClarityTx<'a> {
+        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db);
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf
         }
     }
 

@@ -998,7 +998,7 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        MARF::from_path(index_path, None).map_err(|_e| db_error::Corruption)
+        MARF::from_path(index_path).map_err(|_e| db_error::Corruption)
     }
 
     /// Open the database on disk.  It must already exist and be instantiated.

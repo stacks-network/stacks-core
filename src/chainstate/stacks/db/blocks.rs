@@ -2322,22 +2322,23 @@ impl StacksChainState {
     /// The anchored block this microblock builds off of must have already been stored somewhere,
     /// staging or accepted, so we can verify the signature over this block.
     ///
-    /// Because microblocks are stored in a file named after their tail block's hash, the file will
-    /// be renamed.
-    ///
     /// This method is `&mut self` to ensure that concurrent renames don't corrupt our chain state.
     ///
     /// If we find the same microblock in multiple burnchain forks, insert it into both.
+    ///
+    /// Return true if we stored the microblock.
+    /// Return false if we did not store it (i.e. we already had it, we don't have its parent)
+    /// Return Err(..) if the microblock is invalid, or we couldn't process it
     pub fn preprocess_streamed_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<bool, Error> {
-        test_debug!("preprocess microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
+        debug!("preprocess microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
 
         // already queued or already processed?
         if StacksChainState::has_staging_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? || 
            StacksChainState::has_confirmed_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? {
-            test_debug!("Microblock already stored and/or processed: {}/{} {} {}", burn_header_hash, &anchored_block_hash, microblock.block_hash(), microblock.header.sequence);
+            debug!("Microblock already stored and/or processed: {}/{} {} {}", burn_header_hash, &anchored_block_hash, microblock.block_hash(), microblock.header.sequence);
 
             // try to process it nevertheless
-            return Ok(true);
+            return Ok(false);
         }
 
         let mainnet = self.mainnet;
@@ -2362,15 +2363,17 @@ impl StacksChainState {
 
         let mut dup = microblock.clone();
         if dup.verify(&pubkey_hash).is_err() {
-            warn!("Invalid microblock {}: failed to verify signature with {}", microblock.block_hash(), pubkey_hash);
-            return Ok(false);
+            let msg = format!("Invalid microblock {}: failed to verify signature with {}", microblock.block_hash(), pubkey_hash);
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksMicroblock(msg, microblock.block_hash()));
         }
 
         // static checks on transactions all pass
         let valid = microblock.validate_transactions_static(mainnet, chain_id);
         if !valid {
-            warn!("Invalid microblock {}: one or more transactions failed static tests", microblock.block_hash());
-            return Ok(false);
+            let msg = format!("Invalid microblock {}: one or more transactions failed static tests", microblock.block_hash());
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksMicroblock(msg, microblock.block_hash()));
         }
 
         // add to staging
@@ -2627,6 +2630,7 @@ impl StacksChainState {
         let mut burns = 0u128;
         let mut receipts = vec![];
         for microblock in microblocks.iter() {
+            debug!("Process microblock {}", &microblock.block_hash());
             for tx in microblock.txs.iter() {
                 let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)
                     .map_err(|e| (e, microblock.block_hash()))?;
@@ -2740,6 +2744,10 @@ impl StacksChainState {
     /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
     /// processed yet.
     /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
+    /// In addition, returns the list of transaction receipts for both the preceeding microblock
+    /// stream that the block confirms, as well as the transaction receipts for the anchored
+    /// block's transactions.  Finally, it returns the execution costs for the microblock stream
+    /// and for the anchored block (separately).
     /// Returns None if we're out of blocks to process.
     fn append_block<'a>(chainstate_tx: &mut ChainstateTx<'a>,
                         clarity_instance: &'a mut ClarityInstance,
@@ -2750,7 +2758,7 @@ impl StacksChainState {
                         microblocks: &Vec<StacksMicroblock>,  // parent microblocks 
                         burnchain_commit_burn: u64, 
                         burnchain_sortition_burn: u64, 
-                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<(StacksHeaderInfo, Vec<StacksTransactionReceipt>), Error>
+                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksEpochReceipt, Error>
     {
 
         debug!("Process block {:?} with {} transactions", &block.block_hash().to_hex(), block.txs.len());
@@ -2763,7 +2771,7 @@ impl StacksChainState {
             StacksChainState::find_mature_miner_rewards(&mut chainstate_tx.headers_tx, parent_chain_tip, Some(chainstate_tx.miner_payment_cache))?
         };
 
-        let (scheduled_miner_reward, txs_receipts) = {
+        let (scheduled_miner_reward, txs_receipts, microblock_execution_cost, block_execution_cost) = {
             let (parent_burn_header_hash, parent_block_hash) = 
                 if block.is_first_mined() {
                     // has to be the sentinal hashes if this block has no parent
@@ -2808,6 +2816,8 @@ impl StacksChainState {
                     (fees, burns, events)
                 }
             };
+
+            let microblock_cost = clarity_tx.cost_so_far();
             
             test_debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
                         chain_tip_burn_header_hash, block.block_hash(), parent_burn_header_hash, parent_block_hash,
@@ -2825,6 +2835,9 @@ impl StacksChainState {
                 },
                 Ok((block_fees, block_burns, txs_receipts)) => (block_fees, block_burns, txs_receipts)
             };
+
+            let mut block_cost = clarity_tx.cost_so_far();
+            block_cost.sub(&microblock_cost).expect("BUG: microblock cost + block cost < block cost");
 
             // grant matured miner rewards
             if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
@@ -2863,7 +2876,7 @@ impl StacksChainState {
 
             txs_receipts.append(&mut microblock_txs_receipts);
 
-            (scheduled_miner_reward, txs_receipts)
+            (scheduled_miner_reward, txs_receipts, microblock_cost, block_cost)
         };
 
         let microblock_tail_opt = match microblocks.len() {
@@ -2882,7 +2895,14 @@ impl StacksChainState {
                                                     user_burns)
             .expect("FATAL: failed to advance chain tip");
 
-        Ok((new_tip, txs_receipts))
+        let epoch_receipt = StacksEpochReceipt {
+            header: new_tip, 
+            tx_receipts: txs_receipts,
+            parent_microblocks_cost: microblock_execution_cost,
+            anchored_block_cost: block_execution_cost
+        };
+
+        Ok(epoch_receipt)
     }
 
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
@@ -2909,7 +2929,7 @@ impl StacksChainState {
     ///
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
-    fn process_next_staging_block(&mut self, sort_tx: &mut SortitionDBTx) -> Result<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>), Error> {
+    fn process_next_staging_block(&mut self, sort_tx: &mut SortitionDBTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
@@ -3048,17 +3068,18 @@ impl StacksChainState {
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
-        let (next_chain_tip, receipts) = match StacksChainState::append_block(&mut chainstate_tx, 
-                                                                              clarity_instance, 
-                                                                              &parent_block_header_info, 
-                                                                              &next_staging_block.burn_header_hash, 
-                                                                              next_staging_block.burn_header_timestamp,
-                                                                              &block,
-                                                                              &next_microblocks,
-                                                                              next_staging_block.commit_burn,
-                                                                              next_staging_block.sortition_burn,
-                                                                              &user_supports) {
-            Ok(next_chain_tip) => next_chain_tip,
+        let epoch_receipt = 
+            match StacksChainState::append_block(&mut chainstate_tx, 
+                                                 clarity_instance, 
+                                                 &parent_block_header_info, 
+                                                 &next_staging_block.burn_header_hash, 
+                                                 next_staging_block.burn_header_timestamp,
+                                                 &block,
+                                                 &next_microblocks,
+                                                 next_staging_block.commit_burn,
+                                                 next_staging_block.sortition_burn,
+                                                 &user_supports) {
+            Ok(next_chain_tip_info) => next_chain_tip_info,
             Err(e) => {
                 // something's wrong with this epoch -- either a microblock was invalid, or the
                 // anchored block was invalid.  Either way, the anchored block will _never be_
@@ -3089,29 +3110,31 @@ impl StacksChainState {
             }
         };
 
-        assert_eq!(next_chain_tip.anchored_header.block_hash(), block.block_hash());
-        assert_eq!(next_chain_tip.burn_header_hash, next_staging_block.burn_header_hash);
-        assert_eq!(next_chain_tip.anchored_header.parent_microblock, last_microblock_hash);
-        assert_eq!(next_chain_tip.anchored_header.parent_microblock_sequence, last_microblock_seq);
+        assert_eq!(epoch_receipt.header.anchored_header.block_hash(), block.block_hash());
+        assert_eq!(epoch_receipt.header.burn_header_hash, next_staging_block.burn_header_hash);
+        assert_eq!(epoch_receipt.header.anchored_header.parent_microblock, last_microblock_hash);
+        assert_eq!(epoch_receipt.header.anchored_header.parent_microblock_sequence, last_microblock_seq);
 
-        debug!("Reached chain tip {}/{} from {}/{}", next_chain_tip.burn_header_hash, next_chain_tip.anchored_header.block_hash(), next_staging_block.parent_burn_header_hash, next_staging_block.parent_anchored_block_hash);
+        debug!("Reached chain tip {}/{} from {}/{}", epoch_receipt.header.burn_header_hash, epoch_receipt.header.anchored_header.block_hash(), next_staging_block.parent_burn_header_hash, next_staging_block.parent_anchored_block_hash);
 
         if next_staging_block.parent_microblock_hash != EMPTY_MICROBLOCK_PARENT_HASH || next_staging_block.parent_microblock_seq != 0 {
             // confirmed one or more parent microblocks
             StacksChainState::set_microblocks_confirmed(&mut chainstate_tx.blocks_tx, &next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash, last_microblock_seq)?;
         }
-        StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(sort_tx), &next_chain_tip.burn_header_hash, &next_chain_tip.anchored_header.block_hash(), true)?;
+
+        StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(sort_tx), &epoch_receipt.header.burn_header_hash, &epoch_receipt.header.anchored_header.block_hash(), true)?;
        
         chainstate_tx.commit()
             .map_err(Error::DBError)?;
 
-        Ok((Some((next_chain_tip, receipts)), None))
+        Ok((Some(epoch_receipt), None))
     }
 
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
-    /// found.
-    pub fn process_blocks(&mut self, sortdb: &mut SortitionDB, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
+    /// found.  For each chain tip produced, return the header info, receipts, parent microblock
+    /// stream execution cost, and block execution cost
+    pub fn process_blocks(&mut self, sortdb: &mut SortitionDB, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         debug!("Process up to {} blocks", max_blocks);
 
         let mut ret = vec![];
@@ -3237,7 +3260,8 @@ impl StacksChainState {
             _ => false      // unused
         };
         
-        self.with_read_only_clarity_tx(current_burn, current_block, |conn| {
+        let current_tip = StacksChainState::get_parent_index_block(current_burn, current_block);
+        self.with_read_only_clarity_tx(&current_tip, |conn| {
             StacksChainState::can_include_tx(mempool_conn, conn, &conf, has_microblock_pubk, tx, tx_size)
         })
     }

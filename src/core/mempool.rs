@@ -257,6 +257,43 @@ impl<'a> MemPoolTx<'a> {
     }
 }
 
+impl MemPoolTxInfo {
+    pub fn from_tx(tx: StacksTransaction, estimated_fee: u64, burn_header_hash: BurnchainHeaderHash, block_header_hash: BlockHeaderHash, block_height: u64) -> MemPoolTxInfo {
+        let txid = tx.txid();
+        let mut tx_data = vec![];
+        tx.consensus_serialize(&mut tx_data).expect("BUG: failed to serialize to vector");
+
+        let origin_address = tx.origin_address();
+        let origin_nonce = tx.get_origin_nonce();
+        let (sponsor_address, sponsor_nonce) = 
+            if let (Some(addr), Some(nonce)) = (tx.sponsor_address(), tx.get_sponsor_nonce()) {
+                (addr, nonce)
+            }
+            else{
+                (origin_address.clone(), origin_nonce)
+            };
+
+        let metadata = MemPoolTxMetadata {
+            txid: txid,
+            len: tx_data.len() as u64,
+            fee_rate: tx.get_fee_rate(),
+            estimated_fee: estimated_fee,
+            burn_header_hash: burn_header_hash,
+            block_header_hash: block_header_hash,
+            block_height: block_height,
+            origin_address: origin_address,
+            origin_nonce: origin_nonce,
+            sponsor_address: sponsor_address,
+            sponsor_nonce: sponsor_nonce,
+            accept_time: get_epoch_time_secs()
+        };
+        MemPoolTxInfo {
+            tx: tx,
+            metadata: metadata
+        }
+    }
+}
+
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
         let tx = tx_begin_immediate(conn)?;
@@ -443,7 +480,6 @@ impl MemPoolDB {
                 }
             };
         }
-
     }
 
     pub fn conn(&self) -> &DBConn {

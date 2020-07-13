@@ -584,7 +584,7 @@ impl PeerNetwork {
 
     /// Broadcast a message to a list of neighbors
     pub fn broadcast_message(&mut self, mut neighbor_keys: Vec<NeighborKey>, relay_hints: Vec<RelayData>, message_payload: StacksMessageType) -> () {
-        debug!("{:?}: Will broadcast '{}' to {} neighbors", &self.local_peer, message_payload.get_message_name(), neighbor_keys.len());
+        debug!("{:?}: Will broadcast '{}' to up to {} neighbors", &self.local_peer, message_payload.get_message_name(), neighbor_keys.len());
         for nk in neighbor_keys.drain(..) {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
@@ -601,6 +601,7 @@ impl PeerNetwork {
                 }
             }
         }
+        debug!("{:?}: Done broadcasting '{}", &self.local_peer, message_payload.get_message_name());
     }
 
     /// Count how many outbound conversations are going on 
@@ -1482,7 +1483,7 @@ impl PeerNetwork {
             }
         }
 
-        for event_id in to_remove.drain(0..) {
+        for event_id in to_remove.into_iter() {
             self.deregister_peer(event_id);
         }
     }
@@ -2795,7 +2796,7 @@ impl PeerNetwork {
         
         self.dispatch_network(&mut result, sortdb, chainstate, dns_client_opt, download_backpressure, p2p_poll_state)?;
 
-        debug!(">>>>>>>>>>>>>>>>>>>>>>> End Network Dispatch >>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(result)
     }
 }
