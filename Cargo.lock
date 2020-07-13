@@ -178,7 +178,6 @@ name = "blockstack-core"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
- "byteorder",
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
