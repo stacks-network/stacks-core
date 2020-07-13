@@ -101,8 +101,6 @@ fn get_nodetype_hash<T: MarfTrieId>(storage: &mut TrieFileStorage<T>, node: &Tri
     Ok(ret)
 }
 
-
-
 impl Trie {
 
     /// Read the root node.  First try to read it as a back-pointer (since all root nodes except for

@@ -8,7 +8,7 @@ use stacks::vm::{
     Value };
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection,
-    db::StacksChainState, StacksPrivateKey, StacksTransaction, StacksAddress };
+    db::StacksChainState, StacksPrivateKey, StacksTransaction, StacksAddress, StacksBlockHeader };
 use stacks::chainstate::burn::VRFSeed;
 use stacks::burnchains::Address;
 use stacks::net::{AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
@@ -686,7 +686,7 @@ fn contract_stx_transfer() {
                 let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
                 // check that 1000 stx _was_ transfered to the contract principal
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
@@ -696,7 +696,7 @@ fn contract_stx_transfer() {
                 let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                 let addr_3 = to_addr(&sk_3).into();
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&addr_3)
                         })
@@ -720,7 +720,7 @@ fn contract_stx_transfer() {
                 let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
                 let addr_2 = to_addr(&sk_2).into();
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&addr_2)
                         })
@@ -728,7 +728,7 @@ fn contract_stx_transfer() {
                     1);
 
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
@@ -744,7 +744,7 @@ fn contract_stx_transfer() {
 
                 // check that 1000 stx were sent to the contract
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
@@ -754,7 +754,7 @@ fn contract_stx_transfer() {
                 let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                 let addr_3 = to_addr(&sk_3).into();
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&addr_3)
                         })
@@ -805,7 +805,7 @@ fn mine_contract_twice() {
             let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
             // check that the contract published!
             assert_eq!(
-                &chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                &chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                     conn.with_clarity_db_readonly(|db| {
                         db.get_contract_src(&contract_identifier).unwrap()
                     })
@@ -880,7 +880,7 @@ fn bad_contract_tx_rollback() {
                 let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
                 // check that 1000 stx _was_ transfered to the contract principal
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
@@ -890,7 +890,7 @@ fn bad_contract_tx_rollback() {
                 let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                 let addr_3 = to_addr(&sk_3).into();
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                    chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&addr_3)
                         })

@@ -157,6 +157,14 @@ impl ClarityBlockConnection<'_> {
             cost_tracker.set_total(cost);
         }
     }
+
+    /// Get the current cost so far
+    pub fn cost_so_far(&self) -> ExecutionCost {
+        match self.cost_track {
+            Some(ref track) => track.get_total(),
+            None => ExecutionCost::zero()
+        }
+    }
 }
 
 impl ClarityInstance {
@@ -181,6 +189,24 @@ impl ClarityInstance {
             .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
 
         datastore.begin(current, next);
+
+        let cost_track = Some(LimitedCostTracker::new(self.block_limit.clone()));
+
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            parent: self,
+            cost_track
+        }
+    }
+    
+    pub fn begin_unconfirmed<'a> (&'a mut self, current: &StacksBlockId, header_db: &'a dyn HeadersDB) -> ClarityBlockConnection<'a> {
+        let mut datastore = self.datastore.take()
+            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
+            //   doesn't restore it's parent's datastore
+            .expect("FAIL: use of begin_unconfirmed while prior block neither committed nor rolled back.");
+
+        datastore.begin_unconfirmed(current);
 
         let cost_track = Some(LimitedCostTracker::new(self.block_limit.clone()));
 
@@ -315,6 +341,18 @@ impl <'a> ClarityBlockConnection <'a> {
 
         self.parent.datastore.replace(self.datastore);
     }
+    
+    /// Rolls back all unconfirmed state in the current block by
+    /// (1) dropping all writes from the current MARF tip,
+    /// (2) rolling back side-storage
+    pub fn rollback_unconfirmed(mut self) {
+        // this is a "lower-level" rollback than the roll backs performed in
+        //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
+        debug!("Rollback unconfirmed Clarity datastore");
+        self.datastore.rollback_unconfirmed();
+
+        self.parent.datastore.replace(self.datastore);
+    }
 
     /// Commits all changes in the current block by
     /// (1) committing the current MARF tip to storage,
@@ -353,6 +391,20 @@ impl <'a> ClarityBlockConnection <'a> {
     pub fn commit_mined_block(mut self, bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit mined Clarity datastore to {}", bhh);
         self.datastore.commit_mined_block(bhh);
+
+        self.parent.datastore.replace(self.datastore);
+
+        self.cost_track.unwrap()
+    }
+
+    /// Save all unconfirmed state by
+    /// (1) committing the current unconfirmed MARF to storage,
+    /// (2) committing side-storage
+    /// Unconfirmed data has globally-unique block hashes that are cryptographically derived from a
+    /// confirmed block hash, so they're exceedingly unlikely to conflict with existing blocks.
+    pub fn commit_unconfirmed(mut self) -> LimitedCostTracker {
+        debug!("Save unconfirmed Clarity datastore");
+        self.datastore.commit_unconfirmed();
 
         self.parent.datastore.replace(self.datastore);
 
@@ -640,6 +692,7 @@ mod tests {
     use vm::database::{NULL_HEADER_DB, ClarityBackingStore, MarfedKV};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
+    use std::fs;
 
     #[test]
     pub fn bad_syntax_test() {
@@ -790,6 +843,104 @@ mod tests {
         assert_eq!(0,
                    sql.mut_conn()
                    .query_row::<u32,_,_>("SELECT COUNT(value) FROM data_table", NO_PARAMS, |row| row.get(0)).unwrap());
+    }
+
+    #[test]
+    fn test_unconfirmed() {
+        let test_name = "/tmp/clarity_test_unconfirmed";
+        if fs::metadata(test_name).is_ok() {
+            fs::remove_dir_all(test_name).unwrap();
+        }
+
+        let confirmed_marf = MarfedKV::open(test_name, None).unwrap();
+        let mut confirmed_clarity_instance = ClarityInstance::new(confirmed_marf, ExecutionCost::max_value());
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+        let contract = "
+        (define-data-var bar int 0)
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+            
+
+        // make an empty but confirmed block
+        {
+            let conn = confirmed_clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                              &StacksBlockId([0 as u8; 32]),
+                                                              &NULL_HEADER_DB);
+            conn.commit_block();
+        }
+        
+        let marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+
+        // make an unconfirmed block off of the confirmed block
+        {
+            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB);
+            
+            conn.as_transaction(|conn| {
+                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                conn.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            });
+
+            conn.commit_unconfirmed();
+        }
+        
+        // contract is still there, in unconfirmed status
+        {
+            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB);
+
+            conn.as_transaction(|conn| {
+                conn.with_clarity_db_readonly(|ref mut tx| {
+                    let src = tx.get_contract_src(&contract_identifier).unwrap();
+                    assert_eq!(src, contract);
+                });
+            });
+
+            conn.rollback_block();
+        }
+        
+        // contract is still there, in unconfirmed status, even though the conn got explicitly
+        // rolled back (but that should only drop the current TrieRAM)
+        {
+            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB);
+
+            conn.as_transaction(|conn| {
+                conn.with_clarity_db_readonly(|ref mut tx| {
+                    let src = tx.get_contract_src(&contract_identifier).unwrap();
+                    assert_eq!(src, contract);
+                });
+            });
+
+            conn.rollback_unconfirmed();
+        }
+
+        // contract is now absent, now that we did a rollback of unconfirmed state
+        {
+            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB);
+
+            conn.as_transaction(|conn| {
+                conn.with_clarity_db_readonly(|ref mut tx| {
+                    assert!(tx.get_contract_src(&contract_identifier).is_none());
+                });
+            });
+            
+            conn.commit_unconfirmed();
+        }
+
+        let mut marf = clarity_instance.destroy();
+        
+        // should not be in the marf.
+        assert_eq!(marf.get_contract_hash(&contract_identifier).unwrap_err(),
+                   CheckErrors::NoSuchContract(contract_identifier.to_string()).into());
+
+        let sql = marf.get_side_store();
+        // sqlite should not have any metadata entries
+        assert_eq!(0,
+                   sql.mut_conn()
+                   .query_row::<u32,_,_>("SELECT COUNT(value) FROM metadata_table", NO_PARAMS, |row| row.get(0)).unwrap());
     }
 
     #[test]

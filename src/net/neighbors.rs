@@ -2413,7 +2413,6 @@ mod test {
             match peer_1.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -2422,7 +2421,6 @@ mod test {
             match peer_2.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -2471,7 +2469,6 @@ mod test {
             match peer_1.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -2480,7 +2477,6 @@ mod test {
             match peer_2.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -2568,7 +2564,6 @@ mod test {
             match peer_1.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                    
                     // peer 2 never gets added to peer 1's frontier
@@ -2580,7 +2575,6 @@ mod test {
             match peer_2.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -2638,7 +2632,6 @@ mod test {
             match peer_1.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -2647,7 +2640,6 @@ mod test {
             match peer_2.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                     
                     // peer 1 never gets added to peer 2's frontier
@@ -2744,7 +2736,6 @@ mod test {
                 match peer_1.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -2753,7 +2744,6 @@ mod test {
                 match peer_2.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.dead_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
                     }
                     None => {}
@@ -2991,7 +2981,6 @@ mod test {
             match peer_1.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -3000,7 +2989,6 @@ mod test {
             match peer_2.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -3116,7 +3104,6 @@ mod test {
             match peer_1.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -3125,7 +3112,6 @@ mod test {
             match peer_2.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -3134,7 +3120,6 @@ mod test {
             match peer_3.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 }
                 None => {}
@@ -3333,7 +3318,6 @@ mod test {
             match peer_1.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 },
                 None => {}
@@ -3342,7 +3326,6 @@ mod test {
             match peer_2.network.walk {
                 Some(ref w) => {
                     assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
                 },
                 None => {}

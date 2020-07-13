@@ -718,7 +718,7 @@ impl StacksChainState {
 
     /// Process a transaction.  Return the fee and the transaction receipt
     pub fn process_transaction(clarity_block: &mut ClarityTx, tx: &StacksTransaction) -> Result<(u64, StacksTransactionReceipt), Error> {
-        debug!("Process transaction {}", tx.txid());
+        debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
 
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
 

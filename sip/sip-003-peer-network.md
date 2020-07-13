@@ -660,6 +660,7 @@ pub struct NatPunchData {
    /// The nonce from the paired NatPunchRequest
    pub nonce: u32,
 }
+```
 
 Notes:
 * The `nonce` field in a `PongData` should match the `nonce` field sent by the
