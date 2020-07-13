@@ -29,10 +29,6 @@ use chainstate::stacks::db::*;
 use chainstate::stacks::db::accounts::*;
 use chainstate::stacks::db::blocks::*;
 
-use chainstate::burn::db::burndb::{
-    BurnDB
-};
-
 use util::db::Error as db_error;
 use net::Error as net_error;
 
@@ -292,7 +288,7 @@ mod test {
     use net::test::*;
 
     use chainstate::burn::db::*;
-    use chainstate::burn::db::burndb::*;
+    use chainstate::burn::db::sortdb::*;
 
     use core::mempool::*;
     use chainstate::stacks::miner::test::make_coinbase;
@@ -314,7 +310,7 @@ mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -324,7 +320,7 @@ mod test {
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
 
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
             if let Some(block) = last_block {
@@ -334,19 +330,19 @@ mod test {
             let mut anchor_size = 0;
             let mut anchor_cost = ExecutionCost::zero();
 
-            let (burn_ops, stacks_block, _) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
+            let (burn_ops, stacks_block, _) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
-                let mut block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
                 let (anchored_block, anchored_block_size, anchored_block_cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, vec![coinbase_tx]).unwrap();
@@ -404,7 +400,7 @@ mod test {
             
             // move 1 stx per round
             assert_eq!(recv_balance, (tenure_id + 1) as u128);
-            let (canonical_burn, canonical_block) = BurnDB::get_canonical_stacks_chain_tip_hash(peer.burndb().conn()).unwrap();
+            let (canonical_burn, canonical_block) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(peer.sortdb().conn()).unwrap();
 
             let confirmed_recv_balance = peer.chainstate().with_read_only_clarity_tx(&canonical_tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
@@ -434,8 +430,8 @@ mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
-            sn.block_height
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            tip.block_height
         };
 
         let mut last_block : Option<StacksBlock> = None;
@@ -444,7 +440,7 @@ mod test {
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
 
             // send transactions to the mempool
-            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
             if let Some(block) = last_block {
@@ -454,19 +450,19 @@ mod test {
             let mut anchor_size = 0;
             let mut anchor_cost = ExecutionCost::zero();
 
-            let (burn_ops, stacks_block, _) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
+            let (burn_ops, stacks_block, _) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
                 let parent_tip = match parent_opt {
                     None => {
                         StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
                     }
                     Some(block) => {
-                        let ic = burndb.index_conn();
-                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.burn_header_hash, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
-                let mut block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
                 let (anchored_block, anchored_block_size, anchored_block_cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, vec![coinbase_tx]).unwrap();
@@ -533,7 +529,7 @@ mod test {
                 
                 // move 100 ustx per round -- 10 per mblock
                 assert_eq!(recv_balance, (100*tenure_id + 10*(i+1)) as u128);
-                let (canonical_burn, canonical_block) = BurnDB::get_canonical_stacks_chain_tip_hash(peer.burndb().conn()).unwrap();
+                let (canonical_burn, canonical_block) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(peer.sortdb().conn()).unwrap();
 
                 let confirmed_recv_balance = peer.chainstate().with_read_only_clarity_tx(&canonical_tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
