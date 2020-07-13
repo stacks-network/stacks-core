@@ -377,10 +377,11 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
 
                     // process any attachable blocks
                     let block_receipts = chainstate.process_blocks(&mut sortdb, 1).expect("BUG: failure processing chainstate");
+                    let mut epoch_receipts = vec![];
                     let mut num_processed = 0;
-                    for (headers_and_receipts_opt, _poison_microblock_opt) in block_receipts.into_iter() {
+                    for (epoch_receipt_opt, _poison_microblock_opt) in block_receipts.into_iter() {
                         // TODO: pass the poison microblock transaction off to the miner!
-                        if let Some(epoch_receipt) = headers_and_receipts_opt {
+                        if let Some(epoch_receipt) = epoch_receipt_opt {
                             dispatcher_announce_block(&blocks_path, &mut event_dispatcher, epoch_receipt.header.clone(), None, &mut sortdb, epoch_receipt.tx_receipts.clone());
                             num_processed += 1;
 
@@ -393,7 +394,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         block_on_recv = true;
                     }
                     else if epoch_receipts.len() > 0 {
-                        if let Err(e) = Relayer::setup_unconfirmed_state(&mut chainstate, &mut burndb, &epoch_receipts) {
+                        if let Err(e) = Relayer::setup_unconfirmed_state(&mut chainstate, &mut sortdb, &epoch_receipts) {
                             warn!("Failed to setup unconfirmed state: {:?}", &e);
                         }
                     }
@@ -407,7 +408,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     // TODO: extricate the poison block transaction(s) from the relayer and feed
                     // them to the miner
                     for epoch_receipt in net_receipts.blocks_processed {
-                        dispatcher_announce_block(&blocks_path, &mut event_dispatcher, epoch_receipt.header, None, &mut burndb, epoch_receipt.tx_receipts);
+                        dispatcher_announce_block(&blocks_path, &mut event_dispatcher, epoch_receipt.header, None, &mut sortdb, epoch_receipt.tx_receipts);
                     }
 
                     let mempool_txs_added = net_receipts.mempool_txs_added.len();
