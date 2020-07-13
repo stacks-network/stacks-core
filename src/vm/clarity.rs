@@ -865,9 +865,9 @@ mod tests {
 
         // make an empty but confirmed block
         {
-            let mut conn = confirmed_clarity_instance.begin_block(&StacksBlockId::sentinel(),
-                                                                  &StacksBlockId([0 as u8; 32]),
-                                                                  &NULL_HEADER_DB);
+            let conn = confirmed_clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                              &StacksBlockId([0 as u8; 32]),
+                                                              &NULL_HEADER_DB);
             conn.commit_block();
         }
         
