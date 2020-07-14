@@ -54,6 +54,7 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::HTTP_REQUEST_ID_RESERVED;
+use net::ClientError;
 
 use burnchains::{ Txid, Address };
 use chainstate::burn::BlockHeaderHash;
@@ -1200,9 +1201,9 @@ impl HttpRequestType {
             }
         }
 
-        let path = preamble.path.clone();
-        test_debug!("Failed to parse '{}'", &path);
-        return Ok(HttpRequestType::Unmatched(HttpRequestMetadata::from_preamble(preamble), path));
+        let _path = preamble.path.clone();
+        test_debug!("Failed to parse '{}'", &_path);
+        Err(net_error::ClientError(ClientError::NotFound(preamble.path.clone())))
     }
 
     fn parse_getinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1459,7 +1460,15 @@ impl HttpRequestType {
             }
         };
 
-        let tx = StacksTransaction::consensus_deserialize(fd)?;
+        let tx = StacksTransaction::consensus_deserialize(fd)
+            .map_err(|e| {
+                if let net_error::DeserializeError(msg) = e {
+                    net_error::ClientError(ClientError::Message(
+                        format!("Failed to deserialize posted transaction: {}", msg)))
+                } else {
+                    e
+                }
+            })?;
         Ok(HttpRequestType::PostTransaction(HttpRequestMetadata::from_preamble(preamble), tx))
     }
     
@@ -1507,7 +1516,7 @@ impl HttpRequestType {
             HttpRequestType::GetContractSrc(ref md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
-            HttpRequestType::Unmatched(ref md, ..) => md,
+            HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
     
@@ -1528,7 +1537,7 @@ impl HttpRequestType {
             HttpRequestType::GetContractSrc(ref mut md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
-            HttpRequestType::Unmatched(ref mut md, ..) => md,
+            HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
 
@@ -1569,7 +1578,12 @@ impl HttpRequestType {
                 format!("/v2/contracts/call-read/{}/{}/{}{}", contract_addr, contract_name.as_str(), func_name.as_str(), HttpRequestType::make_query_string(tip_opt.as_ref(), true))
             },
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
-            HttpRequestType::Unmatched(_md, path) => path.to_string(),
+            HttpRequestType::ClientError(_md, e) => {
+                match e {
+                    ClientError::NotFound(path) => path.to_string(),
+                    _ => "error path unknown".into()
+                }
+            },
         }
     }
 
@@ -2165,7 +2179,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
-                HttpRequestType::Unmatched(..) => "HTTP(Unmatched)",
+                HttpRequestType::ClientError(..) => "HTTP(ClientError)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -2549,7 +2563,13 @@ impl ProtocolFamily for StacksHttp {
                     Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), cursor.position() as usize)),
                     Err(e) => {
                         info!("Failed to parse HTTP request: {:?}", &e);
-                        Err(e)
+                        if let net_error::ClientError(client_err) = e {
+                            let req = HttpRequestType::ClientError(HttpRequestMetadata::from_preamble(http_request_preamble), client_err);
+                            // consume any remaining HTTP request content by returning bytes read = len
+                            Ok((StacksHttpMessage::Request(req), len))
+                        } else {
+                            Err(e)
+                        }
                     }
                 }
             },
