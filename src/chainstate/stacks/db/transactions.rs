@@ -187,7 +187,7 @@ pub struct TransactionNonceMismatch {
     pub txid: Txid,
     pub principal: PrincipalData,
     pub is_origin: bool,
-    pub ignore: bool,
+    pub quiet: bool,
 }
 
 impl std::fmt::Display for TransactionNonceMismatch {
@@ -200,7 +200,7 @@ impl std::fmt::Display for TransactionNonceMismatch {
 
 impl From<TransactionNonceMismatch, T> for Error {
     fn from(e: TransactionNonceMismatch, T) -> Error {
-        if e.ignore {
+        if e.quiet {
             Error::IgnoreStacksTransaction(e.0.to_string())
         } else {
             Error::InvalidStacksTransaction(e.0.to_string())
@@ -210,11 +210,7 @@ impl From<TransactionNonceMismatch, T> for Error {
 
 impl From<TransactionNonceMismatch> for MemPoolRejection {
     fn from(e: TransactionNonceMismatch) -> MemPoolRejection {
-        if e.ignore {
-            MemPoolRejection::IgnoreBadNonces(e)
-        } else {
-            MemPoolRejection::BadNonces(e)
-        }
+        MemPoolRejection::BadNonces(e)
     }
 }
 
@@ -236,8 +232,8 @@ impl StacksChainState {
 
     /// Check the account nonces for the supplied stacks transaction,
     ///   returning the origin and payer accounts if valid.
-    pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction, warn_on_bad_nonces: bool) -> Result<(StacksAccount, StacksAccount),
-                                                                                                                (TransactionNonceMismatch, (StacksAccount, StacksAccount)) {
+    pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction, quiet: bool) -> Result<(StacksAccount, StacksAccount),
+                                                                                                                      (TransactionNonceMismatch, (StacksAccount, StacksAccount)) {
         // who's sending it?
         let origin = tx.get_origin();
         let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
@@ -254,8 +250,8 @@ impl StacksChainState {
                                                        txid: tx.txid(),
                                                        principal: payer_account.principal.clone(),
                                                        is_origin: false,
-                                                       ignore: !warn_on_bad_nonces };
-                    if warn_on_bad_nonces {
+                                                       quiet: quiet };
+                    if !quiet {
                         warn!("{}", &e);
                     }
                     return Err((e, (origin_account, payer_account)))
@@ -273,8 +269,8 @@ impl StacksChainState {
                                                txid: tx.txid(),
                                                principal: origin_account.principal.clone(),
                                                is_origin: true,
-                                               ignore: !warn_on_bad_nonces };
-            if warn_on_bad_nonces {
+                                               quiet: quiet };
+            if !quiet {
                 warn!("{}", &e);
             }
             return Err((e, (origin_account, payer_account)))
@@ -732,13 +728,13 @@ impl StacksChainState {
     }
 
     /// Process a transaction.  Return the fee and the transaction receipt
-    pub fn process_transaction(clarity_block: &mut ClarityTx, tx: &StacksTransaction, warn_on_bad_nonces: bool) -> Result<(u64, StacksTransactionReceipt), Error> {
+    pub fn process_transaction(clarity_block: &mut ClarityTx, tx: &StacksTransaction, quiet: bool) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
 
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
-        let (origin_account, payer_account) = StacksChainState::check_transaction_nonces(&mut transaction, tx, warn_on_bad_nonces)?;
+        let (origin_account, payer_account) = StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
 
         let tx_receipt = StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
 

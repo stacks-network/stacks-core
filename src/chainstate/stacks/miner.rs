@@ -31,7 +31,6 @@ use chainstate::stacks::db::{
 use chainstate::stacks::index::TrieHash;
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::events::StacksTransactionReceipt;
-// use chainstate::stacks::db::transactions::TransactionNonceMismatch;
 
 use net::StacksMessageCodec;
 use net::Error as net_error;
@@ -375,8 +374,7 @@ impl StacksBlockBuilder {
                 return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for anchored data".to_string()));
             }
 
-            // TODO(psq): quiet in this case
-            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, false)
+            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, true)
                 .map_err(|e| {
                     match e {
                         Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
@@ -398,8 +396,7 @@ impl StacksBlockBuilder {
                 return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for streamed data".to_string()));
             }
             
-            // TODO(psq): quiet in this case
-            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, false)
+            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, true)
                 .map_err(|e| {
                     match e {
                         Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
@@ -434,8 +431,7 @@ impl StacksBlockBuilder {
         
         if !self.anchored_done {
             // save
-            // TODO(psq): quiet in this case, does it matter???
-            match StacksChainState::process_transaction(clarity_tx, tx, false) {
+            match StacksChainState::process_transaction(clarity_tx, tx, true) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 },
@@ -447,8 +443,7 @@ impl StacksBlockBuilder {
             self.txs.push(tx.clone());
         }
         else {
-            // TODO(psq): quiet in this case, does it matter
-            match StacksChainState::process_transaction(clarity_tx, tx, false) {
+            match StacksChainState::process_transaction(clarity_tx, tx, true) {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 },
@@ -715,8 +710,7 @@ impl StacksBlockBuilder {
 
                 considered.insert(txinfo.tx.txid());
 
-                let err = builder.try_mine_tx_with_len(&mut epoch_tx, &txinfo.tx, txinfo.metadata.len);
-                match err {
+                match builder.try_mine_tx_with_len(&mut epoch_tx, &txinfo.tx, txinfo.metadata.len) {
                     Ok(_) => {},
                     Err(Error::BlockTooBigError) => {
                         // done mining -- our execution budget is exceeded.
