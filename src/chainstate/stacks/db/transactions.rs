@@ -200,11 +200,7 @@ impl std::fmt::Display for TransactionNonceMismatch {
 
 impl From<TransactionNonceMismatch, T> for Error {
     fn from(e: TransactionNonceMismatch, T) -> Error {
-        if e.quiet {
-            Error::IgnoreStacksTransaction(e.0.to_string())
-        } else {
-            Error::InvalidStacksTransaction(e.0.to_string())
-        }
+        Error::InvalidStacksTransaction(e.to_string(), e.quiet)
     }
 }
 
@@ -300,7 +296,7 @@ impl StacksChainState {
             let msg = format!("Invalid tx {}: invalid chain ID {} (expected {})", tx.txid(), tx.chain_id, config.chain_id);
             warn!("{}", &msg);
 
-            return Err(Error::InvalidStacksTransaction(msg));
+            return Err(Error::InvalidStacksTransaction(msg, false));
         }
 
         match tx.version {
@@ -309,7 +305,7 @@ impl StacksChainState {
                     let msg = format!("Invalid tx {}: on testnet; got mainnet", tx.txid());
                     warn!("{}", &msg);
 
-                    return Err(Error::InvalidStacksTransaction(msg));
+                    return Err(Error::InvalidStacksTransaction(msg, false));
                 }
             },
             TransactionVersion::Testnet => {
@@ -317,7 +313,7 @@ impl StacksChainState {
                     let msg = format!("Invalid tx {}: on mainnet; got testnet", tx.txid());
                     warn!("{}", &msg);
 
-                    return Err(Error::InvalidStacksTransaction(msg));
+                    return Err(Error::InvalidStacksTransaction(msg, false));
                 }
             }
         }
@@ -484,7 +480,7 @@ impl StacksChainState {
             // not allowed to send to yourself
             let msg = format!("Error validating STX-transfer transaction: address tried to send to itself");
             warn!("{}", &msg);
-            return Err(Error::InvalidStacksTransaction(msg));
+            return Err(Error::InvalidStacksTransaction(msg, false));
         }
 
         clarity_tx.with_clarity_db(|ref mut db| {
@@ -509,7 +505,7 @@ impl StacksChainState {
                     let msg = format!("Error validating STX-transfer transaction {:?}: {}", txid, s);
                     warn!("{}", &msg);
 
-                    Error::InvalidStacksTransaction(msg)
+                    Error::InvalidStacksTransaction(msg, false)
                 },
                 _ => {
                     // any other clarity error shouldn't happen
@@ -531,7 +527,7 @@ impl StacksChainState {
                     let msg = format!("Invalid Stacks transaction: TokenTransfer transactions do not support post-conditions");
                     warn!("{}", &msg);
 
-                    return Err(Error::InvalidStacksTransaction(msg));
+                    return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
                 let cost_before = clarity_tx.cost_so_far();
@@ -622,7 +618,7 @@ impl StacksChainState {
                     let msg = format!("Duplicate contract '{}'", &contract_id);
                     warn!("{}", &msg);
 
-                    return Err(Error::InvalidStacksTransaction(msg));
+                    return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
                 let cost_before = clarity_tx.cost_so_far();
@@ -712,7 +708,7 @@ impl StacksChainState {
                     let msg = format!("Invalid Stacks transaction: PoisonMicroblock transactions do not support post-conditions");
                     warn!("{}", &msg);
 
-                    return Err(Error::InvalidStacksTransaction(msg));
+                    return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
                 // TODO: actually implement this, but not necessarily for this PR
@@ -965,7 +961,7 @@ pub mod test {
             assert!(res.is_err());
 
             match res {
-                Err(Error::InvalidStacksTransaction(msg)) => {
+                Err(Error::InvalidStacksTransaction(msg, false)) => {
                     assert!(msg.contains(&err_frag), err_frag);
                 },
                 _ => {

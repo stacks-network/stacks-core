@@ -371,7 +371,7 @@ impl StacksBlockBuilder {
         if !self.anchored_done {
             // building up the anchored blocks
             if tx.anchor_mode != TransactionAnchorMode::OnChainOnly && tx.anchor_mode != TransactionAnchorMode::Any {
-                return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for anchored data".to_string()));
+                return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for anchored data".to_string(), false));
             }
 
             let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, true)
@@ -393,7 +393,7 @@ impl StacksBlockBuilder {
         else {
             // building up the microblocks
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly && tx.anchor_mode != TransactionAnchorMode::Any {
-                return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for streamed data".to_string()));
+                return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for streamed data".to_string(), false));
             }
             
             let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, true)
@@ -717,9 +717,8 @@ impl StacksBlockBuilder {
                         // Make the block from the transactions we did manage to get
                         debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
                     },
-                    Err(Error::IgnoreStacksTransaction(_)) => {
-                        // if the nonce is incorrect, this tx was mined in a prior block
-                        // for this chain tip, ignoring
+                    Err(Error::InvalidStacksTransaction(_, true)) => {
+                        // if we have an invalid transaction that was quietly ignored, don't warn here either
                         continue;
                     },
                     Err(e) => {
