@@ -970,11 +970,11 @@ fn test_contract_of_wrong_type() {
     let mut c_trait = parse(&def_contract_id, contract_defining_trait).unwrap();
     let mut c_principal = parse(&disp_contract_id, dispatching_contract_principal).unwrap();
     let mut c_int = parse(&disp_contract_id, dispatching_contract_int).unwrap();
-    let mut c_uint = parse(&disp_contract_id, dispatching_contract_uint).unwrap();
-    let mut c_bool = parse(&disp_contract_id, dispatching_contract_bool).unwrap();
-    let mut c_list = parse(&disp_contract_id, dispatching_contract_list).unwrap();
-    let mut c_buff = parse(&disp_contract_id, dispatching_contract_buff).unwrap();
-    let mut c_tuple = parse(&disp_contract_id, dispatching_contract_tuple).unwrap();
+    let c_uint = parse(&disp_contract_id, dispatching_contract_uint).unwrap();
+    let c_bool = parse(&disp_contract_id, dispatching_contract_bool).unwrap();
+    let c_list = parse(&disp_contract_id, dispatching_contract_list).unwrap();
+    let c_buff = parse(&disp_contract_id, dispatching_contract_buff).unwrap();
+    let c_tuple = parse(&disp_contract_id, dispatching_contract_tuple).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 

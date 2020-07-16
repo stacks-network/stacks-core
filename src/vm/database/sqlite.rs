@@ -22,13 +22,16 @@ fn sqlite_put(conn: &Connection, key: &str, value: &str) {
 }
 
 fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
+    trace!("sqlite_get {}", key);
     let params: [&dyn ToSql; 1] = [&key];
-    conn.query_row(
+    let res = conn.query_row(
         "SELECT value FROM data_table WHERE key = ?",
         &params,
         |row| row.get(0))
         .optional()
-        .expect(SQL_FAIL_MESSAGE)
+        .expect(SQL_FAIL_MESSAGE);
+    trace!("sqlite_get {}: {:?}", key, &res);
+    res
 }
 fn sqlite_has_entry(conn: &Connection, key: &str) -> bool {
     sqlite_get(conn, key).is_some()
@@ -85,16 +88,32 @@ impl SqliteConnection {
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
     pub fn begin(&mut self, key: &StacksBlockId) {
+        trace!("SAVEPOINT SP{}", key);
         self.conn.execute(&format!("SAVEPOINT SP{}", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn rollback(&mut self, key: &StacksBlockId) {
+        trace!("ROLLBACK TO SAVEPOINT SP{}; RELEASE SAVEPOINT SP{}", key, key);
         self.conn.execute_batch(&format!("ROLLBACK TO SAVEPOINT SP{}; RELEASE SAVEPOINT SP{}", key, key))
             .expect(SQL_FAIL_MESSAGE);
     }
 
+    pub fn delete_unconfirmed(&mut self, key: &StacksBlockId) {
+        trace!("DELETE FROM metadata_table WHERE block_hash = {}", key);
+        self.conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[key])
+            .expect(SQL_FAIL_MESSAGE);
+    }
+    
+    pub fn rollback_unconfirmed(&mut self, key: &StacksBlockId) {
+        trace!("ROLLBACK TO SAVEPOINT SP{}; RELEASE SAVEPOINT SP{}", key, key);
+        self.conn.execute_batch(&format!("ROLLBACK TO SAVEPOINT SP{}; RELEASE SAVEPOINT SP{}", key, key))
+            .expect(SQL_FAIL_MESSAGE);
+        self.delete_unconfirmed(key);
+    }
+
     pub fn commit(&mut self, key: &StacksBlockId) {
+        trace!("RELEASE SAVEPOINT SP{}", key);
         self.conn.execute(&format!("RELEASE SAVEPOINT SP{}", key), NO_PARAMS)
             .expect("PANIC: Failed to SQL commit in Smart Contract VM.");
     }

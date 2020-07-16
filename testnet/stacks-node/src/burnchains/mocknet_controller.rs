@@ -7,7 +7,9 @@ use super::super::operations::BurnchainOpSigner;
 
 use stacks::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransition};
 use stacks::burnchains::bitcoin::BitcoinBlock;
-use stacks::chainstate::burn::db::burndb::{BurnDB};
+use stacks::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionHandleTx
+};
 use stacks::chainstate::burn::{BlockSnapshot};
 use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -22,7 +24,7 @@ use stacks::util::get_epoch_time_secs;
 pub struct MocknetController {
     config: Config,
     burnchain: Burnchain,
-    db: Option<BurnDB>,
+    db: Option<SortitionDB>,
     chain_tip: Option<BurnchainTip>,
     queued_operations: VecDeque<BlockstackOperationType>,
 }
@@ -57,19 +59,19 @@ impl MocknetController {
             &current_block.burn_header_hash, 
             &vec![],
             get_epoch_time_secs()));
-        block.header(&current_block)
+        block.header()
     }
 }
 
 impl BurnchainController for MocknetController {
     
-    fn burndb_ref(&self) -> &BurnDB {
+    fn sortdb_ref(&self) -> &SortitionDB {
         self.db.as_ref().expect("BUG: did not instantiate burn DB")
     }
 
-    fn burndb_mut(&mut self) -> &mut BurnDB {
+    fn sortdb_mut(&mut self) -> &mut SortitionDB {
         match self.db {
-            Some(ref mut burndb) => burndb,
+            Some(ref mut sortdb) => sortdb,
             None => {
                 unreachable!();
             }
@@ -88,11 +90,11 @@ impl BurnchainController for MocknetController {
     }
    
     fn start(&mut self) -> BurnchainTip {
-        let db = match BurnDB::connect(&self.config.get_burn_db_file_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
+        let db = match SortitionDB::connect(&self.config.get_burn_db_file_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
         };
-        let block_snapshot = BurnDB::get_canonical_burn_chain_tip(db.conn())
+        let block_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn())
             .expect("FATAL: failed to get canonical chain tip");
 
         self.db = Some(db);
@@ -183,13 +185,10 @@ impl BurnchainController for MocknetController {
                     unreachable!();
                 },
                 Some(ref mut burn_db) => {
-                    let mut burn_tx = burn_db.tx_begin().unwrap();
-                    let new_chain_tip = Burnchain::process_block_ops(
-                        &mut burn_tx, 
-                        &self.burnchain, 
-                        &chain_tip.block_snapshot, 
-                        &next_block_header, 
-                        &ops).unwrap();
+                    let mut burn_tx = SortitionHandleTx::begin(
+                        burn_db, &chain_tip.block_snapshot.sortition_id).unwrap();
+                    let new_chain_tip = burn_tx.process_block_ops(
+                        &self.burnchain, &chain_tip.block_snapshot, &next_block_header, ops).unwrap();
                     burn_tx.commit().unwrap();
                     new_chain_tip
                 }

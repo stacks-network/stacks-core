@@ -168,7 +168,7 @@ fn advance_cli_chain_tip(path: &String) -> (StacksBlockId, StacksBlockId) {
 
 // This function is pretty weird! But it helps cut down on
 //   repeating a lot of block initialization for the simulation commands.
-fn in_block<F,R>(db_path: &String, mut marf_kv: MarfedKV, f: F) -> R
+fn in_block<F,R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
 where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
 
     // store CLI data alongside the MARF database state
@@ -263,6 +263,12 @@ fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct InitialAllocation {
+    principal: String,
+    amount: u64
+}
+
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
     if args.len() < 1 {
         print_usage(invoked_by)
@@ -270,15 +276,48 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
     match args[0].as_ref() {
         "initialize" => {
-            if args.len() < 2 {
-                eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
-                panic_test!();
-            }
+            let (db_name, allocations) = 
+                if args.len() == 3 {
+                    let filename = &args[1];
+                    let json_in = if filename == "-" {
+                        let mut buffer = String::new();
+                        friendly_expect(io::stdin().read_to_string(&mut buffer), "Error reading from stdin.");
+                        buffer
+                    } else {
+                        friendly_expect(fs::read_to_string(filename),
+                                        &format!("Error reading file: {}", filename))
+                    };
+                    let allocations: Vec<InitialAllocation> = friendly_expect(serde_json::from_str(&json_in),
+                                                                              "Failure parsing JSON");
 
-            let marf_kv = friendly_expect(MarfedKV::open(&args[1], None), "Failed to open VM database.");
-            in_block(&args[1], marf_kv, |mut kv| {
-                { let mut db = kv.as_clarity_db(&NULL_HEADER_DB);
-                  db.initialize() };
+                    let allocations: Vec<_> = allocations.into_iter().map(|a| {
+                        (friendly_expect(PrincipalData::parse(&a.principal), "Failed to parse principal in JSON"), a.amount)
+                    }).collect();
+
+                    (&args[2], allocations)
+                } else if args.len() == 2 {
+                    (&args[1], Vec::new())
+                } else {
+                    eprintln!("Usage: {} {} (initial-allocations.json) [vm-state.db]", invoked_by, args[0]);
+                    eprintln!("   initial-allocations.json is a JSON array of {{ principal: \"ST...\", amount: 100 }} like objects.");
+                    eprintln!("   if the provided filename is `-`, the JSON is read from stdin."); 
+                    panic_test!();
+                };
+
+            let marf_kv = friendly_expect(MarfedKV::open(db_name, None), "Failed to open VM database.");
+            in_block(db_name, marf_kv, |mut kv| {
+                {
+                    let mut db = kv.as_clarity_db(&NULL_HEADER_DB);
+                    db.initialize();
+                    db.begin();
+                    for (principal, amount) in allocations.iter() {
+                        let cur_balance = db.get_account_stx_balance(principal);
+                        let final_balance = cur_balance.checked_add(*amount as u128).expect("FATAL: account balance overflow");
+                        db.set_account_stx_balance(principal, final_balance as u128);
+                        println!("{} credited: {} uSTX", principal, final_balance);
+                    }
+                    db.commit();
+                };
                 (kv, ())
             });
             println!("Database created.");
@@ -652,6 +691,30 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 #[cfg(test)]
 mod test {
     use super::*;
+    #[test]
+    fn test_initial_alloc() {
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let json_name = format!("/tmp/test-alloc_{}.json", rand::thread_rng().gen::<i32>());
+        let clar_name = format!("/tmp/test-alloc_{}.clar", rand::thread_rng().gen::<i32>());
+
+        fs::write(&json_name, r#"
+[ { "principal": "S1G2081040G2081040G2081040G208105NK8PE5",
+    "amount": 1000 },
+  { "principal": "S1G2081040G2081040G2081040G208105NK8PE5.names",
+    "amount": 2000 } ]
+"#).unwrap();
+
+        fs::write(&clar_name, r#"
+(unwrap-panic (if (is-eq (stx-get-balance 'S1G2081040G2081040G2081040G208105NK8PE5) u1000) (ok 1) (err 2)))
+(unwrap-panic (if (is-eq (stx-get-balance 'S1G2081040G2081040G2081040G208105NK8PE5.names) u2000) (ok 1) (err 2)))
+"#).unwrap();
+
+        invoke_command("test", &["initialize".to_string(), json_name.clone(), db_name.clone()]);
+
+        invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                                 clar_name, db_name]);
+    }
+
     #[test]
     fn test_samples() {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());

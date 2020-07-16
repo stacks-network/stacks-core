@@ -71,6 +71,8 @@ use vm::types::{
     QualifiedContractIdentifier
 };
 
+use vm::errors::Error as clarity_interpreter_error;
+
 use vm::representations::{ContractName, ClarityName};
 use vm::clarity::Error as clarity_error;
 use vm::costs::ExecutionCost;
@@ -97,6 +99,7 @@ impl_array_newtype!(StacksBlockId, u8, 32);
 impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
 impl_byte_array_from_column!(StacksBlockId);
+impl_byte_array_serde!(StacksBlockId);
 
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
@@ -205,9 +208,53 @@ impl error::Error for Error {
     }
 }
 
+impl Error {
+    fn name(&self) -> &'static str {
+        match self {
+            Error::InvalidFee => "InvalidFee",
+            Error::InvalidStacksBlock(ref _s) => "InvalidStacksBlock",
+            Error::InvalidStacksMicroblock(ref _s, ref _h) => "InvalidStacksMicroblock",
+            Error::InvalidStacksTransaction(ref _s) => "InvalidStacksTransaction",
+            Error::PostConditionFailed(ref _s) => "PostConditionFailed",
+            Error::NoSuchBlockError => "NoSuchBlockError",
+            Error::InvalidChainstateDB => "InvalidChainstateDB",
+            Error::BlockTooBigError => "BlockTooBigError",
+            Error::BlockCostExceeded => "BlockCostExceeded",
+            Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",
+            Error::IncompatibleSpendingConditionError => "IncompatibleSpendingConditionError",
+            Error::CostOverflowError(..) => "CostOverflowError",
+            Error::ClarityError(ref _e) => "ClarityError",
+            Error::DBError(ref _e) => "DBError",
+            Error::NetError(ref _e) => "NetError",
+            Error::MARFError(ref _e) => "MARFError",
+            Error::ReadError(ref _e) => "ReadError",
+            Error::WriteError(ref _e) => "WriteError",
+            Error::MemPoolError(ref _s) => "MemPoolError",
+            Error::NoTransactionsToMine => "NoTransactionsToMine",
+        }
+    }
+
+    pub fn into_json(&self) -> serde_json::Value {
+        let reason_code = self.name();
+        let reason_data = format!("{:?}", &self);
+        let result = json!({
+            "error": "chainstate error",
+            "reason": reason_code,
+            "reason_data": reason_data
+        });
+        result
+    }
+}
+
 impl From<db_error> for Error {
     fn from(e: db_error) -> Error {
         Error::DBError(e)
+    }
+}
+
+impl From<clarity_interpreter_error> for Error {
+    fn from(e: clarity_interpreter_error) -> Error {
+        Error::ClarityError(clarity_error::Interpreter(e))
     }
 }
 
@@ -474,6 +521,18 @@ pub enum TransactionPayload {
     SmartContract(TransactionSmartContract),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),       // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     Coinbase(CoinbasePayload)
+}
+
+impl TransactionPayload {
+    pub fn name(&self) -> &'static str {
+        match self {
+            TransactionPayload::TokenTransfer(..) => "TokenTransfer",
+            TransactionPayload::ContractCall(..) => "ContractCall",
+            TransactionPayload::SmartContract(..) => "SmartContract",
+            TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
+            TransactionPayload::Coinbase(..) => "Coinbase"
+        }
+    }
 }
 
 #[repr(u8)]

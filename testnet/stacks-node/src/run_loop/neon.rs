@@ -1,13 +1,17 @@
 use std::process;
+use std::thread;
+
 use crate::{Config, NeonGenesisNode, BurnchainController, 
             BitcoinRegtestController, Keychain};
-use stacks::chainstate::burn::db::burndb::BurnDB;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Address;
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
                                   address::{BitcoinAddressType}};
 
 use super::RunLoopCallbacks;
+
+use crate::monitoring::start_serving_monitoring_metrics;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -107,15 +111,24 @@ impl RunLoop {
             node.into_initialized_node(burnchain_tip.clone(), self.get_blocks_processed_arc())
         };
 
-        // TODO (hack) instantiate the burndb in the burnchain
-        let _ = burnchain.burndb_mut();
+        // TODO (hack) instantiate the sortdb in the burnchain
+        let _ = burnchain.sortdb_mut();
 
         // Start the runloop
         info!("Begin run loop");
         self.bump_blocks_processed();
+        
+        let prometheus_bind = self.config.node.prometheus_bind.clone();
+        if let Some(prometheus_bind) = prometheus_bind {
+            thread::spawn(move || {
+                start_serving_monitoring_metrics(prometheus_bind);
+            });
+        }
+
         loop {
             burnchain_tip = burnchain.sync();
 
+            let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
             if next_height <= block_height {
                 warn!("burnchain.sync() did not progress block height");
@@ -125,17 +138,16 @@ impl RunLoop {
             // first, let's process all blocks in (block_height, next_height]
             for block_to_process in (block_height+1)..(next_height+1) {
                 let block = {
-                    let ic = burnchain.burndb_ref().index_conn();
-                    BurnDB::get_ancestor_snapshot(
-                        &ic, block_to_process, &burnchain_tip.block_snapshot.burn_header_hash)
+                    let ic = burnchain.sortdb_ref().index_conn();
+                    SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
                         .unwrap()
                         .expect("Failed to find block in fork processed by bitcoin indexer")
                 };
-                let burn_header_hash = block.burn_header_hash;
+                let sortition_id = &block.sortition_id;
 
                 // Have the node process the new block, that can include, or not, a sortition.
-                node.process_burnchain_state(burnchain.burndb_mut(), 
-                                             &burn_header_hash);
+                node.process_burnchain_state(burnchain.sortdb_mut(), 
+                                             sortition_id);
                 // Now, tell the relayer to check if it won a sortition during this block,
                 //   and, if so, to process and advertize the block
                 //

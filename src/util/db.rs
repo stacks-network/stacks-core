@@ -260,6 +260,25 @@ where
     Ok(return_value)
 }
 
+pub fn query_row_panic<T, P, F>(conn: &Connection, sql_query: &str, sql_args: P, panic_message: F) -> Result<Option<T>, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql,
+    T: FromRow<T>,
+    F: FnOnce () -> String
+{
+    let mut stmt = conn.prepare(sql_query)?;
+    let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
+    let mut return_value = None;
+    if let Some(value) = result.next() {
+        return_value = Some(value?);
+    }
+    if result.next().is_some() {
+        panic!("{}", &panic_message());
+    }
+    Ok(return_value)
+}
+
 
 /// boilerplate code for querying a column out of a sequence of rows
 pub fn query_row_columns<T, P>(conn: &Connection, sql_query: &String, sql_args: P, column_name: &str) -> Result<Vec<T>, Error>
@@ -369,7 +388,7 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
 
 /// Read-only connection to a MARF-indexed DB
 pub struct IndexDBConn<'a, C, T: MarfTrieId> {
-    conn: &'a Connection,
+    pub conn: &'a Connection,
     pub index: &'a MARF<T>,
     pub context: C
 }
@@ -394,7 +413,7 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     }
     
     /// Get a value from the fork index
-    pub fn get_indexed(&self, header_hash: &T, key: &String) -> Result<Option<String>, Error> {
+    pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.conn, self.index, header_hash, key)
     }
 }
@@ -501,7 +520,7 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
 }
 
 /// Get a value from the fork index
-pub fn get_indexed<T: MarfTrieId>(conn: &DBConn, index: &MARF<T>, header_hash: &T, key: &String) -> Result<Option<String>, Error> {
+pub fn get_indexed<T: MarfTrieId>(conn: &DBConn, index: &MARF<T>, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
     let mut ro_index = index.reopen_readonly().map_err(Error::IndexError)?;
     let parent_index_root = match ro_index.get_root_hash_at(header_hash) {
         Ok(root) => {
@@ -607,7 +626,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Get a value from the fork index
-    pub fn get_indexed(&mut self, header_hash: &T, key: &String) -> Result<Option<String>, Error> {
+    pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.tx(), &self.index, header_hash, key)
     }
 

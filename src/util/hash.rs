@@ -49,7 +49,7 @@ pub trait MerkleHashFunc {
 
 macro_rules! impl_serde_json_hex_string {
     ($name:ident, $len:expr) => {
-        struct $name {}
+        pub struct $name {}
         impl $name {
             pub fn json_serialize<S: serde::Serializer>(inst: &[u8; $len], s: S) -> Result<S::Ok, S::Error> {
                 let hex_inst = to_hex(inst);

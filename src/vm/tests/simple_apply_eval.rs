@@ -531,7 +531,7 @@ fn test_option_destructs() {
         Ok(Value::Int(8)),
         Err(CheckErrors::BadMatchInput(TypeSignature::IntType).into()),
         Err(CheckErrors::BadMatchInput(TypeSignature::IntType).into()),
-        Err(ShortReturnType::ExpectedValue(Value::UInt(1)).into()),
+        Err(ShortReturnType::ExpectedValue(Value::error(Value::UInt(1)).unwrap()).into()),
         Ok(Value::Int(3)),
         Err(ShortReturnType::ExpectedValue(Value::none()).into()),
         Ok(Value::Bool(true)),

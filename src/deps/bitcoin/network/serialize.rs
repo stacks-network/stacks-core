@@ -23,7 +23,6 @@ use std::error;
 use std::fmt;
 use std::io;
 use std::io::{Cursor, Read, Write};
-use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 use util::hash::to_hex as hex_encode;
 
 use address;
@@ -38,8 +37,6 @@ pub enum Error {
     Io(io::Error),
     /// Base58 encoding error
     Base58(address::Error),
-    /// Error from the `byteorder` crate
-    ByteOrder(io::Error),
     /// Network magic was not expected
     UnexpectedNetworkMagic {
         /// The expected network magic
@@ -80,7 +77,6 @@ impl fmt::Display for Error {
         match *self {
             Error::Io(ref e) => fmt::Display::fmt(e, f),
             Error::Base58(ref e) => fmt::Display::fmt(e, f),
-            Error::ByteOrder(ref e) => fmt::Display::fmt(e, f),
             Error::UnexpectedNetworkMagic { expected: ref e, actual: ref a } => write!(f, "unexpected network magic: expected {}, actual {}", e, a),
             Error::OversizedVectorAllocation { requested: ref r, max: ref m } => write!(f, "allocation of oversized vector requested: requested {}, maximum {}", r, m),
             Error::InvalidChecksum { expected: ref e, actual: ref a } => write!(f, "invalid checksum: expected {}, actual {}", hex_encode(e), hex_encode(a)),
@@ -99,7 +95,6 @@ impl error::Error for Error {
         match *self {
             Error::Io(ref e) => Some(e),
             Error::Base58(ref e) => Some(e),
-            Error::ByteOrder(ref e) => Some(e),
             Error::UnexpectedNetworkMagic { .. }
             | Error::OversizedVectorAllocation { .. }
             | Error::InvalidChecksum { .. }
@@ -246,67 +241,56 @@ pub trait SimpleDecoder {
 }
 
 macro_rules! encoder_fn {
-    ($name:ident, $val_type:ty, $writefn:ident) => {
+    ($name:ident, $val_type:ty) => {
         #[inline]
         fn $name(&mut self, v: $val_type) -> Result<(), Error> {
-            self.writer.$writefn::<LittleEndian>(v).map_err(Error::Io)
+            self.writer.write_all(&v.to_le_bytes()).map_err(Error::Io)
         }
     }
 }
 
 macro_rules! decoder_fn {
-    ($name:ident, $val_type:ty, $readfn:ident) => {
+    ($name:ident, $val_type:ty, $type_size:literal) => {
         #[inline]
         fn $name(&mut self) -> Result<$val_type, Error> {
-            self.reader.$readfn::<LittleEndian>().map_err(Error::Io)
+            let mut buff = [0; $type_size];
+            self.reader.read_exact(&mut buff)
+                .map_err(Error::Io)?;
+            Ok(<$val_type>::from_le_bytes(buff))
         }
     }
 }
 
 impl<W: Write> SimpleEncoder for RawEncoder<W> {
-    encoder_fn!(emit_u64, u64, write_u64);
-    encoder_fn!(emit_u32, u32, write_u32);
-    encoder_fn!(emit_u16, u16, write_u16);
-    encoder_fn!(emit_i64, i64, write_i64);
-    encoder_fn!(emit_i32, i32, write_i32);
-    encoder_fn!(emit_i16, i16, write_i16);
+    encoder_fn!(emit_u64, u64);
+    encoder_fn!(emit_u32, u32);
+    encoder_fn!(emit_u16, u16);
+    encoder_fn!(emit_i64, i64);
+    encoder_fn!(emit_i32, i32);
+    encoder_fn!(emit_i16, i16);
+    encoder_fn!(emit_i8, i8);
+    encoder_fn!(emit_u8, u8);
 
     #[inline]
-    fn emit_i8(&mut self, v: i8) -> Result<(), Error> {
-        self.writer.write_i8(v).map_err(Error::Io)
-    }
-    #[inline]
-    fn emit_u8(&mut self, v: u8) -> Result<(), Error> {
-        self.writer.write_u8(v).map_err(Error::Io)
-    }
-    #[inline]
     fn emit_bool(&mut self, v: bool) -> Result<(), Error> {
-        self.writer.write_i8(if v {1} else {0}).map_err(Error::Io)
+        self.emit_i8(if v {1} else {0})
     }
 }
 
 impl<R: Read> SimpleDecoder for RawDecoder<R> {
-    decoder_fn!(read_u64, u64, read_u64);
-    decoder_fn!(read_u32, u32, read_u32);
-    decoder_fn!(read_u16, u16, read_u16);
-    decoder_fn!(read_i64, i64, read_i64);
-    decoder_fn!(read_i32, i32, read_i32);
-    decoder_fn!(read_i16, i16, read_i16);
+    decoder_fn!(read_u64, u64, 8);
+    decoder_fn!(read_u32, u32, 4);
+    decoder_fn!(read_u16, u16, 2);
+    decoder_fn!(read_i64, i64, 8);
+    decoder_fn!(read_i32, i32, 4);
+    decoder_fn!(read_i16, i16, 2);
+    decoder_fn!(read_u8, u8, 1);
+    decoder_fn!(read_i8, i8, 1);
 
     #[inline]
-    fn read_u8(&mut self) -> Result<u8, Error> {
-        self.reader.read_u8().map_err(Error::Io)
-    }
-    #[inline]
-    fn read_i8(&mut self) -> Result<i8, Error> {
-        self.reader.read_i8().map_err(Error::Io)
-    }
-    #[inline]
     fn read_bool(&mut self) -> Result<bool, Error> {
-        match self.reader.read_i8() {
-            Ok(bit) => Ok(bit != 0),
-            Err(e) => Err(Error::Io(e))
-        }
+        self.read_i8()
+            .map(|bit| bit != 0)
     }
 }
 

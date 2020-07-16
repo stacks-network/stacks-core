@@ -209,7 +209,7 @@ fn main() {
         }
         
         let marf_bhh = StacksBlockId::from_hex(marf_tip).expect("Bad MARF block hash");
-        let mut marf = MARF::from_path(&marf_path, None).expect("Failed to open MARF");
+        let mut marf = MARF::from_path(&marf_path).expect("Failed to open MARF");
         let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
 
         if let Some(value) = value_opt {
@@ -251,7 +251,7 @@ fn main() {
         let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
         let itip = StacksBlockHeader::make_index_block_hash(&burntip, &tip);
         let key = &argv[5];
-        let mut marf = MARF::from_path(path, Some(&itip)).unwrap();
+        let mut marf = MARF::from_path(path).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
         match res {
             Some(x) => println!("{}", x),

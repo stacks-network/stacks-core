@@ -128,11 +128,14 @@ macro_rules! warn {
         if ::util::log::get_loglevel() <= ::util::log::LOG_WARN {
             use std::time::SystemTime;
             use std::thread;
+            use crate::monitoring::increment_warning_emitted_counter;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
             eprintln!("WARN [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
+
+            increment_warning_emitted_counter();
         }
     })
 }
@@ -143,11 +146,14 @@ macro_rules! error {
         if ::util::log::get_loglevel() <= ::util::log::LOG_ERROR {
             use std::time::SystemTime;
             use std::thread;
+            use crate::monitoring::increment_errors_emitted_counter;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
                 Err(_) => (0, 0)
             };
             eprintln!("ERROR [{}.{:03}] [{}:{}] [{:?}] {}", ts_sec, ts_msec, file!(), line!(), thread::current().id(), format!($($arg)*));
+
+            increment_errors_emitted_counter();
         }
     })
 }

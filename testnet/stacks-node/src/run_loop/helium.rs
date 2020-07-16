@@ -115,7 +115,7 @@ impl RunLoop {
             &last_sortitioned_block.block_snapshot.burn_header_hash, 
             &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
             artifacts_from_1st_tenure.microblocks.clone(),
-            burnchain.burndb_mut());
+            burnchain.sortdb_mut());
 
         self.callbacks.invoke_new_stacks_chain_state(
             round_index, 
@@ -178,7 +178,7 @@ impl RunLoop {
                         &last_sortitioned_block.block_snapshot.burn_header_hash, 
                         &last_sortitioned_block.block_snapshot.parent_burn_header_hash,             
                         artifacts.microblocks.clone(),
-                        burnchain.burndb_mut());
+                        burnchain.sortdb_mut());
 
                         self.callbacks.invoke_new_stacks_chain_state(
                             round_index, 

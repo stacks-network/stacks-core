@@ -34,8 +34,9 @@ use chainstate::burn::operations::{
 use util::db::DBConn;
 use util::db::DBTx;
 
-use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBConn;
+use chainstate::burn::db::sortdb::{
+    SortitionHandleConn
+};
 use chainstate::stacks::index::TrieHash;
 
 use burnchains::BurnchainTransaction;
@@ -216,17 +217,13 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, ic: &BurnDBConn<'a>) -> Result<(), op_error> {
-        // this will be the chain tip we're building on
-        let chain_tip = BurnDB::get_block_snapshot(ic, &block_header.parent_block_hash)?
-            .expect("FATAL: no parent snapshot in the DB");
-
+    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
         /////////////////////////////////////////////////////////////////
         // Keys must be unique -- no one can register the same key twice
         /////////////////////////////////////////////////////////////////
 
         // key selected here must never have been submitted on this fork before 
-        let has_key_already = BurnDB::has_VRF_public_key(ic, &self.public_key, &chain_tip.burn_header_hash)?;
+        let has_key_already = tx.has_VRF_public_key(&self.public_key)?;
 
         if has_key_already {
             warn!("Invalid leader key registration: public key {} previously used", &self.public_key.to_hex());
@@ -237,7 +234,8 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(ic, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)?;
+        let consensus_hash_recent = tx.is_fresh_consensus_hash(
+            burnchain.consensus_hash_lifetime.into(), &self.consensus_hash)?;
 
         if !consensus_hash_recent {
             warn!("Invalid leader key registration: invalid consensus hash {}", &self.consensus_hash);
@@ -249,7 +247,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -267,7 +265,8 @@ mod tests {
     use util::hash::{hex_bytes, to_hex};
     use util::log;
     use util::get_epoch_time_secs;
-    
+    use chainstate::burn::db::sortdb::*;
+
     use chainstate::burn::operations::{
         LeaderBlockCommitOp,
         LeaderKeyRegisterOp,
@@ -276,10 +275,10 @@ mod tests {
         BlockstackOperationType
     };
 
-    struct OpFixture {
-        txstr: String,
-        opstr: String,
-        result: Option<LeaderKeyRegisterOp>,
+    pub struct OpFixture {
+        pub txstr: String,
+        pub opstr: String,
+        pub result: Option<LeaderKeyRegisterOp>,
     }
 
     struct CheckFixture {
@@ -295,13 +294,8 @@ mod tests {
         Ok(tx)
     }
 
-    #[test]
-    fn test_parse() {
-        let vtxindex = 1;
-        let block_height = 694;
-        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-
-        let tx_fixtures: Vec<OpFixture> = vec![
+    pub fn get_test_fixtures(vtxindex: u32, block_height: u64, burn_header_hash: BurnchainHeaderHash) -> Vec<OpFixture> {
+        vec![
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402203a176d95803e8d51e7884d38750322c4bfa55307a71291ef8db65191edd665f1022056f5d1720d1fde8d6a163c79f73f22f874ef9e186e98e5b60fa8ac64d298e77a012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
                 opstr: "69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a0102030405".to_string(),
@@ -356,7 +350,16 @@ mod tests {
                 opstr: "".to_string(),
                 result: None,
             }
-        ];
+        ]
+    }
+
+    #[test]
+    fn test_parse() {
+        let vtxindex = 1;
+        let block_height = 694;
+        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let tx_fixtures = get_test_fixtures(vtxindex, block_height, burn_header_hash);
 
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
 
@@ -369,7 +372,6 @@ mod tests {
                         block_hash: op.burn_header_hash.clone(),
                         parent_block_hash: op.burn_header_hash.clone(),
                         num_txs: 1,
-                        parent_index_root: TrieHash::from_empty_data(),
                         timestamp: get_epoch_time_secs()
                     }
                 },
@@ -379,7 +381,6 @@ mod tests {
                         block_hash: BurnchainHeaderHash([0u8; 32]),
                         parent_block_hash: BurnchainHeaderHash([0u8; 32]),
                         num_txs: 0,
-                        parent_index_root: TrieHash::from_empty_data(),
                         timestamp: get_epoch_time_secs()
                     }
                 }
@@ -456,7 +457,7 @@ mod tests {
             first_block_hash: first_burn_hash.clone()
         };
         
-        let mut db = BurnDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
         let leader_key_1 = LeaderKeyRegisterOp { 
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
@@ -497,13 +498,14 @@ mod tests {
 
         // populate consensus hashes
         let tip_root_index = {
-            let mut tx = db.tx_begin().unwrap();
-            let mut prev_snapshot = BurnDB::get_first_block_snapshot(&mut tx).unwrap();
+            let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
             for i in 0..10 {
                 let mut snapshot_row = BlockSnapshot {
                     block_height: i + 1 + first_block_height,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i as usize].clone(),
+                    sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -521,12 +523,14 @@ mod tests {
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
                 };
-                let next_tip_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
+                let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
+
+                let next_tip_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
                 snapshot_row.index_root = next_tip_root;
+
+                tx.commit().unwrap();
                 prev_snapshot = snapshot_row;
             }
-            
-            tx.commit().unwrap();
             prev_snapshot.index_root.clone()
         };
 
@@ -579,16 +583,15 @@ mod tests {
         ];
 
         for fixture in check_fixtures {
-            let ic = db.index_conn();
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
                 block_hash: fixture.op.burn_header_hash.clone(),
                 parent_block_hash: fixture.op.burn_header_hash.clone(),
                 num_txs: 1,
-                parent_index_root: tip_root_index.clone(),
                 timestamp: get_epoch_time_secs()
             };
-            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &header, &ic)));
+            let ic = db.index_handle(&SortitionId::stubbed(&fixture.op.burn_header_hash));
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic)));
         }
     }
 

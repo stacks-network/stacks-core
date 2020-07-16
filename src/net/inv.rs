@@ -47,9 +47,9 @@ use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::Secp256k1PrivateKey;
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb;
-use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBConn;
+use chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionId,
+};
 use chainstate::burn::BlockSnapshot;
 
 use chainstate::stacks::db::StacksChainState;
@@ -280,14 +280,14 @@ impl NeighborBlockStats {
     /// Used to inform sending getblockinvs and get-requests for blocks.
     /// If the requested range isn't fully included in the bitvec we have, then the resulting
     /// vector will be truncated.
-    pub fn find_missing_stacks_blocks(&self, burndb: &BurnDB, sortition_height_start: u64, sortition_height_end: u64) -> Result<Vec<Option<BlockSnapshot>>, net_error> {
+    pub fn find_missing_stacks_blocks(&self, sortdb: &SortitionDB, sortition_height_start: u64, sortition_height_end: u64) -> Result<Vec<Option<BlockSnapshot>>, net_error> {
         if self.inv.num_sortitions < sortition_height_start {
             return Ok(vec![]);
         }
 
         let mut ret = vec![];
-        let ic = burndb.index_conn();
-        let canonical_tip = BurnDB::get_canonical_burn_chain_tip(&ic).map_err(net_error::DBError)?;
+        let ic = sortdb.index_conn();
+        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)?;
         for height in sortition_height_start..sortition_height_end {
             if !self.inv.has_ith_block(height) {
                 // of the edge of the bitmap
@@ -295,7 +295,9 @@ impl NeighborBlockStats {
             }
             else {
                 // is this block missing from this peer, or does it not exist in the first place?
-                match BurnDB::get_block_snapshot_in_fork(&ic, height, &canonical_tip.burn_header_hash).map_err(net_error::DBError)? {
+                let snapshot_opt = SortitionDB::get_ancestor_snapshot(
+                    &ic, height, &canonical_tip.sortition_id)?;
+                match snapshot_opt {
                     None => {
                         ret.push(None);
                     },
@@ -538,8 +540,9 @@ impl InvState {
     /// Used when processing a BlocksAvailable or MicroblocksAvailable message.
     /// Returns the optional block sortition height at which the block or confirmed microblock stream resides in the blockchain (returns
     /// None if its bit was already set).
-    fn set_data_available(&mut self, neighbor_key: &NeighborKey, burndb: &BurnDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, microblocks: bool) -> Result<Option<u64>, net_error> {
-        let sn = match BurnDB::get_block_snapshot(burndb.conn(), burn_header_hash)? {
+    fn set_data_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, microblocks: bool) -> Result<Option<u64>, net_error> {
+        let sortid = SortitionId::stubbed(burn_header_hash);
+        let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid)? {
             Some(sn) => sn,
             None => {
                 // we don't know about this block
@@ -581,7 +584,7 @@ impl InvState {
 
                 debug!("Neighbor {:?} stats: {:?}", neighbor_key, stats);
                 if set {
-                    let block_sortition_height = sn.block_height - 1 - burndb.first_block_height;
+                    let block_sortition_height = sn.block_height - 1 - sortdb.first_block_height;
                     Ok(Some(block_sortition_height))
                 }
                 else {
@@ -595,12 +598,12 @@ impl InvState {
         }
     }
     
-    pub fn set_block_available(&mut self, neighbor_key: &NeighborKey, burndb: &BurnDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, net_error> {
-        self.set_data_available(neighbor_key, burndb, consensus_hash, burn_header_hash, false)
+    pub fn set_block_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, net_error> {
+        self.set_data_available(neighbor_key, sortdb, consensus_hash, burn_header_hash, false)
     }
 
-    pub fn set_microblocks_available(&mut self, neighbor_key: &NeighborKey, burndb: &BurnDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, net_error> {
-        self.set_data_available(neighbor_key, burndb, consensus_hash, burn_header_hash, true)
+    pub fn set_microblocks_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, net_error> {
+        self.set_data_available(neighbor_key, sortdb, consensus_hash, burn_header_hash, true)
     }
 
     pub fn getblocksinv_begin(&mut self, requests: HashMap<NeighborKey, ReplyHandleP2P>, target_heights: HashMap<NeighborKey, u64>) -> () {
@@ -783,7 +786,7 @@ impl InvState {
 impl PeerNetwork {
     /// Given a sortition height of a block we're interested in, make a GetBlocksInv whose
     /// _lowest_ block will be at the target sortition height.
-    fn make_highest_getblocksinv(&self, nk: &NeighborKey, target_block_height: u64, burndb: &BurnDB) -> Result<Option<GetBlocksInv>, net_error> {
+    fn make_highest_getblocksinv(&self, nk: &NeighborKey, target_block_height: u64, sortdb: &SortitionDB) -> Result<Option<GetBlocksInv>, net_error> {
         if target_block_height > self.chain_view.burn_block_height {
             debug!("{:?}: target block height for neighbor {:?} is {}, which is higher than our chain view height {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height);
             return Ok(None);
@@ -808,7 +811,7 @@ impl PeerNetwork {
                 let tip_consensus_hash = convo.get_burnchain_tip_consensus_hash();
 
                 debug!("{:?}: chain view of {:?} is ({},{})-({},{})", &self.local_peer, nk, stable_tip_height, &stable_tip_consensus_hash, tip_height, &tip_consensus_hash);
-                match BurnDB::get_block_snapshot_consensus(burndb.conn(), &tip_consensus_hash).map_err(net_error::DBError)? {
+                match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &tip_consensus_hash)? {
                     // we know about this peer's latest consensus hash's snapshot.  Ask for blocks
                     // no higher than its highest known block.
                     Some(_sn) => {
@@ -823,7 +826,7 @@ impl PeerNetwork {
                     // this peer is unstable -- its tip consensus hash differs from ours, but we
                     // agree with its stable consensus hash.  Ask only for blocks no higher than
                     // its stable consensus hash.
-                    None => match BurnDB::get_block_snapshot_consensus(burndb.conn(), &stable_tip_consensus_hash).map_err(net_error::DBError)? {
+                    None => match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &stable_tip_consensus_hash).map_err(net_error::DBError)? {
                         Some(_sn) => {
                             if stable_tip_height < highest_block_height {
                                 test_debug!("{:?}: neighbor {:?} is unstable, and has processed only up to stable burn block {} (we are targeting {})", &self.local_peer, nk, tip_height, target_block_height);
@@ -862,10 +865,11 @@ impl PeerNetwork {
         }
         assert!(num_blocks <= BLOCKS_INV_DATA_MAX_BITLEN as u64);
 
-        let ic = burndb.index_conn();
-        let tip = BurnDB::get_canonical_burn_chain_tip(&ic).map_err(net_error::DBError)?;
-        match BurnDB::get_consensus_at(&ic, highest_block_height, &tip.burn_header_hash).map_err(net_error::DBError)? {
-            Some(ch) => {
+        let ic = sortdb.index_conn();
+        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)?;
+        match SortitionDB::get_ancestor_snapshot(&ic, highest_block_height, &tip.sortition_id)? {
+            Some(sn) => {
+                let ch = sn.consensus_hash;
                 test_debug!("{:?}: Request BlocksInv from {:?} for {} blocks up to sortition block {}", &self.local_peer, nk, num_blocks, highest_block_height);
                 Ok(Some(GetBlocksInv { consensus_hash: ch, num_blocks: num_blocks as u16 }))
             }
@@ -877,11 +881,11 @@ impl PeerNetwork {
     }
 
     /// Make a GetBlocksInv to send to our neighbors
-    fn make_next_getblocksinv(&self, inv_state: &mut InvState, burndb: &BurnDB, nk: &NeighborKey) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
+    fn make_next_getblocksinv(&self, inv_state: &mut InvState, sortdb: &SortitionDB, nk: &NeighborKey) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
         // target_block_height is the highest sortition height we know this node knows about.
         // Ask for block inventory data _after_ this.
         let target_block_height = match inv_state.get_stats(nk) {
-            Some(ref stats) => burndb.first_block_height.checked_add(stats.inv.num_sortitions).expect("Blockchain sortition overflow"),
+            Some(ref stats) => sortdb.first_block_height.checked_add(stats.inv.num_sortitions).expect("Blockchain sortition overflow"),
             None => {
                 return Err(net_error::PeerNotConnected);
             }
@@ -890,7 +894,7 @@ impl PeerNetwork {
         if target_block_height < self.chain_view.burn_block_height {
             // We don't yet know all of the blocks this node knows about.
             test_debug!("{:?}: not sync'ed with {:?} yet (target {} < tip {}); make GetBlocksInv based at {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height, target_block_height);
-            let request_opt = self.make_highest_getblocksinv(nk, target_block_height, burndb)?;
+            let request_opt = self.make_highest_getblocksinv(nk, target_block_height, sortdb)?;
             match request_opt {
                 Some(request) => Ok(Some((target_block_height, request))),
                 None => {
@@ -903,7 +907,7 @@ impl PeerNetwork {
             // We know which blocks this node knows about, up to our chain height.
             // We may be in the process of re-scanning this node.  Proceed with the rescan request.
             test_debug!("{:?}: sync'ed up; make GetBlocksInv based at rescan height {}", &self.local_peer, inv_state.rescan_height);
-            let request_opt = self.make_highest_getblocksinv(nk, inv_state.rescan_height, burndb)?;
+            let request_opt = self.make_highest_getblocksinv(nk, inv_state.rescan_height, sortdb)?;
             match request_opt {
                 Some(request) => Ok(Some((inv_state.rescan_height, request))),
                 None => {
@@ -931,7 +935,7 @@ impl PeerNetwork {
     }
 
     /// Start requesting the next batch of block inventories
-    pub fn inv_getblocksinv_begin(&mut self, burndb: &BurnDB) -> Result<(), net_error> {
+    pub fn inv_getblocksinv_begin(&mut self, sortdb: &SortitionDB) -> Result<(), net_error> {
         test_debug!("{:?}: getblocksinv_begin", &self.local_peer);
         PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
             let mut inv_targets : HashMap<NeighborKey, (u64, GetBlocksInv)> = HashMap::new();
@@ -963,7 +967,7 @@ impl PeerNetwork {
                     inv_state.add_peer(nk.clone());
                 }
 
-                let (target_block_height, inv) = match network.make_next_getblocksinv(inv_state, burndb, &nk)? {
+                let (target_block_height, inv) = match network.make_next_getblocksinv(inv_state, sortdb, &nk)? {
                     Some(request) => request,
                     None => {
                         debug!("{:?}: skip {:?}, since we could not make a GetBlocksInv for it", &network.local_peer, &nk);
@@ -1041,20 +1045,20 @@ impl PeerNetwork {
     }
     
     /// Initialize inv state
-    pub fn init_inv_sync(&mut self, burndb: &BurnDB) -> () {
+    pub fn init_inv_sync(&mut self, sortdb: &SortitionDB) -> () {
         // find out who we'll be synchronizing with for the duration of this inv sync
         let cur_neighbors = self.get_outbound_sync_peers();
         
         debug!("{:?}: Initializing peer block inventory state with {} neighbors", &self.local_peer, cur_neighbors.len());
-        self.inv_state = Some(InvState::new(burndb.first_block_height, self.connection_opts.timeout, self.connection_opts.inv_sync_interval, cur_neighbors));
+        self.inv_state = Some(InvState::new(sortdb.first_block_height, self.connection_opts.timeout, self.connection_opts.inv_sync_interval, cur_neighbors));
     }
 
     /// Drive fetching block invs.
     /// Returns the list of dead and broken peers that we should disconnect from, as well as a flag
     /// to indicate if we're done with the scan.
-    pub fn sync_peer_block_invs(&mut self, burndb: &BurnDB) -> Result<(bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
+    pub fn sync_peer_block_invs(&mut self, sortdb: &SortitionDB) -> Result<(bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         if self.inv_state.is_none() {
-            self.init_inv_sync(burndb);
+            self.init_inv_sync(sortdb);
         }
 
         match self.inv_state {
@@ -1079,7 +1083,7 @@ impl PeerNetwork {
             debug!("{:?}: inv-sync state is {:?}", &self.local_peer, state);
             let done_res = match state {
                 InvWorkState::GetBlocksInvBegin => {
-                    self.inv_getblocksinv_begin(burndb)
+                    self.inv_getblocksinv_begin(sortdb)
                         .and_then(|_| Ok(false))
                 },
                 InvWorkState::GetBlocksInvFinish => {
@@ -1148,8 +1152,8 @@ impl PeerNetwork {
                     inv_state.cull_stale_peers();
                     inv_state.cull_diverged_peers();
 
-                    assert!(burndb.first_block_height <= self.chain_view.burn_block_height);
-                    let min_sortitions_to_sync = self.chain_view.burn_block_height - burndb.first_block_height;
+                    assert!(sortdb.first_block_height <= self.chain_view.burn_block_height);
+                    let min_sortitions_to_sync = self.chain_view.burn_block_height - sortdb.first_block_height;
 
                     // if all peers we're sync'ing with are either up-to-date with our chain view,
                     // or if we now know they're stale (i.e. we're ahead), then we're done with the
@@ -1184,7 +1188,7 @@ impl PeerNetwork {
                             // restart sync'ing with the current neighbors
                             debug!("{:?}: Inv-sync finished with all ({}) up-to-date neighbors ({} sortitions); restarting scan with {} peers", &self.local_peer, inv_state.sync_peers.len(), min_sortitions_to_sync, cur_neighbors.len());
 
-                            inv_state.rescan_height = burndb.first_block_height;
+                            inv_state.rescan_height = sortdb.first_block_height;
                             inv_state.set_sync_peers(cur_neighbors);
 
                             if inv_state.hint_do_full_rescan {
@@ -1534,7 +1538,7 @@ mod test {
 
         let num_blocks = 5;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1547,15 +1551,15 @@ mod test {
         }
 
         let (tip, num_burn_blocks) = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             let num_burn_blocks = sn.block_height - peer_1.config.burnchain.first_block_height;
             (sn, num_burn_blocks)
         };
 
         let nk = peer_1.to_neighbor().addr;
 
-        let burndb = peer_1.burndb.take().unwrap();
-        peer_1.network.init_inv_sync(&burndb);
+        let sortdb = peer_1.sortdb.take().unwrap();
+        peer_1.network.init_inv_sync(&sortdb);
         match peer_1.network.inv_state {
             Some(ref mut inv) => {
                 inv.add_peer(nk.clone());
@@ -1564,61 +1568,63 @@ mod test {
                 panic!("No inv state");
             }
         };
-        peer_1.burndb = Some(burndb);
+        peer_1.sortdb = Some(sortdb);
         
         for i in 0..num_blocks {
-            let burndb = peer_1.burndb.take().unwrap();
+            let sortdb = peer_1.sortdb.take().unwrap();
             let sn = {
-                let ic = burndb.index_conn();
-                let sn = BurnDB::get_block_snapshot_in_fork(&ic, i + 1 + first_stacks_block_height, &tip.burn_header_hash).unwrap().unwrap();
+                let ic = sortdb.index_conn();
+                let sn = SortitionDB::get_ancestor_snapshot(
+                    &ic, i + 1 + first_stacks_block_height, &tip.sortition_id).unwrap().unwrap();
                 eprintln!("{:?}", &sn);
                 sn
             };
-            peer_1.burndb = Some(burndb);
+            peer_1.sortdb = Some(sortdb);
         }
 
         for i in 0..num_blocks {
-            let burndb = peer_1.burndb.take().unwrap();
+            let sortdb = peer_1.sortdb.take().unwrap();
             match peer_1.network.inv_state {
                 Some(ref mut inv) => {
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
                     let sn = {
-                        let ic = burndb.index_conn();
-                        let sn = BurnDB::get_block_snapshot_in_fork(&ic, i + first_stacks_block_height + 1, &tip.burn_header_hash).unwrap().unwrap();
+                        let ic = sortdb.index_conn();
+                        let sn = SortitionDB::get_ancestor_snapshot(
+                            &ic, i + first_stacks_block_height + 1, &tip.sortition_id).unwrap().unwrap();
                         eprintln!("{:?}", &sn);
                         sn
                     };
                     
-                    let sh = inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &BurnchainHeaderHash([0xfe; 32])).unwrap();
+                    let sh = inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &BurnchainHeaderHash([0xfe; 32])).unwrap();
                     assert_eq!(None, sh);
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
-                    let sh = inv.set_block_available(&nk, &burndb, &ConsensusHash([0xfe; 20]), &sn.burn_header_hash).unwrap();
+                    let sh = inv.set_block_available(&nk, &sortdb, &ConsensusHash([0xfe; 20]), &sn.burn_header_hash).unwrap();
                     assert_eq!(None, sh);
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
                     
-                    let sh = inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
+                    let sh = inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
 
-                    assert_eq!(Some(i + first_stacks_block_height - burndb.first_block_height), sh);
+                    assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
                     assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     
-                    let sh = inv.set_microblocks_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
+                    let sh = inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
 
-                    assert_eq!(Some(i + first_stacks_block_height - burndb.first_block_height), sh);
+                    assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
                     assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
-                    assert!(inv.set_block_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
-                    assert!(inv.set_microblocks_available(&nk, &burndb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
+                    assert!(inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
+                    assert!(inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
                 },
                 None => {
                     panic!("No inv state");
                 }
             }
-            peer_1.burndb = Some(burndb);
+            peer_1.sortdb = Some(sortdb);
         }
     }
      
@@ -1674,7 +1680,7 @@ mod test {
 
         let num_blocks = (BLOCKS_INV_DATA_MAX_BITLEN * 2) as u64;
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1688,7 +1694,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1796,7 +1802,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1809,7 +1815,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1817,9 +1823,10 @@ mod test {
         let mut inv_1_count = 0;
         let mut inv_2_count = 0;
 
-        let mut peer_1_stale = false;
+        let mut peer_1_check = false;
+        let mut peer_2_check = false;
         
-        while !peer_1_stale && inv_1_count < first_stacks_block_height - peer_1.config.burnchain.first_block_height {
+        while !peer_1_check || !peer_2_check {
             let _ = peer_1.step();
             let _ = peer_2.step();
 
@@ -1838,6 +1845,16 @@ mod test {
                     assert_eq!(inv.broken_peers.len(), 0);
                     assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
+
+                    if let Some(ref peer_2_inv) = inv.block_stats.get(&peer_2.to_neighbor().addr) {
+                        if peer_2_inv.inv.num_sortitions == first_stacks_block_height - peer_1.config.burnchain.first_block_height {
+                            for i in 0..first_stacks_block_height {
+                                assert!(!peer_2_inv.inv.has_ith_block(i));
+                                assert!(!peer_2_inv.inv.has_ith_microblock_stream(i));
+                            }
+                            peer_2_check = true;
+                        }
+                    }
                 },
                 None => {}
             }
@@ -1847,9 +1864,11 @@ mod test {
                     assert_eq!(inv.broken_peers.len(), 0);
                     assert_eq!(inv.dead_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
-                    
-                    if inv.stale_peers.contains(&peer_1.to_neighbor().addr) {
-                        peer_1_stale = true;
+
+                    if let Some(ref peer_1_inv) = inv.block_stats.get(&peer_1.to_neighbor().addr) {
+                        if peer_1_inv.inv.num_sortitions == first_stacks_block_height - peer_1.config.burnchain.first_block_height {
+                            peer_1_check = true;
+                        }
                     }
                 },
                 None => {}
@@ -1857,29 +1876,13 @@ mod test {
 
             round += 1;
 
-            test_debug!("\n\npeer_1_stale = {}, inv_1_count = {}, inv_2_count = {}, first_stacks_block_height = {}\n\n", peer_1_stale, inv_1_count, inv_2_count, first_stacks_block_height);
+            test_debug!("\n\npeer_1_check = {}, peer_2_check = {}, inv_1_count = {}, inv_2_count = {}, first_stacks_block_height = {}\n\n", peer_1_check, peer_2_check, inv_1_count, inv_2_count, first_stacks_block_height);
         }
 
         info!("Completed walk round {} step(s)", round);
 
         peer_1.dump_frontier();
         peer_2.dump_frontier();
-
-        let peer_2_inv = peer_1.network.inv_state.as_ref().unwrap().block_stats.get(&peer_2.to_neighbor().addr).unwrap().inv.clone();
-        test_debug!("peer 1's view of peer 2: {:?}", &peer_2_inv);
-
-        // peer 1 should have learned no more than its highest number of sortitions
-        assert_eq!(peer_2_inv.num_sortitions, first_stacks_block_height - peer_1.config.burnchain.first_block_height);
-        for i in 0..first_stacks_block_height {
-            assert!(!peer_2_inv.has_ith_block(i));
-            assert!(!peer_2_inv.has_ith_microblock_stream(i));
-        }
-
-        // peer 2 should have learned no more than peer 1's highest number of sortitions
-        let peer_1_inv = peer_2.network.inv_state.as_ref().unwrap().block_stats.get(&peer_1.to_neighbor().addr).unwrap().inv.clone();
-        test_debug!("peer 2's view of peer 1: {:?}", &peer_1_inv);
-
-        assert_eq!(peer_1_inv.num_sortitions, first_stacks_block_height - peer_1.config.burnchain.first_block_height);
     }
     
     #[test]
@@ -1898,7 +1901,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(&peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1922,7 +1925,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = BurnDB::get_canonical_burn_chain_tip(peer_1.burndb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         

@@ -55,7 +55,7 @@ to the Stacks peer network.
 
 The following subsections describe the data structures and protocols for the
 Stacks peer network.  In particular, this document discusses _only_ the peer
-network message sturcture and protocols.  It does _not_ document the structure
+network message structure and protocols.  It does _not_ document the structure
 of Stacks transactions and blocks.  These structures are defined in SIP 005.
 
 ### Encoding Conventions
@@ -660,6 +660,7 @@ pub struct NatPunchData {
    /// The nonce from the paired NatPunchRequest
    pub nonce: u32,
 }
+```
 
 Notes:
 * The `nonce` field in a `PongData` should match the `nonce` field sent by the

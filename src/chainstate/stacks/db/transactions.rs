@@ -42,7 +42,7 @@ use util::strings::StacksString;
 
 use util::hash::to_hex;
 
-use chainstate::burn::db::burndb::*;
+use chainstate::burn::db::sortdb::*;
 
 use net::Error as net_error;
 
@@ -197,9 +197,9 @@ impl std::fmt::Display for TransactionNonceMismatch {
     }
 }
 
-impl From<TransactionNonceMismatch> for Error {
-    fn from(e: TransactionNonceMismatch) -> Error {
-        Error::InvalidStacksTransaction(e.to_string())
+impl <T> From<(TransactionNonceMismatch, T)> for Error {
+    fn from(e: (TransactionNonceMismatch, T)) -> Error {
+        Error::InvalidStacksTransaction(e.0.to_string())
     }
 }
 
@@ -227,7 +227,8 @@ impl StacksChainState {
 
     /// Check the account nonces for the supplied stacks transaction,
     ///   returning the origin and payer accounts if valid.
-    pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction) -> Result<(StacksAccount, StacksAccount), TransactionNonceMismatch> {
+    pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction) -> Result<(StacksAccount, StacksAccount),
+                                                                                                                (TransactionNonceMismatch, (StacksAccount, StacksAccount))> {
         // who's sending it?
         let origin = tx.get_origin();
         let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
@@ -245,7 +246,7 @@ impl StacksChainState {
                                                        principal: payer_account.principal.clone(),
                                                        is_origin: false };
                     warn!("{}", &e);
-                    return Err(e)
+                    return Err((e, (origin_account, payer_account)))
                 }
 
                 payer_account
@@ -261,7 +262,7 @@ impl StacksChainState {
                                                principal: origin_account.principal.clone(),
                                                is_origin: true };
             warn!("{}", &e);
-            return Err(e)
+            return Err((e, (origin_account, payer_account)))
         }
 
         Ok((origin_account, payer_account))
@@ -717,7 +718,7 @@ impl StacksChainState {
 
     /// Process a transaction.  Return the fee and the transaction receipt
     pub fn process_transaction(clarity_block: &mut ClarityTx, tx: &StacksTransaction) -> Result<(u64, StacksTransactionReceipt), Error> {
-        debug!("Process transaction {}", tx.txid());
+        debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
 
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
 

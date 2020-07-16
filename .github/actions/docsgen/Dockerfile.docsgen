@@ -1,0 +1,16 @@
+FROM rust:stretch as build
+
+WORKDIR /src
+
+COPY . .
+
+RUN apt-get update && apt-get install -y git
+
+RUN cargo build
+
+RUN mkdir /out
+
+RUN /src/target/debug/blockstack-core docgen > /out/clarityRef.json
+
+FROM scratch AS export-stage
+COPY --from=build /out/clarityRef.json /

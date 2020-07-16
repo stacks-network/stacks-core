@@ -77,7 +77,9 @@ use burnchains::PublicKey;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 
-use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionId
+};
 
 use chainstate::stacks::db::StacksChainState;
 
@@ -582,7 +584,7 @@ impl PeerNetwork {
 
     /// Broadcast a message to a list of neighbors
     pub fn broadcast_message(&mut self, mut neighbor_keys: Vec<NeighborKey>, relay_hints: Vec<RelayData>, message_payload: StacksMessageType) -> () {
-        debug!("{:?}: Will broadcast '{}' to {} neighbors", &self.local_peer, message_payload.get_message_name(), neighbor_keys.len());
+        debug!("{:?}: Will broadcast '{}' to up to {} neighbors", &self.local_peer, message_payload.get_message_name(), neighbor_keys.len());
         for nk in neighbor_keys.drain(..) {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
@@ -599,6 +601,7 @@ impl PeerNetwork {
                 }
             }
         }
+        debug!("{:?}: Done broadcasting '{}", &self.local_peer, message_payload.get_message_name());
     }
 
     /// Count how many outbound conversations are going on 
@@ -1253,7 +1256,7 @@ impl PeerNetwork {
 
     /// Process network traffic on a p2p conversation.
     /// Returns list of unhandled messages, and whether or not the convo is still alive.
-    fn process_p2p_conversation(local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &BurnDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, 
+    fn process_p2p_conversation(local_peer: &LocalPeer, peerdb: &mut PeerDB, sortdb: &SortitionDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, 
                                 event_id: usize, client_sock: &mut mio_net::TcpStream, convo: &mut ConversationP2P) -> Result<(Vec<StacksMessage>, bool), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
@@ -1277,7 +1280,7 @@ impl PeerNetwork {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        let chat_res = convo.chat(local_peer, peerdb, burndb, chainstate, chain_view);
+        let chat_res = convo.chat(local_peer, peerdb, sortdb, chainstate, chain_view);
         let unhandled = match chat_res {
             Err(e) => {
                 debug!("Failed to converse on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
@@ -1322,7 +1325,7 @@ impl PeerNetwork {
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the set of
     /// unhandled messages grouped by event_id.
-    fn process_ready_sockets(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, poll_state: &mut NetworkPollState) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
+    fn process_ready_sockets(&mut self, sortdb: &SortitionDB, chainstate: &mut StacksChainState, poll_state: &mut NetworkPollState) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
         let mut to_remove = vec![];
         let mut unhandled : HashMap<usize, Vec<StacksMessage>> = HashMap::new();
 
@@ -1345,7 +1348,7 @@ impl PeerNetwork {
                 Some(ref mut convo) => {
                     // activity on a p2p socket
                     debug!("{:?}: process p2p data from {:?}", &self.local_peer, convo);
-                    let mut convo_unhandled = match PeerNetwork::process_p2p_conversation(&self.local_peer, &mut self.peerdb, burndb, chainstate, &self.chain_view, *event_id, client_sock, convo) {
+                    let mut convo_unhandled = match PeerNetwork::process_p2p_conversation(&self.local_peer, &mut self.peerdb, sortdb, chainstate, &self.chain_view, *event_id, client_sock, convo) {
                         Ok((convo_unhandled, alive)) => {
                             if !alive {
                                 to_remove.push(*event_id);
@@ -1480,7 +1483,7 @@ impl PeerNetwork {
             }
         }
 
-        for event_id in to_remove.drain(0..) {
+        for event_id in to_remove.into_iter() {
             self.deregister_peer(event_id);
         }
     }
@@ -2071,10 +2074,10 @@ impl PeerNetwork {
 
     /// Update the state of our neighbors' block inventories.
     /// Return true if we finish
-    fn do_network_inv_sync(&mut self, burndb: &BurnDB) -> Result<bool, net_error> {
+    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB) -> Result<bool, net_error> {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
             if self.inv_state.is_none() {
-                self.init_inv_sync(burndb);
+                self.init_inv_sync(sortdb);
             }
             
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
@@ -2082,15 +2085,15 @@ impl PeerNetwork {
         }
 
         // synchronize peer block inventories 
-        let (done, mut dead_neighbors, mut broken_neighbors) = self.sync_peer_block_invs(burndb)?;
+        let (done, dead_neighbors, broken_neighbors) = self.sync_peer_block_invs(sortdb)?;
         
         // disconnect and ban broken peers
-        for broken in broken_neighbors.drain(..) {
+        for broken in broken_neighbors.into_iter() {
             self.deregister_and_ban_neighbor(&broken);
         }
 
         // disconnect from dead connections
-        for dead in dead_neighbors.drain(..) {
+        for dead in dead_neighbors.into_iter() {
             self.deregister_neighbor(&dead);
         }
 
@@ -2098,7 +2101,7 @@ impl PeerNetwork {
     }
 
     /// Download blocks, and add them to our network result.
-    fn do_network_block_download(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, dns_client: &mut DNSClient, network_result: &mut NetworkResult) -> Result<bool, net_error> {
+    fn do_network_block_download(&mut self, sortdb: &SortitionDB, chainstate: &mut StacksChainState, dns_client: &mut DNSClient, network_result: &mut NetworkResult) -> Result<bool, net_error> {
         if cfg!(test) && self.connection_opts.disable_block_download {
             if self.block_downloader.is_none() {
                 self.init_block_downloader();
@@ -2108,7 +2111,7 @@ impl PeerNetwork {
             return Ok(true);
         }
 
-        let (done, mut blocks, mut microblocks, mut broken_http_peers, mut broken_p2p_peers) = self.download_blocks(burndb, chainstate, dns_client)?;
+        let (done, mut blocks, mut microblocks, mut broken_http_peers, mut broken_p2p_peers) = self.download_blocks(sortdb, chainstate, dns_client)?;
 
         network_result.blocks.append(&mut blocks);
         network_result.confirmed_microblocks.append(&mut microblocks);
@@ -2153,7 +2156,7 @@ impl PeerNetwork {
     /// Do the actual work in the state machine.
     /// Return true if we need to prune connections.
     fn do_network_work(&mut self, 
-                       burndb: &BurnDB, 
+                       sortdb: &SortitionDB, 
                        chainstate: &mut StacksChainState, 
                        mut dns_client_opt: Option<&mut DNSClient>,
                        download_backpressure: bool,
@@ -2207,7 +2210,7 @@ impl PeerNetwork {
                 }
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories 
-                    if self.do_network_inv_sync(burndb)? {
+                    if self.do_network_inv_sync(sortdb)? {
                         if !download_backpressure {
                             // proceed to get blocks, if we're not backpressured
                             self.work_state = PeerNetworkWorkState::BlockDownload;
@@ -2232,7 +2235,7 @@ impl PeerNetwork {
                     // go fetch blocks
                     match dns_client_opt {
                         Some(ref mut dns_client) => {
-                            if self.do_network_block_download(burndb, chainstate, *dns_client, network_result)? {
+                            if self.do_network_block_download(sortdb, chainstate, *dns_client, network_result)? {
                                 // advance work state
                                 self.work_state = PeerNetworkWorkState::Prune;
                             }
@@ -2351,15 +2354,15 @@ impl PeerNetwork {
 
     /// Update a peer's inventory state to indicate that the given block is available.
     /// If updated, return the sortition height of the bit in the inv that was set.
-    fn handle_unsolicited_inv_update(&mut self, burndb: &BurnDB, event_id: usize, outbound_neighbor_key: &NeighborKey, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, microblocks: bool) -> Option<u64> {
+    fn handle_unsolicited_inv_update(&mut self, sortdb: &SortitionDB, event_id: usize, outbound_neighbor_key: &NeighborKey, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, microblocks: bool) -> Option<u64> {
         let block_sortition_height = match self.inv_state {
             Some(ref mut inv) => {
                 let res = 
                     if microblocks {
-                        inv.set_microblocks_available(outbound_neighbor_key, burndb, consensus_hash, burn_header_hash)
+                        inv.set_microblocks_available(outbound_neighbor_key, sortdb, consensus_hash, burn_header_hash)
                     }
                     else {
-                        inv.set_block_available(outbound_neighbor_key, burndb, consensus_hash, burn_header_hash)
+                        inv.set_block_available(outbound_neighbor_key, sortdb, consensus_hash, burn_header_hash)
                     };
 
                 match res {
@@ -2394,7 +2397,7 @@ impl PeerNetwork {
     /// Handle unsolicited BlocksAvailable.
     /// Update our inv for this peer.
     /// Mask errors.
-    fn handle_unsolicited_BlocksAvailable(&mut self, burndb: &BurnDB, event_id: usize, new_blocks: &BlocksAvailableData) -> () {
+    fn handle_unsolicited_BlocksAvailable(&mut self, sortdb: &SortitionDB, event_id: usize, new_blocks: &BlocksAvailableData) -> () {
         let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
             Some(onk) => onk,
             None => {
@@ -2405,7 +2408,7 @@ impl PeerNetwork {
         test_debug!("{:?}: Process BlocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.available.len());
 
         for (consensus_hash, burn_header_hash) in new_blocks.available.iter() {
-            let block_sortition_height = match self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, false) {
+            let block_sortition_height = match self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, false) {
                 Some(bsh) => bsh,
                 None => {
                     continue;
@@ -2425,7 +2428,7 @@ impl PeerNetwork {
     /// Handle unsolicited MicroblocksAvailable.
     /// Update our inv for this peer.
     /// Mask errors.
-    fn handle_unsolicited_MicroblocksAvailable(&mut self, burndb: &BurnDB, event_id: usize, new_mblocks: &BlocksAvailableData) -> () {
+    fn handle_unsolicited_MicroblocksAvailable(&mut self, sortdb: &SortitionDB, event_id: usize, new_mblocks: &BlocksAvailableData) -> () {
         let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
             Some(onk) => onk,
             None => {
@@ -2436,7 +2439,7 @@ impl PeerNetwork {
         test_debug!("{:?}: Process MicroblocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_mblocks.available.len());
 
         for (consensus_hash, burn_header_hash) in new_mblocks.available.iter() {
-            let mblock_sortition_height = match self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, true) {
+            let mblock_sortition_height = match self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, true) {
                 Some(bsh) => bsh,
                 None => {
                     continue;
@@ -2456,7 +2459,7 @@ impl PeerNetwork {
     /// Handle unsolicited BlocksData.
     /// Don't (yet) validate the data, but do update our inv for the peer that sent it.
     /// Mask errors.
-    fn handle_unsolicited_BlocksData(&mut self, burndb: &BurnDB, event_id: usize, new_blocks: &BlocksData) -> () {
+    fn handle_unsolicited_BlocksData(&mut self, sortdb: &SortitionDB, event_id: usize, new_blocks: &BlocksData) -> () {
         let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
             Some(onk) => onk,
             None => {
@@ -2467,7 +2470,8 @@ impl PeerNetwork {
         test_debug!("{:?}: Process BlocksData from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.blocks.len());
 
         for (burn_header_hash, block) in new_blocks.blocks.iter() {
-            let sn = match BurnDB::get_block_snapshot(burndb.conn(), burn_header_hash) {
+            let sortid = SortitionId::stubbed(burn_header_hash);
+            let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid) {
                 Ok(Some(sn)) => sn,
                 Ok(None) => {
                     // ignore
@@ -2484,13 +2488,13 @@ impl PeerNetwork {
                 continue;
             }
 
-            self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, &sn.consensus_hash, burn_header_hash, false);
+            self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, &sn.consensus_hash, burn_header_hash, false);
         }
     }
     
     /// Handle unsolicited messages propagated up to us from our ongoing ConversationP2Ps.
     /// Return messages that we couldn't handle here, but key them by neighbor, not event.
-    fn handle_unsolicited_messages(&mut self, burndb: &BurnDB, mut unsolicited: HashMap<usize, Vec<StacksMessage>>) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    fn handle_unsolicited_messages(&mut self, sortdb: &SortitionDB, mut unsolicited: HashMap<usize, Vec<StacksMessage>>) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         let mut unhandled : HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
         for (event_id, messages) in unsolicited.drain() {
             let neighbor_key = match self.peers.get(&event_id) {
@@ -2509,14 +2513,14 @@ impl PeerNetwork {
                     // conversation and use _that_ conversation's neighbor key to identify
                     // which inventory we need to update. 
                     StacksMessageType::BlocksAvailable(ref new_blocks) => {
-                        self.handle_unsolicited_BlocksAvailable(burndb, event_id, new_blocks);
+                        self.handle_unsolicited_BlocksAvailable(sortdb, event_id, new_blocks);
                     },
                     StacksMessageType::MicroblocksAvailable(ref new_mblocks) => {
-                        self.handle_unsolicited_MicroblocksAvailable(burndb, event_id, new_mblocks);
+                        self.handle_unsolicited_MicroblocksAvailable(sortdb, event_id, new_mblocks);
                     },
                     StacksMessageType::Blocks(ref new_blocks) => {
                         // update inv state for this peer
-                        self.handle_unsolicited_BlocksData(burndb, event_id, new_blocks);
+                        self.handle_unsolicited_BlocksData(sortdb, event_id, new_blocks);
                         
                         // forward to relayer for processing
                         if let Some(msgs) = unhandled.get_mut(&neighbor_key) {
@@ -2647,7 +2651,7 @@ impl PeerNetwork {
     /// -- clear out timed-out requests
     fn dispatch_network(&mut self,
                         network_result: &mut NetworkResult,
-                        burndb: &BurnDB, 
+                        sortdb: &SortitionDB, 
                         chainstate: &mut StacksChainState, 
                         dns_client_opt: Option<&mut DNSClient>,
                         download_backpressure: bool,
@@ -2659,12 +2663,12 @@ impl PeerNetwork {
         }
 
         // update burnchain snapshot if we need to (careful -- it's expensive)
-        let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn())?;
+        let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn)?;
         if sn.block_height > self.chain_view.burn_block_height {
             debug!("{:?}: load chain view for burn block {}", &self.local_peer, sn.block_height);
             let new_chain_view = {
-                let ic = burndb.index_conn();
-                BurnDB::get_burnchain_view(&ic, &self.burnchain).map_err(net_error::DBError)?
+                let ic = sortdb.index_conn();
+                ic.get_burnchain_view(&self.burnchain, &sn)?
             };
             
             // wake up the inv-sync and downloader -- we have potentially more sortitions
@@ -2686,12 +2690,12 @@ impl PeerNetwork {
         let unauthenticated_inbounds = self.find_unauthenticated_inbound_convos();
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let (error_events, unsolicited_messages) = self.process_ready_sockets(burndb, chainstate, &mut poll_state);
+        let (error_events, unsolicited_messages) = self.process_ready_sockets(sortdb, chainstate, &mut poll_state);
         for error_event in error_events {
             debug!("{:?}: Failed connection on event {}", &self.local_peer, error_event);
             self.deregister_peer(error_event);
         }
-        let unhandled_messages = self.handle_unsolicited_messages(burndb, unsolicited_messages)?;
+        let unhandled_messages = self.handle_unsolicited_messages(sortdb, unsolicited_messages)?;
         network_result.consume_unsolicited(unhandled_messages);
 
         // schedule now-authenticated inbound convos for pingback
@@ -2700,7 +2704,7 @@ impl PeerNetwork {
         // do some Actual Work(tm)
         // do this _after_ processing new sockets, so the act of opening a socket doesn't trample
         // an already-used network ID.
-        let do_prune = self.do_network_work(burndb, chainstate, dns_client_opt, download_backpressure, network_result)?;
+        let do_prune = self.do_network_work(sortdb, chainstate, dns_client_opt, download_backpressure, network_result)?;
         if do_prune {
             // prune back our connections if it's been a while
             // (only do this if we're done with all other tasks).
@@ -2761,18 +2765,18 @@ impl PeerNetwork {
     /// -- runs the p2p and http peer main loop
     /// Returns the table of unhandled network messages to be acted upon, keyed by the neighbors
     /// that sent them (i.e. keyed by their event IDs)
-    pub fn run(&mut self, burndb: &BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
+    pub fn run(&mut self, sortdb: &SortitionDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
                dns_client_opt: Option<&mut DNSClient>, download_backpressure: bool,
                poll_timeout: u64, handler_args: &RPCHandlerArgs) -> Result<NetworkResult, net_error> {
+        
+        debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
             None => {
-                test_debug!("{:?}: network not connected", &self.local_peer);
+                debug!("{:?}: network not connected", &self.local_peer);
                 Err(net_error::NotConnected)
             },
             Some(ref mut network) => {
-                debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Poll {}ms >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
                 let poll_result = network.poll(poll_timeout);
-                debug!("<<<<<<<<<<<<<<<<<<<<<<<<<< End Poll <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
                 poll_result
             }
         }?;
@@ -2784,14 +2788,15 @@ impl PeerNetwork {
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(
-                network_state, network.chain_view.clone(), &network.peers, burndb,
+                network_state, network.chain_view.clone(), &network.peers, sortdb,
                 &network.peerdb, chainstate, mempool, http_poll_state, handler_args)?;
             result.consume_http_uploads(http_stacks_msgs);
             Ok(())
         })?;
         
-        self.dispatch_network(&mut result, burndb, chainstate, dns_client_opt, download_backpressure, p2p_poll_state)?;
+        self.dispatch_network(&mut result, sortdb, chainstate, dns_client_opt, download_backpressure, p2p_poll_state)?;
 
+        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(result)
     }
 }
