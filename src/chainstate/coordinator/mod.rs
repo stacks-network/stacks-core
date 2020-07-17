@@ -5,10 +5,10 @@ use std::sync::mpsc::{self, Sender};
 use std::process;
 
 use burnchains::BurnchainHeaderHash;
-use chainstate::burn::{BlockHeaderHash as HeaderHash, BlockSnapshot as BurnchainBlock};
-use chainstate::stacks::{StacksBlock as Block, TransactionPayload};
-use chainstate::stacks::db::{StacksHeaderInfo as HeaderInfo};
-use chainstate::stacks::events::{StacksTransactionReceipt as TransactionReceipt};
+use chainstate::burn::{BlockHeaderHash, BlockSnapshot};
+use chainstate::stacks::{StacksBlock, TransactionPayload};
+use chainstate::stacks::db::StacksHeaderInfo;
+use chainstate::stacks::events::{StacksTransactionReceipt};
 
 #[derive(Debug, Clone)]
 struct PoxId;
@@ -22,7 +22,7 @@ pub struct SortitionId (
 #[derive(Debug, Clone)]
 pub struct StacksBlockId {
     burnchain_header_hash: BurnchainHeaderHash,
-    header_hash: HeaderHash,
+    header_hash: BlockHeaderHash,
     pox_identifier: PoxId,
 }
 
@@ -39,7 +39,7 @@ impl ChainStateDB {
     }
 
     #[allow(unused_variables)]
-    pub fn process_blocks(&mut self, burnchain_blocks_db: &mut BurnchainBlocksDB, pox_identifier: PoxId) -> Result<Vec<(Option<(HeaderInfo, Vec<TransactionReceipt>)>, Option<TransactionPayload>)>, ()> {
+    pub fn process_blocks(&mut self, burnchain_blocks_db: &mut BurnchainBlocksDB, pox_identifier: PoxId) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, ()> {
         unimplemented!()
     }
 }
@@ -51,12 +51,12 @@ impl BurnchainBlocksDB {
         BurnchainBlocksDB {}
     }
 
-    pub fn get_canonical_chain_tip(&self) -> BurnchainBlock {
+    pub fn get_canonical_chain_tip(&self) -> BlockSnapshot {
         unimplemented!()
     }
 
     #[allow(unused_variables)]
-    pub fn get_burnchain_block(&self, burnchain_header_hash: &BurnchainHeaderHash) -> Result<BurnchainBlock, ()> {
+    pub fn get_burnchain_block(&self, burnchain_header_hash: &BurnchainHeaderHash) -> Result<BlockSnapshot, ()> {
         unimplemented!()
     }
 }
@@ -69,7 +69,7 @@ impl BlocksDB {
     }
 
     #[allow(unused_variables)]
-    pub fn get_blocks_ready_to_process(&self, sortition_id: &SortitionId, sortition_db: &SortitionDB) -> Option<Vec<Block>> {
+    pub fn get_blocks_ready_to_process(&self, sortition_id: &SortitionId, sortition_db: &SortitionDB) -> Option<Vec<StacksBlock>> {
         // This method will be calling sortition_db::latest_stacks_blocks_processed
         unimplemented!()
     }
@@ -122,12 +122,12 @@ impl SortitionDB {
     }
     
     #[allow(unused_variables)]
-    pub fn evaluate_sortition(burnchain_block: &BurnchainBlock, pox_id: &PoxId, pox_db: &PoxDB) -> Result<SortitionId, ()> {
+    pub fn evaluate_sortition(burnchain_block: &BlockSnapshot, pox_id: &PoxId, pox_db: &PoxDB) -> Result<SortitionId, ()> {
         unimplemented!()
     }
 
     #[allow(unused_variables)]
-    pub fn is_stacks_block_in_sortition_set(sortition_id: &SortitionId, block_to_check: &HeaderHash) -> Result<bool, ()> {
+    pub fn is_stacks_block_in_sortition_set(sortition_id: &SortitionId, block_to_check: &BlockHeaderHash) -> Result<bool, ()> {
         unimplemented!()
     }
  
@@ -138,8 +138,8 @@ impl SortitionDB {
 }
 
 struct ChainsCoordinator {
-    canonical_burnchain_chain_tip: Option<BurnchainBlock>,
-    canonical_chain_tip: Option<Block>,
+    canonical_burnchain_chain_tip: Option<BlockSnapshot>,
+    canonical_chain_tip: Option<StacksBlock>,
     canonical_pox_id: Option<PoxId>,
     blocks_db: BlocksDB,
     burnchain_blocks_db: BurnchainBlocksDB,
@@ -287,7 +287,7 @@ impl ChainsCoordinator {
     }
 
     #[allow(unused_variables)]
-    fn process_block(&self, block: &Block) -> Result<bool, ()> {
+    fn process_block(&self, block: &StacksBlock) -> Result<bool, ()> {
         unimplemented!()
     }
 
@@ -304,77 +304,4 @@ pub enum ChainsEvent {
 pub enum ChainsEventCallback {
     BlockProcessed,
     BurnchainBlockProcessed,
-}
-
-pub struct ChainsEventsRouter {
-    events_tx: Option<mpsc::Sender<ChainsEvent>>,
-}
-
-impl ChainsEventsRouter {
-
-    pub fn new() -> ChainsEventsRouter {
-        ChainsEventsRouter {
-            events_tx: None,
-        }
-    }
-
-    pub fn spawn_chains_coordinator(&mut self) -> mpsc::Sender<ChainsEvent> {
-        if let Some(ref events_tx) = self.events_tx {
-            error!("ChainsCoordinator is already processing chains events");
-            return events_tx.clone();
-        }
-
-        let (events_tx, events_rx) = mpsc::channel();
-        self.events_tx = Some(events_tx.clone());
-
-        thread::spawn(move || {
-            let mut chains_coordinator = ChainsCoordinator::new();
-            loop {
-                if let Ok(event) = events_rx.recv() {
-                    let (result, tx, event_callback) = match event {
-                        ChainsEvent::BlockDiscovered(tx) => 
-                            (chains_coordinator.handle_new_block(), tx, ChainsEventCallback::BlockProcessed),
-                        ChainsEvent::BurnchainBlockDiscovered(tx) => 
-                            (chains_coordinator.handle_new_burnchain_block(), tx, ChainsEventCallback::BurnchainBlockProcessed),
-                    };
-                    match result {
-                        Ok(_) => {
-                            info!("ChainsCoordinator: successfully processed event");
-                            if let Some(tx) = tx {
-                                if let Err(e) = tx.send(event_callback) {
-                                    error!("ChainsCoordinator: unable to send the event callback - {}", e);
-                                }
-                            }
-                        },
-                        Err(e) => error!("ChainsCoordinator: failed processing event {:?}", e),
-                    };
-                } else {
-                    error!("ChainsEventsObserver stopped receiving events");
-                    break;
-                }
-            }
-        });
-        events_tx
-    }
-}
-
-fn main() {
-    let mut chains_events_router = ChainsEventsRouter::new();
-    let chains_event_tx = chains_events_router.spawn_chains_coordinator();
-
-    // We can now, from any thread, notify the coordinator to update the different DBs, with the following events, 
-    // and be sure that the processing of these events will happen sequentially on the same thread.
-    chains_event_tx
-        .send(ChainsEvent::BlockDiscovered(None))
-        .expect("Unable to transmit ChainsEvent::BlockDiscovered");
-
-    // Since events processing is mono-threaded, we can, as an option, provide a callback transmitter
-    // in case we need to make a given job blocking
-    let (event_callback_tx, event_callback_rx) = mpsc::channel();
-    chains_event_tx
-        .send(ChainsEvent::BurnchainBlockDiscovered(Some(event_callback_tx)))
-        .expect("Unable to transmit ChainsEvent::BurnchainBlockDiscovered");
-    if let Ok(_) = event_callback_rx.recv() {
-        println!("Event processed!")
-    }
 }
