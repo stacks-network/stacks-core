@@ -151,14 +151,14 @@ impl UnconfirmedState {
 
     /// Load up Stacks microblock stream to process
     fn load_child_microblocks(&self, chainstate: &StacksChainState) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        let (burn_header_hash, anchored_block_hash) = match chainstate.get_block_header_hashes(&self.confirmed_chain_tip)? {
+        let (consensus_hash, anchored_block_hash) = match chainstate.get_block_header_hashes(&self.confirmed_chain_tip)? {
             Some(x) => x,
             None => {
                 return Err(Error::NoSuchBlockError);
             }
         };
         
-        StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &burn_header_hash, &anchored_block_hash, u16::max_value())
+        StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hash, &anchored_block_hash, u16::max_value())
     }
 
     /// Update the view of the current confiremd chain tip's unconfirmed microblock state
@@ -338,7 +338,7 @@ mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
@@ -353,14 +353,14 @@ mod test {
             });
 
             last_block = Some(stacks_block.clone());
-            let (_, burn_header_hash) = peer.next_burnchain_block(burn_ops.clone());
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
             
             let recv_addr = StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
            
             // build 1-block microblock stream
             let microblocks = {
-                let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), burn_header_hash.clone(), peer.chainstate(), anchor_cost.clone(), anchor_size).unwrap();
+                let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), consensus_hash.clone(), peer.chainstate(), anchor_cost.clone(), anchor_size).unwrap();
 
                 // make a single stx-transfer
                 let auth = TransactionAuth::Standard(TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk)).unwrap());
@@ -378,18 +378,18 @@ mod test {
 
                 let signed_tx = signer.get_tx().unwrap();
 
-                let microblock = microblock_builder.mine_next_microblock_from_txs(vec![MemPoolTxInfo::from_tx(signed_tx, 0, burn_header_hash.clone(), stacks_block.block_hash(), tenure_id as u64)], &microblock_privkey).unwrap();
+                let microblock = microblock_builder.mine_next_microblock_from_txs(vec![MemPoolTxInfo::from_tx(signed_tx, 0, consensus_hash.clone(), stacks_block.block_hash(), tenure_id as u64)], &microblock_privkey).unwrap();
 
                 vec![microblock]
             };
 
             // store microblock stream
             for mblock in microblocks.into_iter() {
-                peer.chainstate().preprocess_streamed_microblock(&burn_header_hash, &stacks_block.block_hash(), &mblock).unwrap();
+                peer.chainstate().preprocess_streamed_microblock(&consensus_hash, &stacks_block.block_hash(), &mblock).unwrap();
             }
 
             // process microblock stream to generate unconfirmed state
-            let canonical_tip = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &stacks_block.block_hash());
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
             peer.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost).unwrap();
     
             let recv_balance = peer.chainstate().with_read_only_unconfirmed_clarity_tx(|clarity_tx| {
@@ -458,7 +458,7 @@ mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
@@ -473,14 +473,14 @@ mod test {
             });
 
             last_block = Some(stacks_block.clone());
-            let (_, burn_header_hash) = peer.next_burnchain_block(burn_ops.clone());
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
             
             let recv_addr = StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
            
             // build microblock stream iteratively, and test balances at each additional microblcok
             let microblocks = {
-                let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), burn_header_hash.clone(), peer.chainstate(), anchor_cost.clone(), anchor_size).unwrap();
+                let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), consensus_hash.clone(), peer.chainstate(), anchor_cost.clone(), anchor_size).unwrap();
                 let mut microblocks = vec![];
                 for i in 0..10 {
                     let mut signed_txs = vec![];
@@ -504,7 +504,7 @@ mod test {
                     }
 
                     let signed_mempool_txs = signed_txs.into_iter()
-                        .map(|tx| MemPoolTxInfo::from_tx(tx, 0, burn_header_hash.clone(), stacks_block.block_hash(), tenure_id as u64))
+                        .map(|tx| MemPoolTxInfo::from_tx(tx, 0, consensus_hash.clone(), stacks_block.block_hash(), tenure_id as u64))
                         .collect();
 
                     let microblock = microblock_builder.mine_next_microblock_from_txs(signed_mempool_txs, &microblock_privkey).unwrap();
@@ -515,10 +515,10 @@ mod test {
 
             // store microblock stream
             for (i, mblock) in microblocks.into_iter().enumerate() {
-                peer.chainstate().preprocess_streamed_microblock(&burn_header_hash, &stacks_block.block_hash(), &mblock).unwrap();
+                peer.chainstate().preprocess_streamed_microblock(&consensus_hash, &stacks_block.block_hash(), &mblock).unwrap();
 
                 // process microblock stream to generate unconfirmed state
-                let canonical_tip = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &stacks_block.block_hash());
+                let canonical_tip = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
                 peer.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
         
                 let recv_balance = peer.chainstate().with_read_only_unconfirmed_clarity_tx(|clarity_tx| {
