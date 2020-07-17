@@ -21,8 +21,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    p2p::PeerNetwork, Error as NetError, db::PeerDB, PeerAddress,
-    NetworkResult, rpc::RPCHandlerArgs
+    p2p::PeerNetwork, Error as NetError, db::PeerDB, PeerAddress, rpc::RPCHandlerArgs
 };
 
 use stacks::util::vrf::VRFPublicKey;
