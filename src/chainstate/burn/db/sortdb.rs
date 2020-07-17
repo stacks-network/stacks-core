@@ -675,7 +675,7 @@ impl <'a> SortitionHandleConn <'a> {
     }
     
     /// open a reader handle from a consensus hash
-    pub fn open_reader_consensus_stubbed(connection: &'a SortitionDBConn<'a>, chain_tip: &ConsensusHash) -> Result<SortitionHandleConn<'a>, db_error> {
+    pub fn open_reader_consensus(connection: &'a SortitionDBConn<'a>, chain_tip: &ConsensusHash) -> Result<SortitionHandleConn<'a>, db_error> {
         let sn = match SortitionDB::get_block_snapshot_consensus(&connection.conn, chain_tip)? {
             Some(sn) => sn,
             None => {

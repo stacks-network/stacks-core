@@ -483,7 +483,7 @@ impl Relayer {
         };
 
         // find the snapshot of the parent of this block
-        let db_handle = SortitionHandleConn::open_reader_consensus_stubbed(sort_ic, consensus_hash)?;
+        let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
         let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block.block_hash())? {
             Some((_, sn)) => sn,
             None => {

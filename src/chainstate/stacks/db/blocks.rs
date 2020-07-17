@@ -1089,7 +1089,7 @@ impl StacksChainState {
     }
 
     pub fn get_parent_consensus_hash(sort_ic: &SortitionDBConn, parent_block_hash: &BlockHeaderHash, my_consensus_hash: &ConsensusHash) -> Result<Option<ConsensusHash>, Error> {
-        let sort_handle = SortitionHandleConn::open_reader_consensus_stubbed(sort_ic, my_consensus_hash)?;
+        let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, my_consensus_hash)?;
 
         // find all blocks that we have that could be this block's parent
         let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
@@ -1114,7 +1114,7 @@ impl StacksChainState {
             }
         };
         
-        let sort_handle = SortitionHandleConn::open_reader_consensus_stubbed(sort_ic, consensus_hash)?;
+        let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
 
         // find all blocks that we have that could be this block's parent
         let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
@@ -2258,7 +2258,7 @@ impl StacksChainState {
     pub fn preprocess_anchored_block(&mut self, sort_ic: &SortitionDBConn, consensus_hash: &ConsensusHash, burn_header_timestamp: u64, block: &StacksBlock, parent_consensus_hash: &ConsensusHash) -> Result<bool, Error> {
         debug!("preprocess anchored block {}/{}", consensus_hash, block.block_hash());
 
-        let sort_handle = SortitionHandleConn::open_reader_consensus_stubbed(sort_ic, consensus_hash)?;
+        let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
 
         // already in queue or already processed?
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
