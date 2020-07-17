@@ -1,8 +1,9 @@
 use super::{make_stacks_transfer_mblock_only, SK_1, ADDR_4, to_addr, make_microblock,
             make_contract_publish, make_contract_publish_microblock_only};
-use stacks::burnchains::{ Address, PublicKey, BurnchainHeaderHash };
+use stacks::burnchains::{ Address, PublicKey };
 use stacks::chainstate::stacks::{
     StacksTransaction, StacksPrivateKey, StacksPublicKey, StacksAddress, db::StacksChainState, StacksBlock, StacksBlockHeader };
+use stacks::chainstate::burn::ConsensusHash;
 use stacks::net::StacksMessageCodec;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::costs::ExecutionCost;
@@ -124,7 +125,7 @@ fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
-fn get_tip_anchored_block(conf: &Config) -> (BurnchainHeaderHash, StacksBlock) {
+fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
@@ -132,16 +133,16 @@ fn get_tip_anchored_block(conf: &Config) -> (BurnchainHeaderHash, StacksBlock) {
     let path = format!("{}/v2/info", &http_origin);
     let tip_info = client.get(&path).send().unwrap().json::<RPCPeerInfoData>().unwrap();
     let stacks_tip = tip_info.stacks_tip;
-    let stacks_tip_burn_hash = BurnchainHeaderHash::from_hex(&tip_info.stacks_tip_burn_block).unwrap();
+    let stacks_tip_consensus_hash = ConsensusHash::from_hex(&tip_info.stacks_tip_consensus_hash).unwrap();
 
-    let stacks_id_tip = StacksBlockHeader::make_index_block_hash(&stacks_tip_burn_hash, &stacks_tip);
+    let stacks_id_tip = StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
     // get the associated anchored block
     let path = format!("{}/v2/blocks/{}", &http_origin, &stacks_id_tip);
     let block_bytes = client.get(&path).send().unwrap().bytes().unwrap();
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
 
-    (stacks_tip_burn_hash, block)
+    (stacks_tip_consensus_hash, block)
 }
 
 fn find_microblock_privkey(conf: &Config, pubkey_hash: &Hash160, max_tries: u64) -> Option<StacksPrivateKey> {
@@ -313,13 +314,13 @@ fn microblock_integration_test() {
 
     // put it into a microblock
     let microblock = {
-        let (burn_header_hash, stacks_block) = get_tip_anchored_block(&conf);
+        let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
         let privk = find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024).unwrap();
         let mut chainstate = StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
 
         // NOTE: it's not a zero execution cost, but there's currently not an easy way to get the
         // block's cost (and it's not like we're going to overflow the block budget in this test).
-        make_microblock(&privk, &mut chainstate, burn_header_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
+        make_microblock(&privk, &mut chainstate, consensus_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
     };
 
     let mut microblock_bytes = vec![];
