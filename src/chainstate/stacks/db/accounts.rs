@@ -313,7 +313,7 @@ impl StacksChainState {
     }
 
     /// Get the miner info at a particular burn/stacks block
-    pub fn get_miner_info(conn: &DBConn, consensus_hash: &BurnchainHeaderHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<MinerPaymentSchedule>, Error> {
+    pub fn get_miner_info(conn: &DBConn, consensus_hash: &ConsensusHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<MinerPaymentSchedule>, Error> {
         let qry = "SELECT * FROM payments WHERE consensus_hash = ?1 AND block_hash = ?2 AND miner = 1".to_string();
         let args = [consensus_hash as &dyn ToSql, stacks_block_hash as &dyn ToSql];
         let mut rows = query_rows::<MinerPaymentSchedule, _>(conn, &qry, &args).map_err(Error::DBError)?;
