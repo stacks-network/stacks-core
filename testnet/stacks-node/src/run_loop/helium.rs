@@ -112,8 +112,7 @@ impl RunLoop {
 
         chain_tip = self.node.process_tenure(
             &artifacts_from_1st_tenure.anchored_block, 
-            &last_sortitioned_block.block_snapshot.burn_header_hash, 
-            &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
+            &last_sortitioned_block.block_snapshot.consensus_hash,
             artifacts_from_1st_tenure.microblocks.clone(),
             burnchain.sortdb_mut());
 
@@ -175,8 +174,7 @@ impl RunLoop {
                     // We should have some additional checks here, and ensure that the previous artifacts are legit.
                     chain_tip = self.node.process_tenure(
                         &artifacts.anchored_block, 
-                        &last_sortitioned_block.block_snapshot.burn_header_hash, 
-                        &last_sortitioned_block.block_snapshot.parent_burn_header_hash,             
+                        &last_sortitioned_block.block_snapshot.consensus_hash,
                         artifacts.microblocks.clone(),
                         burnchain.sortdb_mut());
 
