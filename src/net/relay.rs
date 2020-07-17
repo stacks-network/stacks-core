@@ -912,10 +912,7 @@ impl Relayer {
         self.p2p.broadcast_message(vec![], StacksMessageType::Blocks(blocks_data))
     }
 
-    pub fn broadcast_microblock(&mut self,
-                                block_header_hash: &BlockHeaderHash,
-                                block_consensus_hash: &ConsensusHash,
-                                microblock: StacksMicroblock) -> Result<(), net_error> {
+    pub fn broadcast_microblock(&mut self, block_consensus_hash: &ConsensusHash, block_header_hash: &BlockHeaderHash, microblock: StacksMicroblock) -> Result<(), net_error> {
         self.p2p.broadcast_message(vec![], StacksMessageType::Microblocks(
             MicroblocksData { index_anchor_block:
                               StacksBlockHeader::make_index_block_hash(block_consensus_hash, block_header_hash),
