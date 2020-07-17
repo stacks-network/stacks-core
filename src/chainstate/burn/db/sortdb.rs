@@ -596,9 +596,7 @@ impl <'a> SortitionDBTx <'a> {
         let arrival_index = SortitionDB::get_max_arrival_index(self)?;
         let args : &[&dyn ToSql] = &[&u64_to_sql(stacks_block_height)?, &u64_to_sql(arrival_index + 1)?, consensus_hash, stacks_block_hash];
 
-        let res = self.execute("UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = ?1, arrival_index = ?2 WHERE consensus_hash = ?3 AND winning_stacks_block_hash = ?4", args)?;
-        test_debug!("'UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = {}, arrival_index = {} WHERE consensus_hash = {} AND winning_stacks_block_hash = {}': {}",
-                    stacks_block_height, arrival_index + 1, consensus_hash, stacks_block_hash, &res);
+        self.execute("UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = ?1, arrival_index = ?2 WHERE consensus_hash = ?3 AND winning_stacks_block_hash = ?4", args)?;
 
         let parent_key = db_keys::stacks_block_index(parent_stacks_block_hash);
 
