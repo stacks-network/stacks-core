@@ -690,7 +690,7 @@ impl StacksChainState {
 
     /// Get a list of all anchored blocks' hashes, and their burnchain headers
     pub fn list_blocks(blocks_conn: &DBConn) -> Result<Vec<(ConsensusHash, BlockHeaderHash)>, Error> {
-        let list_block_sql = "SELECT * FROM staging_blocks".to_string();
+        let list_block_sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
         let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
             .map_err(Error::DBError)?;
 
