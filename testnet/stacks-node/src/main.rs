@@ -37,8 +37,13 @@ use std::process;
 
 fn main() {
 
-    panic::set_hook(Box::new(|_| {
-        eprintln!("Process abort due to thread panic");
+    panic::set_hook(Box::new(|panic_info| {
+        if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            eprintln!("panic occurred: {:?}", s);
+        }
+        else {
+            eprintln!("panic occurred");
+        }
         process::exit(1);
     }));
 
