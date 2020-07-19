@@ -804,21 +804,20 @@ The peer may take an operator-given public IP address.  If no public IP address
 is given, the peer will learn the IP address using the `NatPunchRequest` and
 `NatPunchReply` messages as follows:
 
-1. The peer sends a `NatPunchRequest` to a randomly-chosen neighbor it has
+1. The peer sends a `NatPunchRequest` to a randomly-chosen initial neighbor it has
    already handshaked with.  It uses a random nonce value.
 2. The remote neighbor replies with a (signed) `NatPunchReply` message, with its
    `addrbytes` and `port` set to what it believes the public IP is (based on the
    underlying socket's peer address).
-3. The peer, upon receipt and authentication of the `NatPunchReply`, will
-   confirm the public IP address by attempting to connect to itself.  To do so,
-   it sends a `NatPunchRequest` to the public IP address it learned (with a
-   random nonce).
-4. If the peer successfully connects to itself via the public IP address, it
-   will send a `NatPunchReply` back to itself with the nonce used in step 3.
-5. Upon receipt of the `NatPunchReply`, the peer will have confirmed its public
+3. Upon receipt of the `NatPunchReply`, the peer will have confirmed its public
    IP address, and will send it in all future `HandshakeAccept` messages.  It
    will periodically re-learn its IP address, if it was not given by the
    operator.
+
+Because the peer's initial neighbors are chosen by the operator as being
+sufficiently trustworthy to supply network information for network walks, it is
+reasonable to assume that they can also be trusted to tell a bootstrapping peer
+its public IP address.
 
 ### Checking a Peer's Liveness
 
