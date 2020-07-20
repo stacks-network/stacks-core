@@ -474,14 +474,6 @@ impl Relayer {
 
     /// Insert a staging block
     fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
-        let sn = match SortitionDB::get_block_snapshot_consensus(sort_ic.conn, consensus_hash)? {
-            Some(sn) => sn,
-            None => {
-                debug!("Received unknown block {}/{}", consensus_hash, block.block_hash());
-                return Ok(false);
-            }
-        };
-
         // find the snapshot of the parent of this block
         let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
         let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block.block_hash())? {
@@ -492,7 +484,7 @@ impl Relayer {
             }
         };
         
-        chainstate.preprocess_anchored_block(sort_ic, consensus_hash, sn.burn_header_timestamp, block, &parent_block_snapshot.consensus_hash)
+        chainstate.preprocess_anchored_block(sort_ic, consensus_hash, block, &parent_block_snapshot.consensus_hash)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
