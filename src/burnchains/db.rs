@@ -36,6 +36,11 @@ struct BurnchainDBTransaction<'a> {
     sql_tx: Transaction<'a>
 }
 
+pub struct BurnchainBlockData {
+    pub header: BurnchainBlockHeader,
+    pub ops: Vec<BlockstackOperationType>
+}
+
 
 /// Apply safety checks on extracted blockstack transactions
 /// - put them in order by vtxindex
@@ -215,7 +220,7 @@ impl BurnchainDB {
         Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
-    pub fn get_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<(BurnchainBlockHeader, Vec<BlockstackOperationType>), BurnchainError> {
+    pub fn get_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<BurnchainBlockData, BurnchainError> {
         let block_header_qry = "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
         let block_ops_qry = "SELECT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
@@ -223,7 +228,9 @@ impl BurnchainDB {
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
         let block_ops = query_rows(&self.conn, block_ops_qry, &[block])?;
 
-        Ok((block_header, block_ops))
+        Ok(BurnchainBlockData {
+            header: block_header,
+            ops: block_ops })
     }
 
     /// Filter out the burnchain block's transactions that could be blockstack transactions.

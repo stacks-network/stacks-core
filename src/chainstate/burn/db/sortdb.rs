@@ -43,6 +43,7 @@ use chainstate::burn::Opcodes;
 use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, BlockSnapshot, SortitionHash};
 
 use core::CHAINSTATE_VERSION;
+use chainstate::coordinator::{Error as CoordinatorError};
 
 use chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -1278,6 +1279,9 @@ impl PoxDB {
     pub fn is_pox_id_descendant(&self, parent: &PoxId, child: &PoxId) -> bool {
         return parent == child || self.get_parent_pox_id(child).as_ref() == Ok(parent)
     }
+    pub fn process_anchor(&mut self, block_id: &StacksBlockId, chain_state: &StacksChainState) -> Result<(), CoordinatorError> {
+        unimplemented!("");
+    }
     pub fn stubbed() -> PoxDB {
         PoxDB
     }
@@ -1400,6 +1404,16 @@ impl SortitionDB {
             .optional()? {
             Some(arrival_index) => Ok(arrival_index?),
             None => Ok(0)
+        }
+    }
+
+    /// Get the maximum arrival index for any known snapshot.
+    fn get_arrival_index_for(conn: &Connection, sortition_id: &SortitionId) -> Result<u64, db_error> {
+        match conn.query_row("SELECT arrival_index FROM snapshots WHERE sortition_id = ?", &[sortition_id],
+                             |row| u64::from_row(row))
+            .optional()? {
+            Some(arrival_index) => Ok(arrival_index?),
+            None => Err(db_error::NotFoundError)
         }
     }
 
