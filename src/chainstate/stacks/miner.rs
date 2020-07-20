@@ -311,7 +311,7 @@ impl StacksBlockBuilder {
         builder
     }
 
-    fn first_pubkey_hash(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
+    fn first_pubkey_hash(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_height: u32, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
@@ -319,7 +319,8 @@ impl StacksBlockBuilder {
             index_root: TrieHash([0u8; 32]),
             consensus_hash: genesis_consensus_hash.clone(),
             burn_header_hash: genesis_burn_header_hash.clone(),
-            burn_header_timestamp: genesis_burn_header_timestamp
+            burn_header_timestamp: genesis_burn_header_timestamp,
+            burn_header_height: genesis_burn_header_height,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(miner_id, &genesis_chain_tip, &StacksWorkScore::initial(), proof, pubkh);
@@ -327,12 +328,12 @@ impl StacksBlockBuilder {
         builder
     }
     
-    pub fn first(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+    pub fn first(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_height: u32, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
         let pubkh = Hash160::from_data(&pubk.to_bytes());
 
-        let mut builder = StacksBlockBuilder::first_pubkey_hash(miner_id, genesis_consensus_hash, genesis_burn_header_hash, genesis_burn_header_timestamp, proof, pubkh);
+        let mut builder = StacksBlockBuilder::first_pubkey_hash(miner_id, genesis_consensus_hash, genesis_burn_header_hash, genesis_burn_header_height, genesis_burn_header_timestamp, proof, pubkh);
         builder.miner_privkey = microblock_privkey.clone();
         builder
     }
@@ -642,7 +643,7 @@ impl StacksBlockBuilder {
 
         let builder = 
             if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-                StacksBlockBuilder::first_pubkey_hash(0, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
+                StacksBlockBuilder::first_pubkey_hash(0, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_HEIGHT, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
             }
             else {
                 // building off an existing stacks block
@@ -1258,7 +1259,13 @@ pub mod test {
             let (builder, parent_block_snapshot_opt) = match parent_stacks_block {
                 None => {
                     // first stacks block
-                    let builder = StacksBlockBuilder::first(miner.id, &burn_block.parent_snapshot.consensus_hash, &burn_block.parent_snapshot.burn_header_hash, burn_block.parent_snapshot.burn_header_timestamp, &proof, &miner.next_microblock_privkey());
+                    let builder = StacksBlockBuilder::first(miner.id, 
+                                                            &burn_block.parent_snapshot.consensus_hash, 
+                                                            &burn_block.parent_snapshot.burn_header_hash, 
+                                                            burn_block.parent_snapshot.block_height as u32, 
+                                                            burn_block.parent_snapshot.burn_header_timestamp, 
+                                                            &proof, 
+                                                            &miner.next_microblock_privkey());
                     (builder, None)
                 },
                 Some(parent_stacks_block) => {
@@ -1325,7 +1332,7 @@ pub mod test {
 
         // "discover" this stacks block
         test_debug!("\n\nPreprocess Stacks block {}/{} ({})", &commit_snapshot.consensus_hash, &block_hash, StacksBlockHeader::make_index_block_hash(&commit_snapshot.consensus_hash, &block_hash));
-        let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.consensus_hash, commit_snapshot.burn_header_timestamp, &stacks_block, &parent_block_consensus_hash).unwrap();
+        let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.consensus_hash, &stacks_block, &parent_block_consensus_hash).unwrap();
 
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
