@@ -1606,7 +1606,7 @@ mod test {
                      let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                      test_debug!("Store peer server index block {:?}", &index_block_hash);
-                     store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, get_epoch_time_secs(), &peer_server_block, &ConsensusHash([0x03; 20]), 456, 123);
+                     store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([0x03; 20]), 456, 123);
 
                      *server_block_cell.borrow_mut() = Some(peer_server_block);
 
@@ -1642,7 +1642,7 @@ mod test {
                      let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                      test_debug!("Store peer server index block {:?}", &index_block_hash);
-                     store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, get_epoch_time_secs(), &peer_server_block, &ConsensusHash([0x03; 20]), 456, 123);
+                     store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([0x03; 20]), 456, 123);
                      set_block_processed(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block.block_hash(), true);
 
                      *server_block_cell.borrow_mut() = Some(peer_server_block);
