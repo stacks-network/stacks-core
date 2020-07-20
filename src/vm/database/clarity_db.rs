@@ -57,6 +57,7 @@ pub trait HeadersDB {
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
 }
 
@@ -92,6 +93,11 @@ impl HeadersDB for DBConn {
             .map(|x| x.burn_header_timestamp)
     }
 
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.burn_header_height)
+    }
+
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         get_stacks_header_info(self, id_bhh)
             .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
@@ -116,6 +122,9 @@ impl HeadersDB for &dyn HeadersDB {
     fn get_burn_block_time_for_block(&self, bhh: &StacksBlockId) -> Option<u64> {
         (*self).get_burn_block_time_for_block(bhh)
     }
+    fn get_burn_block_height_for_block(&self, bhh: &StacksBlockId) -> Option<u32> {
+        (*self).get_burn_block_height_for_block(bhh)
+    }
     fn get_miner_address(&self, bhh: &StacksBlockId)  -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
     }
@@ -136,6 +145,9 @@ impl HeadersDB for NullHeadersDB {
         None
     }
     fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+        None
+    }
+    fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
         None
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
@@ -297,6 +309,13 @@ impl <'a> ClarityDatabase <'a> {
         self.store.get_current_block_height()
     }
 
+    pub fn get_current_burnchain_block_height(&mut self) -> u32 {
+        let cur_stacks_height = self.store.get_current_block_height();
+        let cur_id_bhh = self.get_index_block_header_hash(cur_stacks_height);
+        self.get_burnchain_block_height(&cur_id_bhh)
+            .expect("Block header hash must return for provided burn block height")
+    }
+
     pub fn get_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
         let id_bhh = self.get_index_block_header_hash(block_height);
         self.headers_db.get_stacks_block_header_hash_for_block(&id_bhh)
@@ -313,6 +332,10 @@ impl <'a> ClarityDatabase <'a> {
         let id_bhh = self.get_index_block_header_hash(block_height);
         self.headers_db.get_burn_header_hash_for_block(&id_bhh)
             .expect("Failed to get block data.")
+    }
+    
+    pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {
+        self.headers_db.get_burn_block_height_for_block(id_bhh)
     }
 
     pub fn get_block_vrf_seed(&mut self, block_height: u32) -> VRFSeed {
