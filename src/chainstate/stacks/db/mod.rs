@@ -161,6 +161,7 @@ pub struct StacksHeaderInfo {
     pub index_root: TrieHash,
     pub consensus_hash: ConsensusHash,
     pub burn_header_hash: BurnchainHeaderHash,
+    pub burn_header_height: u32,
     pub burn_header_timestamp: u64
 }
 
@@ -190,6 +191,7 @@ impl StacksHeaderInfo {
             block_height: 0,
             index_root: root_hash,
             burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            burn_header_height: FIRST_BURNCHAIN_BLOCK_HEIGHT,
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP
         }
@@ -222,6 +224,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let index_root = TrieHash::from_column(row, "index_root")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let burn_header_height = u64::from_column(row, "burn_header_height")? as u32;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
 
@@ -236,6 +239,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             index_root: index_root,
             consensus_hash: consensus_hash,
             burn_header_hash: burn_header_hash,
+            burn_header_height: burn_header_height,
             burn_header_timestamp: burn_header_timestamp
         })
     }
@@ -400,6 +404,7 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         index_root TEXT NOT NULL,                    -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate /fork metadata
         consensus_hash TEXT UNIQUE NOT NULL,         -- all consensus hashes are guaranteed to be unique
         burn_header_hash TEXT NOT NULL,              -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can have 2+ blocks per burn block if there's a PoX fork)
+        burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
 
         PRIMARY KEY(consensus_hash,block_hash)
@@ -878,6 +883,8 @@ impl StacksChainState {
         Ok((chainstate_tx, clarity_instance))
     }
 
+    // NOTE: used for testing in the stacks testnet code.
+    // DO NOT CALL FROM PRODUCTION
     pub fn clarity_eval_read_only(&mut self, parent_id_bhh: &StacksBlockId,
                                   contract: &QualifiedContractIdentifier, code: &str) -> Value {
         let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, contract, code);
@@ -1051,6 +1058,7 @@ impl StacksChainState {
                            new_tip: &StacksBlockHeader, 
                            new_consensus_hash: &ConsensusHash, 
                            new_burn_header_hash: &BurnchainHeaderHash,
+                           new_burnchain_height: u32,
                            new_burnchain_timestamp: u64,
                            microblock_tail_opt: Option<StacksMicroblockHeader>,
                            block_reward: &MinerPaymentSchedule,
@@ -1090,6 +1098,7 @@ impl StacksChainState {
             block_height: new_tip.total_work.work,
             consensus_hash: new_consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
+            burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp
         };
 
