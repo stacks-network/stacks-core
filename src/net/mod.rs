@@ -2100,7 +2100,7 @@ pub mod test {
                 };
 
                 let ic = sortdb.index_conn();
-                node.chainstate.preprocess_anchored_block(&ic, &sn.consensus_hash, sn.burn_header_timestamp, block, &parent_sn.consensus_hash)
+                node.chainstate.preprocess_anchored_block(&ic, &sn.consensus_hash, block, &parent_sn.consensus_hash)
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };
             self.sortdb = Some(sortdb);
