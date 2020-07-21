@@ -5,11 +5,13 @@ executors:
       IMAGE_NAME: blockstack/stacks-blockchain
     docker:
       - image: circleci/buildpack-deps:stretch
+    resource_class: medium+
 jobs:
   test_demo:
     working_directory: /test
     docker:
       - image: rust:1.40-stretch
+    resource_class: medium+
     steps:
       - checkout
       - run:
@@ -44,6 +46,7 @@ jobs:
   unit_tests:
     docker:
       - image: rust:1.40-stretch
+    resource_class: medium+
     working_directory: ~/blockstack
     steps:
       - checkout
@@ -54,6 +57,7 @@ jobs:
   all_tests:
     docker:
       - image: rust:1.40-stretch
+    resource_class: large
     working_directory: ~/blockstack
     steps:
       - checkout
