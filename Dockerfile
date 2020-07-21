@@ -13,11 +13,11 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER musl-gcc
 
 RUN mkdir /out
 
-RUN cd testnet/stacks-node && cargo build --features "monitoring_prom" --release --target x86_64-unknown-linux-musl
-RUN cd testnet/bitcoin-neon-controller && cargo build --release --target x86_64-unknown-linux-musl
+RUN cd testnet/stacks-node && cargo build --features "monitoring_prom" --target x86_64-unknown-linux-musl
+RUN cd testnet/bitcoin-neon-controller && cargo build --target x86_64-unknown-linux-musl
 
-RUN cp target/x86_64-unknown-linux-musl/release/stacks-node /out
-RUN cp target/x86_64-unknown-linux-musl/release/bitcoin-neon-controller /out
+RUN cp target/x86_64-unknown-linux-musl/debug/stacks-node /out
+RUN cp target/x86_64-unknown-linux-musl/debug/bitcoin-neon-controller /out
 
 FROM alpine
 

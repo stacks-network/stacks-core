@@ -1,4 +1,4 @@
-Dockerfile
+Dockerfile*
 target
 integration_tests/blockstack-consensus-data/
 integration_tests/test-out/
