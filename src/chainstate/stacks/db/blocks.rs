@@ -2717,7 +2717,8 @@ impl StacksChainState {
                     }
                 };
 
-            debug!("Grant miner {} {} STX", miner_reward.address.to_string(), miner_reward_total);
+            debug!("Grant miner {} {} STX. Updated to: {}", miner_reward.address.to_string(), miner_reward_total,
+                   &new_miner_status);
             db.set_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, miner_principal, new_miner_status)?;
             Ok(())
         })}).map_err(Error::ClarityError)?;
@@ -2788,7 +2789,7 @@ impl StacksChainState {
                     let last_microblock_hash = microblocks[num_mblocks-1].block_hash();
                     let last_microblock_seq = microblocks[num_mblocks-1].header.sequence;
 
-                    test_debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_burn_header_hash, _first_mblock_hash, last_microblock_hash, parent_burn_header_hash, parent_block_hash);
+                    debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_burn_header_hash, _first_mblock_hash, last_microblock_hash, parent_burn_header_hash, parent_block_hash);
                     (last_microblock_hash, last_microblock_seq)
                 }
                 else {
@@ -2819,10 +2820,10 @@ impl StacksChainState {
 
             let microblock_cost = clarity_tx.cost_so_far();
             
-            test_debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
-                        chain_tip_burn_header_hash, block.block_hash(), parent_burn_header_hash, parent_block_hash,
-                        block.header.total_work.work, block.header.total_work.burn,
-                        last_microblock_hash, last_microblock_seq, microblocks.len());
+            debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
+                   chain_tip_burn_header_hash, block.block_hash(), parent_burn_header_hash, parent_block_hash,
+                   block.header.total_work.work, block.header.total_work.burn,
+                   last_microblock_hash, last_microblock_seq, microblocks.len());
 
             // process anchored block
             let (block_fees, block_burns, mut txs_receipts) = match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {

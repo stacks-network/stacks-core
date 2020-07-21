@@ -656,7 +656,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             trie_sql::create_tables_if_needed(&mut db)?;
         }
 
-        test_debug!("Opened TrieFileStorage {};", db_path);
+        debug!("Opened TrieFileStorage {};", db_path);
 
         let ret = TrieFileStorage {
             db_path,
@@ -904,14 +904,14 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         let mut tx = tx_begin_immediate(&mut self.db)?;
         let (trie_buf, created) = 
             if let Some(block_id) = trie_sql::get_unconfirmed_block_identifier(&mut tx, bhh)? {
-                test_debug!("Reload unconfirmed trie {} ({})", bhh, block_id);
+                debug!("Reload unconfirmed trie {} ({})", bhh, block_id);
 
                 // restore trie
                 let mut fd = trie_sql::open_trie_blob(&tx, block_id)?;
                 (TrieRAM::load(&mut fd, bhh)?, false)
             }
             else {
-                test_debug!("Instantiate unconfirmed trie {}", bhh);
+                debug!("Instantiate unconfirmed trie {}", bhh);
                 
                 // new trie
                 let size_hint = match self.last_extended {
@@ -1451,7 +1451,7 @@ pub mod test {
 
         while frontier_1.len() > 0 && frontier_2.len() > 0 {
             if frontier_1.len() != frontier_2.len() {
-                test_debug!("frontier len mismatch");
+                debug!("frontier len mismatch");
                 return false;
             }
 
@@ -1459,12 +1459,12 @@ pub mod test {
             let (n2_data, n2_hash) = frontier_2.pop_front().unwrap();
 
             if n1_hash != n2_hash {
-                test_debug!("root hash mismatch: {} != {}", &n1_hash, &n2_hash);
+                debug!("root hash mismatch: {} != {}", &n1_hash, &n2_hash);
                 return false;
             }
 
             if !node_cmp(&n1_data, &n2_data) {
-                test_debug!("root node mismatch: {:?} != {:?}", &n1_data, &n2_data);
+                debug!("root node mismatch: {:?} != {:?}", &n1_data, &n2_data);
                 return false;
             }
 
