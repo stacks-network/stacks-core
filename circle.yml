@@ -70,14 +70,8 @@ jobs:
           name: build docker image
           command: docker build . -t $IMAGE_NAME:latest
       - run:
-          name: build debug docker image
-          command: docker build . -f Dockerfile.stretch -t $IMAGE_NAME-stretch:latest
-      - run:
           name: save image to workspace
           command: docker save -o image.tar $IMAGE_NAME:latest
-      - run:
-          name: save image to workspace
-          command: docker save -o image-stretch.tar $IMAGE_NAME-stretch:latest
       - persist_to_workspace:
           root: .
           paths:
@@ -92,19 +86,13 @@ jobs:
           name: load docker image
           command: docker load -i /tmp/workspace/image.tar
       - run:
-          name: load docker image
-          command: docker load -i /tmp/workspace/image-stretch.tar
-      - run:
           name: push docker image
           command: |
             echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             if [ "${CIRCLE_BRANCH}" = "master" ]; then
                docker tag $IMAGE_NAME:latest $IMAGE_NAME:master
-               docker tag $IMAGE_NAME-stretch:latest $IMAGE_NAME-stretch:master
                docker push $IMAGE_NAME:latest
                docker push $IMAGE_NAME:master
-               docker push $IMAGE_NAME-stretch:latest
-               docker push $IMAGE_NAME-stretch:master
             elif [ "${CIRCLE_BRANCH}" = "feature/docker-deploy" ]; then
                docker tag $IMAGE_NAME:latest $IMAGE_NAME:test-deploy
                docker push $IMAGE_NAME:test-deploy
