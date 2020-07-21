@@ -496,7 +496,7 @@ impl StacksBlockBuilder {
 
         test_debug!("\n\nMiner {}: Mined anchored block {}, {} transactions, state root is {}\n", self.miner_id, block.block_hash(), block.txs.len(), state_root_hash);
 
-        info!("Miner: mined anchored block {}, parent block {}", block.block_hash(), &self.header.parent_block);
+        info!("Miner: mined anchored block {}, parent block {}, state root = {}", block.block_hash(), &self.header.parent_block, state_root_hash);
 
         block
     }
