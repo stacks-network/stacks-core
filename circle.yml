@@ -68,6 +68,7 @@ jobs:
       - setup_remote_docker
       - run:
           name: build docker image
+          no_output_timeout: 30m
           command: docker build . -t $IMAGE_NAME:latest
       - run:
           name: save image to workspace
