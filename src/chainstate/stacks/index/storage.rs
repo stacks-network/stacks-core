@@ -1317,7 +1317,9 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
 
             debug!("Flush: identifier of {} is {}", flush_options, block_id);
 
-            // self.cur_block_id = Some(block_id);
+            if self.unconfirmed {
+                self.cur_block_id = Some(block_id);
+            }
         }
 
         Ok(())
