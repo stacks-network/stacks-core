@@ -44,6 +44,7 @@ use blockstack_lib::util::retry::LogReader;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::burn::BlockHeaderHash;
+use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::burnchains::BurnchainHeaderHash;
 
 use blockstack_lib::burnchains::bitcoin::spv;
@@ -248,8 +249,8 @@ fn main() {
     if argv[1] == "marf-get" {
         let path = &argv[2];
         let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
-        let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
-        let itip = StacksBlockHeader::make_index_block_hash(&burntip, &tip);
+        let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
+        let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
         let key = &argv[5];
         let mut marf = MARF::from_path(path).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");

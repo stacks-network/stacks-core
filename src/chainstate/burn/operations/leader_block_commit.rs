@@ -690,7 +690,7 @@ mod tests {
                     arrival_index: 0,
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
-                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
+                    canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
                 let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i]).unwrap();

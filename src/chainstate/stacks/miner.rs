@@ -66,7 +66,7 @@ use core::mempool::*;
 ///       as new microblocks, the builder _needs_ to be able to keep the current clarity_tx "open" 
 pub struct StacksMicroblockBuilder<'a> {
     anchor_block: BlockHeaderHash,
-    anchor_block_bhh: BurnchainHeaderHash,
+    anchor_block_consensus_hash: ConsensusHash,
     anchor_block_height: u64,
     prev_microblock_header: Option<StacksMicroblockHeader>,
     header_reader: StacksChainState,
@@ -76,20 +76,20 @@ pub struct StacksMicroblockBuilder<'a> {
 }
 
 impl <'a> StacksMicroblockBuilder <'a> {
-    pub fn new(anchor_block: BlockHeaderHash, anchor_block_bhh: BurnchainHeaderHash,
+    pub fn new(anchor_block: BlockHeaderHash, anchor_block_consensus_hash: ConsensusHash,
                chainstate: &'a mut StacksChainState, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let header_reader = chainstate.reopen()?;
-        let mut clarity_tx = chainstate.block_begin(&anchor_block_bhh, &anchor_block,
-                                                    &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
+        let mut clarity_tx = chainstate.block_begin(&anchor_block_consensus_hash, &anchor_block,
+                                                    &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
         let anchor_block_height = 
-            StacksChainState::get_anchored_block_header_info(&header_reader.headers_db, &anchor_block_bhh, &anchor_block)?
+            StacksChainState::get_anchored_block_header_info(&header_reader.headers_db, &anchor_block_consensus_hash, &anchor_block)?
             .ok_or(Error::NoSuchBlockError)?
             .block_height;
 
         clarity_tx.reset_cost(initial_cost);
         Ok(StacksMicroblockBuilder {
             anchor_block,
-            anchor_block_bhh,
+            anchor_block_consensus_hash,
             anchor_block_height,
             bytes_so_far,
             clarity_tx: Some(clarity_tx),
@@ -228,7 +228,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
         let mut bytes_so_far = self.bytes_so_far;
 
         let result = mem_pool.iterate_candidates(
-            &self.anchor_block_bhh, &self.anchor_block, self.anchor_block_height, &mut self.header_reader,
+            &self.anchor_block_consensus_hash, &self.anchor_block, self.anchor_block_height, &mut self.header_reader,
             |micro_txs| {
                 let mut result = Ok(());
                 for mempool_tx in micro_txs.into_iter() {
@@ -311,12 +311,13 @@ impl StacksBlockBuilder {
         builder
     }
 
-    fn first_pubkey_hash(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
+    fn first_pubkey_hash(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
             block_height: 0,
             index_root: TrieHash([0u8; 32]),
+            consensus_hash: genesis_consensus_hash.clone(),
             burn_header_hash: genesis_burn_header_hash.clone(),
             burn_header_timestamp: genesis_burn_header_timestamp
         };
@@ -326,12 +327,12 @@ impl StacksBlockBuilder {
         builder
     }
     
-    pub fn first(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+    pub fn first(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
         let pubkh = Hash160::from_data(&pubk.to_bytes());
 
-        let mut builder = StacksBlockBuilder::first_pubkey_hash(miner_id, genesis_burn_header_hash, genesis_burn_header_timestamp, proof, pubkh);
+        let mut builder = StacksBlockBuilder::first_pubkey_hash(miner_id, genesis_consensus_hash, genesis_burn_header_hash, genesis_burn_header_timestamp, proof, pubkh);
         builder.miner_privkey = microblock_privkey.clone();
         builder
     }
@@ -553,25 +554,25 @@ impl StacksBlockBuilder {
         
         // there's no way the miner can learn either the burn block hash or the stacks block hash,
         // so use a sentinel hash value for each that will never occur in practice.
-        let new_burn_hash = MINER_BLOCK_BURN_HEADER_HASH.clone();
+        let new_burn_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
-        test_debug!("\n\nMiner {} epoch begin off of {}/{}\n", self.miner_id, self.chain_tip.burn_header_hash, self.header.parent_block);
+        test_debug!("\n\nMiner {} epoch begin off of {}/{}\n", self.miner_id, self.chain_tip.consensus_hash, self.header.parent_block);
 
         if let Some(ref _payout) = self.miner_payouts {
             test_debug!("Miner payout to process: {:?}", _payout);
         }
 
-        let parent_burn_header_hash = self.chain_tip.burn_header_hash.clone();
+        let parent_consensus_hash = self.chain_tip.consensus_hash.clone();
         let parent_header_hash = self.header.parent_block.clone();
         
         // apply all known parent microblocks before beginning our tenure 
-        let parent_microblocks = match StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &parent_burn_header_hash, &parent_header_hash, u16::max_value())? {
+        let parent_microblocks = match StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &parent_consensus_hash, &parent_header_hash, u16::max_value())? {
             Some(mblocks) => mblocks,
             None => vec![]
         };
 
-        let mut tx = chainstate.block_begin(&parent_burn_header_hash, &parent_header_hash, &new_burn_hash, &new_block_hash);
+        let mut tx = chainstate.block_begin(&parent_consensus_hash, &parent_header_hash, &new_burn_hash, &new_block_hash);
 
         test_debug!("Miner {}: Apply {} parent microblocks", self.miner_id, parent_microblocks.len());
 
@@ -584,7 +585,7 @@ impl StacksBlockBuilder {
                     self.total_confirmed_streamed_fees += fees as u64;
                 },
                 Err((e, mblock_header_hash)) => {
-                    let msg = format!("Invalid Stacks microblocks {},{} (offender {}): {:?}", parent_burn_header_hash, parent_header_hash, mblock_header_hash, &e);
+                    let msg = format!("Invalid Stacks microblocks {},{} (offender {}): {:?}", parent_consensus_hash, parent_header_hash, mblock_header_hash, &e);
                     warn!("{}", &msg);
 
                     return Err(Error::InvalidStacksMicroblock(msg, mblock_header_hash));
@@ -602,7 +603,7 @@ impl StacksBlockBuilder {
 
     /// Finish up mining an epoch's transactions
     pub fn epoch_finish(self, tx: ClarityTx) -> ExecutionCost {
-        let new_burn_hash = MINER_BLOCK_BURN_HEADER_HASH.clone();
+        let new_burn_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
         let index_block_hash = StacksBlockHeader::make_index_block_hash(&new_burn_hash, &new_block_hash);
@@ -614,7 +615,7 @@ impl StacksBlockBuilder {
         // write out the trie...
         let consumed = tx.commit_mined_block(&index_block_hash);
 
-        test_debug!("\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n", self.miner_id, self.chain_tip.burn_header_hash, self.chain_tip.anchored_header.block_hash());
+        test_debug!("\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n", self.miner_id, self.chain_tip.consensus_hash, self.chain_tip.anchored_header.block_hash());
 
         consumed
     }
@@ -640,8 +641,8 @@ impl StacksBlockBuilder {
                               pubkey_hash: Hash160) -> Result<StacksBlockBuilder, Error> {
 
         let builder = 
-            if stacks_parent_header.burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH {
-                StacksBlockBuilder::first_pubkey_hash(0, &FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
+            if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
+                StacksBlockBuilder::first_pubkey_hash(0, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
             }
             else {
                 // building off an existing stacks block
@@ -671,9 +672,9 @@ impl StacksBlockBuilder {
             return Err(Error::MemPoolError("Not a coinbase transaction".to_string()));
         }
 
-        let (tip_burn_header_hash, tip_block_hash, tip_height) = (parent_stacks_header.burn_header_hash.clone(), parent_stacks_header.anchored_header.block_hash(), parent_stacks_header.block_height);
+        let (tip_consensus_hash, tip_block_hash, tip_height) = (parent_stacks_header.consensus_hash.clone(), parent_stacks_header.anchored_header.block_hash(), parent_stacks_header.block_height);
 
-        debug!("Build anchored block off of {}/{} height {}", &tip_burn_header_hash, &tip_block_hash, tip_height); 
+        debug!("Build anchored block off of {}/{} height {}", &tip_consensus_hash, &tip_block_hash, tip_height); 
         
         let mut header_reader_chainstate = chainstate_handle.reopen()?;            // used for reading block headers during an epoch
         let mut chainstate = chainstate_handle.reopen_limited(execution_budget)?;  // used for processing a block up to the given limit
@@ -687,7 +688,7 @@ impl StacksBlockBuilder {
         let mut mined_origin_nonces : HashMap<StacksAddress, u64> = HashMap::new();     // map addrs of mined transaction origins to the nonces we used
         let mut mined_sponsor_nonces : HashMap<StacksAddress, u64> = HashMap::new();    // map addrs of mined transaction sponsors to the nonces we used
 
-        let result = mempool.iterate_candidates(&tip_burn_header_hash, &tip_block_hash, tip_height, &mut header_reader_chainstate, |available_txs| {
+        let result = mempool.iterate_candidates(&tip_consensus_hash, &tip_block_hash, tip_height, &mut header_reader_chainstate, |available_txs| {
             for txinfo in available_txs.into_iter() {
                 // skip transactions early if we can
                 if considered.contains(&txinfo.tx.txid()) {
@@ -1111,10 +1112,17 @@ pub mod test {
             }
         }
         
-        pub fn get_last_accepted_anchored_block(&self, miner: &TestMiner) -> Option<StacksBlock> {
+        pub fn get_last_accepted_anchored_block(&self, sortdb: &SortitionDB, miner: &TestMiner) -> Option<StacksBlock> {
             for bc in miner.block_commits.iter().rev() {
-                if StacksChainState::has_stored_block(&self.chainstate.blocks_db, &self.chainstate.blocks_path, &bc.burn_header_hash, &bc.block_header_hash).unwrap() &&
-                  !StacksChainState::is_block_orphaned(&self.chainstate.blocks_db, &bc.burn_header_hash, &bc.block_header_hash).unwrap() {
+                let consensus_hash = match SortitionDB::get_block_snapshot(sortdb.conn(), &SortitionId::stubbed(&bc.burn_header_hash)).unwrap() {
+                    Some(sn) => sn.consensus_hash,
+                    None => {
+                        continue;
+                    }
+                };
+
+                if StacksChainState::has_stored_block(&self.chainstate.blocks_db, &self.chainstate.blocks_path, &consensus_hash, &bc.block_header_hash).unwrap() &&
+                  !StacksChainState::is_block_orphaned(&self.chainstate.blocks_db, &consensus_hash, &bc.block_header_hash).unwrap() {
                     match self.commit_ops.get(&bc.block_header_hash) {
                         None => {
                             continue;
@@ -1250,7 +1258,7 @@ pub mod test {
             let (builder, parent_block_snapshot_opt) = match parent_stacks_block {
                 None => {
                     // first stacks block
-                    let builder = StacksBlockBuilder::first(miner.id, &burn_block.parent_snapshot.burn_header_hash, burn_block.parent_snapshot.burn_header_timestamp, &proof, &miner.next_microblock_privkey());
+                    let builder = StacksBlockBuilder::first(miner.id, &burn_block.parent_snapshot.consensus_hash, &burn_block.parent_snapshot.burn_header_hash, burn_block.parent_snapshot.burn_header_timestamp, &proof, &miner.next_microblock_privkey());
                     (builder, None)
                 },
                 Some(parent_stacks_block) => {
@@ -1262,7 +1270,7 @@ pub mod test {
                         parent_stacks_block_snapshot
                     };
 
-                    let parent_chain_tip = StacksChainState::get_anchored_block_header_info(&self.chainstate.headers_db, &parent_stacks_block_snapshot.burn_header_hash, &parent_stacks_block.header.block_hash()).unwrap().unwrap();
+                    let parent_chain_tip = StacksChainState::get_anchored_block_header_info(&self.chainstate.headers_db, &parent_stacks_block_snapshot.consensus_hash, &parent_stacks_block.header.block_hash()).unwrap().unwrap();
 
                     let new_work = StacksWorkScore {
                         burn: parent_stacks_block_snapshot.total_burn,
@@ -1290,16 +1298,20 @@ pub mod test {
         let block_hash = stacks_block.block_hash();
 
         let ic = burn_node.sortdb.index_conn();
-        let parent_block_burn_header_hash = match SortitionDB::get_block_commit_parent(
-            &ic, block_commit_op.parent_block_ptr.into(), block_commit_op.parent_vtxindex.into(), &fork_snapshot.sortition_id).unwrap() {
-            Some(parent_commit) => parent_commit.burn_header_hash.clone(),
+        let ch_opt = SortitionDB::get_block_commit_parent(&ic, block_commit_op.parent_block_ptr.into(), block_commit_op.parent_vtxindex.into(), &fork_snapshot.sortition_id).unwrap();
+        let parent_block_consensus_hash = match ch_opt {
+            Some(parent_commit) => {
+                let db_handle = SortitionHandleConn::open_reader(&ic, &SortitionId::stubbed(&block_commit_op.burn_header_hash)).unwrap();
+                let sn = db_handle.get_block_snapshot(&parent_commit.burn_header_hash).unwrap().unwrap();
+                sn.consensus_hash
+            }
             None => {
                 // only allowed if this is the first-ever block in the stacks fork
                 assert_eq!(block_commit_op.parent_block_ptr, 0);
                 assert_eq!(block_commit_op.parent_vtxindex, 0);
                 assert!(stacks_block.header.is_first_mined());
 
-                FIRST_BURNCHAIN_BLOCK_HASH.clone()
+                FIRST_BURNCHAIN_CONSENSUS_HASH.clone()
             }
         };
     
@@ -1312,13 +1324,13 @@ pub mod test {
         };
 
         // "discover" this stacks block
-        test_debug!("\n\nPreprocess Stacks block {}/{} ({})", &commit_snapshot.burn_header_hash, &block_hash, StacksBlockHeader::make_index_block_hash(&commit_snapshot.burn_header_hash, &block_hash));
-        let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.burn_header_hash, commit_snapshot.burn_header_timestamp, &stacks_block, &parent_block_burn_header_hash).unwrap();
+        test_debug!("\n\nPreprocess Stacks block {}/{} ({})", &commit_snapshot.consensus_hash, &block_hash, StacksBlockHeader::make_index_block_hash(&commit_snapshot.consensus_hash, &block_hash));
+        let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.consensus_hash, commit_snapshot.burn_header_timestamp, &stacks_block, &parent_block_consensus_hash).unwrap();
 
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
             test_debug!("Preprocess Stacks microblock {}-{} (seq {})", &block_hash, mblock.block_hash(), mblock.header.sequence);
-            match node.chainstate.preprocess_streamed_microblock(&commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock) {
+            match node.chainstate.preprocess_streamed_microblock(&commit_snapshot.consensus_hash, &stacks_block.block_hash(), mblock) {
                 Ok(_) => {},
                 Err(_) => {
                     return Some(false);
@@ -1330,8 +1342,8 @@ pub mod test {
     }
     
     /// Verify that the stacks block's state root matches the state root in the chain state
-    fn check_block_state_index_root(chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, stacks_header: &StacksBlockHeader) -> bool {
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &stacks_header.block_hash());
+    fn check_block_state_index_root(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, stacks_header: &StacksBlockHeader) -> bool {
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &stacks_header.block_hash());
         let mut state_root_index = StacksChainState::open_index(&chainstate.clarity_state_index_path).unwrap();
         let state_root = state_root_index.borrow_storage_backend().read_block_root_hash(&index_block_hash).unwrap();
         state_root == stacks_header.state_index_root
@@ -1463,7 +1475,7 @@ pub mod test {
             };
             
             let last_key = node.get_last_key(&miner);
-            let parent_block_opt = node.get_last_accepted_anchored_block(&miner);
+            let parent_block_opt = node.get_last_accepted_anchored_block(&burn_node.sortdb, &miner);
             let last_microblock_header = get_last_microblock_header(&node, &miner, parent_block_opt.as_ref());
             
             // next key
@@ -1507,10 +1519,10 @@ pub mod test {
                 let chain_tip = chain_tip_opt.unwrap().header;
 
                 assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
-                assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+                assert_eq!(chain_tip.consensus_hash, fork_snapshot.consensus_hash);
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &chain_tip.anchored_header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &chain_tip.anchored_header));
             }
 
             let mut next_miner_trace = TestMinerTracePoint::new();
@@ -1602,10 +1614,10 @@ pub mod test {
             let chain_tip = chain_tip_opt.unwrap().header;
 
             assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
-            assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+            assert_eq!(chain_tip.consensus_hash, fork_snapshot.consensus_hash);
 
             // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-            assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &chain_tip.anchored_header));
+            assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &chain_tip.anchored_header));
 
             sortition_winners.push(miner_1.origin_address().unwrap());
 
@@ -1704,14 +1716,14 @@ pub mod test {
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
-            assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+            assert_eq!(chain_tip.consensus_hash, fork_snapshot.consensus_hash);
             
             let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_1.header));
                 sortition_winners.push(miner_1.origin_address().unwrap());
             
                 next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block_1, microblocks_1, block_commit_op_1);
@@ -1720,7 +1732,7 @@ pub mod test {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
                 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_2.header));
                 sortition_winners.push(miner_2.origin_address().unwrap());
             
                 next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
@@ -1870,14 +1882,14 @@ pub mod test {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_1.header));
                 sortition_winners.push(miner_1.origin_address().unwrap());
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
                 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_2.header));
                 sortition_winners.push(miner_2.origin_address().unwrap());
             }
 
@@ -2014,21 +2026,21 @@ pub mod test {
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
-            assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+            assert_eq!(chain_tip.consensus_hash, fork_snapshot.consensus_hash);
             
             let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_1.header));
                 sortition_winners_1.push(miner_1.origin_address().unwrap());
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
                 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node_2.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
+                assert!(check_block_state_index_root(&mut node_2.chainstate, &fork_snapshot.consensus_hash, &stacks_block_2.header));
                 sortition_winners_2.push(miner_2.origin_address().unwrap());
             }
            
@@ -2169,21 +2181,21 @@ pub mod test {
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
-            assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+            assert_eq!(chain_tip.consensus_hash, fork_snapshot.consensus_hash);
             
             let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_1.header));
                 next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
                 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_2.header));
                 next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
             miner_trace.push(next_miner_trace);
@@ -2298,12 +2310,12 @@ pub mod test {
             let mut found_fork_1 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
                 let chain_tip = chain_tip_opt.clone().unwrap().header;
-                if chain_tip.burn_header_hash == fork_snapshot_1.burn_header_hash {
+                if chain_tip.consensus_hash == fork_snapshot_1.consensus_hash {
                     found_fork_1 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_1.block_hash());
             
                     // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                    assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot_1.burn_header_hash, &chain_tip.anchored_header));
+                    assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot_1.consensus_hash, &chain_tip.anchored_header));
                 }
             }
 
@@ -2312,12 +2324,12 @@ pub mod test {
             let mut found_fork_2 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
                 let chain_tip = chain_tip_opt.clone().unwrap().header;
-                if chain_tip.burn_header_hash == fork_snapshot_2.burn_header_hash {
+                if chain_tip.consensus_hash == fork_snapshot_2.consensus_hash {
                     found_fork_2 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_2.block_hash());
                     
                     // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                    assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot_2.burn_header_hash, &chain_tip.anchored_header));
+                    assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot_2.consensus_hash, &chain_tip.anchored_header));
                 }
             }
 
@@ -2452,21 +2464,21 @@ pub mod test {
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
-            assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+            assert_eq!(chain_tip.consensus_hash, fork_snapshot.consensus_hash);
             
             let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_1.header));
                 next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot.clone(), stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
                 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
+                assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.consensus_hash, &stacks_block_2.header));
                 next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
 
@@ -2583,12 +2595,12 @@ pub mod test {
             let mut found_fork_1 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
                 let chain_tip = chain_tip_opt.clone().unwrap().header;
-                if chain_tip.burn_header_hash == fork_snapshot_1.burn_header_hash {
+                if chain_tip.consensus_hash == fork_snapshot_1.consensus_hash {
                     found_fork_1 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_1.block_hash());
             
                     // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                    assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot_1.burn_header_hash, &chain_tip.anchored_header));
+                    assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot_1.consensus_hash, &chain_tip.anchored_header));
                 }
             }
 
@@ -2597,12 +2609,12 @@ pub mod test {
             let mut found_fork_2 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
                 let chain_tip = chain_tip_opt.clone().unwrap().header;
-                if chain_tip.burn_header_hash == fork_snapshot_2.burn_header_hash {
+                if chain_tip.consensus_hash == fork_snapshot_2.consensus_hash {
                     found_fork_2 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_2.block_hash());
                     
                     // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
-                    assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot_2.burn_header_hash, &chain_tip.anchored_header));
+                    assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot_2.consensus_hash, &chain_tip.anchored_header));
                 }
             }
 
@@ -3404,7 +3416,9 @@ pub mod test {
         // each block must be orphaned
         for point in miner_trace.points.iter() {
             for (height, bc) in point.block_commits.iter() {
-                assert!(StacksChainState::is_block_orphaned(&chainstate.blocks_db, &bc.burn_header_hash, &bc.block_header_hash).unwrap());
+                // NOTE: this only works because there are no PoX forks in this test
+                let sn = SortitionDB::get_block_snapshot(miner_trace.burn_node.sortdb.conn(), &SortitionId::stubbed(&bc.burn_header_hash)).unwrap().unwrap();
+                assert!(StacksChainState::is_block_orphaned(&chainstate.blocks_db, &sn.consensus_hash, &bc.block_header_hash).unwrap());
             }
         }
     }
@@ -3481,13 +3495,10 @@ pub mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
-                let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
-
                 let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
@@ -3539,14 +3550,13 @@ pub mod test {
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
-                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                            &ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
                 let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -3558,7 +3568,7 @@ pub mod test {
                     let stx_transfer = make_user_stacks_transfer(&privk, sender_nonce, 200, &recipient.to_account_principal(), 1);
                     sender_nonce += 1;
 
-                    mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                    mempool.submit(&parent_consensus_hash, &parent_header_hash, stx_transfer).unwrap();
                 } 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block.0, vec![])
@@ -3626,12 +3636,12 @@ pub mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
                 let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -3642,7 +3652,7 @@ pub mod test {
                 if tenure_id > 0 {
                     for i in 0..5 {
                         let stx_transfer = make_user_stacks_transfer(&privks[i], sender_nonce, 200, &recipient.to_account_principal(), 1);
-                        mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                        mempool.submit(&parent_consensus_hash, &parent_header_hash, stx_transfer).unwrap();
                     }
                     
                     // test pagination by timestamp
@@ -3651,7 +3661,7 @@ pub mod test {
 
                     for i in 5..10 {
                         let stx_transfer = make_user_stacks_transfer(&privks[i], sender_nonce, 200, &recipient.to_account_principal(), 1);
-                        mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                        mempool.submit(&parent_consensus_hash, &parent_header_hash, stx_transfer).unwrap();
                     }
                     
                     sender_nonce += 1;
@@ -3733,12 +3743,12 @@ pub mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
@@ -3758,16 +3768,16 @@ pub mod test {
 
                     // fee high enough to get mined first
                     let stx_transfer = make_user_stacks_transfer(&privk, sender_nonce, (4*contract.len()) as u64, &recipient.to_account_principal(), 1);
-                    mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                    mempool.submit(&parent_consensus_hash, &parent_header_hash, stx_transfer).unwrap();
 
                     // will never get mined
                     let contract_tx = make_user_contract_publish(&privks_expensive[tenure_id], 0, (2*contract.len()) as u64, &format!("hello-world-{}", tenure_id), &contract);
 
-                    mempool.submit(&parent_tip_bhh, &parent_header_hash, contract_tx).unwrap();
+                    mempool.submit(&parent_consensus_hash, &parent_header_hash, contract_tx).unwrap();
                     
                     // will get mined last
                     let stx_transfer = make_user_stacks_transfer(&privk_extra, sender_nonce, 300, &recipient.to_account_principal(), 1);
-                    mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                    mempool.submit(&parent_consensus_hash, &parent_header_hash, stx_transfer).unwrap();
                     
                     sender_nonce += 1;
                 }
@@ -3846,12 +3856,12 @@ pub mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
@@ -3864,7 +3874,7 @@ pub mod test {
                       (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
                     let contract_tx = make_user_contract_publish(&privks[tenure_id], 0, (2*contract.len()) as u64, &format!("hello-world-{}", tenure_id), &contract);
-                    mempool.submit(&parent_tip_bhh, &parent_header_hash, contract_tx).unwrap();
+                    mempool.submit(&parent_consensus_hash, &parent_header_hash, contract_tx).unwrap();
                 }
 
                 let execution_cost = 
@@ -3940,12 +3950,12 @@ pub mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
@@ -3961,7 +3971,7 @@ pub mod test {
                       (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
                     let contract_tx = make_user_contract_publish(&privks[tenure_id], 0, (2*contract.len()) as u64, &format!("hello-world-{}", tenure_id), &contract);
-                    mempool.submit(&parent_tip_bhh, &parent_header_hash, contract_tx).unwrap();
+                    mempool.submit(&parent_consensus_hash, &parent_header_hash, contract_tx).unwrap();
                 }
                 
                 (anchored_block.0, vec![])
@@ -4023,12 +4033,12 @@ pub mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
@@ -4044,7 +4054,7 @@ pub mod test {
                     let contract_tx = make_user_contract_publish(&privks[tenure_id], 0, 100000000 / 2 + 1, &format!("hello-world-{}", tenure_id), &contract);
                     let mut contract_tx_bytes = vec![];
                     contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
-                    mempool.submit_raw(&parent_tip_bhh, &parent_header_hash, contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_consensus_hash, &parent_header_hash, contract_tx_bytes).unwrap();
 
                     eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
                    
@@ -4054,7 +4064,7 @@ pub mod test {
                     let contract_tx = make_user_contract_publish(&privks[tenure_id], 1, 100000000 / 2, &format!("hello-world-{}-2", tenure_id), &contract);
                     let mut contract_tx_bytes = vec![];
                     contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
-                    mempool.submit_raw(&parent_tip_bhh, &parent_header_hash, contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_consensus_hash, &parent_header_hash, contract_tx_bytes).unwrap();
                     
                     eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
                     
