@@ -75,6 +75,7 @@ use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::MARFValue;
 use chainstate::stacks::index::Error as MARFError;
+use chainstate::stacks::db::StacksChainState;
 
 use address::AddressHashMode;
 
@@ -937,6 +938,19 @@ impl <'a> SortitionHandleConn <'a> {
 impl PoxId {
     const BASE_FORK: PoxId = PoxId([0; 32]);
 
+    pub fn extend_with_present_block(&mut self) {
+        unimplemented!("");
+    }
+    pub fn extend_with_not_present_block(&mut self) {
+        unimplemented!("");
+    }
+
+    /// does the given pox identifier describe a child fork of the current pox identifier? this returns true if they
+    ///   are equal or child is a descendant.
+    pub fn is_pox_id_descendant(&self, child: &PoxId) -> bool {
+        self == child || unimplemented!("")
+    }
+
     pub fn stubbed() -> PoxId {
         PoxId::BASE_FORK.clone()
     }
@@ -1265,19 +1279,19 @@ pub struct PoxDB;
 impl PoxDB {
     /// Get the canonical PoX identifier for a given burnchain header hash.
     ///   this result may change if a previously unknown PoX anchor is processed.
-    pub fn get_canonical_pox_id(&self, _burnchain_header_hash: &BurnchainHeaderHash) -> Result<PoxId, ()> {
+    pub fn get_canonical_pox_id(&self, _burnchain_header_hash: &BurnchainHeaderHash) -> Result<PoxId, CoordinatorError> {
         Ok(PoxId::stubbed())
     }
     /// Get the parent PoX identifier for a given identifier.
     ///  If the PoX identifier does not have a parent (should only be true for the "base" PoX identifier)
     ///    return an error.
-    pub fn get_parent_pox_id(&self, _pox_id: &PoxId) -> Result<PoxId, ()> {
-        Err(())
+    pub fn get_parent_pox_id(&self, _pox_id: &PoxId) -> Result<PoxId, CoordinatorError> {
+        unimplemented!("");
     }
     /// does the given pox identifier describe a child fork of the parent pox identifier? this returns true if they
     ///   are equal or child is a descendant.
     pub fn is_pox_id_descendant(&self, parent: &PoxId, child: &PoxId) -> bool {
-        return parent == child || self.get_parent_pox_id(child).as_ref() == Ok(parent)
+        parent.is_pox_id_descendant(child)
     }
     pub fn process_anchor(&mut self, block_id: &StacksBlockId, chain_state: &StacksChainState) -> Result<(), CoordinatorError> {
         unimplemented!("");
@@ -1299,6 +1313,17 @@ impl SortitionDB {
             Ok(opt_sn) => Ok(opt_sn.is_some()),
             Err(e) => Err(BurnchainError::from(e))
         }
+    }
+
+    /// Get the last sortition in the prepare phase that chose a particular Stacks block as the anchor,
+    ///   or if the anchor is not expected, 
+    pub fn get_prepare_end_for(&mut self, sortition_tip: &SortitionId, anchor: &StacksBlockId) -> Result<Option<BlockSnapshot>, BurnchainError> {
+        unimplemented!("");
+    }
+
+    /// Get the PoX ID at the particular sortition_tip
+    pub fn get_pox_id(&mut self, sortition_tip: &SortitionId) -> Result<PoxId, BurnchainError> {
+        unimplemented!("");
     }
 
     pub fn evaluate_sortition(&mut self, burn_header: &BurnchainBlockHeader, ops: Vec<BlockstackOperationType>,

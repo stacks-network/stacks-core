@@ -50,6 +50,7 @@ use chainstate::burn::operations::{
 };
 
 use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::StacksBlockId;
 
 use burnchains::Address;
 use burnchains::PublicKey;
@@ -96,6 +97,10 @@ impl BlockSnapshot {
 
     pub fn is_initial(&self) -> bool {
         self.sortition_hash == SortitionHash::initial()
+    }
+
+    pub fn get_canonical_stacks_block_id(&self) -> StacksBlockId {
+        StacksBlockId::new(&self.consensus_hash, &self.canonical_stacks_tip_hash)
     }
 
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
