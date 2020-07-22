@@ -300,6 +300,18 @@ fn main() {
         return
     }
 
+    if argv[1] == "process-block" {
+        use chainstate::stacks::db::StacksChainState;
+        use chainstate::burn::db::sortdb::SortitionDB;
+        let path = &argv[2];
+        let sort_path = &argv[3];
+        let mut chainstate = StacksChainState::open(false, 0x80000000, path).unwrap();
+        let mut sortition_db = SortitionDB::open(sort_path, true).unwrap();
+        let mut tx = sortition_db.tx_begin().unwrap();
+        chainstate.process_next_staging_block(&mut tx).unwrap();
+        return
+    }
+
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
