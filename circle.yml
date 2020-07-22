@@ -77,6 +77,22 @@ jobs:
           root: .
           paths:
             - ./image.tar
+  build-docker-stretch:
+    executor: docker-publisher
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: build docker image
+          no_output_timeout: 30m
+          command: docker build . -f Dockerfile.stretch -t $IMAGE_NAME:stretch
+      - run:
+          name: save image to workspace
+          command: docker save -o image-stretch.tar $IMAGE_NAME:stretch
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ./image-stretch.tar
   push-docker-tags:
     executor: docker-publisher
     steps:
@@ -87,6 +103,9 @@ jobs:
           name: load docker image
           command: docker load -i /tmp/workspace/image.tar
       - run:
+          name: load docker image
+          command: docker load -i /tmp/workspace/image-stretch.tar
+      - run:
           name: push docker image
           command: |
             echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
@@ -94,9 +113,9 @@ jobs:
                docker tag $IMAGE_NAME:latest $IMAGE_NAME:master
                docker push $IMAGE_NAME:latest
                docker push $IMAGE_NAME:master
-            elif [ "${CIRCLE_BRANCH}" = "feature/docker-deploy" ]; then
-               docker tag $IMAGE_NAME:latest $IMAGE_NAME:test-deploy
-               docker push $IMAGE_NAME:test-deploy
+               docker push $IMAGE_NAME:stretch
+            elif [ "${CIRCLE_BRANCH}" = "feat/docker-stretch" ]; then
+               docker push $IMAGE_NAME:stretch
             fi
 workflows:
   version: 2
@@ -104,9 +123,8 @@ workflows:
     jobs:
       - unit_tests
       - test_demo
-      - build-docker:
-          requires:
-            - unit_tests
+      - build-docker
+      - build-docker-stretch
       - all_tests:
           filters:
             branches:
@@ -114,13 +132,13 @@ workflows:
                 - master
                 - /.*net.*/
                 - /.*marf.*/
-                - feature/ignore-slow-serial-tests
       - push-docker-tags:
           requires:
             - unit_tests
             - build-docker
+            - build-docker-stretch
           filters:
             branches:
               only:
                 - master
-                - feature/docker-deploy
+                - feat/docker-stretch
