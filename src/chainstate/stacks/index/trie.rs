@@ -685,7 +685,7 @@ impl Trie {
                     });
             }
 
-            test_debug!("Next root hash is {} (update_skiplist={})", h, update_skiplist);
+            debug!("Next root hash is {} (update_skiplist={})", h, update_skiplist);
 
             storage.write_nodetype(child_ptr.ptr(), &node, h)?;
         }
@@ -740,7 +740,7 @@ impl Trie {
                                         });
                                 }
             
-                                test_debug!("Next root hash is {} (update_skiplist={})", h, update_skiplist);
+                                debug!("Next root hash is {} (update_skiplist={})", h, update_skiplist);
                                 h
                             }
                             else {
