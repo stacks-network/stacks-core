@@ -1324,10 +1324,6 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             tx.commit()?;
 
             debug!("Flush: identifier of {} is {}", flush_options, block_id);
-
-            if self.unconfirmed {
-                self.cur_block_id = Some(block_id);
-            }
         }
 
         Ok(())
