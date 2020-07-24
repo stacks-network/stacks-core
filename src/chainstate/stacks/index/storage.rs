@@ -1324,6 +1324,8 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             tx.commit()?;
 
             debug!("Flush: identifier of {} is {}", flush_options, block_id);
+
+            self.cur_block_id = None;
         }
 
         Ok(())
@@ -1358,6 +1360,8 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
                     .expect("Corruption: Failed to drop the extended trie");
             }
             self.last_extended = None;
+            self.cur_block_id = None;
+            self.trie_ancestor_hash_bytes_cache = None;
         }
     }
 
@@ -1373,6 +1377,8 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             tx.commit()
                 .expect("Corruption: Failed to drop the extended trie");
             self.last_extended = None;
+            self.cur_block_id = None;
+            self.trie_ancestor_hash_bytes_cache = None;
         }
     }
 
