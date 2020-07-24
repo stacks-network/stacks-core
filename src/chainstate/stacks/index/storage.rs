@@ -581,6 +581,8 @@ pub struct TrieFileStorage <T: MarfTrieId> {
 
     db: Connection,
     cur_block: T,
+    /// Tracking the row_id for the cur_block. If cur_block == last_extended,
+    ///   this value should always be None
     cur_block_id: Option<u32>,
 
     read_count: u64,
@@ -980,7 +982,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         }
 
         if let Some((ref last_extended, _)) = self.last_extended {
-            if !self.unconfirmed && last_extended == bhh {
+            if last_extended == bhh {
                 panic!("BUG: passed id of a currently building block");
             }
         }
@@ -1025,7 +1027,16 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         Ok(())
     }
 
+    /// Return the block_identifier / row_id for a given bhh. If that bhh
+    ///  is currently being extended, return None, since the row_id won't
+    ///  be known until the extended trie is flushed.
     pub fn get_block_identifier(&self, bhh: &T) -> Option<u32> {
+        if let Some((ref last_extended, _)) = self.last_extended {
+            if bhh == last_extended {
+                return None
+            }
+        }
+
         trie_sql::get_block_identifier(&self.db, bhh).ok()
     }
 
@@ -1324,6 +1335,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             tx.commit()?;
 
             debug!("Flush: identifier of {} is {}", flush_options, block_id);
+
         }
 
         Ok(())
