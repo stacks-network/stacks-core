@@ -296,7 +296,7 @@ impl FromRow<StagingBlock> for StagingBlock {
 
         let processed = processed_i64 != 0;
         let attachable = attachable_i64 != 0;
-        let orphaned = orphaned_i64 == 0;
+        let orphaned = orphaned_i64 != 0;
 
         Ok(StagingBlock {
             anchored_block_hash,
@@ -482,7 +482,8 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_blocks_db(&mut conn)?;
         }
-        
+       
+        debug!("Opened blocks DB {}", db_path);
         Ok(conn)
     }
     
@@ -695,6 +696,13 @@ impl StacksChainState {
             .map_err(Error::DBError)?;
 
         Ok(blocks.drain(..).map(|b| (b.burn_header_hash, b.anchored_block_hash)).collect())
+    }
+
+    /// Get all stacks block headers.  Great for testing!
+    pub fn get_all_staging_block_headers(blocks_conn: &DBConn) -> Result<Vec<StagingBlock>, Error> {
+        let sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
+        query_rows::<StagingBlock, _>(blocks_conn, &sql, NO_PARAMS)
+            .map_err(Error::DBError)
     }
 
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
@@ -2385,6 +2393,7 @@ impl StacksChainState {
     }
 
     /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
+    /// This does not work when forking
     #[cfg(test)]
     pub fn preprocess_stacks_epoch(&mut self, sort_ic: &SortitionDBConn, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
         self.preprocess_anchored_block(sort_ic, &snapshot.burn_header_hash, snapshot.burn_header_timestamp, block, &snapshot.parent_burn_header_hash)?;

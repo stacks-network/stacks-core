@@ -1465,7 +1465,47 @@ mod test {
             p
         })
     }
-    
+
+    #[test]
+    fn marf_invalid_ancestor() {
+        let f1 = TrieFileStorage::new_memory().unwrap();
+        let f2 = TrieFileStorage::new_memory().unwrap();
+        let mut m1 = MARF::from_storage(f1);
+        let mut m2 = MARF::from_storage(f2);
+
+        let mock_miner_hash = BlockHeaderHash([1; 32]);
+
+        m1.begin(&TrieFileStorage::block_sentinel(), &mock_miner_hash).unwrap();
+        m1.commit_to(&BlockHeaderHash([2; 32])).unwrap();
+        m1.begin(&BlockHeaderHash([2; 32]), &mock_miner_hash).unwrap();
+        m1.commit_to(&BlockHeaderHash([3; 32])).unwrap();
+        m1.begin(&BlockHeaderHash([3; 32]), &mock_miner_hash).unwrap();
+        m1.drop_current();
+
+        // m1 should be dirty...
+
+        m2.begin(&TrieFileStorage::block_sentinel(), &mock_miner_hash).unwrap();
+        m2.commit_to(&BlockHeaderHash([2; 32])).unwrap();
+        m2.begin(&BlockHeaderHash([2; 32]), &mock_miner_hash).unwrap();
+        m2.commit_to(&BlockHeaderHash([3; 32])).unwrap();
+        m2.begin(&BlockHeaderHash([3; 32]), &mock_miner_hash).unwrap();
+        m2.commit_to(&BlockHeaderHash([4; 32])).unwrap();
+
+        // m2 is clean...
+
+        // now let's make a block whose parent is _2_ (not _3_)
+
+        m1.begin(&BlockHeaderHash([2; 32]), &mock_miner_hash).unwrap();
+        m2.begin(&BlockHeaderHash([2; 32]), &mock_miner_hash).unwrap();
+
+        let hash_1 = m1.get_root_hash().unwrap();
+        let hash_2 = m2.get_root_hash().unwrap();
+
+        eprintln!("{} == {}", hash_1, hash_2);
+
+        assert_eq!(hash_1, hash_2);
+    }
+
     #[test]
     fn marf_merkle_verify_backptrs() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
