@@ -265,6 +265,9 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         if self.memo.len() > 0 {
             write_next(fd, &self.memo[0])?;
         }
+        else {
+            write_next(fd, &0u8)?;
+        }
         Ok(())
     }
 
