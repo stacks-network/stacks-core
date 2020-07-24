@@ -730,7 +730,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             write_node_count: 0,
             write_leaf_count: 0,
 
-            trie_ancestor_hash_bytes_cache: self.trie_ancestor_hash_bytes_cache.clone(),
+            trie_ancestor_hash_bytes_cache: None,
             block_hash_cache: self.block_hash_cache.clone(),
   
             readonly: true,
@@ -747,6 +747,10 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
 
     pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &T, bytes: Vec<TrieHash>) {
         self.trie_ancestor_hash_bytes_cache = Some((bhh.clone(), bytes));
+    }
+
+    pub fn clear_cached_ancestor_hashes_bytes(&mut self) {
+        self.trie_ancestor_hash_bytes_cache = None;
     }
 
     pub fn check_cached_ancestor_hashes_bytes(&mut self, bhh: &T) -> Option<Vec<TrieHash>> {
@@ -851,6 +855,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         // update internal structures
         self.cur_block = bhh.clone();
         self.cur_block_id = None;
+        self.clear_cached_ancestor_hashes_bytes();
 
         self.last_extended = Some((bhh.clone(), trie_buf));
     }
@@ -859,6 +864,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     /// Fails if the block already exists, or if the storage is read-only, or open
     /// only for unconfirmed state.
     pub fn extend_to_block(&mut self, bhh: &T) -> Result<(), Error> {
+        self.clear_cached_ancestor_hashes_bytes();
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -894,6 +900,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     /// If the unconfirmed block (bhh) already exists, then load up its trie as the last_extended
     /// trie.
     pub fn extend_to_unconfirmed_block(&mut self, bhh: &T) -> Result<bool, Error> {
+        self.clear_cached_ancestor_hashes_bytes();
         if !self.unconfirmed {
             return Err(Error::UnconfirmedError);
         }
@@ -1084,6 +1091,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         self.cur_block = TrieFileStorage::block_sentinel();
         self.cur_block_id = None;
         self.last_extended = None;
+        self.clear_cached_ancestor_hashes_bytes();
 
         Ok(())
     }
@@ -1257,6 +1265,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         // TODO: this needs to be more robust.  Also fsync the parent directory itself, before and
         // after.  Turns out rename(2) isn't crash-consistent, and turns out syscalls can get
         // reordered.
+        self.clear_cached_ancestor_hashes_bytes();
         if self.readonly {
             return Err(Error::ReadOnlyError);
         }
@@ -1269,7 +1278,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             trace!("Buffering block flush finished.");
 
             debug!("Flush: {} to {}", bhh, flush_options);
-
+            
             let tx = tx_begin_immediate(&mut self.db)?;
             let block_id = match flush_options {
                 FlushOptions::CurrentHeader => {
@@ -1293,7 +1302,6 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
                         //  to avoid stepping on the borrow checker.
                         debug!("Retarget block {} to {}", bhh, real_bhh);
                         // switch over state
-                        self.trie_ancestor_hash_bytes_cache = None;
                         self.cur_block = real_bhh.clone();
                     }
                     trie_sql::write_trie_blob(&tx, real_bhh, &buffer)?
@@ -1316,10 +1324,6 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             tx.commit()?;
 
             debug!("Flush: identifier of {} is {}", flush_options, block_id);
-
-            if self.unconfirmed {
-                self.cur_block_id = Some(block_id);
-            }
         }
 
         Ok(())
@@ -1343,6 +1347,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     }
 
     pub fn drop_extending_trie(&mut self) {
+        self.clear_cached_ancestor_hashes_bytes();
         if !self.readonly {
             if let Some((ref bhh, _)) = self.last_extended.take() {
                 let tx = tx_begin_immediate(&mut self.db)
@@ -1357,6 +1362,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     }
 
     pub fn drop_unconfirmed_trie(&mut self, bhh: &T) {
+        self.clear_cached_ancestor_hashes_bytes();
         if !self.readonly && self.unconfirmed {
             let tx = tx_begin_immediate(&mut self.db)
                 .expect("Corruption: Failed to obtain db transaction");
