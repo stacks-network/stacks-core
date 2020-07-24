@@ -1131,6 +1131,12 @@ impl SortitionDB {
         db_tx.commit()?;
         Ok(())
     }
+
+    /// Load up all snapshots, in ascending order by block height.  Great for testing!
+    pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
+        let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
+        query_rows(self.conn(), qry, NO_PARAMS)
+    }
 }
 
 impl <'a> SortitionDBConn <'a> {
@@ -1472,7 +1478,6 @@ impl SortitionDB {
         }
         Ok(burn_total)
     }
-
 
     /// Get all user burns registered in a block on is fork.
     /// Returns list of user burns in order by vtxindex.

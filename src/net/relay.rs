@@ -470,7 +470,7 @@ impl Relayer {
     }
 
     /// Insert a staging block
-    fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
+    pub fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
         let db_handle = SortitionHandleConn::open_reader_stubbed(sort_ic, burn_header_hash)?;
 
         let sn = match db_handle.get_block_snapshot(burn_header_hash)? {
