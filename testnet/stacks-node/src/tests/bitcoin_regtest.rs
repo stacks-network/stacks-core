@@ -6,6 +6,7 @@ use crate::helium::RunLoop;
 use stacks::chainstate::burn::operations::BlockstackOperationType::{LeaderBlockCommit, LeaderKeyRegister};
 use stacks::util::hash::{hex_bytes};
 
+use std::env;
 use std::io::{BufReader, BufRead};
 use super::{PUBLISH_CONTRACT};
 
@@ -101,6 +102,9 @@ impl Drop for BitcoinCoreController {
 #[test]
 #[ignore]
 fn bitcoind_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return
+    }
 
     let mut conf = super::new_test_conf();
     conf.burnchain.commit_anchor_block_within = 2000;

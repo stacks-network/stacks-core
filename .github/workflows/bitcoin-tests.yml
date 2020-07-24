@@ -1,0 +1,14 @@
+name: Run bitcoind/stacks-node integration tests
+
+on: pull_request
+
+jobs:
+  bitcoin-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Run bitcoin tests as a docker script
+        env:
+          DOCKER_BUILDKIT: 1
+          run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
