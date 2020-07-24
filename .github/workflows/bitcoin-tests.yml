@@ -11,4 +11,4 @@ jobs:
       - name: Run bitcoin tests as a docker script
         env:
           DOCKER_BUILDKIT: 1
-          run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
