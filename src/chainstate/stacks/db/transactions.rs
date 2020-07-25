@@ -198,9 +198,9 @@ impl std::fmt::Display for TransactionNonceMismatch {
     }
 }
 
-impl From<TransactionNonceMismatch, T> for Error {
-    fn from(e: TransactionNonceMismatch, T) -> Error {
-        Error::InvalidStacksTransaction(e.to_string(), e.quiet)
+impl <T> From<(TransactionNonceMismatch, T)> for Error {
+    fn from(e: (TransactionNonceMismatch, T)) -> Error {
+        Error::InvalidStacksTransaction(e.0.to_string(), e.0.quiet)
     }
 }
 
@@ -229,7 +229,7 @@ impl StacksChainState {
     /// Check the account nonces for the supplied stacks transaction,
     ///   returning the origin and payer accounts if valid.
     pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction, quiet: bool) -> Result<(StacksAccount, StacksAccount),
-                                                                                                                      (TransactionNonceMismatch, (StacksAccount, StacksAccount)) {
+                                                                                                                      (TransactionNonceMismatch, (StacksAccount, StacksAccount))> {
         // who's sending it?
         let origin = tx.get_origin();
         let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
