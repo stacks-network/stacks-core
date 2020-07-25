@@ -1167,13 +1167,12 @@ pub mod test {
             return None;
         }
 
-        pub fn get_miner_status<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> Option<(bool, u128)> {
+        pub fn get_miner_status<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> Option<u128> {
             let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
             let miner_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::try_from(BOOT_CODE_MINER_CONTRACT_NAME.to_string()).unwrap());
             
             let miner_participant_principal = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_PARTICIPANT.to_string()).unwrap();
             let miner_available_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AVAILABLE.to_string()).unwrap();
-            let miner_authorized_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AUTHORIZED.to_string()).unwrap();
             
             let miner_principal = Value::Tuple(TupleData::from_data(vec![
                     (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))))])
@@ -1189,13 +1188,6 @@ pub mod test {
                             Some(ref miner_status) => {
                                 match **miner_status {
                                     Value::Tuple(ref tuple) => {
-                                        let authorized = match tuple.get(&miner_authorized_name).expect("FATAL: no miner authorized in tuple") {
-                                            Value::Bool(ref authorized) => *authorized,
-                                            _ => {
-                                                panic!("FATAL: miner reward data map is malformed");
-                                            }
-                                        };
-
                                         let available = match tuple.get(&miner_available_name).expect("FATAL: no miner available in tuple") {
                                             Value::UInt(ref available) => *available,
                                             _ => {
@@ -1203,7 +1195,7 @@ pub mod test {
                                             }
                                         };
                                         
-                                        Some((authorized, available))
+                                        Some(available)
                                     },
                                     ref x => {
                                         panic!("FATAL: miner status is not a tuple: {:?}", &x);
@@ -1384,8 +1376,8 @@ pub mod test {
                 test_debug!("Miner {} '{}' has no mature funds in this fork", miner.id, miner.origin_address().unwrap().to_string());
                 return total == 0;
             }
-            Some((authorized, amount)) => {
-                test_debug!("Miner {} '{}' is authorized: {}, with amount: {} in this fork", miner.id, miner.origin_address().unwrap().to_string(), authorized, amount);
+            Some(amount) => {
+                test_debug!("Miner {} '{}' with amount: {} in this fork", miner.id, miner.origin_address().unwrap().to_string(), amount);
                 if amount != total {
                     test_debug!("Amount {} != {}", amount, total);
                     return false;
@@ -4414,6 +4406,7 @@ pub mod test {
             // assert_eq!(stacks_block.txs.len(), 1);
         }
     }
+
     // TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
     // within the same fork)
     // TODO: (BLOCKED) build off of different points in the same microblock stream

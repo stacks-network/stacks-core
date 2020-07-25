@@ -2676,7 +2676,6 @@ impl StacksChainState {
 
         let miner_participant_principal = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_PARTICIPANT.to_string()).unwrap();
         let miner_available_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AVAILABLE.to_string()).unwrap();
-        let miner_authorized_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AUTHORIZED.to_string()).unwrap();
 
         let miner_principal = Value::Tuple(TupleData::from_data(vec![
                 (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(miner_reward.address.clone()))))])
@@ -2685,7 +2684,7 @@ impl StacksChainState {
         let miner_reward_total = miner_reward.total();
       
         clarity_tx.connection().as_transaction(|x| { x.with_clarity_db(|ref mut db| {
-            // (+ reward (get available (default-to {available: 0, authorized: false} (map-get rewards ((miner))))))
+            // (+ reward (get available (default-to {available: 0} (map-get rewards ((miner))))))
             let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
             let new_miner_status =
                 match miner_status_opt {
@@ -2695,7 +2694,6 @@ impl StacksChainState {
                                 // this miner doesn't have an entry in the contract yet
                                 Value::Tuple(TupleData::from_data(vec![
                                     (miner_available_name, Value::UInt(miner_reward_total)),
-                                    (miner_authorized_name, Value::Bool(false)),
                                 ]).expect("FATAL: failed to construct miner reward tuple"))
                             },
                             Some(ref miner_status) => {
@@ -2730,6 +2728,14 @@ impl StacksChainState {
             debug!("Grant miner {} {} STX. Updated to: {}", miner_reward.address.to_string(), miner_reward_total,
                    &new_miner_status);
             db.set_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, miner_principal, new_miner_status)?;
+
+            // credit contract so it can disburse when miner withdraws
+            let miner_contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::from(BOOT_CODE_MINER_CONTRACT_NAME)));
+            let cur_balance = db.get_account_stx_balance(&miner_contract_principal);
+            let final_balance = cur_balance.checked_add(miner_reward_total).expect("FATAL: STX reward overflow");
+            debug!("Balance available in {} {} STX", BOOT_CODE_MINER_CONTRACT_NAME, final_balance);
+            db.set_account_stx_balance(&miner_contract_principal, final_balance);
+
             Ok(())
         })}).map_err(Error::ClarityError)?;
         Ok(())
