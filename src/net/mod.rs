@@ -2169,16 +2169,16 @@ pub mod test {
             self.stacks_node = Some(node);
         }
         
-        pub fn process_stacks_epoch(&mut self, block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, microblocks: &Vec<StacksMicroblock>) -> () {
+        pub fn process_stacks_epoch(&mut self, block: &StacksBlock, consensus_hash: &ConsensusHash, microblocks: &Vec<StacksMicroblock>) -> () {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
                 let ic = sortdb.index_conn();
-                Relayer::process_new_anchored_block(&ic, &mut node.chainstate, burn_header_hash, block).unwrap();
+                Relayer::process_new_anchored_block(&ic, &mut node.chainstate, consensus_hash, block).unwrap();
                 
                 let block_hash = block.block_hash();
                 for mblock in microblocks.iter() {
-                    node.chainstate.preprocess_streamed_microblock(burn_header_hash, &block_hash, mblock).unwrap();
+                    node.chainstate.preprocess_streamed_microblock(consensus_hash, &block_hash, mblock).unwrap();
                 }
             }
     

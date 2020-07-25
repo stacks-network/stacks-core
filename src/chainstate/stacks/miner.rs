@@ -4179,7 +4179,7 @@ pub mod test {
                                         };
 
                                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &parent_block_hash).unwrap().unwrap();      // succeeds because we don't fork
-                                    StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                                    StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                                 }
                             }
                         }
@@ -4215,9 +4215,6 @@ pub mod test {
                     // building off of a long-gone snapshot
                     miner.set_nonce(miner.get_nonce() - ((bad_block_tenure - bad_block_ancestor_tenure) as u64));
                 }
-
-                let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
 
                 let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -4276,8 +4273,8 @@ pub mod test {
                 last_block = last_valid_block.clone();
             }
 
-            let (_, burn_header_hash) = peer.next_burnchain_block(burn_ops.clone());
-            peer.process_stacks_epoch(&stacks_block, &burn_header_hash, &microblocks);
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch(&stacks_block, &consensus_hash, &microblocks);
         }
     }
 
