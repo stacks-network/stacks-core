@@ -595,7 +595,8 @@ impl Burnchain {
         let pox_id = PoxId::stubbed();
         let pox_db = PoxDB::stubbed();
 
-        db.evaluate_sortition(&header, blockstack_txs, burnchain, &pox_id, &pox_db)
+//        db.evaluate_sortition(&header, blockstack_txs, burnchain, &pox_id, &pox_db)
+        Err(burnchain_error::UnsupportedBurnchain)
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.

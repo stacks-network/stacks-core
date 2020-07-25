@@ -43,7 +43,10 @@ use chainstate::burn::Opcodes;
 use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, BlockSnapshot, SortitionHash};
 
 use core::CHAINSTATE_VERSION;
-use chainstate::coordinator::{Error as CoordinatorError};
+use chainstate::coordinator::{
+    Error as CoordinatorError,
+    RewardCycleInfo
+};
 
 use chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -69,13 +72,16 @@ use burnchains::{
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::*;
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::MARFValue;
-use chainstate::stacks::index::Error as MARFError;
-use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::index::{
+    TrieHash, MarfTrieId, MARFValue,
+    Error as MARFError
+};
+use chainstate::stacks::db::{
+    StacksChainState,
+    StacksHeaderInfo
+};
 
 use address::AddressHashMode;
 
@@ -577,15 +583,16 @@ impl <'a> SortitionHandleTx <'a> {
     }
 }
 
-impl <'a> SortitionDBTx <'a> { 
+impl <'a> SortitionHandleTx <'a> { 
     // PoX todo: this acceptance tracking will need to change once the StacksChainView is integrated
-    pub fn set_stacks_block_accepted_stubbed(&mut self, consensus_hash: &ConsensusHash, parent_stacks_block_hash: &BlockHeaderHash,
-                                             stacks_block_hash: &BlockHeaderHash, stacks_block_height: u64) -> Result<(), db_error> {
+    pub fn set_stacks_block_accepted(&mut self, consensus_hash: &ConsensusHash, parent_stacks_block_hash: &BlockHeaderHash,
+                                     stacks_block_hash: &BlockHeaderHash, stacks_block_height: u64) -> Result<(), db_error> {
 
         // NOTE: chain_tip here is the tip of the PoX fork on the canonical burn chain fork.
         // consensus_hash refers to the consensus hash of the tip of the canonical Stacks fork
         // we're updating.
-        let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(self)?;
+        let chain_tip = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
+            .expect("FAIL: Setting stacks block accepted in canonical chain tip which cannot be found");
         self.set_stacks_block_accepted_at_tip(&chain_tip, consensus_hash, parent_stacks_block_hash, stacks_block_hash, stacks_block_height)
     }
 
@@ -595,6 +602,7 @@ impl <'a> SortitionDBTx <'a> {
     /// stacks chain tip metadata on the burn chain tip.
     fn set_stacks_block_accepted_at_tip(&mut self, burn_tip: &BlockSnapshot, consensus_hash: &ConsensusHash,
                                         parent_stacks_block_hash: &BlockHeaderHash, stacks_block_hash: &BlockHeaderHash, stacks_block_height: u64) -> Result<(), db_error> {
+
         let arrival_index = SortitionDB::get_max_arrival_index(self)?;
         let args : &[&dyn ToSql] = &[&u64_to_sql(stacks_block_height)?, &u64_to_sql(arrival_index + 1)?, consensus_hash, stacks_block_hash];
 
@@ -670,12 +678,6 @@ impl <'a> SortitionDBTx <'a> {
 }
 
 impl <'a> SortitionHandleConn <'a> {
-    /// open a reader handle
-    pub fn open_reader_stubbed(connection: &'a SortitionDBConn<'a>, chain_tip: &BurnchainHeaderHash) -> Result<SortitionHandleConn<'a>, db_error> {
-        let chain_tip = SortitionId(chain_tip.0.clone());
-        SortitionHandleConn::open_reader(connection, &chain_tip)
-    }
-    
     /// open a reader handle from a consensus hash
     pub fn open_reader_consensus(connection: &'a SortitionDBConn<'a>, chain_tip: &ConsensusHash) -> Result<SortitionHandleConn<'a>, db_error> {
         let sn = match SortitionDB::get_block_snapshot_consensus(&connection.conn, chain_tip)? {
@@ -686,7 +688,7 @@ impl <'a> SortitionHandleConn <'a> {
             }
         };
 
-        SortitionHandleConn::open_reader_stubbed(connection, &sn.burn_header_hash)
+        SortitionHandleConn::open_reader(connection, &sn.sortition_id)
     }
 
     /// open a reader handle
@@ -705,16 +707,23 @@ impl <'a> SortitionHandleConn <'a> {
         self.get_indexed(&self.context.chain_tip, key)
     }
 
-    /// Uses the handle's current fork identifier to get a block snapshot by
-    ///   burnchain block header
-    /// If the burn header hash is _not_ in the current fork, then this will return Ok(None)
-    pub fn get_block_snapshot(&self, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+    fn get_sortition_id_for_bhh(&self, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<SortitionId>, db_error> {
         let sortition_identifier_key = db_keys::sortition_id_for_bhh(burn_header_hash);
         let sortition_id = match self.get_tip_indexed(&sortition_identifier_key)? {
             None => return Ok(None),
             Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB")
         };
+        Ok(Some(sortition_id))
+    }
 
+    /// Uses the handle's current fork identifier to get a block snapshot by
+    ///   burnchain block header
+    /// If the burn header hash is _not_ in the current fork, then this will return Ok(None)
+    pub fn get_block_snapshot(&self, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+        let sortition_id = match self.get_sortition_id_for_bhh(burn_header_hash)? {
+            None => return Ok(None),
+            Some(x) => x
+        };
         SortitionDB::get_block_snapshot(&self.conn, &sortition_id)
     }
 
@@ -1025,6 +1034,18 @@ impl SortitionDB {
                                      chain_tip: chain_tip.clone() })
     }
 
+    pub fn tx_handle_begin<'a>(&'a mut self, chain_tip: &SortitionId) -> Result<SortitionHandleTx<'a>, db_error> {
+        if !self.readwrite {
+            return Err(db_error::ReadOnly);
+        }
+
+        let tx = tx_begin_immediate(&mut self.conn)?;
+        Ok(SortitionHandleTx::new(tx, &mut self.marf,
+                                  SortitionHandleContext {
+                                      first_block_height: self.first_block_height,
+                                      chain_tip: chain_tip.clone() }))
+    }
+
     pub fn conn<'a>(&'a self) -> &'a Connection {
         &self.conn
     }
@@ -1323,16 +1344,21 @@ impl PoxDB {
 
 // High-level functions used by ChainsCoordinator
 impl SortitionDB {
-    pub fn get_sortition_id(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxId) -> Result<SortitionId, ()> {
-        Ok(SortitionId::new(burnchain_header_hash, pox_id))
+    pub fn get_sortition_id(&self, burnchain_header_hash: &BurnchainHeaderHash, sortition_tip: &SortitionId) -> Result<Option<SortitionId>, BurnchainError> {
+        let handle = self.index_handle(sortition_tip);
+        handle.get_sortition_id_for_bhh(burnchain_header_hash)
+            .map_err(BurnchainError::from)
     }
-    pub fn is_sortition_processed(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxId) -> Result<bool, BurnchainError> {
-        let sort_id = SortitionId::new(burnchain_header_hash, pox_id);
 
-        match SortitionDB::get_block_snapshot(&self.conn, &sort_id) {
-            Ok(opt_sn) => Ok(opt_sn.is_some()),
-            Err(e) => Err(BurnchainError::from(e))
-        }
+    pub fn is_sortition_processed(&self, burnchain_header_hash: &BurnchainHeaderHash, sortition_tip: &SortitionId) -> Result<bool, BurnchainError> {
+        self.get_sortition_id(burnchain_header_hash, sortition_tip)
+            .map(|x| x.is_some())
+    }
+
+    /// Is the given block an expected PoX anchor in this sortition history?
+    pub fn is_stacks_block_pox_anchor(&mut self, block: &StacksHeaderInfo, sortition_tip: &SortitionId) -> Option<StacksBlockId> {
+        // PoX TODO -- anchor block selection and tracking
+        return None;
     }
 
     /// Get the last sortition in the prepare phase that chose a particular Stacks block as the anchor,
@@ -1346,15 +1372,18 @@ impl SortitionDB {
         unimplemented!("");
     }
 
+    ///
+    /// # Arguments
+    /// * `burn_header` - the burnchain block header to process sortition for
+    /// * `ops` - the parsed blockstack operations (will be validated in this function)
+    /// * `burnchain` - a reference to the burnchain information struct
+    /// * `from_tip` - tip of the "sortition chain" that is being built on
+    /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
+    ///
     pub fn evaluate_sortition(&mut self, burn_header: &BurnchainBlockHeader, ops: Vec<BlockstackOperationType>,
-                              burnchain: &Burnchain, pox_id: &PoxId, pox_db: &PoxDB) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
-        let parent_pox = pox_db.get_canonical_pox_id(&burn_header.parent_block_hash)
-            .map_err(|_e| BurnchainError::MissingParentBlock)?;
-        let parent_sort_id = SortitionId::new(&burn_header.parent_block_hash, &parent_pox);
-
-        if !pox_db.is_pox_id_descendant(&parent_pox, pox_id) {
-            return Err(BurnchainError::NonCanonicalPoxId(parent_pox, pox_id.clone()));
-        }
+                              burnchain: &Burnchain, from_tip: &SortitionId, next_pox_info: Option<RewardCycleInfo>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+        let parent_sort_id = self.get_sortition_id(&burn_header.parent_block_hash, from_tip)?
+            .ok_or_else(|| BurnchainError::MissingParentBlock)?;
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
         let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&burn_header.parent_block_hash)?

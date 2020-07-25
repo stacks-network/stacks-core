@@ -1,7 +1,8 @@
 use std::collections::VecDeque;
 use std::thread;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, RwLock};
+use std::sync::mpsc::{
+    sync_channel, SyncSender, Receiver, TrySendError};
 use std::process;
 
 use burnchains::{
@@ -27,6 +28,8 @@ use burnchains::db::{
 use util::db::{
     Error as DBError
 };
+
+pub struct RewardCycleInfo;
 
 struct BlocksDB;
 impl BlocksDB {
@@ -84,10 +87,69 @@ impl From<DBError> for Error {
     }
 }
 
-impl ChainsCoordinator {
+struct CoordinatorChannels {
+    new_stacks_block_channel: SyncSender<()>,
+    new_burn_block_channel: SyncSender<()>
+}
 
-    pub fn new() -> ChainsCoordinator {
-        
+pub enum ChainsEventCallback {
+    BlockProcessed,
+    BurnchainBlockProcessed,
+}
+
+// Singleton for ChainsCoordinator
+
+lazy_static! {
+    // ChainsCoordinator takes two kinds of signals:
+    //    new stacks block & new burn block
+    // These signals can be coalesced -- the coordinator doesn't need
+    //    handles _all_ new blocks whenever it processes an event
+    //    because of this, we can avoid trying to set large bounds on these
+    //    event channels by using a coalescing thread.
+    static ref COORDINATOR_CHANNELS: RwLock<Option<CoordinatorChannels>> = RwLock::new(None);
+}
+
+impl ChainsCoordinator {
+    pub fn announce_new_stacks_block() {
+        let result = COORDINATOR_CHANNELS.read().unwrap()
+            .as_ref()
+            .expect("FAIL: attempted to announce new stacks block to chains coordinator, but instance not constructed.")
+            .new_stacks_block_channel
+            .try_send(());
+        match result {
+            // don't need to do anything if the channel is full -- the coordinator
+            //  will check for the new block when it processes the next block anyways
+            Ok(_) | Err(TrySendError::Full(_)) => {},
+            Err(TrySendError::Disconnected(_)) => {
+                warn!("ChainsCoordinator hung up, exiting...");
+                process::exit(-1);
+            },
+        }
+    }
+
+    pub fn announce_burn_stacks_block() {
+        let result = COORDINATOR_CHANNELS.read().unwrap()
+            .as_ref()
+            .expect("FAIL: attempted to announce new stacks block to chains coordinator, but instance not constructed.")
+            .new_burn_block_channel
+            .try_send(());
+        match result {
+            // don't need to do anything if the channel is full -- the coordinator
+            //  will check for the new block when it processes the next block anyways
+            Ok(_) | Err(TrySendError::Full(_)) => {},
+            Err(TrySendError::Disconnected(_)) => {
+                warn!("ChainsCoordinator hung up, exiting...");
+                process::exit(-1);
+            },
+        }
+    }
+
+    pub fn new() {
+        let mut channel_storage = COORDINATOR_CHANNELS.write().unwrap();
+        if channel_storage.is_some() {
+            panic!("FAIL: attempted to instantiate chains coordinator, but instance already constructed.");
+        }
+
         let blocks_db = BlocksDB::stubbed();
         let burnchain_blocks_db = BurnchainDB::open("burnchain.db", true).unwrap();
         let chain_state_db = StacksChainState::open(true, 0x80, "chainstate.db").unwrap();
@@ -96,7 +158,7 @@ impl ChainsCoordinator {
             "sortition_db", 0, &core::FIRST_BURNCHAIN_BLOCK_HASH, core::FIRST_BURNCHAIN_BLOCK_TIMESTAMP, true).unwrap();
         let burnchain = Burnchain::new("burnchain_dir", "bitcoin", "testnet").unwrap();
 
-        ChainsCoordinator {
+        let inst = ChainsCoordinator {
             canonical_burnchain_chain_tip: None,
             canonical_chain_tip: None,
             canonical_sortition_tip: None,
@@ -107,7 +169,15 @@ impl ChainsCoordinator {
             pox_db, 
             sortition_db,
             burnchain
-        }
+        };
+
+        let (stacks_block_sender, stacks_block_receiver) = sync_channel(1);
+        let (burn_block_sender, burn_block_receiver) = sync_channel(1);
+
+        channel_storage.replace(CoordinatorChannels {
+            new_stacks_block_channel: stacks_block_sender,
+            new_burn_block_channel: burn_block_sender
+        });
     }
 
     pub fn handle_new_burnchain_block(&mut self) -> Result<(), Error> {
@@ -122,30 +192,33 @@ impl ChainsCoordinator {
         }
 
         // Retrieve canonical pox id (<=> reward cycle id)
-        let pox_id = self.pox_db.get_canonical_pox_id(&canonical_burnchain_tip.block_hash)?;
+        let canonical_sortition_tip = self.canonical_sortition_tip.as_ref()
+            .expect("FAIL: no canonical sortition tip");
 
         // Retrieve all the direct ancestors of this block with an unprocessed sortition 
-        let mut cursor = (canonical_burnchain_tip.block_hash.clone(), pox_id);
+        let mut cursor = canonical_burnchain_tip.block_hash.clone();
         let mut sortitions_to_process = VecDeque::new();
 
         // We halt the ancestry research as soon as we find a processed parent
-        while !(self.sortition_db.is_sortition_processed(&cursor.0, &cursor.1)?) {
-            let current_block = self.burnchain_blocks_db.get_burnchain_block(&cursor.0)
+        while !(self.sortition_db.is_sortition_processed(&cursor, canonical_sortition_tip)?) {
+            let current_block = self.burnchain_blocks_db.get_burnchain_block(&cursor)
                 .map_err(|e| {
-                    warn!("ChainsCoordinator: could not retrieve  block burnhash={} (PoxId={})", &cursor.0, &cursor.1);
+                    warn!("ChainsCoordinator: could not retrieve  block burnhash={}", &cursor);
                     Error::NonContiguousBurnchainBlock(e)
                 })?;
 
             let parent = current_block.header.parent_block_hash.clone();
-            let parent_pox_id = self.pox_db.get_canonical_pox_id(&parent)?;
-            sortitions_to_process.push_front((current_block, cursor.1.clone()));
-            cursor = (parent, parent_pox_id);
+            sortitions_to_process.push_front(current_block);
+            cursor = parent;
         }
 
-        for (unprocessed_block, unprocessed_pox_id) in sortitions_to_process.drain(..) {
+        for unprocessed_block in sortitions_to_process.drain(..) {
             let BurnchainBlockData { header, ops } = unprocessed_block;
+            let canonical_sortition_tip = self.canonical_sortition_tip.as_ref()
+                .expect("FAIL: no canonical sortition tip");
+
             let sortition_id = self.sortition_db.evaluate_sortition(
-                &header, ops, &self.burnchain, &unprocessed_pox_id, &self.pox_db)
+                &header, ops, &self.burnchain, &canonical_sortition_tip, None)
                 .map_err(|e| {
                     error!("ChainsCoordinator: unable to evaluate sortition {:?}", e);
                     Error::FailedToProcessSortition(e)
@@ -159,11 +232,6 @@ impl ChainsCoordinator {
         Ok(())
     }
 
-    fn is_stacks_block_pox_anchor(&mut self, block: &StacksHeaderInfo) -> Option<StacksBlockId> {
-        // PoX TODO -- anchor block selection and tracking
-        return None;
-    }
-
     ///
     /// Process any ready staging blocks until there are no more to process
     ///  _or_ a PoX anchor block is discovered.
@@ -171,15 +239,18 @@ impl ChainsCoordinator {
     /// Returns Some(StacksBlockId) if an anchor block is discovered,
     ///   otherwise returns None
     fn process_ready_blocks(&mut self) -> Result<Option<StacksBlockId>, Error> {
-        let mut processed_blocks = self.chain_state_db.process_blocks(&mut self.sortition_db, 1)?;
+        let canonical_sortition_tip = self.canonical_sortition_tip.as_ref()
+            .expect("FAIL: processing a new Stacks block, but don't have a canonical sortition tip");
+
+        let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+
+        let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
                 // only bump the coordinator's state if the processed block
                 //   is in our sortition fork
                 //  TODO: we should update the staging block logic to prevent
                 //    blocks like these from getting processed at all.
-                let canonical_sortition_tip = self.canonical_sortition_tip.as_ref()
-                        .expect("FAIL: processing a new Stacks block, but don't have a canonical sortition tip");
                 let in_sortition_set = self.sortition_db.is_stacks_block_in_sortition_set(
                     canonical_sortition_tip, &block_receipt.header.anchored_header.block_hash())?;
                 if in_sortition_set {
@@ -187,7 +258,7 @@ impl ChainsCoordinator {
                         .expect(&format!("FAIL: could not find data for the canonical sortition {}", canonical_sortition_tip))
                         .get_canonical_stacks_block_id();
                     self.canonical_chain_tip = Some(new_canonical_stacks_block);
-                    if let Some(pox_anchor) = self.is_stacks_block_pox_anchor(&block_receipt.header) {
+                    if let Some(pox_anchor) = self.sortition_db.is_stacks_block_pox_anchor(&block_receipt.header, canonical_sortition_tip) {
                         return Ok(Some(pox_anchor));
                     }
                 }
@@ -239,22 +310,7 @@ impl ChainsCoordinator {
         self.handle_new_burnchain_block()
     }
 
-    #[allow(unused_variables)]
-    fn process_block(&self, block: &StacksBlock) -> Result<bool, Error> {
-        unimplemented!()
-    }
-
     fn discover_new_pox_anchor(&mut self, block_id: &StacksBlockId) -> Result<(), Error> {
         self.pox_db.process_anchor(block_id, &self.chain_state_db)
     }
-}
-
-pub enum ChainsEvent {
-    BlockDiscovered(Option<Sender<ChainsEventCallback>>),
-    BurnchainBlockDiscovered(Option<Sender<ChainsEventCallback>>),
-}
-
-pub enum ChainsEventCallback {
-    BlockProcessed,
-    BurnchainBlockProcessed,
 }

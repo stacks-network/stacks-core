@@ -816,7 +816,11 @@ impl Relayer {
         
         // process as many epochs as we can.
         let max_epochs = if new_blocks.len() < 1024 { 1024 } else { new_blocks.len() };
-        let receipts: Vec<_> = chainstate.process_blocks(sortdb, max_epochs)?.into_iter()
+
+        let sort_chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn())?;
+        let sort_handle = sortdb.tx_handle_begin(&sort_chain_tip.sortition_id)?;
+
+        let receipts: Vec<_> = chainstate.process_blocks(sort_handle, max_epochs)?.into_iter()
             .filter_map(|block_result| block_result.0).collect();
 
         if receipts.len() > 0 || network_result.uploaded_microblocks.len() > 0 {
