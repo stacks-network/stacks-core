@@ -361,7 +361,7 @@ impl Burnchain {
         Ok(())
     }
 
-    fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
+    pub fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
         let indexer : I = BurnchainIndexer::init(&self.working_dir, &self.network_name)?;
@@ -409,7 +409,7 @@ impl Burnchain {
         db_path
     }
 
-    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
+    pub fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
         let first_block_height = indexer.get_first_block_height();

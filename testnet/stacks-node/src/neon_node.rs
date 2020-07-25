@@ -28,16 +28,17 @@ use stacks::chainstate::stacks::{Error as ChainstateError};
 use stacks::chainstate::stacks::StacksPublicKey;
 
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
-use stacks::util::hash::Hash160;
-use stacks::util::hash::Sha256Sum;
+use stacks::util::hash::{
+    Hash160, Sha256Sum, to_hex
+};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::net::{
     db::{ PeerDB, LocalPeer }, relay::Relayer,
-    p2p::PeerNetwork, Error as NetError, PeerAddress,
+    dns::DNSResolver, p2p::PeerNetwork,
+    Error as NetError, PeerAddress, StacksMessageCodec,
     NetworkResult, rpc::RPCHandlerArgs
 };
 use std::sync::mpsc;
@@ -437,6 +438,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                 Ok(x) => x,
                                 Err(e) => {
                                     warn!("Error processing my tenure, bad block produced: {}", e);
+                                    warn!("Bad block stacks_header={}, data={}",
+                                          block_header_hash, to_hex(&mined_block.serialize_to_vec()));
                                     continue;
                                 }
                             };

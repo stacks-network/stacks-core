@@ -1102,7 +1102,7 @@ const USE_TRAIT_API: DefineAPI = DefineAPI {
     output_type: "Not Applicable",
     signature: "(use-trait trait-alias trait-identifier)",
     description: "`use-trait` is used to bring a trait, defined in another contract, to the current contract. Subsequent
-references to an imported trait are signaled with the syntax <trait-alias>.
+references to an imported trait are signaled with the syntax `<trait-alias>`.
 
 Traits import are defined with a name, used as an alias, and a trait identifier. Trait identifiers can either be
 using the sugared syntax (.token-a.token-trait), or be fully qualified ('SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait).

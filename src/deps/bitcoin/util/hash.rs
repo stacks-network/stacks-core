@@ -20,11 +20,11 @@ use std::cmp::min;
 use std::default::Default;
 use std::error;
 use std::fmt;
-use std::io::Cursor;
+use std::io::{
+    Cursor, Write
+};
 use std::mem;
 #[cfg(feature = "serde")] use serde;
-
-use byteorder::{LittleEndian, WriteBytesExt};
 
 use ripemd160::Ripemd160;
 use sha2::Sha256;
@@ -70,42 +70,42 @@ impl Sha256dEncoder {
 impl SimpleEncoder for Sha256dEncoder {
     fn emit_u64(&mut self, v: u64) -> Result<(), serialize::Error> {
         let mut data = [0; 8];
-        (&mut data[..]).write_u64::<LittleEndian>(v).unwrap();
+        (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
         self.0.input(&data);
         Ok(())
     }
 
     fn emit_u32(&mut self, v: u32) -> Result<(), serialize::Error> {
         let mut data = [0; 4];
-        (&mut data[..]).write_u32::<LittleEndian>(v).unwrap();
+        (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
         self.0.input(&data);
         Ok(())
     }
 
     fn emit_u16(&mut self, v: u16) -> Result<(), serialize::Error> {
         let mut data = [0; 2];
-        (&mut data[..]).write_u16::<LittleEndian>(v).unwrap();
+        (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
         self.0.input(&data);
         Ok(())
     }
 
     fn emit_i64(&mut self, v: i64) -> Result<(), serialize::Error> {
         let mut data = [0; 8];
-        (&mut data[..]).write_i64::<LittleEndian>(v).unwrap();
+        (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
         self.0.input(&data);
         Ok(())
     }
 
     fn emit_i32(&mut self, v: i32) -> Result<(), serialize::Error> {
         let mut data = [0; 4];
-        (&mut data[..]).write_i32::<LittleEndian>(v).unwrap();
+        (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
         self.0.input(&data);
         Ok(())
     }
 
     fn emit_i16(&mut self, v: i16) -> Result<(), serialize::Error> {
         let mut data = [0; 2];
-        (&mut data[..]).write_i16::<LittleEndian>(v).unwrap();
+        (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
         self.0.input(&data);
         Ok(())
     }

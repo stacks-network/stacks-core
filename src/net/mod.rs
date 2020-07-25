@@ -2168,6 +2168,38 @@ pub mod test {
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
         }
+        
+        pub fn process_stacks_epoch(&mut self, block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, microblocks: &Vec<StacksMicroblock>) -> () {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            {
+                let ic = sortdb.index_conn();
+                Relayer::process_new_anchored_block(&ic, &mut node.chainstate, burn_header_hash, block).unwrap();
+                
+                let block_hash = block.block_hash();
+                for mblock in microblocks.iter() {
+                    node.chainstate.preprocess_streamed_microblock(burn_header_hash, &block_hash, mblock).unwrap();
+                }
+            }
+    
+            loop {
+                let processed = node.chainstate.process_blocks(&mut sortdb, 1).unwrap();
+                if processed.len() == 0 {
+                    break;
+                }
+                match processed[0] {
+                    (Some(ref header_info), _) => {
+                        continue;
+                    },
+                    (None, _) => {
+                        break;
+                    }
+                }
+            }
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
+        }
 
         pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
             self.next_burnchain_block(vec![])

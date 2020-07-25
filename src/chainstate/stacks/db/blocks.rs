@@ -296,7 +296,7 @@ impl FromRow<StagingBlock> for StagingBlock {
 
         let processed = processed_i64 != 0;
         let attachable = attachable_i64 != 0;
-        let orphaned = orphaned_i64 == 0;
+        let orphaned = orphaned_i64 != 0;
 
         Ok(StagingBlock {
             anchored_block_hash,
@@ -482,7 +482,8 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_blocks_db(&mut conn)?;
         }
-        
+       
+        debug!("Opened blocks DB {}", db_path);
         Ok(conn)
     }
     
@@ -695,6 +696,13 @@ impl StacksChainState {
             .map_err(Error::DBError)?;
 
         Ok(blocks.drain(..).map(|b| (b.consensus_hash, b.anchored_block_hash)).collect())
+    }
+
+    /// Get all stacks block headers.  Great for testing!
+    pub fn get_all_staging_block_headers(blocks_conn: &DBConn) -> Result<Vec<StagingBlock>, Error> {
+        let sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
+        query_rows::<StagingBlock, _>(blocks_conn, &sql, NO_PARAMS)
+            .map_err(Error::DBError)
     }
 
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
@@ -2382,6 +2390,7 @@ impl StacksChainState {
     }
 
     /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
+    /// This does not work when forking
     #[cfg(test)]
     pub fn preprocess_stacks_epoch(&mut self, sort_ic: &SortitionDBConn, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
         let parent_sn = {
@@ -2725,7 +2734,8 @@ impl StacksChainState {
                     }
                 };
 
-            debug!("Grant miner {} {} STX", miner_reward.address.to_string(), miner_reward_total);
+            debug!("Grant miner {} {} STX. Updated to: {}", miner_reward.address.to_string(), miner_reward_total,
+                   &new_miner_status);
             db.set_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, miner_principal, new_miner_status)?;
             Ok(())
         })}).map_err(Error::ClarityError)?;
@@ -2797,7 +2807,7 @@ impl StacksChainState {
                     let last_microblock_hash = microblocks[num_mblocks-1].block_hash();
                     let last_microblock_seq = microblocks[num_mblocks-1].header.sequence;
 
-                    test_debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_consensus_hash, _first_mblock_hash, last_microblock_hash, parent_consensus_hash, parent_block_hash);
+                    debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_consensus_hash, _first_mblock_hash, last_microblock_hash, parent_consensus_hash, parent_block_hash);
                     (last_microblock_hash, last_microblock_seq)
                 }
                 else {
@@ -2828,10 +2838,10 @@ impl StacksChainState {
 
             let microblock_cost = clarity_tx.cost_so_far();
             
-            test_debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
-                        chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
-                        block.header.total_work.work, block.header.total_work.burn,
-                        last_microblock_hash, last_microblock_seq, microblocks.len());
+            debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
+                   chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
+                   block.header.total_work.work, block.header.total_work.burn,
+                   last_microblock_hash, last_microblock_seq, microblocks.len());
 
             // process anchored block
             let (block_fees, block_burns, mut txs_receipts) = match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
@@ -2939,7 +2949,7 @@ impl StacksChainState {
     ///
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
-    fn process_next_staging_block(&mut self, sort_tx: &mut SortitionDBTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
+    pub fn process_next_staging_block(&mut self, sort_tx: &mut SortitionDBTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
