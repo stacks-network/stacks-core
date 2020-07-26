@@ -23,6 +23,8 @@ jobs:
         run: build-scripts/build-dist.sh
 
       - name: Upload artifact
+        # Only upload the artifacts if we're actually pushed to master
+        if: ${{ github.event_name == 'push' }}
         uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.platform }}
