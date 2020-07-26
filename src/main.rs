@@ -473,7 +473,7 @@ fn main() {
                             }
                         }
                         else {
-                            warn!("Missing stacks block {}/{}", &new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash);
+                            warn!("Missing stacks block {}/{}", &new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash);
                         }
 
                         next_arrival += 1;

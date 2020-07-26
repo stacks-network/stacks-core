@@ -2802,7 +2802,6 @@ impl StacksChainState {
                     let last_microblock_seq = microblocks[num_mblocks-1].header.sequence;
 
                     debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_consensus_hash, _first_mblock_hash, last_microblock_hash, parent_consensus_hash, parent_block_hash);
-                    
                     (last_microblock_hash, last_microblock_seq)
                 }
                 else {
@@ -2837,7 +2836,7 @@ impl StacksChainState {
                    chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
                    block.header.total_work.work, block.header.total_work.burn,
                    last_microblock_hash, last_microblock_seq, microblocks.len());
-            
+
             // process anchored block
             let (block_fees, block_burns, mut txs_receipts) = match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
                 Err(e) => {
