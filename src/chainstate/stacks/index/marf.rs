@@ -2358,6 +2358,10 @@ mod test {
 
     #[test]
     fn test_marf_unconfirmed() {
+        if fs::metadata("/tmp/test_marf_unconfirmed").is_ok() {
+            fs::remove_file("/tmp/test_marf_unconfirmed").unwrap();
+        }
+
         let f = TrieFileStorage::<StacksBlockId>::open_unconfirmed("/tmp/test_marf_unconfirmed").unwrap();
         let mut marf = MARF::<StacksBlockId>::from_storage(f);
         

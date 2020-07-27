@@ -586,6 +586,11 @@ impl <'a> SortitionDBTx <'a> {
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip, and calculate and store its arrival index.
     /// If this Stacks block extends the canonical stacks chain tip, then also update the memoized canonical
     /// stacks chain tip metadata on the burn chain tip.
+    // TODO: this method's inner call to get_indexed() occurs within a MARF transaction, which
+    // means it will clone() the underlying TrieRAM.  Until this is rectified, care should be taken
+    // to ensure that no keys are inserted until after this method is called.  This should already
+    // be the case, since the only time keys are inserted into the sortition DB MARF is when the
+    // next snapshot is processed (whereas this method is called when a Stacks epoch is processed).
     fn set_stacks_block_accepted_at_tip(&mut self, burn_tip: &BlockSnapshot, burn_header_hash: &BurnchainHeaderHash,
                                         parent_stacks_block_hash: &BlockHeaderHash, stacks_block_hash: &BlockHeaderHash, stacks_block_height: u64) -> Result<(), db_error> {
         let arrival_index = SortitionDB::get_max_arrival_index(self)?;
@@ -619,12 +624,13 @@ impl <'a> SortitionDBTx <'a> {
             let height_opt = match SortitionDB::get_accepted_stacks_block_pointer(self, &burn_tip.burn_header_hash, parent_stacks_block_hash)? {
                 // this block builds on a block accepted _after_ this burn chain tip was processed?
                 Some(accepted_header) => Some(accepted_header.height),
-                None =>
+                None => {
                     match self.get_indexed(&burn_tip.sortition_id, &parent_key)? {
                         // this block builds on a block accepted _before_ this burn chain tip was processed?
                         Some(height_str) => Some(height_str.parse::<u64>().expect(&format!("BUG: MARF stacks block key '{}' does not map to a u64", parent_key))),
                         None => None
                     }
+                }
             };
             match height_opt {
                 Some(height) => {
@@ -1911,7 +1917,6 @@ impl <'a> SortitionHandleTx <'a> {
         self.put_indexed_begin(&parent_snapshot.sortition_id, &snapshot.sortition_id)?;
 
         let root_hash = self.put_indexed_all(&keys, &values)?;
-        self.indexed_commit()?;
         self.context.chain_tip = snapshot.sortition_id.clone();
         Ok(root_hash)
     }
