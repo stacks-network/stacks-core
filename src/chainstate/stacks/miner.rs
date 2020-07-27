@@ -498,7 +498,7 @@ impl StacksBlockBuilder {
 
         test_debug!("\n\nMiner {}: Mined anchored block {}, {} transactions, state root is {}\n", self.miner_id, block.block_hash(), block.txs.len(), state_root_hash);
 
-        info!("Miner: mined anchored block {}, parent block {}", block.block_hash(), &self.header.parent_block);
+        info!("Miner: mined anchored block {}, parent block {}, state root = {}", block.block_hash(), &self.header.parent_block, state_root_hash);
 
         block
     }
@@ -4091,6 +4091,197 @@ pub mod test {
             test_debug!("\n\ncheck tenure {}: {} transactions\n", tenure_id, stacks_block.txs.len());
             
             // assert_eq!(stacks_block.txs.len(), 1);
+        }
+    }
+    
+    #[test]
+    fn test_build_anchored_blocks_invalid() {
+        let peer_config = TestPeerConfig::new("test_build_anchored_blocks_invalid", 2014, 2015);
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let mut last_block : Option<StacksBlock> = None;
+        let mut last_valid_block : Option<StacksBlock> = None;
+        let mut last_tip : Option<BlockSnapshot> = None;
+        let mut last_parent : Option<StacksBlock> = None;
+        let mut last_parent_tip : Option<StacksHeaderInfo> = None;
+
+        let bad_block_tenure = 6;
+        let bad_block_ancestor_tenure = 3;
+        let resume_parent_tenure = 5;
+
+        let mut bad_block_tip : Option<BlockSnapshot> = None;
+        let mut bad_block_parent : Option<StacksBlock> = None;
+        let mut bad_block_parent_tip : Option<StacksHeaderInfo> = None;
+        let mut bad_block_parent_commit : Option<LeaderBlockCommitOp> = None;
+
+        let mut resume_tenure_parent_commit : Option<LeaderBlockCommitOp> = None;
+        let mut resume_tip : Option<BlockSnapshot> = None;
+
+        for tenure_id in 0..num_blocks {
+            // send transactions to the mempool
+            let mut tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            
+            if tenure_id == bad_block_ancestor_tenure {
+                bad_block_tip = Some(tip.clone());
+            }
+            else if tenure_id == bad_block_tenure {
+                tip = bad_block_tip.clone().unwrap();
+            }
+            else if tenure_id == resume_parent_tenure {
+                resume_tip = Some(tip.clone());
+            }
+            else if tenure_id == bad_block_tenure + 1 {
+                tip = resume_tip.clone().unwrap();
+            }
+
+            last_tip = Some(tip.clone());
+
+            let (mut burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_opt = 
+                    if tenure_id != bad_block_tenure {
+                        if let Some(p) = &last_parent {
+                            assert!(tenure_id == bad_block_tenure + 1);
+                            Some(p.clone())
+                        }
+                        else {
+                            assert!(tenure_id != bad_block_tenure + 1);
+                            match parent_opt {
+                                Some(p) => Some((*p).clone()),
+                                None => None
+                            }
+                        }
+                    }
+                    else {
+                        bad_block_parent.clone()
+                    };
+
+                let parent_tip = 
+                    if tenure_id != bad_block_tenure {
+                        if let Some(tip) = &last_parent_tip {
+                            assert!(tenure_id == bad_block_tenure + 1);
+                            tip.clone()
+                        }
+                        else {
+                            assert!(tenure_id != bad_block_tenure + 1);
+                            match parent_opt {
+                                None => {
+                                    StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                                }
+                                Some(ref block) => {
+                                    let ic = sortdb.index_conn();
+                                    let parent_block_hash = 
+                                        if let Some(ref block) = last_valid_block.as_ref() {
+                                            block.block_hash()
+                                        }
+                                        else {
+                                            block.block_hash()
+                                        };
+
+                                    let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &parent_block_hash).unwrap().unwrap();      // succeeds because we don't fork
+                                    StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        bad_block_parent_tip.clone().unwrap()
+                    };
+
+                if tenure_id == resume_parent_tenure {
+                    // resume here
+                    last_parent = parent_opt.clone();
+                    last_parent_tip = Some(parent_tip.clone());
+
+                    eprintln!("\n\nat resume parent tenure:\nlast_parent: {:?}\nlast_parent_tip: {:?}\n\n", &last_parent, &last_parent_tip);
+                }
+                else if tenure_id >= bad_block_tenure + 1 {
+                    last_parent = None;
+                    last_parent_tip = None;
+                }
+
+                if tenure_id == bad_block_ancestor_tenure {
+                    bad_block_parent_tip = Some(parent_tip.clone());
+                    bad_block_parent = parent_opt.clone();
+
+                    eprintln!("\n\nancestor of corrupt block: {:?}\n", &parent_tip);
+                }
+                
+                if tenure_id == bad_block_tenure + 1 {
+                    // prior block was invalid; reset nonce
+                    miner.set_nonce(resume_parent_tenure as u64);
+                }
+                else if tenure_id == bad_block_tenure {
+                    // building off of a long-gone snapshot
+                    miner.set_nonce(miner.get_nonce() - ((bad_block_tenure - bad_block_ancestor_tenure) as u64));
+                }
+
+                let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+                let coinbase_tx = make_coinbase(miner, tenure_id as usize);
+
+                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+
+                if tenure_id == bad_block_tenure {
+                    // corrupt the block
+                    eprintln!("\n\ncorrupt block {:?}\nparent: {:?}\n", &anchored_block.0.header, &parent_tip.anchored_header);
+                    anchored_block.0.header.state_index_root = TrieHash([0xff; 32]);
+                }
+
+                (anchored_block.0, vec![])
+            });
+
+            if tenure_id == bad_block_tenure + 1 {
+                // adjust
+                for i in 0..burn_ops.len() {
+                    if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+                        opdata.parent_block_ptr = (resume_tenure_parent_commit.as_ref().unwrap().block_height as u32) - 1;
+                    }
+                }
+            }
+            else if tenure_id == bad_block_tenure {
+                // adjust
+                for i in 0..burn_ops.len() {
+                    if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+                        opdata.parent_block_ptr = (bad_block_parent_commit.as_ref().unwrap().block_height as u32) - 1;
+                        eprintln!("\n\ncorrupt block commit is now {:?}\n", opdata);
+                    }
+                }
+            }
+            else if tenure_id == bad_block_ancestor_tenure {
+                // find
+                for i in 0..burn_ops.len() {
+                    if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+                        bad_block_parent_commit = Some(opdata.clone());
+                    }
+                }
+            }
+            else if tenure_id == resume_parent_tenure {
+                // find 
+                for i in 0..burn_ops.len() {
+                    if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+                        resume_tenure_parent_commit = Some(opdata.clone());
+                    }
+                }
+            }
+
+            if tenure_id != bad_block_tenure { 
+                last_block = Some(stacks_block.clone());
+                last_valid_block = last_block.clone();
+            }
+            else {
+                last_block = last_valid_block.clone();
+            }
+
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch(&stacks_block, &consensus_hash, &microblocks);
         }
     }
 

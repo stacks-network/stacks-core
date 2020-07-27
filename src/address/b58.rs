@@ -16,7 +16,6 @@
 
 use std::{error, fmt, str};
 
-use byteorder::{ByteOrder, LittleEndian};
 use util::hash::DoubleSha256;
 use address::Error;
 
@@ -80,7 +79,11 @@ pub fn from_check(data: &str) -> Result<Vec<u8>, Error> {
     }
     let ck_start = ret.len() - 4;
     let expected = DoubleSha256::from_data(&ret[..ck_start]).into_le().low_u32();
-    let actual = LittleEndian::read_u32(&ret[ck_start..(ck_start + 4)]);
+
+    let mut actual_buff = [0; 4];
+    actual_buff.copy_from_slice(&ret[ck_start..(ck_start + 4)]);
+    let actual = u32::from_le_bytes(actual_buff);
+
     if expected != actual {
         return Err(Error::BadChecksum(expected, actual));
     }
