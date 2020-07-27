@@ -1911,7 +1911,6 @@ impl <'a> SortitionHandleTx <'a> {
         self.put_indexed_begin(&parent_snapshot.sortition_id, &snapshot.sortition_id)?;
 
         let root_hash = self.put_indexed_all(&keys, &values)?;
-        self.indexed_commit()?;
         self.context.chain_tip = snapshot.sortition_id.clone();
         Ok(root_hash)
     }
