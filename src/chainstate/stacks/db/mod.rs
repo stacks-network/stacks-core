@@ -458,7 +458,7 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
 ];
 
 /// Built-in "system-level" smart contracts that are there from the beginning.
-/// Includes BNS and the miner trust fund.
+/// Includes BNS, PoX.
 #[cfg(test)]
 const STACKS_MINER_AUTH_KEY : &'static str = "a5879925788dcb3fe1f2737453e371ba04c4064e6609552ef59a126ac4fa598001";
 
