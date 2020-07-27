@@ -258,7 +258,6 @@ impl NetworkHandleServer {
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum PeerNetworkWorkState {
     GetPublicIP,
-    ConfirmPublicIP,
     BlockInvSync,
     BlockDownload,
     Prune
@@ -337,12 +336,9 @@ pub struct PeerNetwork {
     // our public IP address that we give out in our handshakes
     pub public_ip_learned: bool,        // was the IP address given to us, or did we have to go learn it?
     pub public_ip_confirmed: bool,      // once we learned the IP address, were we able to confirm it by self-connecting?
-    public_ip_address_unconfirmed: Option<(PeerAddress, u16)>,
     public_ip_requested_at: u64,
     public_ip_learned_at: u64,
     public_ip_reply_handle: Option<ReplyHandleP2P>,
-    public_ip_self_event_id: usize,
-    public_ip_ping_nonce: u32,
     public_ip_retries: u64,
 }
 
@@ -404,14 +400,11 @@ impl PeerNetwork {
                 port: 0
             },
 
-            public_ip_address_unconfirmed: pub_ip.clone(),
             public_ip_learned: pub_ip_learned,
             public_ip_requested_at: 0,
             public_ip_learned_at: 0,
             public_ip_confirmed: false,
             public_ip_reply_handle: None,
-            public_ip_self_event_id: 0,
-            public_ip_ping_nonce: 0,
             public_ip_retries: 0
         }
     }
@@ -983,23 +976,17 @@ impl PeerNetwork {
     /// Check to see if we can register the given socket
     /// * we can't have registered this neighbor already
     /// * if this is inbound, we can't add more than self.num_clients
-    fn can_register_peer(&mut self, event_id: usize, neighbor_key: &NeighborKey, outbound: bool) -> Result<(), net_error> {
-        if !(!self.public_ip_confirmed && self.public_ip_self_event_id == event_id) {
-            // (this is _not_ us connecting to ourselves)
-            // don't talk to our bind address 
-            if self.is_bound(neighbor_key) {
-                debug!("{:?}: do not register myself at {:?}", &self.local_peer, neighbor_key);
-                return Err(net_error::Denied);
-            }
-
-            // denied?
-            if PeerDB::is_peer_denied(&self.peerdb.conn(), neighbor_key.network_id, &neighbor_key.addrbytes, neighbor_key.port)? {
-                info!("{:?}: Peer {:?} is denied; dropping", &self.local_peer, neighbor_key);
-                return Err(net_error::Denied);
-            }
+    fn can_register_peer(&mut self, neighbor_key: &NeighborKey, outbound: bool) -> Result<(), net_error> {
+        // don't talk to our bind address 
+        if self.is_bound(neighbor_key) {
+            debug!("{:?}: do not register myself at {:?}", &self.local_peer, neighbor_key);
+            return Err(net_error::Denied);
         }
-        else {
-            debug!("{:?}: skip deny check for verifying my IP address (event {})", &self.local_peer, event_id);
+
+        // denied?
+        if PeerDB::is_peer_denied(&self.peerdb.conn(), neighbor_key.network_id, &neighbor_key.addrbytes, neighbor_key.port)? {
+            info!("{:?}: Peer {:?} is denied; dropping", &self.local_peer, neighbor_key);
+            return Err(net_error::Denied);
         }
         
         // already connected?
@@ -1053,7 +1040,7 @@ impl PeerNetwork {
             None => (None, NeighborKey::from_socketaddr(self.peer_version, self.local_peer.network_id, &client_addr))
         };
 
-        match self.can_register_peer(event_id, &neighbor_key, outbound) {
+        match self.can_register_peer(&neighbor_key, outbound) {
             Ok(_) => {},
             Err(e) => {
                 debug!("Could not register peer {:?}: {:?}", &neighbor_key, &e);
@@ -1659,7 +1646,7 @@ impl PeerNetwork {
 
         debug!("{:?}: begin obtaining public IP address", &self.local_peer);
 
-        // pick a random outbound conversation
+        // pick a random outbound conversation to one of the initial neighbors
         let mut idx = thread_rng().gen::<usize>() % self.peers.len();
         for _ in 0..self.peers.len()+1 {
             let event_id = match self.peers.keys().skip(idx).next() {
@@ -1673,6 +1660,10 @@ impl PeerNetwork {
 
             if let Some(convo) = self.peers.get_mut(&event_id) {
                 if !convo.is_authenticated() || !convo.is_outbound() {
+                    continue;
+                }
+
+                if !PeerDB::is_initial_peer(self.peerdb.conn(), convo.peer_network_id, &convo.peer_addrbytes, convo.peer_port)? {
                     continue;
                 }
 
@@ -1709,7 +1700,6 @@ impl PeerNetwork {
         return Ok(true);
     }
 
-
     /// Learn this peer's public IP address.
     /// If it was given to us directly, then we can just skip this step.
     /// Once learned, we'll confirm it by trying to self-connect.
@@ -1738,13 +1728,26 @@ impl PeerNetwork {
                 Ok(message) => match message.payload {
                     StacksMessageType::NatPunchReply(data) => {
                         // peer offers us our public IP address.
-                        // confirm it by self-connecting
-                        debug!("{:?}: learned that my IP address is supposidly {:?}", &self.local_peer, &data.addrbytes);
+                        info!("{:?}: learned that my IP address is {:?}", &self.local_peer, &data.addrbytes);
+                        self.public_ip_confirmed = true;
+                        self.public_ip_learned_at = get_epoch_time_secs();
+                        self.public_ip_retries = 0;
 
-                        // prepare for the next step -- confirming the public IP address
-                        self.public_ip_confirmed = false;
-                        self.public_ip_self_event_id = 0;
-                        self.public_ip_address_unconfirmed = Some((data.addrbytes, self.bind_nk.port));
+                        // if our IP address changed, then disconnect witih everyone
+                        let old_ip = self.local_peer.public_ip_address.clone();
+                        self.local_peer.public_ip_address = Some((data.addrbytes, self.bind_nk.port));
+
+                        if old_ip != self.local_peer.public_ip_address {
+                            let mut all_event_ids = vec![];
+                            for (eid, _) in self.peers.iter() {
+                                all_event_ids.push(*eid);
+                            }
+                            
+                            info!("IP address changed from {:?} to {:?}; closing all connections and re-establishing them", &old_ip, &self.local_peer.public_ip_address);
+                            for eid in all_event_ids.into_iter() {
+                                self.deregister_peer(eid);
+                            }
+                        }
                         return Ok(true);
                     },
                     other_payload => {
@@ -1769,162 +1772,6 @@ impl PeerNetwork {
             }
         }
 
-        return Ok(true);
-    }
-
-    /// Begin the process of confirming our public IP address
-    /// Return Ok(finished preparing to confirm the IP address)
-    /// return Err(..) on failure
-    fn begin_ping_public_ip(&mut self, public_ip: (PeerAddress, u16)) -> Result<bool, net_error> {
-        // ping ourselves using our public IP 
-        if self.public_ip_self_event_id == 0 {
-            debug!("{:?}: Begin confirming public IP address", &self.local_peer);
-
-            // connect to ourselves
-            let public_nk = NeighborKey {
-                network_id: self.local_peer.network_id,
-                peer_version: self.peer_version, 
-                addrbytes: public_ip.0.clone(),
-                port: public_ip.1
-            };
-
-            let event_id = match self.connect_peer_deny_checks(&public_nk, false) {
-                Ok(eid) => eid,
-                Err(net_error::AlreadyConnected(eid)) => eid,   // weird if this happens, but you never know
-                Err(e) => {
-                    info!("Failed to connect to my IP address: {:?}", &e);
-                    return Err(e);
-                }
-            };
-
-            self.public_ip_self_event_id = event_id;
-
-            // call again
-            return Ok(false);
-        }
-        else if self.connecting.contains_key(&self.public_ip_self_event_id) {
-            debug!("{:?}: still connecting to myself at {:?}", &self.local_peer, &public_ip);
-
-            // call again
-            return Ok(false);
-        }
-        else if let Some(ref mut convo) = self.peers.get_mut(&self.public_ip_self_event_id) {
-            // connected!  Ping myself with another natpunch
-            debug!("{:?}: Pinging myself at {:?}", &self.local_peer, &public_ip);
-
-            let nonce = thread_rng().gen::<u32>();
-            let ping_natpunch = StacksMessageType::NatPunchRequest(nonce);
-            self.public_ip_ping_nonce = nonce;
-            let ping_request = convo.sign_message(&self.chain_view, &self.local_peer.private_key, ping_natpunch)
-                .map_err(|e| {
-                    info!("Failed to sign ping to myself: {:?}", &e);
-                    e
-                })?;
-
-            let mut rh = convo.send_signed_request(ping_request, self.connection_opts.timeout)
-                .map_err(|e| {
-                    info!("Failed to send ping to myself: {:?}", &e);
-                    e
-                })?;
-
-            self.saturate_p2p_socket(self.public_ip_self_event_id, &mut rh)
-                .map_err(|e| {
-                    info!("Failed to saturate ping socket to myself");
-                    e
-                })?;
-
-            self.public_ip_reply_handle = Some(rh);
-            return Ok(true);
-        }
-        else {
-            // could not connect (timed out or the like)
-            info!("{:?}: Failed to connect to myself for IP confirmation", &self.local_peer);
-            return Ok(true);
-        }
-    }
-    
-    /// Confirm our public IP address if we had to learn it -- try to connect to ourselves via a
-    /// ping, and if we succeed, we know that the peer we learned it from was being honest (enough)
-    /// Return Ok(done with this step?) on success
-    /// Return Err(..) on failure
-    fn do_ping_public_ip(&mut self) -> Result<bool, net_error> {
-        assert!(self.public_ip_address_unconfirmed.is_some());
-        let public_ip = self.public_ip_address_unconfirmed.clone().unwrap();
-
-        if self.public_ip_reply_handle.is_none() {
-            if !self.begin_ping_public_ip(public_ip.clone())? {
-                return Ok(false);
-            }
-        }
-
-        let rh_opt = self.public_ip_reply_handle.take();
-        if let Some(mut rh) = rh_opt {
-            debug!("{:?}: waiting for Pong from myself to confirm my IP address", &self.local_peer);
-
-            if let Err(e) = self.saturate_p2p_socket(rh.get_event_id(), &mut rh) {
-                info!("{:?}: Failed to ping myself to confirm my IP address", &self.local_peer);
-                return Err(e);
-            }
-
-            match rh.try_send_recv() {
-                Ok(message) => {
-                    // disconnect from myself
-                    self.deregister_peer(self.public_ip_self_event_id);
-                    self.public_ip_self_event_id = 0;
-
-                    match message.payload {
-                        StacksMessageType::NatPunchReply(data) => {
-                            if data.nonce == self.public_ip_ping_nonce {
-                                // confirmed!
-                                info!("{:?}: confirmed my public IP to be {:?}", &self.local_peer, &public_ip);
-                                self.public_ip_confirmed = true;
-                                self.public_ip_learned_at = get_epoch_time_secs();
-                                self.public_ip_retries = 0;
-
-                                // if our IP address changed, then disconnect witih everyone
-                                let old_ip = self.local_peer.public_ip_address.clone();
-                                self.local_peer.public_ip_address = self.public_ip_address_unconfirmed.clone();
-
-                                if old_ip != self.local_peer.public_ip_address {
-                                    let mut all_event_ids = vec![];
-                                    for (eid, _) in self.peers.iter() {
-                                        all_event_ids.push(*eid);
-                                    }
-                                    
-                                    info!("IP address changed from {:?} to {:?}; closing all connections and re-establishing them", &old_ip, &self.local_peer.public_ip_address);
-                                    for eid in all_event_ids.into_iter() {
-                                        self.deregister_peer(eid);
-                                    }
-                                }
-                                return Ok(true);
-                            }
-                            else {
-                                // weird response
-                                info!("{:?}: invalid Pong response to myself: {} != {}", &self.local_peer, data.nonce, self.public_ip_ping_nonce);
-                                return Err(net_error::InvalidMessage);
-                            }
-                        },
-                        other_payload => {
-                            info!("{:?}: unexpected response to my public IP confirmation ping: {:?}", &self.local_peer, &other_payload);
-                            return Err(net_error::InvalidMessage);
-                        }
-                    }
-                },
-                Err(req_res) => match req_res {
-                    Ok(same_req) => {
-                        // try again
-                        self.public_ip_reply_handle = Some(same_req);
-                        return Ok(false);
-                    }
-                    Err(e) => {
-                        // disconnected
-                        debug!("{:?}: Failed to get a ping reply: {:?}", &self.local_peer, &e);
-                        return Err(e);
-                    }
-                }
-            }
-            }
-        
         return Ok(true);
     }
 
@@ -1967,15 +1814,8 @@ impl PeerNetwork {
     fn public_ip_reset(&mut self) {
         debug!("{:?}: reset public IP query state", &self.local_peer);
 
-        if self.public_ip_self_event_id > 0 {
-            self.deregister_peer(self.public_ip_self_event_id);
-            self.public_ip_self_event_id = 0;
-        }
-
-        self.public_ip_self_event_id = 0;
         self.public_ip_reply_handle = None;
         self.public_ip_confirmed = false;
-        self.public_ip_address_unconfirmed = None;
 
         if self.public_ip_learned {
             // will go relearn it if it wasn't given
@@ -2016,59 +1856,6 @@ impl PeerNetwork {
                 };
             }
         }
-        Ok(true)
-    }
-
-    /// Confirm our publicly-routable IP address.
-    /// Return true once we're done.
-    fn do_confirm_public_ip(&mut self) -> Result<bool, net_error> {
-        if !self.need_public_ip() {
-            return Ok(true);
-        }
-        if self.public_ip_confirmed {
-            // IP already confirmed
-            test_debug!("{:?}: learned IP address is confirmed", &self.local_peer);
-            return Ok(true);
-        }
-        if self.public_ip_address_unconfirmed.is_none() {
-            // can't do this yet, so skip
-            test_debug!("{:?}: unconfirmed IP address is not known yet", &self.local_peer);
-            return Ok(true);
-        }
-        
-        // finished request successfully
-        self.public_ip_requested_at = get_epoch_time_secs();
-
-        match self.do_ping_public_ip() {
-            Ok(b) => {
-                if !b {
-                    test_debug!("{:?}: try do_confirm_public_ip again", &self.local_peer);
-                    return Ok(false);
-                }
-            },
-            Err(e) => {
-                test_debug!("{:?}: failed to confirm public IP: {:?}", &self.local_peer, &e);
-                self.public_ip_reset();
-                
-                match e {
-                    net_error::NoSuchNeighbor => {
-                        // haven't connected to anyone yet
-                        return Ok(true);
-                    },
-                    _ => {
-                        return Err(e);
-                    }
-                };
-            }
-        }
-
-        // learned and confirmed! clean up
-        if self.public_ip_self_event_id > 0 {
-            self.deregister_peer(self.public_ip_self_event_id);
-        }
-
-        self.public_ip_self_event_id = 0;
-        self.public_ip_reply_handle = None;
         Ok(true)
     }
 
@@ -2179,7 +1966,7 @@ impl PeerNetwork {
                         match self.do_get_public_ip() {
                             Ok(b) => {
                                 if b {
-                                    self.work_state = PeerNetworkWorkState::ConfirmPublicIP;
+                                    self.work_state = PeerNetworkWorkState::BlockInvSync;
                                 }
                             }
                             Err(e) => {
@@ -2189,25 +1976,6 @@ impl PeerNetwork {
                         }
                     }
                 },
-                PeerNetworkWorkState::ConfirmPublicIP => {
-                    // confirm the public IP address we previously got
-                    if cfg!(test) && self.connection_opts.disable_natpunch {
-                        self.work_state = PeerNetworkWorkState::BlockInvSync;
-                    }
-                    else {
-                        match self.do_confirm_public_ip() {
-                            Ok(b) => {
-                                if b {
-                                    self.work_state = PeerNetworkWorkState::BlockInvSync;
-                                }
-                            },
-                            Err(e) => {
-                                info!("Failed to confirm public IP ({:?}); skipping", &e);
-                                self.work_state = PeerNetworkWorkState::BlockInvSync;
-                            }
-                        }
-                    }
-                }
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories 
                     if self.do_network_inv_sync(sortdb)? {

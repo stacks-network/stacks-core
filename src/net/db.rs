@@ -280,6 +280,7 @@ const PEERDB_SETUP : &'static [&'static str]= &[
         org INTEGER NOT NULL,
         allowed INTEGER NOT NULL,
         denied INTEGER NOT NULL,
+        initial INTEGER NOT NULL,   -- 1 if this was one of the initial neighbors, 0 otherwise
         in_degree INTEGER NOT NULL,
         out_degree INTEGER NOT NULL,
 
@@ -372,6 +373,10 @@ impl PeerDB {
 
         for asn4 in asn4_entries {
             PeerDB::asn4_insert(&mut tx, &asn4)?;
+        }
+
+        for neighbor in initial_neighbors {
+            PeerDB::set_initial_peer(&mut tx, neighbor.addr.network_id, &neighbor.addr.addrbytes, neighbor.addr.port)?;
         }
 
         tx.commit()
@@ -478,13 +483,22 @@ impl PeerDB {
                     db.instantiate(network_id, parent_network_id, privkey_opt, key_expires, data_url, p2p_addr, p2p_port, asn4_recs, &vec![])?;
                 }
             }
-        } else {
+        }
+        else {
             db.update_local_peer(network_id, parent_network_id, data_url, p2p_port)?;
             
             {
                 let mut tx = db.tx_begin()?;
                 PeerDB::refresh_allows(&mut tx)?;
                 PeerDB::refresh_denies(&mut tx)?;
+                PeerDB::clear_initial_peers(&mut tx)?;
+
+                if let Some(neighbors) = initial_neighbors {
+                    for neighbor in neighbors {
+                        PeerDB::set_initial_peer(&mut tx, neighbor.addr.network_id, &neighbor.addr.addrbytes, neighbor.addr.port)?;
+                    }
+                }
+
                 tx.commit()?;
             }
         }
@@ -672,10 +686,11 @@ impl PeerDB {
             &neighbor.denied,
             &neighbor.in_degree,
             &neighbor.out_degree,
+            &0i64,
             &slot];
 
-        tx.execute("INSERT OR REPLACE INTO frontier (peer_version, network_id, addrbytes, port, public_key, expire_block_height, last_contact_time, asn, org, allowed, denied, in_degree, out_degree, slot) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", neighbor_args)
+        tx.execute("INSERT OR REPLACE INTO frontier (peer_version, network_id, addrbytes, port, public_key, expire_block_height, last_contact_time, asn, org, allowed, denied, in_degree, out_degree, initial, slot) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", neighbor_args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -685,6 +700,34 @@ impl PeerDB {
     pub fn drop_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<(), db_error> {
         tx.execute("DELETE FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
                    &[&network_id as &dyn ToSql, &peer_addr.to_bin() as &dyn ToSql, &peer_port as &dyn ToSql])
+            .map_err(db_error::SqliteError)?;
+
+        Ok(())
+    }
+
+    /// Is a peer one of this node's initial neighbors?
+    pub fn is_initial_peer(conn: &DBConn, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<bool, db_error> {
+        let res : Option<i64> = query_row(conn, "SELECT initial FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
+                                        &[&network_id as &dyn ToSql, &peer_addr.to_bin(), &peer_port])?;
+
+        match res {
+            Some(x) => Ok(x != 0),
+            None => Ok(false)
+        }
+    }
+
+    /// Set a peer as an initial peer
+    fn set_initial_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<(), db_error> {
+        tx.execute("UPDATE frontier SET initial = 1 WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3", 
+                    &[&network_id as &dyn ToSql, &peer_addr.to_bin(), &peer_port])
+            .map_err(db_error::SqliteError)?;
+
+        Ok(())
+    }
+
+    /// clear all initial peers
+    fn clear_initial_peers<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
+        tx.execute("UPDATE frontier SET initial = 0", NO_PARAMS)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -1210,6 +1253,10 @@ mod test {
         for n in &n15_fresh[10..15] {
             assert!(n.expire_block > 23456 + 14);
             assert!(n.allowed == 0);
+        }
+
+        for neighbor in &initial_neighbors {
+            assert!(PeerDB::is_initial_peer(db.conn(), neighbor.addr.network_id, &neighbor.addr.addrbytes, neighbor.addr.port).unwrap());
         }
     }
 
