@@ -114,8 +114,6 @@ jobs:
                docker push $IMAGE_NAME:latest
                docker push $IMAGE_NAME:master
                docker push $IMAGE_NAME:stretch
-            elif [ "${CIRCLE_BRANCH}" = "feat/docker-stretch" ]; then
-               docker push $IMAGE_NAME:stretch
             fi
 workflows:
   version: 2
@@ -141,4 +139,3 @@ workflows:
             branches:
               only:
                 - master
-                - feat/docker-stretch
