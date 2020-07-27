@@ -363,7 +363,45 @@ impl Value {
     }
 
     pub fn buff_from_byte(byte: u8) -> Value {
-        Value::Buffer(BuffData { data: vec![byte] })
+        Value::Sequence(SequenceData::Buffer(BuffData { data: vec![byte] }))
+    }
+
+    pub fn ascii_string_from(data: Vec<u8>) -> Result<Value> {
+        // check the buffer size
+        BufferLength::try_from(data.len())?;
+        // construct the buffer        
+        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))))
+    }
+
+    pub fn utf8_string_from_data(data: Vec<Vec<u8>>) -> Result<Value> {
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
+    }
+
+    pub fn utf8_string_from_string(tokenized_str: String) -> Result<Value> {
+        let wrapped_codepoints_matcher = Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}").unwrap();
+        let mut window = tokenized_str.as_str();
+        let mut cursor = 0;
+        let mut data: Vec<Vec<u8>> = vec![];
+        // todo(ludo): add a max
+        while !window.is_empty() {
+            if let Some(captures) = wrapped_codepoints_matcher.captures(window) {
+                let matched = captures.name("value").unwrap();
+                // let matched = captures.name("value").ok_or(
+                //     ParseError::new(ParseErrors::FailedCapturingInput))?;
+                let value = window[matched.start()..matched.end()].to_string();
+                let unicode_char = hash::hex_bytes(&value).unwrap();
+                // let unicode_char = hex_bytes(&value)
+                //     .map_err(|x| { ParseError::new(ParseErrors::FailedParsingHexValue(value.clone(), x.to_string())) })?;
+                data.push(unicode_char);
+                cursor += value.len() + 4;
+            } else {
+                let ascii_char = window[0..1].to_string().into_bytes();
+                data.push(ascii_char);
+                cursor += 1;
+            }
+            window = &tokenized_str[cursor..];
+        }
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
     }
 }
 

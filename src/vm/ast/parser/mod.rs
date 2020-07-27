@@ -32,7 +32,7 @@ enum TokenType {
     Whitespace, Comma, Colon,
     LParens, RParens,
     LCurly, RCurly,
-    StringLiteral, HexStringLiteral,
+    ASCIIStringLiteral, UTF8StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral,
     Variable, TraitReferenceLiteral, PrincipalLiteral,
     SugaredContractIdentifierLiteral,
@@ -96,7 +96,8 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
 
     let lex_matchers: &[LexMatcher] = &[
-        LexMatcher::new(r##""(?P<value>((\\")|([[ -~]&&[^"]]))*)""##, TokenType::StringLiteral),
+        LexMatcher::new(r##"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""##, TokenType::UTF8StringLiteral),
+        LexMatcher::new(r##""(?P<value>((\\")|([[ -~]&&[^"]]))*)""##, TokenType::ASCIIStringLiteral),
         LexMatcher::new(";;[ -~]*", TokenType::Whitespace), // ;; comments.
         LexMatcher::new("[\n]+", TokenType::Whitespace),
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
@@ -290,17 +291,30 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::StringLiteral => {
+                    TokenType::ASCIIStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let quote_unescaped = str_value.replace("\\\"","\"");
                         let slash_unescaped = quote_unescaped.replace("\\\\","\\");
                         let byte_vec = slash_unescaped.as_bytes().to_vec();
-                        let value = match Value::buff_from(byte_vec) {
+                        let value = match Value::ascii_string_from(byte_vec) {
                             Ok(parsed) => Ok(parsed),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingBuffer(str_value.clone())))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
+                    TokenType::UTF8StringLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        println!("=> {}", str_value);
+                        let quote_unescaped = str_value.replace("\\\"","\"");
+                        let string = quote_unescaped.replace("\\\\","\\").to_string();
+                        let value = match Value::utf8_string_from_string(string) {
+                            Ok(parsed) => Ok(parsed),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingBuffer(str_value.clone())))
+                        }?;
+                        
+                        Ok(LexItem::LiteralValue(str_value.len(), value))
+                    },
+
                 }?;
 
                 result.push((token, current_line, column_pos));

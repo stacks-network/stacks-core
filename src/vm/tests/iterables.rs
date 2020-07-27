@@ -1,6 +1,6 @@
 use vm::types::{Value, TypeSignature};
-use vm::types::TypeSignature::{IntType, UIntType, BoolType, ListType, BufferType};
-use vm::types::signatures::{ListTypeData};
+use vm::types::TypeSignature::{IntType, UIntType, BoolType, SequenceType};
+use vm::types::signatures::{ListTypeData, SequenceSubtype};
 
 use vm::execute;
 use vm::errors::{CheckErrors, RuntimeErrorType, Error};
@@ -35,6 +35,27 @@ fn test_simple_list_admission() {
     });
 }
 
+#[test]
+fn test_string_ascii_admission() {
+    let defines =
+        "(define-private (set-name (x (string-ascii 11))) x)";
+    let t1 = format!("{} (set-name \"hello world\")", defines);    
+
+    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+
+    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+}
+
+#[test]
+fn test_string_utf8_admission() {
+    let defines =
+        "(define-private (set-name (x (string-utf8 14))) x)";
+    let t1 = format!("{} (set-name u\"my 2 \\u{{c2a2}} (cents)\")", defines);    
+
+    let expected = Value::utf8_string_from_string("my 2 \\u{c2a2} (cents)".into()).unwrap();
+
+    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+}
 #[test]
 fn test_simple_map_list() {
     let test1 =
