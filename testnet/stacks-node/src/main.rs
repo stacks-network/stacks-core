@@ -1,5 +1,6 @@
 extern crate rand;
 extern crate serde;
+extern crate libc;
 
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate serde_derive;
@@ -32,6 +33,7 @@ pub use self::run_loop::{neon, helium};
 use pico_args::Arguments;
 use std::env;
 
+use std::convert::TryInto;
 use std::panic;
 use std::process;
 
@@ -43,6 +45,18 @@ fn main() {
         eprintln!("Process abort due to thread panic");
         let bt = Backtrace::new();
         eprintln!("{:?}", &bt);
+
+        // force a core dump
+        let pid = process::id();
+        eprintln!("Dumping core for pid {}", std::process::id());
+
+        use libc::kill;
+        use libc::SIGQUIT;
+
+        // *should* trigger a core dump, if you run `ulimit -c unlimited` first!
+        unsafe { kill(pid.try_into().unwrap(), SIGQUIT) };
+
+        // just in case
         process::exit(1);
     }));
 
