@@ -88,7 +88,9 @@ define_u8_enum!(TypePrefix {
     OptionalNone = 9,
     OptionalSome = 10,
     List = 11,
-    Tuple = 12
+    Tuple = 12,
+    ASCIIString = 13,
+    UTF8String = 14
 });
 
 impl From<&PrincipalData> for TypePrefix {
@@ -108,7 +110,6 @@ impl From<&Value> for TypePrefix {
         match v {
             Int(_) => TypePrefix::Int,
             UInt(_) => TypePrefix::UInt,
-            Buffer(_) => TypePrefix::Buffer,
             Bool(value) => {
                 if *value {
                     TypePrefix::BoolTrue
@@ -126,8 +127,11 @@ impl From<&Value> for TypePrefix {
             },
             Optional(OptionalData{ data: None }) => TypePrefix::OptionalNone,
             Optional(OptionalData{ data: Some(_) }) => TypePrefix::OptionalSome,
-            List(_) => TypePrefix::List,
             Tuple(_) => TypePrefix::Tuple,
+            Sequence(Buffer(_)) => TypePrefix::Buffer,
+            Sequence(List(_)) => TypePrefix::List,
+            Sequence(String(CharType::ASCII(_))) => TypePrefix::Buffer,
+            Sequence(String(CharType::UTF8(_))) => TypePrefix::List,
         }
     }
 }

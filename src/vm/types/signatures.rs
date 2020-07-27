@@ -44,6 +44,9 @@ pub struct TupleTypeSignature {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BufferLength (u32);
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StringUTF8Length (u32);
+
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
 //        type signature for a too large or invalid type. This is why any variable length
@@ -57,13 +60,25 @@ pub enum TypeSignature {
     IntType,
     UIntType,
     BoolType,
-    BufferType(BufferLength),
+    SequenceType(SequenceSubtype),
     PrincipalType,
-    ListType(ListTypeData),
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>),
     TraitReferenceType(TraitIdentifier),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SequenceSubtype {
+    BufferType(BufferLength),
+    ListType(ListTypeData),
+    StringType(StringSubtype),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringSubtype {
+    ASCII(BufferLength),
+    UTF8(StringUTF8Length),
 }
 
 use self::TypeSignature::{
@@ -71,9 +86,8 @@ use self::TypeSignature::{
     IntType, 
     UIntType, 
     BoolType, 
-    BufferType,
+    SequenceType,
     PrincipalType, 
-    ListType, 
     TupleType, 
     OptionalType, 
     ResponseType,
