@@ -660,20 +660,13 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(root_hash)
     }
 
-    /// Commit the indexed data
-    pub fn indexed_commit(&mut self) -> Result<(), Error> {
-        if self.block_linkage.is_some() {
-            self.index.commit().map_err(Error::IndexError)?;
-            self.block_linkage = None;
-        }
-        Ok(())
-    }
-
     /// Commit the tx
     pub fn commit(mut self) -> Result<(), Error> {
         let tx = self._tx.take();
+        test_debug!("Indexed-commit: storage");
         tx.unwrap().commit().map_err(Error::SqliteError)?;
         if self.block_linkage.is_some() {
+            test_debug!("Indexed-commit: MARF index");
             self.index.commit().map_err(Error::IndexError)?;
             self.block_linkage = None;
         }
