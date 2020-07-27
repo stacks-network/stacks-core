@@ -4329,12 +4329,12 @@ pub mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_bhh = parent_tip.burn_header_hash.clone();
+                let parent_tip_ch = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
@@ -4350,7 +4350,7 @@ pub mod test {
                     let contract_tx = make_user_contract_publish(&privks[tenure_id], 0, 10000, &format!("hello-world-{}", tenure_id), &contract);
                     let mut contract_tx_bytes = vec![];
                     contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
-                    mempool.submit_raw(&parent_tip_bhh, &parent_header_hash, contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_tip_ch, &parent_header_hash, contract_tx_bytes).unwrap();
 
                     eprintln!("first tx submitted");
                     // eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
@@ -4361,7 +4361,7 @@ pub mod test {
                     let contract_tx = make_user_contract_publish(&privks[tenure_id], 1, 10000, &format!("hello-world-{}-2", tenure_id), &contract);
                     let mut contract_tx_bytes = vec![];
                     contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
-                    mempool.submit_raw(&parent_tip_bhh, &parent_header_hash, contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_tip_ch, &parent_header_hash, contract_tx_bytes).unwrap();
 
                     eprintln!("second tx submitted");
                     // eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
@@ -4380,7 +4380,7 @@ pub mod test {
                     let contract_tx = make_user_contract_publish(&privks[tenure_id], 0, 10000, &format!("hello-world-{}", tenure_id), &contract);
                     let mut contract_tx_bytes = vec![];
                     contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
-                    mempool.submit_raw(&parent_tip_bhh, &parent_header_hash, contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_tip_ch, &parent_header_hash, contract_tx_bytes).unwrap();
 
                     eprintln!("third tx submitted");
                     // eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
@@ -4391,7 +4391,7 @@ pub mod test {
                     let contract_tx = make_user_contract_publish(&privks[tenure_id], 1, 10000, &format!("hello-world-{}-2", tenure_id), &contract);
                     let mut contract_tx_bytes = vec![];
                     contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
-                    mempool.submit_raw(&parent_tip_bhh, &parent_header_hash, contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_tip_ch, &parent_header_hash, contract_tx_bytes).unwrap();
 
                     eprintln!("fourth tx submitted");
                     // eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
