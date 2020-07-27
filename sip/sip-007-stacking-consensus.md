@@ -460,7 +460,7 @@ advantage declines over time. To do this, we define two time periods for Pox:
    blocks) after the sunset phase begins. After the sunset block,
    _all_ miner commitments must be burned, rather than transfered to
    reward addresses. During the sunset phase, the reward / burn ratio
-   linearly decreases by `0.25%` (100/400) on each reward cycle, such
+   linearly decreases by `0.25%` (1/400) on each reward cycle, such
    that in the 200th reward cycle, the ratio of funds that are
    transfered to reward addresses versus burnt must be equal to
    `0.5`. For example, if a miner commits 10 BTC, the miner must send

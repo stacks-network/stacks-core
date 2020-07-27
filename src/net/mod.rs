@@ -349,7 +349,7 @@ impl From<chain_error> for Error {
         match e {
             chain_error::InvalidStacksBlock(s) => Error::ChainstateError(format!("Invalid stacks block: {}", s)),
             chain_error::InvalidStacksMicroblock(msg, hash) => Error::ChainstateError(format!("Invalid stacks microblock {:?}: {}", hash, msg)),
-            chain_error::InvalidStacksTransaction(s) => Error::ChainstateError(format!("Invalid stacks transaction: {}", s)),
+            chain_error::InvalidStacksTransaction(s, _) => Error::ChainstateError(format!("Invalid stacks transaction: {}", s)),
             chain_error::PostConditionFailed(s) => Error::ChainstateError(format!("Postcondition failed: {}", s)),
             chain_error::ClarityError(e) => Error::ClarityError(e),
             chain_error::DBError(e) => Error::DBError(e),
