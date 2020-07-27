@@ -188,11 +188,11 @@ fn test_simple_buff_assert_max_len() {
 
     assert_eq!(
         execute("(as-max-len? 1 u3)").unwrap_err(),
-        CheckErrors::ExpectedListOrBuffer(IntType).into());
+        CheckErrors::ExpectedSequence(IntType).into());
 
     assert_eq!(
         execute("(as-max-len? \"123\" \"1\")").unwrap_err(),
-        CheckErrors::TypeError(UIntType, BufferType(1_u32.try_into().unwrap())).into());
+        CheckErrors::TypeError(UIntType, SequenceType(SequenceSubtype::BufferType(1_u32.try_into().unwrap()))).into());
 }
 
 #[test]

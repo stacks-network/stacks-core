@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType};
-use vm::types::{Value, TupleData, TypeSignature, QualifiedContractIdentifier, StandardPrincipalData, ListData, TupleTypeSignature};
+use vm::types::{Value, SequenceData, TupleData, TypeSignature, QualifiedContractIdentifier, StandardPrincipalData, ListData, TupleTypeSignature};
 use vm::contexts::{OwnedEnvironment};
 use vm::database::MemoryBackingStore;
 use vm::execute;
@@ -307,7 +307,7 @@ fn test_get_list_max_len() {
     let actual_value = execute(&contract_src).unwrap().unwrap();
 
     match actual_value {
-        Value::List(ListData { data, type_signature }) => {
+        Value::Sequence(SequenceData::List(ListData { data, type_signature })) => {
             assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)],
                        data);
             assert_eq!("(list 10 int)", &format!("{}", TypeSignature::from(type_signature)));

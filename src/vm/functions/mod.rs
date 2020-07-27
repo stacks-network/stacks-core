@@ -8,7 +8,7 @@ mod options;
 mod assets;
 
 use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
-use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
+use vm::types::{Value, SequenceData, CharType, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::{CallableType, NativeHandle};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
@@ -200,7 +200,8 @@ macro_rules! native_hash_func {
             let bytes = match input {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
-                Value::Buffer(value) => Ok(value.data),
+                Value::Sequence(SequenceData::Buffer(value)) => Ok(value.data),
+                Value::Sequence(SequenceData::String(CharType::ASCII(value))) => Ok(value.data),
                 _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], input))
             }?;
             let hash = <$module>::from_data(&bytes);

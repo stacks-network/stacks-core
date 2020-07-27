@@ -2,6 +2,7 @@ use vm::{eval, execute as vm_execute};
 use vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, ShortReturnType, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
+use vm::types::{SequenceData};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, BuffData, QualifiedContractIdentifier};
@@ -61,7 +62,7 @@ fn test_sha256() {
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Buffer(BuffData { data: hex_bytes(hex).unwrap() });
+        return Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hex).unwrap() }));
     }
 
     let expectations = [
@@ -84,7 +85,7 @@ fn test_sha512() {
 
     fn p_to_hex(val: Value) -> String {
         match val {
-            Value::Buffer(BuffData { data }) => to_hex(&data),
+            Value::Sequence(SequenceData::Buffer(BuffData { data })) => to_hex(&data),
             _ => panic!("Failed")
         }
     }
@@ -109,7 +110,7 @@ fn test_sha512trunc256() {
 
     fn p_to_hex(val: Value) -> String {
         match val {
-            Value::Buffer(BuffData { data }) => to_hex(&data),
+            Value::Sequence(SequenceData::Buffer(BuffData { data })) => to_hex(&data),
             _ => panic!("Failed")
         }
     }
@@ -133,7 +134,7 @@ fn test_keccak256() {
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Buffer(BuffData { data: hex_bytes(hex).unwrap() });
+        return Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hex).unwrap() }));
     }
 
     let expectations = [

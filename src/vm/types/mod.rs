@@ -12,8 +12,8 @@ use util::hash;
 
 pub use vm::types::signatures::{
     TupleTypeSignature, AssetIdentifier, FixedFunction, FunctionSignature,
-    TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    BUFF_64, BUFF_32, BUFF_20, BufferLength
+    TypeSignature, SequenceSubtype, StringSubtype, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
+    BUFF_64, BUFF_32, BUFF_20, BUFF_6, BUFF_1, BufferLength
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -174,12 +174,34 @@ pub enum Value {
     Int(i128),
     UInt(u128),
     Bool(bool),
-    Buffer(BuffData),
-    List(ListData),
+    Sequence(SequenceData),
     Principal(PrincipalData),
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SequenceData {
+    Buffer(BuffData),
+    List(ListData),
+    String(CharType),
+}
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum CharType {
+    UTF8(UTF8Data),
+    ASCII(ASCIIData),
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UTF8Data {
+    pub data: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ASCIIData {
+    pub data: Vec<u8>,
 }
 
 define_named_enum!(BlockInfoProperty {
@@ -319,7 +341,7 @@ impl Value {
             }
         }
 
-        Ok(Value::List(ListData { data: list_data, type_signature: expected_type }))
+        Ok(Value::Sequence(SequenceData::List(ListData { data: list_data, type_signature: expected_type })))
     }
 
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
@@ -330,14 +352,14 @@ impl Value {
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
         let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
-        Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
+        Ok(Value::Sequence(SequenceData::List(ListData { data: list_data, type_signature: type_sig })))
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;
         // construct the buffer
-        Ok(Value::Buffer(BuffData { data: buff_data }))
+        Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: buff_data })))
     }
 
     pub fn buff_from_byte(byte: u8) -> Value {
@@ -393,12 +415,13 @@ impl fmt::Display for Value {
             Value::Int(int) => write!(f, "{}", int),
             Value::UInt(int) => write!(f, "u{}", int),
             Value::Bool(boolean) => write!(f, "{}", boolean),
-            Value::Buffer(vec_bytes) => write!(f, "0x{}", &vec_bytes),
             Value::Tuple(data) => write!(f, "{}", data),
             Value::Principal(principal_data) => write!(f, "{}", principal_data),
             Value::Optional(opt_data) => write!(f, "{}", opt_data),
             Value::Response(res_data) => write!(f, "{}", res_data),
-            Value::List(list_data) => {
+            Value::Sequence(SequenceData::Buffer(vec_bytes)) => write!(f, "0x{}", &vec_bytes),
+            Value::Sequence(SequenceData::String(string)) => write!(f, "{}", string),
+            Value::Sequence(SequenceData::List(list_data)) => {
                 write!(f, "(")?;
                 for (ix, v) in list_data.data.iter().enumerate() {
                     if ix > 0 {

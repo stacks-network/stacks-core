@@ -1,12 +1,12 @@
 use vm::database::MemoryBackingStore;
-use vm::types::{TypeSignature, QualifiedContractIdentifier};
+use vm::types::{TypeSignature, SequenceSubtype, QualifiedContractIdentifier};
 use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{AnalysisDatabase, mem_type_check};
 use std::convert::TryInto;
 
 fn buff_type(size: u32) -> TypeSignature {
-    TypeSignature::BufferType(size.try_into().unwrap()).into()
+    TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)

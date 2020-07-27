@@ -464,10 +464,6 @@ impl Value {
         match self {
             Int(value) => w.write_all(&value.to_be_bytes())?,
             UInt(value) => w.write_all(&value.to_be_bytes())?,
-            Buffer(value) => {
-                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
-                w.write_all(&value.data)?
-            }
             Principal(Standard(data)) => {
                 data.serialize_write(w)?
             },
@@ -485,11 +481,27 @@ impl Value {
             Optional(OptionalData{ data: Some(value) }) => {
                 value.serialize_write(w)?;
             },
-            List(data) => {
+            Sequence(List(data)) => {
                 w.write_all(&data.len().to_be_bytes())?;
                 for item in data.data.iter() {
                     item.serialize_write(w)?;
                 }
+            },
+            Sequence(Buffer(value)) => {
+                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
+                w.write_all(&value.data)?
+            },
+            Sequence(SequenceData::String(UTF8(data))) => {
+                // w.write_all(&data.len().to_be_bytes())?;
+                // for item in data.data.iter() {
+                //     item.serialize_write(w)?;
+                // }
+                // todo(ludo): implement this
+            },
+            Sequence(SequenceData::String(ASCII(value))) => {
+                // w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
+                // w.write_all(&value.data)?
+                // todo(ludo): implement this
             },
             Tuple(data) => {
                 w.write_all(&u32::try_from(data.data_map.len())
@@ -569,7 +581,7 @@ mod tests {
     use vm::types::TypeSignature::{IntType, BoolType};
 
     fn buff_type(size: u32) -> TypeSignature {
-        TypeSignature::BufferType(size.try_into().unwrap()).into()
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
     }
 
 
