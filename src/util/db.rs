@@ -626,6 +626,10 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Get a value from the fork index
+    /// NOTE: until the TrieFileStorage implementation of reopen_readonly() is made zero-copy --
+    /// namely, made so it doesn't just naively clone the underlying TrieRAM when reopening
+    /// read-only, the caller should make sure to only use the get_indexed() _before_ writing any
+    /// MARF key/value pairs.  Doing so afterwards will clone all uncommitted trie state.
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.tx(), &self.index, header_hash, key)
     }
