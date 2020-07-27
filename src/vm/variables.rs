@@ -31,7 +31,8 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &mut E
                 Ok(Some(Value::UInt(block_height as u128)))
             },
             NativeVariables::BurnBlockHeight => {
-                Err(RuntimeErrorType::NotImplemented.into())
+                let burn_block_height = env.global_context.database.get_current_burnchain_block_height();
+                Ok(Some(Value::UInt(burn_block_height as u128)))
             },
             NativeVariables::NativeNone => {
                 Ok(Some(Value::none()))

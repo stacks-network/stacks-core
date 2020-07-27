@@ -37,7 +37,6 @@ extern crate sha3;
 extern crate ripemd160;
 extern crate regex;
 extern crate time;
-extern crate byteorder;
 extern crate mio;
 extern crate url;
 extern crate percent_encoding;

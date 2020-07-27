@@ -35,15 +35,14 @@ use std::env;
 use std::panic;
 use std::process;
 
+use backtrace::Backtrace;
+
 fn main() {
 
-    panic::set_hook(Box::new(|panic_info| {
-        if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-            eprintln!("panic occurred: {:?}", s);
-        }
-        else {
-            eprintln!("panic occurred");
-        }
+    panic::set_hook(Box::new(|_| {
+        eprintln!("Process abort due to thread panic");
+        let bt = Backtrace::new();
+        eprintln!("{:?}", &bt);
         process::exit(1);
     }));
 

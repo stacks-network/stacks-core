@@ -2100,7 +2100,7 @@ pub mod test {
                 };
 
                 let ic = sortdb.index_conn();
-                node.chainstate.preprocess_anchored_block(&ic, &sn.consensus_hash, sn.burn_header_timestamp, block, &parent_sn.consensus_hash)
+                node.chainstate.preprocess_anchored_block(&ic, &sn.consensus_hash, block, &parent_sn.consensus_hash)
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };
             self.sortdb = Some(sortdb);
@@ -2148,6 +2148,38 @@ pub mod test {
                 let ic = sortdb.index_conn();
                 let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
                 node.chainstate.preprocess_stacks_epoch(&ic, &tip, block, microblocks).unwrap();
+            }
+    
+            loop {
+                let processed = node.chainstate.process_blocks(&mut sortdb, 1).unwrap();
+                if processed.len() == 0 {
+                    break;
+                }
+                match processed[0] {
+                    (Some(ref header_info), _) => {
+                        continue;
+                    },
+                    (None, _) => {
+                        break;
+                    }
+                }
+            }
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
+        }
+        
+        pub fn process_stacks_epoch(&mut self, block: &StacksBlock, consensus_hash: &ConsensusHash, microblocks: &Vec<StacksMicroblock>) -> () {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            {
+                let ic = sortdb.index_conn();
+                Relayer::process_new_anchored_block(&ic, &mut node.chainstate, consensus_hash, block).unwrap();
+                
+                let block_hash = block.block_hash();
+                for mblock in microblocks.iter() {
+                    node.chainstate.preprocess_streamed_microblock(consensus_hash, &block_hash, mblock).unwrap();
+                }
             }
     
             loop {

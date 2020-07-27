@@ -123,6 +123,7 @@ impl StacksChainState {
         let consensus_hash = &tip_info.consensus_hash;
         let burn_header_hash = &tip_info.burn_header_hash;
         let block_height = tip_info.block_height;
+        let burn_header_height = tip_info.burn_header_height;
         let burn_header_timestamp = tip_info.burn_header_timestamp;
 
         let total_work_str = format!("{}", header.total_work.work);
@@ -136,7 +137,8 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[
             &header.version, &total_burn_str, &total_work_str, &header.proof, &header.parent_block, &header.parent_microblock, &header.parent_microblock_sequence,
             &header.tx_merkle_root, &header.state_index_root, &header.microblock_pubkey_hash,
-            &block_hash, &index_block_hash, &consensus_hash, &burn_header_hash, &(burn_header_timestamp as i64), &(block_height as i64), &index_root];
+            &block_hash, &index_block_hash, &consensus_hash, &burn_header_hash, &(burn_header_height as i64),
+            &(burn_header_timestamp as i64), &(block_height as i64), &index_root];
 
         tx.execute("INSERT INTO block_headers \
                     (version, \
@@ -153,10 +155,11 @@ impl StacksChainState {
                     index_block_hash, \
                     consensus_hash, \
                     burn_header_hash, \
+                    burn_header_height, \
                     burn_header_timestamp, \
                     block_height, \
                     index_root) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)", args)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())

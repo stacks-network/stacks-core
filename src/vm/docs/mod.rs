@@ -55,8 +55,15 @@ struct DefineAPI {
 const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
     name: "block-height",
     output_type: "uint",
-    description: "Returns the current block height of the Stacks blockchain as an int",
+    description: "Returns the current block height of the Stacks blockchain as an uint",
     example: "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks."
+};
+
+const BURN_BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
+    name: "burn-block-height",
+    output_type: "uint",
+    description: "Returns the current block height of the underlying burn blockchain as a uint",
+    example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks."
 };
 
 const CONTRACT_CALLER_KEYWORD: KeywordAPI = KeywordAPI {
@@ -1102,7 +1109,7 @@ const USE_TRAIT_API: DefineAPI = DefineAPI {
     output_type: "Not Applicable",
     signature: "(use-trait trait-alias trait-identifier)",
     description: "`use-trait` is used to bring a trait, defined in another contract, to the current contract. Subsequent
-references to an imported trait are signaled with the syntax <trait-alias>.
+references to an imported trait are signaled with the syntax `<trait-alias>`.
 
 Traits import are defined with a name, used as an alias, and a trait identifier. Trait identifiers can either be
 using the sugared syntax (.token-a.token-trait), or be fully qualified ('SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait).
@@ -1392,7 +1399,7 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::NativeTrue => Some(TRUE_KEYWORD.clone()),
         NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
-        NativeVariables::BurnBlockHeight => None,
+        NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
     }
 }
 
@@ -1489,6 +1496,9 @@ mod test {
         }
         fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
             Some(1557860301)
+        }
+        fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
+            Some(567890)
         }
         fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
             None
