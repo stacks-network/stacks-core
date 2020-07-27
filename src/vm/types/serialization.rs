@@ -453,7 +453,67 @@ impl Value {
                         .map_err(|_| "Illegal tuple type".into())
                         .map(Value::from)
                 }
-            }
+            },
+            // todo(ludo): revisit this implementation
+            TypePrefix::ASCIIString => {
+                let mut buffer_len = [0; 4];
+                r.read_exact(&mut buffer_len)?;
+                let buffer_len = BufferLength::try_from(
+                    u32::from_be_bytes(buffer_len))?;
+
+                if let Some(x) = expected_type {
+                    let passed_test = match x {
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(expected_len)) => {
+                            u32::from(&buffer_len) <= u32::from(expected_len)
+                        },
+                        _ => false
+                    };
+                    if !passed_test {
+                        return Err(SerializationError::DeserializeExpected(x.clone()))
+                    }
+                }
+
+                let mut data = vec![0; u32::from(buffer_len) as usize];
+
+                r.read_exact(&mut data[..])?;
+
+                // can safely unwrap, because the buffer length was _already_ checked.
+                Ok(Value::buff_from(data).unwrap())
+            },
+            TypePrefix::UTF8String => {
+                let mut len = [0; 4];
+                r.read_exact(&mut len)?;
+                let len = u32::from_be_bytes(len);
+
+                if len > MAX_VALUE_SIZE {
+                    return Err("Illegal list type".into());
+                }
+
+                let (list_type, entry_type) = match expected_type {
+                    None => (None, None),
+                    Some(TypeSignature::SequenceType(SequenceSubtype::ListType(list_type))) => {
+                        if len > list_type.get_max_len() {
+                            return Err(SerializationError::DeserializeExpected(
+                                expected_type.unwrap().clone()))
+                        }
+                        (Some(list_type), Some(list_type.get_list_item_type()))
+                    },
+                    Some(x) => return Err(SerializationError::DeserializeExpected(x.clone()))
+                };
+
+                let mut items = Vec::with_capacity(len as usize);
+                for _i in 0..len {
+                    items.push(Value::inner_deserialize_read(r, entry_type, depth + 1)?);
+                }
+
+                if let Some(list_type) = list_type {
+                    Value::list_with_type(items, list_type.clone())
+                        .map_err(|_| "Illegal list type".into())
+                } else {
+                    Value::list_from(items)
+                        .map_err(|_| "Illegal list type".into())
+                }
+            },
         }
 
     }

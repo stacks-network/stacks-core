@@ -4,6 +4,9 @@ pub mod signatures;
 use std::{fmt, cmp};
 use std::convert::{TryInto, TryFrom};
 use std::collections::BTreeMap;
+use std::str;
+
+use regex::Regex;
 
 use address::c32;
 use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
@@ -187,12 +190,104 @@ pub enum SequenceData {
     List(ListData),
     String(CharType),
 }
+
+impl SequenceData {
+
+    pub fn values(&self) -> Vec<Value> {
+        match &self {
+            SequenceData::Buffer(data) => data.values(),
+            SequenceData::List(data) => data.values(),
+            SequenceData::String(CharType::ASCII(data)) => data.values(),
+            SequenceData::String(CharType::UTF8(data)) => data.values(),
+        }
+    }
+
+    pub fn atom_values(&self) -> Vec<SymbolicExpression> {
+        match &self {
+            SequenceData::Buffer(data) => data.atom_values(),
+            SequenceData::List(data) => data.atom_values(),
+            SequenceData::String(CharType::ASCII(data)) => data.atom_values(),
+            SequenceData::String(CharType::UTF8(data)) => data.atom_values(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match &self {
+            SequenceData::Buffer(data) => data.items().len(),
+            SequenceData::List(data) => data.items().len(),
+            SequenceData::String(CharType::ASCII(data)) => data.items().len(),
+            SequenceData::String(CharType::UTF8(data)) => data.items().len(),
+        }
+    }
+
+    pub fn filter<F>(&mut self, filter: &mut F) -> Result<()> where F: FnMut(&dyn SequenceItem) -> Result<bool> {
+        match self {
+            SequenceData::Buffer(ref mut data) => {
+                let mut i = 0;
+                while i != data.data.len() {
+                    match filter(&data.data[i]) {
+                        Ok(res) if res == true => { data.data.remove(i); },
+                        Ok(_) => { i += 1; },
+                        Err(err) => return Err(err),
+                    }
+                }
+            },
+            SequenceData::List(ref mut data) => {
+                let mut i = 0;
+                while i != data.data.len() {
+                    match filter(&data.data[i]) {
+                        Ok(res) if res == true => { data.data.remove(i); },
+                        Ok(_) => { i += 1; },
+                        Err(err) => return Err(err),
+                    }
+                }
+            },
+            SequenceData::String(CharType::ASCII(ref mut data)) => {
+                let mut i = 0;
+                while i != data.data.len() {
+                    match filter(&data.data[i]) {
+                        Ok(res) if res == true => { data.data.remove(i); },
+                        Ok(_) => { i += 1; },
+                        Err(err) => return Err(err),
+                    }
+                }
+
+            },
+            SequenceData::String(CharType::UTF8(ref mut data)) => {
+                let mut i = 0;
+                while i != data.data.len() {
+                    match filter(&data.data[i]) {
+                        Ok(res) if res == true => { data.data.remove(i); },
+                        Ok(_) => { i += 1; },
+                        Err(err) => return Err(err),
+                    }
+                }
+            },
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CharType {
     UTF8(UTF8Data),
     ASCII(ASCIIData),
 }
 
+impl fmt::Display for CharType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CharType::ASCII(string) => write!(f, "{}", string),
+            CharType::UTF8(string) => write!(f, "{}", string), 
+        }
+    }
+}
+
+impl fmt::Debug for CharType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UTF8Data {
@@ -202,6 +297,150 @@ pub struct UTF8Data {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ASCIIData {
     pub data: Vec<u8>,
+}
+
+impl fmt::Display for ASCIIData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "\"{}\"", format!("{}", str::from_utf8(&self.data).unwrap()))
+    }
+}
+
+impl fmt::Display for UTF8Data {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut result = String::new();
+        for char in self.data.iter() {
+            if char.len() > 1 {
+                result.push_str(&format!( "\\u{{{}}}", hash::to_hex(&char[..])));
+            } else {
+                result.push_str(str::from_utf8(&char[..]).unwrap()); // todo(ludo): could be improved
+            }
+        }
+        write!(f, "\"{}\"", format!("{}", result))
+    }
+}
+
+pub trait SequenceItem {
+    fn to_value(&self) -> Value;
+}
+
+impl SequenceItem for u8 {
+    fn to_value(&self) -> Value {
+        Value::buff_from_byte(*self)
+    }
+}
+
+impl SequenceItem for Value {
+    fn to_value(&self) -> Value {
+        self.clone()
+    }
+}
+
+impl SequenceItem for Vec<u8> {
+    fn to_value(&self) -> Value {
+        Value::buff_from(self.clone()).unwrap() // todo(ludo): revisit
+    }
+}
+
+pub trait Sequenceable<T: SequenceItem> {
+
+    fn type_signature(&self) -> TypeSignature;
+    
+    fn items(&self) -> &Vec<T>;
+    fn append(&mut self, other_seq: &mut Vec<T>);
+    fn clear(&mut self);
+
+    fn values(&self) -> Vec<Value> {
+        self.items().iter().map(|item| {
+            item.clone().to_value()
+        }).collect()
+    }
+
+    fn atom_values(&self) -> Vec<SymbolicExpression> {
+        self.items().iter().map(|item| {
+            SymbolicExpression::atom_value(item.clone().to_value())
+        }).collect()
+    }
+}
+
+impl Sequenceable<Value> for ListData {
+    
+    fn items(&self) -> &Vec<Value> {
+        &self.data
+    }
+    
+    fn type_signature(&self) -> TypeSignature {
+        self.type_signature.get_list_item_type().clone() // todo(ludo): revisit
+    }
+
+    fn append(&mut self, other_seq: &mut Vec<Value>) {
+        let type_sig = self.type_signature();
+        for v in other_seq.drain(..) {
+            if type_sig.admits(&v) {
+                self.data.push(v);
+            } 
+        }
+    }
+
+    fn clear(&mut self) {
+        self.data.clear()
+    }
+}
+
+impl Sequenceable<u8> for BuffData {
+    
+    fn items(&self) -> &Vec<u8> {
+        &self.data
+    }
+
+    fn type_signature(&self) -> TypeSignature {
+        BUFF_1
+    }
+
+    fn append(&mut self, other_seq: &mut Vec<u8>) {
+        self.data.append(other_seq);
+    }
+
+    fn clear(&mut self) {
+        self.data.clear()
+    }
+}
+
+impl Sequenceable<u8> for ASCIIData {
+    
+    fn items(&self) -> &Vec<u8> {
+        &self.data
+    }
+
+    fn type_signature(&self) -> TypeSignature {
+        BUFF_1
+    }
+
+    fn append(&mut self, other_seq: &mut Vec<u8>) {
+        self.data.append(other_seq);
+    }
+
+    fn clear(&mut self) {
+        self.data.clear()
+    }
+}
+
+impl Sequenceable<Vec<u8>> for UTF8Data {
+    
+    fn items(&self) -> &Vec<Vec<u8>> {
+        &self.data
+    }
+
+    fn type_signature(&self) -> TypeSignature {
+        BUFF_6
+    }
+
+    fn append(&mut self, other_seq: &mut Vec<Vec<u8>>) {
+        self.data.append(other_seq);
+    }
+
+    fn clear(&mut self) {
+        self.data.clear()
+    }
 }
 
 define_named_enum!(BlockInfoProperty {

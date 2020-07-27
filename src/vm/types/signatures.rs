@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use address::c32;
 use vm::costs::{cost_functions, CostOverflowingMath};
-use vm::types::{Value, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
+use vm::types::{Value, SequenceData, CharType, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
                 QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName, TraitDefinition};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
@@ -73,6 +73,18 @@ pub enum SequenceSubtype {
     BufferType(BufferLength),
     ListType(ListTypeData),
     StringType(StringSubtype),
+}
+
+impl SequenceSubtype {
+
+    pub fn unit_type(&self) -> TypeSignature {
+        match &self {
+            SequenceSubtype::ListType(ref list_data) => list_data.clone().destruct().0,
+            SequenceSubtype::BufferType(_) => TypeSignature::min_buffer(),
+            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => TypeSignature::min_ascii_string(),
+            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_utf8_string(),    
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,6 +219,51 @@ impl TryFrom<i128> for BufferLength {
     }
 }
 
+impl From<&StringUTF8Length> for u32 {
+    fn from(v: &StringUTF8Length) -> u32 {
+        v.0
+    }
+}
+
+impl From<StringUTF8Length> for u32 {
+    fn from(v: StringUTF8Length) -> u32 {
+        v.0
+    }
+}
+
+impl TryFrom<u32> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: u32) -> Result<StringUTF8Length> {
+        if data > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(StringUTF8Length(data))
+        }
+    }
+}
+
+impl TryFrom<usize> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: usize) -> Result<StringUTF8Length> {
+        if data > (MAX_VALUE_SIZE as usize) {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(StringUTF8Length(data as u32))
+        }
+    }
+}
+
+impl TryFrom<i128> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: i128) -> Result<StringUTF8Length> {
+        if data > (MAX_VALUE_SIZE as i128) {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(StringUTF8Length(data as u32))
+        }
+    }
+}
+
 impl ListTypeData {
     pub fn new_list(entry_type: TypeSignature, max_len: u32) -> Result<ListTypeData> {
         let would_be_depth = 1 + entry_type.depth();
@@ -307,6 +364,27 @@ impl TypeSignature {
                     false
                 }
             },
+            SequenceType(SequenceSubtype::BufferType(ref my_len)) => { // todo(ludo): should be tuned
+                if let SequenceType(SequenceSubtype::BufferType(ref other_len)) = other {
+                    my_len.0 >= other_len.0
+                } else {
+                    false
+                }
+            },
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
+                if let SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(other_len))) = other {
+                    len.0 >= other_len.0
+                } else {
+                    false
+                }
+            },
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => { // todo(ludo): should be tuned
+                if let SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(other_len))) = other {
+                    len.0 >= other_len.0
+                } else {
+                    false
+                }
+            },
             OptionalType(ref my_inner_type) => {
                 if let OptionalType(other_inner_type) = other {
                     // Option types will always admit a "NoType" OptionalType -- which
@@ -335,13 +413,6 @@ impl TypeSignature {
                         my_inner_type.1.admits_type(&other_inner_type.1)
                             && my_inner_type.0.admits_type(&other_inner_type.0)
                     }
-                } else {
-                    false
-                }
-            },
-            BufferType(ref my_len) => {
-                if let BufferType(ref other_len) = other {
-                    my_len.0 >= other_len.0
                 } else {
                     false
                 }
@@ -714,7 +785,35 @@ impl TypeSignature {
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
             BufferLength::try_from(*buff_len)
-                .map(|buff_len| TypeSignature::BufferType(buff_len))
+                .map(|buff_len| SequenceType(SequenceSubtype::BufferType(buff_len)))
+        } else {
+            Err(CheckErrors::InvalidTypeDescription)
+        }
+    }
+
+    // Parses type signatures of the form:
+    // (string-utf8 10)
+    fn parse_string_utf8_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 1 {
+            return Err(CheckErrors::InvalidTypeDescription)
+        }
+        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
+            StringUTF8Length::try_from(*buff_len)
+                .map(|buff_len| SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(buff_len)))) // todo(ludo): bound inadequate
+        } else {
+            Err(CheckErrors::InvalidTypeDescription)
+        }
+    }
+
+    // Parses type signatures of the form:
+    // (string-ascii 10)
+    fn parse_string_ascii_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 1 {
+            return Err(CheckErrors::InvalidTypeDescription)
+        }
+        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
+            BufferLength::try_from(*buff_len)
+                .map(|buff_len| SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_len))))
         } else {
             Err(CheckErrors::InvalidTypeDescription)
         }
