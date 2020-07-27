@@ -20,7 +20,7 @@
 // This module contains the "main loop" that drives everything
 use burnchains::{Burnchain, BurnchainHeaderHash};
 use burnchains::Error as burnchain_error;
-use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use util::log;
 
 pub mod mempool;
@@ -40,17 +40,22 @@ pub const NETWORK_ID_TESTNET : u32 = 0xff000000;
 pub const NETWORK_P2P_PORT : u16 = 6265;
 
 // first burnchain block hash 
+pub const FIRST_BURNCHAIN_CONSENSUS_HASH : ConsensusHash = ConsensusHash([0u8; 20]);
 pub const FIRST_BURNCHAIN_BLOCK_HASH : BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
+pub const FIRST_BURNCHAIN_BLOCK_HEIGHT : u32 = 0;
 pub const FIRST_BURNCHAIN_BLOCK_TIMESTAMP : u64 = 0;
 
 pub const FIRST_BURNCHAIN_BLOCK_HASH_TESTNET : BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
 pub const FIRST_BURNCHAIN_BLOCK_HASH_REGTEST : BurnchainHeaderHash = BurnchainHeaderHash([2u8; 32]);
 
+pub const FIRST_BURNCHAIN_CONSENSUS_HASH_TESTNET : ConsensusHash = ConsensusHash([1u8; 20]);
+pub const FIRST_BURNCHAIN_CONSENSUS_HASH_REGTEST : ConsensusHash = ConsensusHash([2u8; 20]);
+
 pub const FIRST_STACKS_BLOCK_HASH : BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH : BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 
 pub const BOOT_BLOCK_HASH : BlockHeaderHash = BlockHeaderHash([0xff; 32]);
-pub const BURNCHAIN_BOOT_BLOCK_HASH : BurnchainHeaderHash = BurnchainHeaderHash([0xff; 32]);
+pub const BURNCHAIN_BOOT_CONSENSUS_HASH : ConsensusHash = ConsensusHash([0xff; 20]);
 
 pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 

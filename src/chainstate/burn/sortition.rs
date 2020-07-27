@@ -88,7 +88,7 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            canonical_stacks_tip_burn_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             sortition_id: SortitionId::stubbed(first_burn_header_hash),
             pox_id: PoxId([0; 32]),
         }
@@ -200,7 +200,7 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
             canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
-            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
+            canonical_stacks_tip_consensus_hash: parent_snapshot.canonical_stacks_tip_consensus_hash.clone(),
             sortition_id: sortition_id.clone()
         })
     }
@@ -307,7 +307,7 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
             canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
-            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
+            canonical_stacks_tip_consensus_hash: parent_snapshot.canonical_stacks_tip_consensus_hash.clone(),
             sortition_id: my_sortition_id.clone()
         })
     }

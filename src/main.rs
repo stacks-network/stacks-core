@@ -44,6 +44,7 @@ use blockstack_lib::util::retry::LogReader;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::burn::BlockHeaderHash;
+use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::burnchains::BurnchainHeaderHash;
 
 use blockstack_lib::burnchains::bitcoin::spv;
@@ -248,8 +249,8 @@ fn main() {
     if argv[1] == "marf-get" {
         let path = &argv[2];
         let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
-        let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
-        let itip = StacksBlockHeader::make_index_block_hash(&burntip, &tip);
+        let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
+        let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
         let key = &argv[5];
         let mut marf = MARF::from_path(path).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
@@ -384,7 +385,7 @@ fn main() {
             if snapshot.arrival_index == 0 {
                 continue;
             }
-            let index_hash = StacksBlockHeader::make_index_block_hash(&snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash);
+            let index_hash = StacksBlockHeader::make_index_block_hash(&snapshot.consensus_hash, &snapshot.winning_stacks_block_hash);
             stacks_blocks_arrival_indexes.push((index_hash, snapshot.arrival_index));
         }
         stacks_blocks_arrival_indexes.sort_by(|ref a, ref b| a.1.partial_cmp(&b.1).unwrap());
@@ -394,8 +395,8 @@ fn main() {
         let num_staging_blocks = all_stacks_blocks.len();
         for staging_block in all_stacks_blocks.into_iter() {
             if !staging_block.orphaned {
-                let index_hash = StacksBlockHeader::make_index_block_hash(&staging_block.burn_header_hash, &staging_block.anchored_block_hash);
-                eprintln!("Will consider {}/{}", &staging_block.burn_header_hash, &staging_block.anchored_block_hash);
+                let index_hash = StacksBlockHeader::make_index_block_hash(&staging_block.consensus_hash, &staging_block.anchored_block_hash);
+                eprintln!("Will consider {}/{}", &staging_block.consensus_hash, &staging_block.anchored_block_hash);
                 stacks_blocks_available.insert(index_hash, staging_block);
             }
         }
@@ -449,7 +450,7 @@ fn main() {
 
             // "discover" the stacks blocks
             if new_snapshot.sortition {
-                let mut stacks_block_id = StacksBlockHeader::make_index_block_hash(&new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash);
+                let mut stacks_block_id = StacksBlockHeader::make_index_block_hash(&new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash);
                 known_stacks_blocks.insert(stacks_block_id.clone());
 
                 if next_arrival >= stacks_blocks_arrival_order.len() {
@@ -461,18 +462,18 @@ fn main() {
                     while next_arrival < stacks_blocks_arrival_order.len() && known_stacks_blocks.contains(&stacks_block_id) {
                         if let Some(_) = stacks_blocks_available.get(&stacks_block_id) {
                             // load up the block
-                            let stacks_block_opt = StacksChainState::load_block(&old_chainstate.blocks_path, &new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash).unwrap();
+                            let stacks_block_opt = StacksChainState::load_block(&old_chainstate.blocks_path, &new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash).unwrap();
                             if let Some(stacks_block) = stacks_block_opt {
                                 // insert it into the new chainstate
                                 let ic = new_sortition_db.index_conn();
-                                Relayer::process_new_anchored_block(&ic, &mut new_chainstate, &new_snapshot.burn_header_hash, &stacks_block).unwrap();
+                                Relayer::process_new_anchored_block(&ic, &mut new_chainstate, &new_snapshot.consensus_hash, &stacks_block).unwrap();
                             }
                             else {
-                                warn!("No such stacks block {}/{}", &new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash);
+                                warn!("No such stacks block {}/{}", &new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash);
                             }
                         }
                         else {
-                            warn!("Missing stacks block {}/{}", &new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash);
+                            warn!("Missing stacks block {}/{}", &new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash);
                         }
 
                         next_arrival += 1;

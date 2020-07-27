@@ -310,40 +310,40 @@ fn bitcoind_integration_test() {
                 //         (ok 'true)))
                 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
                 let header_hash = chain_tip.block.block_hash();
-                let burn_header_hash = chain_tip.metadata.burn_header_hash;
-                tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash, PUBLISH_CONTRACT.to_owned()).unwrap();
+                let consensus_hash = chain_tip.metadata.consensus_hash;
+                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash, PUBLISH_CONTRACT.to_owned()).unwrap();
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 1 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
                 let header_hash = chain_tip.block.block_hash();
-                let burn_header_hash = chain_tip.metadata.burn_header_hash;
+                let consensus_hash = chain_tip.metadata.consensus_hash;
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000001000000000000000001007f9308b891b1593029c520cae33c25f55c4e720f875c85f8845e0ee7204047a0223f3587c033e0ddb7b0618183c56bf27a1521adf433d71f17d86a7b90c72973030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
-                tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 1 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\"
                 let header_hash = chain_tip.block.block_hash();
-                let burn_header_hash = chain_tip.metadata.burn_header_hash;
+                let consensus_hash = chain_tip.metadata.consensus_hash;
                 let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe400000000000000020000000000000000010132033d83ad5051a52cef15cb88a93ac046e91a7ea2c6bf2110efdf8827ad8e0c6d0fbce1087637647ecf771c16613637742c08a4422cddfe7af03227257061ad030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020200000003666f6f0200000003626172";
-                tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec()).unwrap();
             },
             4 => {
                 // On round 4, publish a "get:foo" transaction
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 3 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
                 let header_hash = chain_tip.block.block_hash();
-                let burn_header_hash = chain_tip.metadata.burn_header_hash;
+                let consensus_hash = chain_tip.metadata.consensus_hash;
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000300000000000000000100f1ffc472083f4fea947a6d1a83d0ddf0353dc0e9fac94d74da9d668b61676d1966474bc890f94c5fdb4d6ef816682f9073a2185e6ca8f8a6aa25a36ed851399d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
-                tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             5 => {
                 // On round 5, publish a stacks transaction
                 // ./blockstack-cli --testnet token-transfer b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01 0 0 ST195Q2HPXY576N4CT2A0R94D7DRYSX54A5X3YZTH 1000
                 let header_hash = chain_tip.block.block_hash();
-                let burn_header_hash = chain_tip.metadata.burn_header_hash;
+                let consensus_hash = chain_tip.metadata.consensus_hash;
                 let transfer_1000_stx = "80800000000400b71a091b4b8b7661a661c620966ab6573bc2dcd3000000000000000000000000000000000000cf44fd240b404ec42a4e419ef2059add056980fed6f766e2f11e4b03a41afb885cfd50d2552ec3fff5c470d6975dfe4010cd17bef45e24e0c6e30c8ae6604b2f03020000000000051a525b8a36ef8a73548cd0940c248d3b71ecf4a45100000000000003e800000000000000000000000000000000000000000000000000000000000000000000";
-                tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec()).unwrap();
             },
             _ => {}
         };

@@ -51,6 +51,7 @@ use burnchains::Txid;
 use burnchains::BurnchainHeaderHash;
 
 use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::ConsensusHash;
 use chainstate::burn::operations::LeaderBlockCommitOp;
 
 use chainstate::stacks::index::{TrieHash, TRIEHASH_ENCODED_SIZE};
@@ -758,7 +759,7 @@ pub struct StacksMicroblock {
 }
 
 // values a miner uses to produce the next block
-pub const MINER_BLOCK_BURN_HEADER_HASH : BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
+pub const MINER_BLOCK_CONSENSUS_HASH : ConsensusHash = ConsensusHash([1u8; 20]);
 pub const MINER_BLOCK_HEADER_HASH : BlockHeaderHash = BlockHeaderHash([1u8; 32]);
 
 /// A structure for incrementially building up a block

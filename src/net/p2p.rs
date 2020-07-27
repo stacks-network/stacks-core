@@ -2354,21 +2354,21 @@ impl PeerNetwork {
 
     /// Update a peer's inventory state to indicate that the given block is available.
     /// If updated, return the sortition height of the bit in the inv that was set.
-    fn handle_unsolicited_inv_update(&mut self, sortdb: &SortitionDB, event_id: usize, outbound_neighbor_key: &NeighborKey, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, microblocks: bool) -> Option<u64> {
+    fn handle_unsolicited_inv_update(&mut self, sortdb: &SortitionDB, event_id: usize, outbound_neighbor_key: &NeighborKey, consensus_hash: &ConsensusHash, microblocks: bool) -> Option<u64> {
         let block_sortition_height = match self.inv_state {
             Some(ref mut inv) => {
                 let res = 
                     if microblocks {
-                        inv.set_microblocks_available(outbound_neighbor_key, sortdb, consensus_hash, burn_header_hash)
+                        inv.set_microblocks_available(outbound_neighbor_key, sortdb, consensus_hash)
                     }
                     else {
-                        inv.set_block_available(outbound_neighbor_key, sortdb, consensus_hash, burn_header_hash)
+                        inv.set_block_available(outbound_neighbor_key, sortdb, consensus_hash)
                     };
 
                 match res {
                     Ok(Some(block_height)) => block_height,
                     Ok(None) => {
-                        debug!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" }, burn_header_hash);
+                        debug!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" }, consensus_hash);
                         return None;
                     },
                     Err(net_error::InvalidMessage) => {
@@ -2407,8 +2407,8 @@ impl PeerNetwork {
 
         test_debug!("{:?}: Process BlocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.available.len());
 
-        for (consensus_hash, burn_header_hash) in new_blocks.available.iter() {
-            let block_sortition_height = match self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, false) {
+        for (consensus_hash, _) in new_blocks.available.iter() {
+            let block_sortition_height = match self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, consensus_hash, false) {
                 Some(bsh) => bsh,
                 None => {
                     continue;
@@ -2438,8 +2438,8 @@ impl PeerNetwork {
 
         test_debug!("{:?}: Process MicroblocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_mblocks.available.len());
 
-        for (consensus_hash, burn_header_hash) in new_mblocks.available.iter() {
-            let mblock_sortition_height = match self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, true) {
+        for (consensus_hash, _) in new_mblocks.available.iter() {
+            let mblock_sortition_height = match self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, consensus_hash, true) {
                 Some(bsh) => bsh,
                 None => {
                     continue;
@@ -2470,6 +2470,8 @@ impl PeerNetwork {
         test_debug!("{:?}: Process BlocksData from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.blocks.len());
 
         for (burn_header_hash, block) in new_blocks.blocks.iter() {
+            // TODO(PoX): burn_header_hash to be replaced with a ConsensusHash, so we can just use
+            // SortitionDB::get_block_snapshot_consensus() here.
             let sortid = SortitionId::stubbed(burn_header_hash);
             let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid) {
                 Ok(Some(sn)) => sn,
@@ -2488,7 +2490,7 @@ impl PeerNetwork {
                 continue;
             }
 
-            self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, &sn.consensus_hash, burn_header_hash, false);
+            self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, &sn.consensus_hash, false);
         }
     }
     
