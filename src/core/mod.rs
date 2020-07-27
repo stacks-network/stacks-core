@@ -42,6 +42,7 @@ pub const NETWORK_P2P_PORT : u16 = 6265;
 // first burnchain block hash 
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH : ConsensusHash = ConsensusHash([0u8; 20]);
 pub const FIRST_BURNCHAIN_BLOCK_HASH : BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
+pub const FIRST_BURNCHAIN_BLOCK_HEIGHT : u32 = 0;
 pub const FIRST_BURNCHAIN_BLOCK_TIMESTAMP : u64 = 0;
 
 pub const FIRST_BURNCHAIN_BLOCK_HASH_TESTNET : BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);

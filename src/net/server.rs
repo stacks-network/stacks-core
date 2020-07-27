@@ -729,7 +729,7 @@ mod test {
                             let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                             test_debug!("Store peer server index block {:?}", &index_block_hash);
-                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, get_epoch_time_secs(), &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
+                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
 
                             let mut request = HttpRequestType::GetBlock(HttpRequestMetadata::from_host(PeerHost::from_host_port("127.0.0.1".to_string(), 51021)), index_block_hash);
                             request.metadata_mut().keep_alive = false;
@@ -764,7 +764,7 @@ mod test {
                             let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                             test_debug!("Store peer server index block {:?}", &index_block_hash);
-                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, get_epoch_time_secs(), &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
+                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
 
                             let mut request = HttpRequestType::GetBlock(HttpRequestMetadata::from_host(PeerHost::from_host_port("127.0.0.1".to_string(), 51031)), index_block_hash);
                             request.metadata_mut().keep_alive = false;
@@ -965,7 +965,7 @@ mod test {
                             let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                             test_debug!("Store peer server index block {:?}", &index_block_hash);
-                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, get_epoch_time_secs(), &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
+                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
 
                             let mut request = HttpRequestType::GetBlock(HttpRequestMetadata::from_host(PeerHost::from_host_port("127.0.0.1".to_string(), 51071)), index_block_hash);
                             request.metadata_mut().keep_alive = false;

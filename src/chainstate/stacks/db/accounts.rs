@@ -584,6 +584,7 @@ mod test {
         new_tip.block_height = parent_header_info.block_height + 1;
         new_tip.consensus_hash = ConsensusHash(Hash160::from_data(&Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0).0);
         new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0);
+        new_tip.burn_header_height = parent_header_info.burn_header_height + 1;
 
         block_reward.parent_consensus_hash = parent_header_info.consensus_hash.clone();
         block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
@@ -602,6 +603,7 @@ mod test {
                                                 &new_tip.anchored_header, 
                                                 &new_tip.consensus_hash, 
                                                 &new_tip.burn_header_hash,
+                                                new_tip.burn_header_height,
                                                 new_tip.burn_header_timestamp, 
                                                 new_tip.microblock_tail.clone(), 
                                                 &block_reward, 

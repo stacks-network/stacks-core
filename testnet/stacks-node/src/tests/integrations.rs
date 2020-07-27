@@ -43,6 +43,7 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (test-8) (get-block-info? miner-address u1))
         (define-private (test-9) (get-block-info? miner-address block-height))
         (define-private (test-10) (get-block-info? miner-address u100000))
+        (define-private (test-11) burn-block-height)
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
           (get id-hash (map-get? block-data ((height height))))))
@@ -258,6 +259,13 @@ fn integration_test_get_info() {
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-10)"),
                     Value::none());
+               
+                // verify we can read the burn block height (should be 3, since we sent the
+                // contract at block 2)
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-11)"),
+                    Value::UInt(3));
                     
             },
             3 => {
