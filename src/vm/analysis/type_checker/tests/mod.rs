@@ -12,7 +12,9 @@ use vm::types::{Value, PrincipalData, TypeSignature, FunctionType, FixedFunction
                 QualifiedContractIdentifier};
 
 use vm::database::MemoryBackingStore;
-use vm::types::TypeSignature::{IntType, BoolType, BufferType, UIntType, PrincipalType};
+use vm::types::TypeSignature::{IntType, BoolType, SequenceType, UIntType, PrincipalType};
+use vm::types::SequenceSubtype::*;
+
 use std::convert::TryInto;
 
 mod assets;
@@ -23,7 +25,7 @@ fn type_check_helper(exp: &str) -> TypeResult {
 }
 
 fn buff_type(size: u32) -> TypeSignature {
-    TypeSignature::BufferType(size.try_into().unwrap()).into()
+    TypeSignature::SequenceType(BufferType(size.try_into().unwrap())).into()
 }
 
 #[test]
@@ -563,8 +565,8 @@ fn test_lists() {
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedListOrBuffer(UIntType),
-        CheckErrors::ExpectedListOrBuffer(IntType)];
+        CheckErrors::ExpectedSequence(UIntType),
+        CheckErrors::ExpectedSequence(IntType)];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -614,8 +616,8 @@ fn test_buff() {
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedListOrBuffer(UIntType),
-        CheckErrors::ExpectedListOrBuffer(IntType)];
+        CheckErrors::ExpectedSequence(UIntType),
+        CheckErrors::ExpectedSequence(IntType)];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));

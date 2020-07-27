@@ -51,7 +51,7 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
             TypeSignature::list_of(mapped_type, buffer_data.into())
                 .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type).into())
+        _ => Err(CheckErrors::ExpectedSequence(argument_type).into())
     }
 }
 
@@ -69,8 +69,8 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
 
     {
         let input_type = match argument_type {
-            _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type.clone()))
             TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
+            _ => Err(CheckErrors::ExpectedSequence(argument_type.clone()))
         }?;
     
         let filter_type = function_type.check_args(checker, &[input_type])?;
@@ -96,8 +96,8 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     let argument_type = checker.type_check(&args[1], context)?;
 
     let input_type = match argument_type {
-        _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type))
         TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()),
+        _ => Err(CheckErrors::ExpectedSequence(argument_type))
     }?;
 
     let initial_value_type = checker.type_check(&args[2], context)?;
@@ -150,7 +150,7 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
                 return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::max_buffer()).into());
             }
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(lhs_type.clone()).into())
+        _ => Err(CheckErrors::ExpectedSequence(lhs_type.clone()).into())
     }
 }
 
@@ -205,7 +205,7 @@ pub fn check_special_as_max_len(checker: &mut TypeChecker, args: &[SymbolicExpre
         TypeSignature::SequenceType(BufferType(_)) => {
             Ok(TypeSignature::OptionalType(Box::new(TypeSignature::SequenceType(BufferType(BufferLength::try_from(expected_len).unwrap())))))
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(iterable).into())
+        _ => Err(CheckErrors::ExpectedSequence(iterable).into())
     }
 }
 
@@ -216,8 +216,8 @@ pub fn check_special_len(checker: &mut TypeChecker, args: &[SymbolicExpression],
     runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
 
     match collection_type {
-        _ => Err(CheckErrors::ExpectedListOrBuffer(collection_type.clone()))
         TypeSignature::SequenceType(_) => Ok(()),
+        _ => Err(CheckErrors::ExpectedSequence(collection_type.clone()))
     }?;
 
     Ok(TypeSignature::UIntType)

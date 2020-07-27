@@ -1,7 +1,7 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
-use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, MAX_VALUE_SIZE,
-                BOUND_VALUE_SERIALIZATION_BYTES,
+use vm::types::{Value, SequenceSubtype, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, MAX_VALUE_SIZE,
+                BOUND_VALUE_SERIALIZATION_BYTES, BUFF_6,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
@@ -106,6 +106,8 @@ impl From<&PrincipalData> for TypePrefix {
 impl From<&Value> for TypePrefix {
     fn from(v: &Value) -> TypePrefix {
         use super::Value::*;
+        use super::SequenceData::*;
+        use super::CharType;
 
         match v {
             Int(_) => TypePrefix::Int,
@@ -290,7 +292,7 @@ impl Value {
 
                 if let Some(x) = expected_type {
                     let passed_test = match x {
-                        TypeSignature::BufferType(expected_len) => {
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(expected_len)) => {
                             u32::from(&buffer_len) <= u32::from(expected_len)
                         },
                         _ => false
@@ -382,7 +384,7 @@ impl Value {
 
                 let (list_type, entry_type) = match expected_type {
                     None => (None, None),
-                    Some(TypeSignature::ListType(list_type)) => {
+                    Some(TypeSignature::SequenceType(SequenceSubtype::ListType(list_type))) => {
                         if len > list_type.get_max_len() {
                             return Err(SerializationError::DeserializeExpected(
                                 expected_type.unwrap().clone()))
@@ -458,6 +460,8 @@ impl Value {
 
     pub fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
         use super::Value::*;
+        use super::SequenceData::{self, *};
+        use super::CharType::*;
         use super::PrincipalData::*;
 
         w.write_all(&[TypePrefix::from(self) as u8])?;
