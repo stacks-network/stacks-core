@@ -2642,7 +2642,7 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for tx in microblock.txs.iter() {
-                let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)
+                let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx, false)
                     .map_err(|e| (e, microblock.block_hash()))?;
 
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
@@ -2660,7 +2660,7 @@ impl StacksChainState {
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
-            let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)?;
+            let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx, false)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
             burns = burns.checked_add(tx_receipt.stx_burned as u128).expect("Burns overflow");
             receipts.push(tx_receipt);
@@ -3311,7 +3311,7 @@ impl StacksChainState {
         }
 
         // 4: the account nonces must be correct
-        let (origin, payer) = match StacksChainState::check_transaction_nonces(clarity_connection, &tx) {
+        let (origin, payer) = match StacksChainState::check_transaction_nonces(clarity_connection, &tx, true) {
             Ok(x) => x,
             Err((mut e, (origin, payer))) => {
                 // let's see if the tx has matching nonce in the mempool
