@@ -306,6 +306,15 @@ fn microblock_integration_test() {
     //    which *should* have also confirmed the microblock.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    // I guess let's push another block for good measure?
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // microblock must have bumped our nonce
+    let path = format!("{}/v2/accounts/{}?proof=0",
+                       &http_origin, &spender_addr);
+    let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+    assert_eq!(res.nonce, 1);
+
     // push another transaction that is marked microblock only
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(&spender_sk, 1, 1000, &recipient.into(), 1000);

@@ -15,6 +15,11 @@ jobs:
         platform: [ windows-x64, macos-x64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
 
     steps:
+      - name: Cancel prior runs
+        uses: styfle/cancel-workflow-action@0.4.1
+        with:
+          access_token: ${{ github.token }}
+
       - uses: actions/checkout@v2
 
       - name: Build distributable
