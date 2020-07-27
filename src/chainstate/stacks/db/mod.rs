@@ -463,40 +463,12 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
 const STACKS_MINER_AUTH_KEY : &'static str = "a5879925788dcb3fe1f2737453e371ba04c4064e6609552ef59a126ac4fa598001";
 
 const STACKS_BOOT_CODE : &'static [&'static str] = &[
-    r#"
-    (define-constant ERR-NO-BALANCE u5)
-
-    (define-map rewards
-        ((participant principal))
-        ((available uint))
-    )
-    (define-private (get-participant-info (participant principal))
-        (default-to {available: u0} (map-get? rewards {participant: participant})))
-
-    (define-read-only (get-participant-reward (participant principal))
-        (ok (get available (get-participant-info participant))))
-
-    (define-public (withdraw-reward)
-        (let ((caller-address tx-sender) (contract-address (as-contract tx-sender)) (available (get available (get-participant-info tx-sender))))
-            (if (> available u0)
-                (match
-                    (as-contract (stx-transfer? available contract-address caller-address))
-                    value (begin (map-set rewards {participant: caller-address} {available: u0}) (ok available))
-                    err-value (err err-value))
-                (err ERR-NO-BALANCE))))
-    "#
 ];
 
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "ST000000000000000000002AMW42H";
 
 const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
-    "miner-rewards"
 ];
-
-pub const BOOT_CODE_MINER_CONTRACT_NAME : &'static str = "miner-rewards";
-pub const BOOT_CODE_MINER_REWARDS_MAP : &'static str = "rewards";
-pub const BOOT_CODE_MINER_REWARDS_PARTICIPANT : &'static str = "participant";
-pub const BOOT_CODE_MINER_REWARDS_AVAILABLE : &'static str = "available";
 
 #[cfg(test)]
 pub const MINER_REWARD_MATURITY : u64 = 2;       // small for testing purposes
