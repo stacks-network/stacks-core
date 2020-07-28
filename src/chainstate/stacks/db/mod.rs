@@ -1089,12 +1089,10 @@ impl StacksChainState {
         ];
 
         // store each indexed field
-        test_debug!("Headers index_put_begin {}-{}", &parent_hash, &new_tip.index_block_hash(new_burn_block));
         headers_tx.put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_burn_block))
             .map_err(Error::DBError)?;
         let root_hash = headers_tx.put_indexed_all(&indexed_keys, &indexed_values)
             .map_err(Error::DBError)?;
-        test_debug!("Headers index_commit {}-{}", &parent_hash, &new_tip.index_block_hash(new_burn_block));
         
         let new_tip_info = StacksHeaderInfo {
             anchored_header: new_tip.clone(),
