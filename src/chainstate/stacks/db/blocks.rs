@@ -1128,13 +1128,13 @@ impl StacksChainState {
 
         // find all blocks that we have that could be this block's parent
         let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
-        let possible_parent_snapshots = query_rows::<BlockSnapshot, _>(
-            &sort_handle, &sql, &[&header.parent_block])?;
+        let possible_parent_snapshots = query_rows::<BlockSnapshot, _>(&sort_handle, &sql, &[&header.parent_block])?;
         for possible_parent in possible_parent_snapshots.into_iter() {
             let burn_ancestor = sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
             if let Some(ancestor) = burn_ancestor {
                 // found!
-                let ret = StacksChainState::load_block_header(blocks_path, &ancestor.burn_header_hash, anchored_block_hash)?
+                // NOTE: this will be None if the parent block was orphaned
+                let ret = StacksChainState::load_block_header(blocks_path, &ancestor.burn_header_hash, &header.parent_block)?
                     .map(|header| { (header, ancestor.burn_header_hash) });
 
                 return Ok(ret);
