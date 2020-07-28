@@ -1115,7 +1115,7 @@ impl StacksChainState {
 
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
-    pub fn load_parent_block_header(sort_ic: &SortitionDBConn, _blocks_conn: &DBConn, blocks_path: &String, 
+    pub fn load_parent_block_header(sort_ic: &SortitionDBConn, blocks_path: &String, 
                                     burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<(StacksBlockHeader, BurnchainHeaderHash)>, Error> {
         let header = match StacksChainState::load_block_header(blocks_path, burn_header_hash, anchored_block_hash)? {
             Some(hdr) => hdr,
@@ -5098,7 +5098,6 @@ pub mod test {
         }
     }
 
-   
     // TODO: test multiple anchored blocks confirming the same microblock stream (in the same
     // place, and different places, with/without orphans)
     // TODO: process_next_staging_block
