@@ -91,7 +91,6 @@ impl BlockSnapshot {
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             sortition_id: SortitionId::stubbed(first_burn_header_hash),
-            pox_id: PoxId([0; 32]),
         }
     }
 
@@ -191,7 +190,6 @@ impl BlockSnapshot {
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: ch,
-            pox_id: parent_snapshot.pox_id,
             ops_hash: ops_hash,
             total_burn: burn_total,
             sortition: false,
@@ -222,7 +220,7 @@ impl BlockSnapshot {
     /// 
     /// Call this *after* you store all of the block's transactions to the burn db.
     pub fn make_snapshot(ic: &SortitionHandleConn, burnchain: &Burnchain,
-                         my_sortition_id: &SortitionId, my_pox_id: &PoxId,
+                         my_sortition_id: &SortitionId,
                          parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader,
                          burn_dist: &Vec<BurnSamplePoint>, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         assert_eq!(parent_snapshot.burn_header_hash, block_header.parent_block_hash);
@@ -297,7 +295,6 @@ impl BlockSnapshot {
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
-            pox_id: my_pox_id.clone(),
             consensus_hash: next_ch,
             ops_hash: next_ops_hash,
             total_burn: next_burn_total,

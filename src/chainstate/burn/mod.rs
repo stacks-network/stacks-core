@@ -137,7 +137,6 @@ pub struct BlockSnapshot {
     pub canonical_stacks_tip_hash: BlockHeaderHash,     // memoized canonical stacks chain tip
     pub canonical_stacks_tip_consensus_hash: ConsensusHash, // memoized canonical stacks chain tip
     pub sortition_id: SortitionId,
-    pub pox_id: PoxId,
 }
 
 impl BlockHeaderHash {

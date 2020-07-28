@@ -26,7 +26,8 @@ use rusqlite::TransactionBehavior;
 use rand;
 use rand::RngCore;
 
-use std::{io, fs, cmp};
+use std::{str::FromStr, fmt, fs, cmp};
+use std::io::{ Write, ErrorKind };
 use std::convert::From;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -86,6 +87,7 @@ use chainstate::stacks::db::{
 use address::AddressHashMode;
 
 use util::log;
+use net::{ Error as NetError };
 use util::vrf::*;
 use util::secp256k1::MessageSignature;
 use util::hash::{to_hex, hex_bytes, Hash160, Sha512Trunc256Sum};
@@ -155,7 +157,6 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 
         // identifiers derived from PoX forking state
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
-        let pox_id = PoxId::from_column(row, "pox_id")?;
 
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
@@ -184,7 +185,6 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             canonical_stacks_tip_consensus_hash: canonical_stacks_tip_consensus_hash,
 
             sortition_id,
-            pox_id
         };
         Ok(snapshot)
     }
@@ -526,15 +526,21 @@ impl_byte_array_message_codec!(SortitionId, 32);
 ///  outside of the PoX DB, however, they are sufficient
 ///  to uniquely identify a "sortition" when paired with
 ///  a burn header hash
-pub struct PoxId(pub [u8; 32]);
-impl_array_newtype!(PoxId, u8, 32);
-impl_array_hexstring_fmt!(PoxId);
-impl_byte_array_newtype!(PoxId, u8, 32);
-impl_byte_array_from_column!(PoxId);
-impl_byte_array_message_codec!(PoxId, 32);
+#[derive(Clone, Debug, PartialEq)]
+pub struct PoxId(Vec<bool>);
 
 struct db_keys;
 impl db_keys {
+    /// store a key that maps from <stacks-block-header> to <sortition-id of last block in sortition that chose it>
+    pub fn pox_anchor_to_prepare_end(block_hash: &BlockHeaderHash) -> String {
+        format!("sortition_db::pox_anchor_to_prepare_end::{}", block_hash)
+    }
+
+    /// store a key that maps from <stacks-block-header> to <sortition-id of last block in sortition that chose it>
+    pub fn pox_identifier() -> &'static str {
+        "sortition_db::pox_identifier"
+    }
+
     pub fn sortition_id_for_bhh(bhh: &BurnchainHeaderHash) -> String {
         format!("sortition_db::sortition_id_for_bhh::{}", bhh)
     }
@@ -544,8 +550,8 @@ impl db_keys {
     pub fn stacks_block_present(block_hash: &BlockHeaderHash) -> String {
         format!("sortition_db::sortition_block_hash::{}", block_hash)
     }
-    pub fn last_sortition() -> String {
-        "sortition_db::last_sortition".into()
+    pub fn last_sortition() -> &'static str {
+        "sortition_db::last_sortition"
     }
 
     /// MARF index key for a processed stacks block.  Maps to its height.
@@ -689,6 +695,13 @@ impl <'a> SortitionHandleConn <'a> {
         };
 
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
+    }
+
+    fn get_pox_id(&self) -> Result<PoxId, db_error> {
+        let pox_id = self.get_tip_indexed(db_keys::pox_identifier())?
+            .map(|s| s.parse().expect("BUG: Bad PoX identifier stored in DB"))
+            .expect("BUG: No PoX identifier stored.");
+        Ok(pox_id)
     }
 
     /// open a reader handle
@@ -963,27 +976,60 @@ impl <'a> SortitionHandleConn <'a> {
 }
 
 impl PoxId {
-    const BASE_FORK: PoxId = PoxId([0; 32]);
+    pub fn initial() -> PoxId {
+        PoxId(vec![true])
+    }
 
     pub fn extend_with_present_block(&mut self) {
-        unimplemented!("");
+        self.0.push(true);
     }
     pub fn extend_with_not_present_block(&mut self) {
-        unimplemented!("");
+        self.0.push(false);
     }
 
     /// does the given pox identifier describe a child fork of the current pox identifier? this returns true if they
     ///   are equal or child is a descendant.
     pub fn is_pox_id_descendant(&self, child: &PoxId) -> bool {
-        self == child || unimplemented!("")
+        if child.0.len() < self.0.len() {
+            false
+        } else {
+            for (a, b) in self.0.iter().zip(child.0.iter()) {
+                if a != b {
+                    return false;
+                }
+            }
+            true
+        }
     }
 
     pub fn stubbed() -> PoxId {
-        PoxId::BASE_FORK.clone()
+        PoxId(vec![])
     }
+}
 
-    pub fn base_fork() -> &'static PoxId {
-        &PoxId::BASE_FORK
+impl FromStr for PoxId {
+    type Err = NetError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut result = vec![];
+        for i in s.chars() {
+            if i == '1' {
+                result.push(true);
+            } else if i == '0' {
+                result.push(false);
+            } else {
+                return Err(NetError::DeserializeError("Unexpected character in PoX ID serialization".into()))
+            }
+        }
+        Ok(PoxId(result))
+    }
+}
+
+impl fmt::Display for PoxId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for val in self.0.iter() {
+            write!(f, "{}", if *val { 1 } else { 0 })?;
+        }
+        Ok(())
     }
 }
 
@@ -991,16 +1037,17 @@ impl SortitionId {
     /// PoX Todo: any caller of this would need to instead
     ///  construct a sortition ID with a burn header hash + pox fork identifier
     pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
-        SortitionId::new(from, PoxId::base_fork())
+        SortitionId::new(from, &PoxId::stubbed())
     }
 
     pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
-        if pox == PoxId::base_fork() {
+        if pox == &PoxId::stubbed() {
             SortitionId(bhh.0.clone())
         } else {
             let mut hasher = Sha512Trunc256::new();
             hasher.input(bhh);
-            hasher.input(pox);
+            write!(hasher, "{}", pox)
+                .expect("Failed to deserialize PoX ID into the hasher");
             let h = Sha512Trunc256Sum::from_hasher(hasher);
             SortitionId(h.0)
         }
@@ -1091,7 +1138,7 @@ impl SortitionDB {
         let mut create_flag = false;
         let open_flags = match fs::metadata(path) {
             Err(e) => {
-                if e.kind() == io::ErrorKind::NotFound {
+                if e.kind() == ErrorKind::NotFound {
                     // need to create 
                     if readwrite {
                         create_flag = true;
@@ -1177,13 +1224,20 @@ impl SortitionDB {
 
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
-        let index_root = db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], &vec![])?;
+        let index_root = db_tx.index_add_fork_info(
+            &mut first_sn, &first_snapshot, &vec![], &vec![], None)?;
         first_snapshot.index_root = index_root;
 
         db_tx.insert_block_snapshot(&first_snapshot)?;
 
         db_tx.commit()?;
         Ok(())
+    }
+
+    /// Load up all snapshots, in ascending order by block height.  Great for testing!
+    pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
+        let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
+        query_rows(self.conn(), qry, NO_PARAMS)
     }
 }
 
@@ -1315,33 +1369,6 @@ impl <'a> SortitionDBConn <'a> {
     }
 }
 
-pub struct PoxDB;
-
-impl PoxDB {
-    /// Get the canonical PoX identifier for a given burnchain header hash.
-    ///   this result may change if a previously unknown PoX anchor is processed.
-    pub fn get_canonical_pox_id(&self, _burnchain_header_hash: &BurnchainHeaderHash) -> Result<PoxId, CoordinatorError> {
-        Ok(PoxId::stubbed())
-    }
-    /// Get the parent PoX identifier for a given identifier.
-    ///  If the PoX identifier does not have a parent (should only be true for the "base" PoX identifier)
-    ///    return an error.
-    pub fn get_parent_pox_id(&self, _pox_id: &PoxId) -> Result<PoxId, CoordinatorError> {
-        unimplemented!("");
-    }
-    /// does the given pox identifier describe a child fork of the parent pox identifier? this returns true if they
-    ///   are equal or child is a descendant.
-    pub fn is_pox_id_descendant(&self, parent: &PoxId, child: &PoxId) -> bool {
-        parent.is_pox_id_descendant(child)
-    }
-    pub fn process_anchor(&mut self, block_id: &StacksBlockId, chain_state: &StacksChainState) -> Result<(), CoordinatorError> {
-        unimplemented!("");
-    }
-    pub fn stubbed() -> PoxDB {
-        PoxDB
-    }
-}
-
 // High-level functions used by ChainsCoordinator
 impl SortitionDB {
     pub fn get_sortition_id(&self, burnchain_header_hash: &BurnchainHeaderHash, sortition_tip: &SortitionId) -> Result<Option<SortitionId>, BurnchainError> {
@@ -1356,20 +1383,36 @@ impl SortitionDB {
     }
 
     /// Is the given block an expected PoX anchor in this sortition history?
-    pub fn is_stacks_block_pox_anchor(&mut self, block: &StacksHeaderInfo, sortition_tip: &SortitionId) -> Option<StacksBlockId> {
-        // PoX TODO -- anchor block selection and tracking
-        return None;
+    ///  if so, return the Stacks block hash
+    pub fn is_stacks_block_pox_anchor(&mut self, block: &StacksHeaderInfo, sortition_tip: &SortitionId) -> Result<Option<BlockHeaderHash>, BurnchainError> {
+        let handle = self.index_handle(sortition_tip);
+        let anchor = block.anchored_header.block_hash();
+        let expects_block_as_anchor = handle.get_tip_indexed(&db_keys::pox_anchor_to_prepare_end(&anchor))?
+            .map(|_| anchor);
+
+        return Ok(expects_block_as_anchor)
     }
 
     /// Get the last sortition in the prepare phase that chose a particular Stacks block as the anchor,
-    ///   or if the anchor is not expected, 
-    pub fn get_prepare_end_for(&mut self, sortition_tip: &SortitionId, anchor: &StacksBlockId) -> Result<Option<BlockSnapshot>, BurnchainError> {
-        unimplemented!("");
+    ///   or if the anchor is not expected, return None
+    pub fn get_prepare_end_for(&mut self, sortition_tip: &SortitionId, anchor: &BlockHeaderHash) -> Result<Option<BlockSnapshot>, BurnchainError> {
+        let handle = self.index_handle(sortition_tip);
+        let prepare_end_sortid = match handle.get_tip_indexed(&db_keys::pox_anchor_to_prepare_end(anchor))? {
+            Some(s) => SortitionId::from_hex(&s)
+                .expect("CORRUPTION: DB stored bad sortition ID"),
+            None => return Ok(None)
+        };
+        let snapshot = SortitionDB::get_block_snapshot(&self.conn, &prepare_end_sortid)?
+            .expect(&format!("BUG: Sortition ID for prepare phase end is known, but no BlockSnapshot is stored: {}",
+                            &prepare_end_sortid));
+        Ok(Some(snapshot))
     }
 
     /// Get the PoX ID at the particular sortition_tip
     pub fn get_pox_id(&mut self, sortition_tip: &SortitionId) -> Result<PoxId, BurnchainError> {
-        unimplemented!("");
+        let handle = self.index_handle(sortition_tip);
+        handle.get_pox_id()
+            .map_err(BurnchainError::from)
     }
 
     ///
@@ -1392,8 +1435,10 @@ impl SortitionDB {
                 BurnchainError::MissingParentBlock
             })?;
 
+        let parent_pox = sortition_db_handle.get_pox_id()?;
+
         let new_snapshot = sortition_db_handle.process_block_txs(
-            &parent_snapshot, burn_header, burnchain, ops)?;
+            &parent_snapshot, burn_header, burnchain, ops, next_pox_info, parent_pox)?;
 
         // commit everything!
         sortition_db_handle.commit()?;
@@ -1416,18 +1461,9 @@ impl SortitionDB {
 // Querying methods
 impl SortitionDB {
     /// Get the last snapshot processed, in the provided PoX fork
-    pub fn get_last_snapshot(conn: &Connection, pox_id: &PoxId, pox_db: &PoxDB) -> Result<Option<BlockSnapshot>, db_error> {
-        let qry = "SELECT * FROM snapshots WHERE pox_id = ?1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        let opt_result = query_row(conn, qry, &[pox_id])?;
-        if let None = opt_result {
-            let parent_pox_id = match pox_db.get_parent_pox_id(pox_id).ok() {
-                None => return Ok(None),
-                Some(x) => x
-            };
-            query_row(conn, qry, &[&parent_pox_id])
-        } else {
-            Ok(opt_result)
-        }
+    pub fn get_last_snapshot(conn: &Connection) -> Result<Option<BlockSnapshot>, db_error> {
+        let qry = "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
+        query_row(conn, qry, NO_PARAMS)
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
@@ -1435,8 +1471,7 @@ impl SortitionDB {
     // PoX TODO: this method should go away -- callers will need to call `get_last_snapshot` with a PoX identifier
     //            to obtain the last snapshot
     pub fn get_canonical_burn_chain_tip_stubbed(conn: &Connection) -> Result<BlockSnapshot, db_error> {
-        let pox_db = PoxDB::stubbed();
-        SortitionDB::get_last_snapshot(conn, &PoxId::stubbed(), &pox_db)
+        SortitionDB::get_last_snapshot(conn)
             .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
@@ -1562,7 +1597,6 @@ impl SortitionDB {
         Ok(burn_total)
     }
 
-
     /// Get all user burns registered in a block on is fork.
     /// Returns list of user burns in order by vtxindex.
     pub fn get_user_burns_by_block(conn: &Connection, sortition: &SortitionId) -> Result<Vec<UserBurnSupportOp>, db_error> {
@@ -1598,7 +1632,6 @@ impl SortitionDB {
         conn.query_row(qry, args, |row| row.get(0)).optional()
             .map_err(db_error::from)
     }
-
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
@@ -1762,7 +1795,9 @@ impl SortitionDB {
 impl <'a> SortitionHandleTx <'a> {
     /// Append a snapshot to a chain tip, and update various chain tip statistics.
     /// Returns the new state root of this fork.
-    pub fn append_chain_tip_snapshot(&mut self, parent_snapshot: &BlockSnapshot, snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>) -> Result<TrieHash, db_error> {
+    pub fn append_chain_tip_snapshot(&mut self, parent_snapshot: &BlockSnapshot, snapshot: &BlockSnapshot,
+                                     block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>,
+                                     next_pox_info: Option<RewardCycleInfo>) -> Result<TrieHash, db_error> {
         assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
         assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
         if snapshot.sortition {
@@ -1773,7 +1808,7 @@ impl <'a> SortitionHandleTx <'a> {
         }
 
         let mut parent_sn = parent_snapshot.clone();
-        let root_hash = self.index_add_fork_info(&mut parent_sn, snapshot, block_ops, consumed_leader_keys)?;
+        let root_hash = self.index_add_fork_info(&mut parent_sn, snapshot, block_ops, consumed_leader_keys, next_pox_info)?;
 
         let mut sn = snapshot.clone();
         sn.index_root = root_hash.clone();
@@ -1790,6 +1825,13 @@ impl <'a> SortitionHandleTx <'a> {
         }
 
         Ok(root_hash)
+    }
+
+    fn get_pox_id(&self) -> Result<PoxId, db_error> {
+        let pox_id = self.get_indexed(&self.context.chain_tip, db_keys::pox_identifier())?
+            .map(|s| s.parse().expect("BUG: Bad PoX identifier stored in DB"))
+            .expect("BUG: No PoX identifier stored.");
+        Ok(pox_id)
     }
 
     /// Store a blockstack burnchain operation
@@ -1935,13 +1977,12 @@ impl <'a> SortitionHandleTx <'a> {
             &snapshot.canonical_stacks_tip_hash,
             &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.sortition_id,
-            &snapshot.pox_id
         ];
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
-                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, pox_id) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
+                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -1956,9 +1997,12 @@ impl <'a> SortitionHandleTx <'a> {
     /// NOTE: the resulting index root must be globally unique.  This is guaranteed because each
     /// burn block hash is unique, no matter what fork it's on (and this index uses burn block
     /// hashes as its index's block hash data).
-    fn index_add_fork_info(&mut self, parent_snapshot: &mut BlockSnapshot, snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>) -> Result<TrieHash, db_error> {
+    fn index_add_fork_info(&mut self, parent_snapshot: &mut BlockSnapshot, snapshot: &BlockSnapshot,
+                           block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>,
+                           next_pox_info: Option<RewardCycleInfo>) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {
             assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
+            assert_eq!(&parent_snapshot.sortition_id, &self.context.chain_tip);
         }
 
         // data we want to store
@@ -1985,11 +2029,33 @@ impl <'a> SortitionHandleTx <'a> {
 
         // if this commit has a sortition, record its burn block hash and stacks block hash
         if snapshot.sortition {
-            keys.push(db_keys::last_sortition());
+            keys.push(db_keys::last_sortition().to_string());
             values.push(snapshot.burn_header_hash.to_hex());
 
             keys.push(db_keys::stacks_block_present(&snapshot.winning_stacks_block_hash));
             values.push(snapshot.sortition_id.to_hex());
+        }
+
+        // if this is the start of a reward cycle, store the new PoX keys
+        if !snapshot.is_initial() {
+            if let Some(reward_info) = next_pox_info {
+                let mut pox_id = self.get_pox_id()?;
+                if reward_info.anchor_block_known {
+                    pox_id.extend_with_present_block();
+                } else {
+                    pox_id.extend_with_not_present_block();
+                }
+                if let Some(ref anchor_block) = reward_info.anchor_block {
+                    keys.push(db_keys::pox_anchor_to_prepare_end(anchor_block));
+                    values.push(parent_snapshot.sortition_id.to_hex());
+                }
+                keys.push(db_keys::pox_identifier().to_string());
+                values.push(pox_id.to_string());
+            }
+        } else {
+            assert_eq!(next_pox_info, None);
+            keys.push(db_keys::pox_identifier().to_string());
+            values.push(PoxId::initial().to_string());
         }
 
         // commit to all newly-arrived blocks

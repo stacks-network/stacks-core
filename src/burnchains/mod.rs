@@ -268,7 +268,8 @@ pub struct Burnchain {
     pub consensus_hash_lifetime: u32,
     pub stable_confirmations: u32,
     pub first_block_height: u64,
-    pub first_block_hash: BurnchainHeaderHash
+    pub first_block_hash: BurnchainHeaderHash,
+    pub reward_cycle_period: u64,
 }
 
 /// Structure for encoding our view of the network 
@@ -324,7 +325,7 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Error::UnsupportedBurnchain => write!(f, "Unsupported burnchain"),
             Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),

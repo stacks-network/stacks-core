@@ -71,7 +71,7 @@ use chainstate::burn::operations::{
 };
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionHandleTx, SortitionHandleConn,
-    PoxId, PoxDB
+    PoxId
 };
 
 use chainstate::stacks::StacksAddress;
@@ -321,8 +321,18 @@ impl Burnchain {
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,
-            first_block_hash: params.first_block_hash.clone()
+            first_block_hash: params.first_block_hash.clone(),
+            reward_cycle_period: 1000,
         })
+    }
+
+    pub fn is_reward_cycle_start(&self, block_height: u64) -> bool {
+        if block_height < self.first_block_height {
+            false
+        } else {
+            let effective_height = block_height - self.first_block_height;
+            (effective_height % self.reward_cycle_period) == 0
+        }
     }
 
     #[cfg(test)]
@@ -361,7 +371,7 @@ impl Burnchain {
         Ok(())
     }
 
-    fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
+    pub fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
         let indexer : I = BurnchainIndexer::init(&self.working_dir, &self.network_name)?;
@@ -409,7 +419,7 @@ impl Burnchain {
         db_path
     }
 
-    fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
+    pub fn connect_db<I: BurnchainIndexer>(&self, indexer: &I, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
         let first_block_height = indexer.get_first_block_height();
@@ -586,17 +596,13 @@ impl Burnchain {
     }
 
     /// Top-level entry point to check and process a block.
-    pub fn process_block(db: &mut SortitionDB, burnchain_db: &mut BurnchainDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
+    pub fn process_block(burnchain_db: &mut BurnchainDB, block: &BurnchainBlock) -> Result<BurnchainBlockHeader, burnchain_error> {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
+        let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
         let header = block.header();
-        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
 
-        let pox_id = PoxId::stubbed();
-        let pox_db = PoxDB::stubbed();
-
-//        db.evaluate_sortition(&header, blockstack_txs, burnchain, &pox_id, &pox_db)
-        Err(burnchain_error::UnsupportedBurnchain)
+        Ok(header)
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
@@ -636,42 +642,21 @@ impl Burnchain {
     /// Returns new latest block height.
     pub fn sync<I: BurnchainIndexer + 'static>(&mut self) -> Result<u64, burnchain_error> {
         let mut indexer: I = self.make_indexer()?;
-        let (chain_tip, _) = self.sync_with_indexer(&mut indexer)?;
+        let chain_tip = self.sync_with_indexer(&mut indexer)?;
         Ok(chain_tip.block_height)
     }
 
     /// Top-level burnchain sync.
     /// Returns (snapshot of new burnchain tip, last state-transition processed if any)
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
-    pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
+    pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<BurnchainBlockHeader, burnchain_error> {
         self.setup_chainstate(indexer)?;
-        let (mut sortdb, mut burnchain_db) = self.connect_db(indexer, true)?;
+        let (_, mut burnchain_db) = self.connect_db(indexer, true)?;
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip()
             .map_err(|e| {
                 error!("Failed to query burn chain tip from burn DB: {}", e);
                 e
             })?;
-
-        let pox_id = PoxId::stubbed();
-        let pox_db = PoxDB::stubbed();
-
-        let last_snapshot_processed = match SortitionDB::get_last_snapshot(&sortdb.conn, &pox_id, &pox_db)? {
-            Some(snapshot) => snapshot,
-            None => {
-                warn!("No snapshot processed yet");
-                SortitionDB::get_first_block_snapshot(&sortdb.conn)?
-            }
-        };
-
-        // does the bunchain db have more blocks than the sortition db has processed?
-        // PoX TODO: this check shouldn't happen here. instead, this "sync_with_indexer" function
-        //            should just insert the new data into the burnchain db, and signal to the StacksChainController
-        //            that it should check whether or not it should process a new sortition.
-        assert_eq!(last_snapshot_processed.block_height,
-                   burn_chain_tip.block_height,
-                   "FATAL: Last snapshot processed height={} and current burnchain db height={} have diverged",
-                   last_snapshot_processed.block_height,
-                   burn_chain_tip.block_height);
 
         let db_height = burn_chain_tip.block_height;
 
@@ -699,7 +684,7 @@ impl Burnchain {
         debug!("Sync'ed headers from {} to {}. DB at {}", start_block, end_block, db_height);
         if start_block == db_height && db_height == end_block {
             // all caught up
-            return Ok((last_snapshot_processed, None));
+            return Ok(burn_chain_tip);
         }
 
         info!("Node will fetch burnchain blocks {}-{}...", start_block, end_block);
@@ -711,8 +696,6 @@ impl Burnchain {
 
         let mut downloader = indexer.downloader();
         let mut parser = indexer.parser();
-
-        let burnchain_config = self.clone();
 
         // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
         // and if so, do nothing.
@@ -752,8 +735,8 @@ impl Burnchain {
             Ok(())
         });
 
-        let db_thread : thread::JoinHandle<Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error>> = thread::spawn(move || {
-            let mut last_processed = (last_snapshot_processed, None);
+        let db_thread : thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> = thread::spawn(move || {
+            let mut last_processed = burn_chain_tip;
             while let Ok(Some(burnchain_block)) = db_recv.recv() {
                 debug!("Try recv next parsed block");
 
@@ -762,8 +745,7 @@ impl Burnchain {
                 }
                 
                 let insert_start = get_epoch_time_ms();
-                let (tip, transition) = Burnchain::process_block(&mut sortdb, &mut burnchain_db, &burnchain_config, &burnchain_block)?;
-                last_processed = (tip, Some(transition));
+                last_processed = Burnchain::process_block(&mut burnchain_db, &burnchain_block)?;
                 let insert_end = get_epoch_time_ms();
 
                 debug!("Inserted block {} in {}ms", burnchain_block.block_height(), insert_end - insert_start);
@@ -793,7 +775,7 @@ impl Burnchain {
         // join up 
         let _ = download_thread.join().unwrap();
         let _ = parse_thread.join().unwrap();
-        let (block_snapshot, state_transition_opt) = match db_thread.join().unwrap() {
+        let block_header = match db_thread.join().unwrap() {
             Ok(x) => x,
             Err(e) => {
                 warn!("Failed to join burnchain download thread: {:?}", &e);
@@ -801,8 +783,8 @@ impl Burnchain {
             }
         };
 
-        if block_snapshot.block_height < end_block {
-            warn!("Try synchronizing the burn chain again: final snapshot {} < {}", block_snapshot.block_height, end_block);
+        if block_header.block_height < end_block {
+            warn!("Try synchronizing the burn chain again: final snapshot {} < {}", block_header.block_height, end_block);
             return Err(burnchain_error::TrySyncAgain);
         }
 
@@ -810,7 +792,7 @@ impl Burnchain {
             return Err(e);
         }
 
-        Ok((block_snapshot, state_transition_opt))
+        Ok(block_header)
     }
 }
 

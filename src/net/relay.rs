@@ -473,7 +473,7 @@ impl Relayer {
     }
 
     /// Insert a staging block
-    fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
+    pub fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
         let sn = match SortitionDB::get_block_snapshot_consensus(sort_ic.conn, consensus_hash)? {
             Some(sn) => sn,
             None => {

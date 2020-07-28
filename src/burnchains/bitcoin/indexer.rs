@@ -645,6 +645,9 @@ impl BurnchainIndexer for BitcoinIndexer {
         let mut indexer = BitcoinIndexer::from_file(bitcoin_network_id, &conf_path_str)
             .map_err(burnchain_error::Bitcoin)?;
 
+        SpvClient::new(&indexer.config.spv_headers_path, 0, None, indexer.runtime.network_id, true, false)
+            .map_err(burnchain_error::Bitcoin)?;
+
         indexer.connect()?;
         Ok(indexer)
     }

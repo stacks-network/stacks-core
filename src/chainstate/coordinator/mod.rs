@@ -1,16 +1,19 @@
 use std::collections::VecDeque;
-use std::thread;
+use std::{
+    thread, process
+};
+use std::time::Duration;
 use std::sync::{Arc, RwLock};
-use std::sync::mpsc::{
-    sync_channel, SyncSender, Receiver, TrySendError};
-use std::process;
+
+use crossbeam_channel::{select, bounded, Sender, Receiver, Select, TrySendError};
+
 
 use burnchains::{
     BurnchainHeaderHash, Error as BurnchainError,
-    Burnchain
+    Burnchain, BurnchainBlockHeader
 };
 use chainstate::burn::{BlockHeaderHash, BlockSnapshot};
-use chainstate::burn::db::sortdb::{SortitionDB, PoxDB, PoxId, SortitionId};
+use chainstate::burn::db::sortdb::{SortitionDB, PoxId, SortitionId};
 use chainstate::stacks::{
     StacksBlock, StacksBlockId, TransactionPayload,
     Error as ChainstateError
@@ -29,20 +32,12 @@ use util::db::{
     Error as DBError
 };
 
-pub struct RewardCycleInfo;
-
-struct BlocksDB;
-impl BlocksDB {
-
-    pub fn stubbed() -> BlocksDB {
-        BlocksDB {}
-    }
-
-    #[allow(unused_variables)]
-    pub fn get_blocks_ready_to_process(&self, sortition_id: &SortitionId, sortition_db: &SortitionDB) -> Option<Vec<StacksBlockId>> {
-        // This method will be calling sortition_db::latest_stacks_blocks_processed
-        unimplemented!()
-    }
+#[derive(Debug, PartialEq)]
+pub struct RewardCycleInfo {
+    /// what was the elected PoX anchor, if any?
+    pub anchor_block: Option<BlockHeaderHash>,
+    /// was the elected PoX anchor known?
+    pub anchor_block_known: bool
 }
 
 struct ChainsCoordinator {
@@ -50,10 +45,8 @@ struct ChainsCoordinator {
     canonical_sortition_tip: Option<SortitionId>,
     canonical_chain_tip: Option<StacksBlockId>,
     canonical_pox_id: Option<PoxId>,
-    blocks_db: BlocksDB,
     burnchain_blocks_db: BurnchainDB,
     chain_state_db: StacksChainState,
-    pox_db: PoxDB, 
     sortition_db: SortitionDB,
     burnchain: Burnchain,
 }
@@ -88,8 +81,8 @@ impl From<DBError> for Error {
 }
 
 struct CoordinatorChannels {
-    new_stacks_block_channel: SyncSender<()>,
-    new_burn_block_channel: SyncSender<()>
+    new_stacks_block_channel: Sender<()>,
+    new_burn_block_channel: Sender<()>
 }
 
 pub enum ChainsEventCallback {
@@ -144,40 +137,65 @@ impl ChainsCoordinator {
         }
     }
 
-    pub fn new() {
-        let mut channel_storage = COORDINATOR_CHANNELS.write().unwrap();
-        if channel_storage.is_some() {
-            panic!("FAIL: attempted to instantiate chains coordinator, but instance already constructed.");
-        }
+    pub fn main() {
+        let (stacks_block_receiver, burn_block_receiver) = {
+            let mut channel_storage = COORDINATOR_CHANNELS.write().unwrap();
+            if channel_storage.is_some() {
+                panic!("FAIL: attempted to start chains coordinator, but instance already constructed.");
+            }
 
-        let blocks_db = BlocksDB::stubbed();
+            let (stacks_block_sender, stacks_block_receiver) = bounded(1);
+            let (burn_block_sender, burn_block_receiver) = bounded(1);
+
+            channel_storage.replace(CoordinatorChannels {
+                new_stacks_block_channel: stacks_block_sender,
+                new_burn_block_channel: burn_block_sender
+            });
+
+            (stacks_block_receiver, burn_block_receiver)
+        };
+
         let burnchain_blocks_db = BurnchainDB::open("burnchain.db", true).unwrap();
         let chain_state_db = StacksChainState::open(true, 0x80, "chainstate.db").unwrap();
-        let pox_db = PoxDB::stubbed();
         let sortition_db = SortitionDB::connect(
             "sortition_db", 0, &core::FIRST_BURNCHAIN_BLOCK_HASH, core::FIRST_BURNCHAIN_BLOCK_TIMESTAMP, true).unwrap();
         let burnchain = Burnchain::new("burnchain_dir", "bitcoin", "testnet").unwrap();
 
-        let inst = ChainsCoordinator {
+        let mut inst = ChainsCoordinator {
             canonical_burnchain_chain_tip: None,
             canonical_chain_tip: None,
             canonical_sortition_tip: None,
             canonical_pox_id: None,
-            blocks_db,
             burnchain_blocks_db,
             chain_state_db,
-            pox_db, 
             sortition_db,
-            burnchain
+            burnchain,
         };
 
-        let (stacks_block_sender, stacks_block_receiver) = sync_channel(1);
-        let (burn_block_sender, burn_block_receiver) = sync_channel(1);
 
-        channel_storage.replace(CoordinatorChannels {
-            new_stacks_block_channel: stacks_block_sender,
-            new_burn_block_channel: burn_block_sender
-        });
+        let mut recv_selector = Select::new();
+        let oper_stacks_block = recv_selector.recv(&stacks_block_receiver);
+        let oper_burn_block = recv_selector.recv(&burn_block_receiver);
+
+        loop {
+            // timeout so that we handle Ctrl-C a little gracefully
+            let ready_oper = match recv_selector.select_timeout(Duration::from_millis(500)) {
+                Ok(op) => op.index(),
+                Err(_) => continue,
+            };
+
+            if ready_oper == oper_stacks_block {
+                if let Err(e) = inst.process_ready_blocks() {
+                    warn!("Error processing new stacks block: {:?}", e);
+                }
+            } else if ready_oper == oper_burn_block {
+                if let Err(e) = inst.handle_new_burnchain_block() {
+                    warn!("Error processing new burn block: {:?}", e);
+                }
+            } else {
+                unreachable!("Ready channel for non-registered channel");
+            }
+        }
     }
 
     pub fn handle_new_burnchain_block(&mut self) -> Result<(), Error> {
@@ -217,12 +235,18 @@ impl ChainsCoordinator {
             let canonical_sortition_tip = self.canonical_sortition_tip.as_ref()
                 .expect("FAIL: no canonical sortition tip");
 
+            // at this point, we need to figure out if the sortition we are
+            //  about to process is the first block in reward cycle.
+            let reward_cycle_info = self.get_reward_cycle_info(&header);
             let sortition_id = self.sortition_db.evaluate_sortition(
-                &header, ops, &self.burnchain, &canonical_sortition_tip, None)
+                &header, ops, &self.burnchain, &canonical_sortition_tip, reward_cycle_info)
                 .map_err(|e| {
                     error!("ChainsCoordinator: unable to evaluate sortition {:?}", e);
                     Error::FailedToProcessSortition(e)
-                })?;
+                })?
+                .0.sortition_id;
+
+            debug!("Sortition processed: {}", sortition_id);
 
             if let Some(pox_anchor) = self.process_ready_blocks()? {
                 return self.process_new_pox_anchor(&pox_anchor)
@@ -232,19 +256,35 @@ impl ChainsCoordinator {
         Ok(())
     }
 
+    /// returns None if this burnchain block is _not_ the start of a reward cycle
+    ///         otherwise, returns the required reward cycle info for this burnchain block
+    ///                     in our current sortition view:
+    ///           * PoX anchor block
+    ///           * Was PoX anchor block known?
+    fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Option<RewardCycleInfo> {
+        if self.burnchain.is_reward_cycle_start(burn_header.block_height) {
+            Some(RewardCycleInfo {
+                anchor_block: None,
+                anchor_block_known: true
+            })
+        } else {
+            None
+        }
+    }
+
     ///
     /// Process any ready staging blocks until there are no more to process
     ///  _or_ a PoX anchor block is discovered.
     ///
     /// Returns Some(StacksBlockId) if an anchor block is discovered,
     ///   otherwise returns None
-    fn process_ready_blocks(&mut self) -> Result<Option<StacksBlockId>, Error> {
+    fn process_ready_blocks(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         let canonical_sortition_tip = self.canonical_sortition_tip.as_ref()
             .expect("FAIL: processing a new Stacks block, but don't have a canonical sortition tip");
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
+
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
                 // only bump the coordinator's state if the processed block
@@ -258,7 +298,7 @@ impl ChainsCoordinator {
                         .expect(&format!("FAIL: could not find data for the canonical sortition {}", canonical_sortition_tip))
                         .get_canonical_stacks_block_id();
                     self.canonical_chain_tip = Some(new_canonical_stacks_block);
-                    if let Some(pox_anchor) = self.sortition_db.is_stacks_block_pox_anchor(&block_receipt.header, canonical_sortition_tip) {
+                    if let Some(pox_anchor) = self.sortition_db.is_stacks_block_pox_anchor(&block_receipt.header, canonical_sortition_tip)? {
                         return Ok(Some(pox_anchor));
                     }
                 }
@@ -266,29 +306,15 @@ impl ChainsCoordinator {
                 // TODO: broadcast the events
             }
             // TODO: do something with a poison result
+
+            let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+            processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
         }
 
         Ok(None)
     }
 
-    pub fn handle_new_block(&mut self) -> Result<(), Error> {
-        // Rebuild sortition id
-        let sortition_id = match (&self.canonical_pox_id, &self.canonical_burnchain_chain_tip) {
-            (Some(pox_id), Some(burnchain_block)) => SortitionId::new(burnchain_block, pox_id),
-            (_, _) => {
-                // We received our first BlockDiscovered event before even receiving a BurnchainBlockDiscovered event
-                return Err(Error::NoSortitions)
-            }
-        };
-
-        if let Some(ref pox_anchor) = self.process_ready_blocks()? {
-            return self.process_new_pox_anchor(pox_anchor)
-        }
-
-        Ok(())
-    }
-
-    fn process_new_pox_anchor(&mut self, block_id: &StacksBlockId) -> Result<(), Error> {
+    fn process_new_pox_anchor(&mut self, block_id: &BlockHeaderHash) -> Result<(), Error> {
         // get the last sortition in the prepare phase that chose this anchor block
         //   that sortition is now the current canonical sortition,
         //   and now that we have process the anchor block for the corresponding reward phase,
@@ -308,9 +334,5 @@ impl ChainsCoordinator {
 
         // Start processing from the beginning of the new PoX reward set
         self.handle_new_burnchain_block()
-    }
-
-    fn discover_new_pox_anchor(&mut self, block_id: &StacksBlockId) -> Result<(), Error> {
-        self.pox_db.process_anchor(block_id, &self.chain_state_db)
     }
 }
