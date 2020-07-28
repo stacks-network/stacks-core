@@ -3445,6 +3445,7 @@ pub mod test {
     use chainstate::stacks::test::*;
     use chainstate::stacks::db::*;
     use chainstate::stacks::db::test::*;
+    use chainstate::stacks::miner::test::*;
         
     use burnchains::*;
     use chainstate::burn::*;
@@ -3454,6 +3455,9 @@ pub mod test {
     use util::hash::*;
     use util::retry::*;
     use std::fs;
+    
+    use net::test::*;
+    use core::mempool::*;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex("59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01").unwrap();
@@ -5095,6 +5099,68 @@ pub mod test {
                 assert!(!block_inv_all.has_ith_block(j as u16));
                 assert!(block_inv_all.has_ith_microblock_stream(j as u16));
             }
+        }
+    }
+
+    #[test]
+    fn test_get_parent_block_header() {
+        let peer_config = TestPeerConfig::new("test_get_parent_block_header", 21313, 21314);
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let mut last_block_bhh : Option<BurnchainHeaderHash> = None;
+        let mut last_parent_opt : Option<StacksBlock> = None;
+        for tenure_id in 0..num_blocks {
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                last_parent_opt = parent_opt.cloned();
+                let parent_tip = match parent_opt {
+                    None => {
+                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                    }
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                    }
+                };
+                
+                let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                (anchored_block.0, vec![])
+            });
+
+            let (_, burn_header_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            let blocks_path = peer.chainstate().blocks_path.clone();
+
+            if tenure_id == 0 {
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &burn_header_hash, &stacks_block.block_hash());
+                assert!(parent_header_opt.is_err());
+            }
+            else {
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &burn_header_hash, &stacks_block.block_hash()).unwrap();
+                let (parent_header, parent_bhh) = parent_header_opt.unwrap();
+                
+                assert_eq!(last_parent_opt.as_ref().unwrap().header, parent_header);
+                assert_eq!(parent_bhh, last_block_bhh.clone().unwrap());
+            }
+            
+            last_block_bhh = Some(burn_header_hash.clone());
         }
     }
 
