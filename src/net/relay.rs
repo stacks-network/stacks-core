@@ -39,6 +39,7 @@ use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, StacksEpochRece
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::coordinator::ChainsCoordinator;
 
 use core::mempool::*;
 
@@ -812,16 +813,10 @@ impl Relayer {
 
         if new_blocks.len() > 0 {
             info!("Processing newly received blocks: {}", new_blocks.len());
+            ChainsCoordinator::announce_new_stacks_block();
         }
-        
-        // process as many epochs as we can.
-        let max_epochs = if new_blocks.len() < 1024 { 1024 } else { new_blocks.len() };
 
-        let sort_chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn())?;
-        let sort_handle = sortdb.tx_handle_begin(&sort_chain_tip.sortition_id)?;
-
-        let receipts: Vec<_> = chainstate.process_blocks(sort_handle, max_epochs)?.into_iter()
-            .filter_map(|block_result| block_result.0).collect();
+        let receipts = vec![];
 
         if receipts.len() > 0 || network_result.uploaded_microblocks.len() > 0 {
             Relayer::setup_unconfirmed_state(chainstate, sortdb, &receipts)?;

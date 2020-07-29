@@ -334,7 +334,7 @@ mod tests {
             }
         }
 
-        let (header, ops) = burnchain_db.get_burnchain_block(&non_canon_hash).unwrap();
+        let BurnchainBlockData { header, ops } = burnchain_db.get_burnchain_block(&non_canon_hash).unwrap();
         assert_eq!(ops.len(), expected_ops.len());
         for op in ops.iter() {
             let expected_op = expected_ops.iter().find(|candidate| {
@@ -351,7 +351,7 @@ mod tests {
         let looked_up_canon = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&looked_up_canon, &canonical_block.header());
 
-        let (header, ops) = burnchain_db.get_burnchain_block(&canon_hash).unwrap();
+        let BurnchainBlockData { header, ops } = burnchain_db.get_burnchain_block(&canon_hash).unwrap();
         assert_eq!(ops.len(), 0);
         assert_eq!(&header, &looked_up_canon);
     }

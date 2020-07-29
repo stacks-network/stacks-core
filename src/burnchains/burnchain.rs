@@ -74,6 +74,8 @@ use chainstate::burn::db::sortdb::{
     PoxId
 };
 
+use chainstate::coordinator::ChainsCoordinator;
+
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::index::TrieHash;
@@ -600,9 +602,18 @@ impl Burnchain {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
         let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
+
+        ChainsCoordinator::announce_burn_block();
+
         let header = block.header();
 
         Ok(header)
+    }
+
+    /// Hand off the block to the ChainsCoordinator, and wait until the snapshot has been
+    ///  processed by the SortitionDB
+    #[cfg(test)]
+    pub fn process_block_and_sortition(burnchain_db: &mut BurnchainDB, block: &BurnchainBlock) {
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
@@ -865,6 +876,7 @@ pub mod tests {
         let first_block_height = 120;
         
         let burnchain = Burnchain {
+            reward_cycle_period: 10,
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1089,7 +1101,6 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_121_snapshot = BlockSnapshot {
-            pox_id: PoxId::stubbed(),
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
             sortition_id: SortitionId(block_121_hash.0.clone()),
@@ -1122,7 +1133,6 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_122_snapshot = BlockSnapshot {
-            pox_id: PoxId::stubbed(),
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
             sortition_id: SortitionId(block_122_hash.0.clone()),
@@ -1161,7 +1171,6 @@ pub mod tests {
             block_121_snapshot.consensus_hash.clone(),
         ];
         let mut block_123_snapshot = BlockSnapshot {
-            pox_id: PoxId::stubbed(),
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
             sortition_id: SortitionId(block_123_hash.0.clone()),
@@ -1229,7 +1238,7 @@ pub mod tests {
             let header = block121.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &initial_snapshot.sortition_id).unwrap();
 
-            let (sn121, _) = tx.process_block_ops(&burnchain, &initial_snapshot, &header, block_ops_121).unwrap();
+            let (sn121, _) = tx.process_block_ops(&burnchain, &initial_snapshot, &header, block_ops_121, None, PoxId::stubbed()).unwrap();
             tx.commit().unwrap();
            
             block_121_snapshot.index_root = sn121.index_root.clone();
@@ -1239,7 +1248,7 @@ pub mod tests {
             let header = block122.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &block_121_snapshot.sortition_id).unwrap();
 
-            let (sn122, _) = tx.process_block_ops(&burnchain, &block_121_snapshot, &header, block_ops_122).unwrap();
+            let (sn122, _) = tx.process_block_ops(&burnchain, &block_121_snapshot, &header, block_ops_122, None, PoxId::stubbed()).unwrap();
             tx.commit().unwrap();
             
             block_122_snapshot.index_root = sn122.index_root.clone();
@@ -1248,7 +1257,7 @@ pub mod tests {
         {
             let header = block123.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &block_122_snapshot.sortition_id).unwrap();
-            let (sn123, _) = tx.process_block_ops(&burnchain, &block_122_snapshot, &header, block_ops_123).unwrap();
+            let (sn123, _) = tx.process_block_ops(&burnchain, &block_122_snapshot, &header, block_ops_123, None, PoxId::stubbed()).unwrap();
             tx.commit().unwrap();
             
             block_123_snapshot.index_root = sn123.index_root.clone();
@@ -1309,7 +1318,6 @@ pub mod tests {
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
             
             let mut block_124_snapshot = BlockSnapshot {
-                pox_id: PoxId::stubbed(),
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
                 sortition_id: SortitionId(block_124_hash.0.clone()),
@@ -1346,7 +1354,7 @@ pub mod tests {
             let sn124 = {
                 let header = block124.header();
                 let mut tx = SortitionHandleTx::begin(&mut db, &block_123_snapshot.sortition_id).unwrap();
-                let (sn124, _) = tx.process_block_ops(&burnchain, &block_123_snapshot, &header, block_ops_124).unwrap();
+                let (sn124, _) = tx.process_block_ops(&burnchain, &block_123_snapshot, &header, block_ops_124, None, PoxId::stubbed()).unwrap();
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
@@ -1499,6 +1507,7 @@ pub mod tests {
         let first_block_height = 120;
         
         let burnchain = Burnchain {
+            reward_cycle_period: 10,
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1608,7 +1617,7 @@ pub mod tests {
             let snapshot = {
                 let header = block.header();
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let (sn, _) = tx.process_block_ops(&burnchain, &prev_snapshot, &header, block_ops).unwrap();
+                let (sn, _) = tx.process_block_ops(&burnchain, &prev_snapshot, &header, block_ops, None, PoxId::stubbed()).unwrap();
                 tx.commit().unwrap();
                 sn
             };

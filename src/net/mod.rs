@@ -2070,7 +2070,7 @@ pub mod test {
                     }
                 }
 
-                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
+                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops, None, PoxId::stubbed()).unwrap();
                 tx.commit().unwrap();
                 (block_header.block_height, block_header_hash)
             };
@@ -2151,7 +2151,8 @@ pub mod test {
             }
     
             loop {
-                let processed = node.chainstate.process_blocks(&mut sortdb, 1).unwrap();
+                let sort_tx = sortdb.tx_begin_at_tip();
+                let processed = node.chainstate.process_blocks(sort_tx, 1).unwrap();
                 if processed.len() == 0 {
                     break;
                 }
@@ -2183,7 +2184,8 @@ pub mod test {
             }
     
             loop {
-                let processed = node.chainstate.process_blocks(&mut sortdb, 1).unwrap();
+                let sort_tx = sortdb.tx_begin_at_tip();
+                let processed = node.chainstate.process_blocks(sort_tx, 1).unwrap();
                 if processed.len() == 0 {
                     break;
                 }

@@ -1720,7 +1720,7 @@ pub mod test {
 
                 test_debug!("Peer {} processes {} blocks and {} microblock streams", i, result.blocks.len(), result.confirmed_microblocks.len());
                 let peer_work = peer.with_db_state(|sortdb, chainstate, relayer, mempool| {
-                    chainstate.process_blocks(sortdb, result.blocks.len() + 1).unwrap();
+                    chainstate.process_blocks_at_tip(sortdb, result.blocks.len() + 1).unwrap();
                     Ok(())
                 }).unwrap();
                 test_debug!("Peer {} processed headers: {:?}", i, &peer_work);

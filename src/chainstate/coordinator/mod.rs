@@ -40,7 +40,7 @@ pub struct RewardCycleInfo {
     pub anchor_block_known: bool
 }
 
-struct ChainsCoordinator {
+pub struct ChainsCoordinator {
     canonical_burnchain_chain_tip: Option<BurnchainHeaderHash>,
     canonical_sortition_tip: Option<SortitionId>,
     canonical_chain_tip: Option<StacksBlockId>,
@@ -120,7 +120,7 @@ impl ChainsCoordinator {
         }
     }
 
-    pub fn announce_burn_stacks_block() {
+    pub fn announce_burn_block() {
         let result = COORDINATOR_CHANNELS.read().unwrap()
             .as_ref()
             .expect("FAIL: attempted to announce new stacks block to chains coordinator, but instance not constructed.")

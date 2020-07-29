@@ -3159,6 +3159,14 @@ impl StacksChainState {
         Ok((Some(epoch_receipt), None))
     }
 
+    /// Process staging blocks at the canonical chain tip,
+    ///   this method only works without PoX
+    #[cfg(test)]
+    pub fn process_blocks_at_tip(&mut self, sort_db: &mut SortitionDB, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+        let tx = sort_db.tx_begin_at_tip();
+        self.process_blocks(tx, max_blocks)
+    }
+
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.  For each chain tip produced, return the header info, receipts, parent microblock

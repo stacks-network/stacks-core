@@ -1505,7 +1505,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash(), microblocks.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 1).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 1).unwrap();
 
             let expect_success = check_oracle(&stacks_block, &microblocks);
             if expect_success {
@@ -1602,7 +1602,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash(), microblocks.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 1).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 1).unwrap();
 
             // processed _this_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1703,7 +1703,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash);
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed exactly one block, but got back two tip-infos
             assert_eq!(tip_info_list.len(), 1);
@@ -1866,7 +1866,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -2010,8 +2010,8 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash);
-            let mut tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
-            let mut tip_info_list_2 = node_2.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let mut tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
+            let mut tip_info_list_2 = node_2.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             tip_info_list.append(&mut tip_info_list_2);
 
@@ -2053,8 +2053,8 @@ pub mod test {
             // block data.
             preprocess_stacks_block_data(&mut node, &mut burn_node, &fork_snapshot, &stacks_block_2, &microblocks_2, &block_commit_op_2);
             preprocess_stacks_block_data(&mut node_2, &mut burn_node, &fork_snapshot, &stacks_block_1, &microblocks_1, &block_commit_op_1);
-            let _ = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
-            let _ = node_2.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let _ = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
+            let _ = node_2.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
         }
         
         TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
@@ -2168,7 +2168,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -2296,7 +2296,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process all Stacks blocks: {}, {}", &stacks_block_1.block_hash(), &stacks_block_2.block_hash());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed all stacks blocks -- one on each burn chain fork
             assert_eq!(tip_info_list.len(), 2);
@@ -2451,7 +2451,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -2581,7 +2581,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process all Stacks blocks: {}, {}", &stacks_block_1.block_hash(), &stacks_block_2.block_hash());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed all stacks blocks -- one on each burn chain fork
             assert_eq!(tip_info_list.len(), 2);
@@ -2791,7 +2791,7 @@ pub mod test {
                                 
                                     // process all the blocks we can 
                                     test_debug!("Process Stacks block {} and microblock {} {}", &stacks_block.block_hash(), mblock.block_hash(), mblock.header.sequence);
-                                    let tip_info_list = node.chainstate.process_blocks(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
+                                    let tip_info_list = node.chainstate.process_blocks_at_tip(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
 
                                     num_processed += tip_info_list.len();
                                 }
@@ -2799,7 +2799,7 @@ pub mod test {
                             else {
                                 // process all the blocks we can 
                                 test_debug!("Process Stacks block {} and {} microblocks in {}", &stacks_block.block_hash(), microblocks.len(), &node_name);
-                                let tip_info_list = node.chainstate.process_blocks(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
+                                let tip_info_list = node.chainstate.process_blocks_at_tip(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
 
                                 num_processed += tip_info_list.len();
                             }

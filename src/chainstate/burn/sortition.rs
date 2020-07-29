@@ -339,8 +339,9 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
         let first_block_height = 120;
-        
+
         let burnchain = Burnchain {
+            reward_cycle_period: 10,
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -368,7 +369,7 @@ mod test {
             let pox_id = PoxId::stubbed();
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let ic = db.index_handle(&sort_id);
-            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &pox_id, &initial_snapshot,
+            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &initial_snapshot,
                                                   &empty_block_header, &vec![], &vec![]).unwrap();
             sn
         };
@@ -391,7 +392,7 @@ mod test {
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let pox_id = PoxId::stubbed();
             let ic = db.index_handle(&sort_id);
-            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &pox_id, &initial_snapshot, &empty_block_header,
+            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &initial_snapshot, &empty_block_header,
                                                   &vec![empty_burn_point.clone()], &vec![key.txid.clone()]).unwrap();
             sn
         };

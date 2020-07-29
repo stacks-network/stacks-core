@@ -341,7 +341,6 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT UNIQUE NOT NULL,
         sortition_id TEXT UNIQUE NOT NULL,
-        pox_id TEXT NOT NULL,
         burn_header_timestamp INT NOT NULL,
         parent_burn_header_hash TEXT NOT NULL,
         consensus_hash TEXT UNIQUE NOT NULL,
@@ -1475,6 +1474,14 @@ impl SortitionDB {
             .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
+    /// Open a tx handle at the burn chain tip -- only works when there is no PoX.
+    ///   Therefore, marked test-only.
+    #[cfg(test)]
+    pub fn tx_begin_at_tip<'a> (&'a mut self) -> SortitionHandleTx<'a> {
+        let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(self.conn()).unwrap();
+        self.tx_handle_begin(&sn.sortition_id).unwrap()
+    }
+
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
     pub fn get_canonical_stacks_chain_tip_hash_stubbed(conn: &Connection) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
         let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(conn)?;
@@ -2209,7 +2216,7 @@ mod tests {
         sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
-        let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, block_ops, consumed_leader_keys).unwrap();
+        let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, block_ops, consumed_leader_keys, None).unwrap();
         sn.index_root = index_root;
 
         tx.commit().unwrap();
@@ -2402,7 +2409,7 @@ mod tests {
             sn.num_sortitions += 1;
             sn.consensus_hash = ConsensusHash([0x23; 20]);
 
-            let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, &vec![], &vec![]).unwrap();
+            let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, &vec![], &vec![], None).unwrap();
             sn.index_root = index_root;
             
             tx.commit().unwrap();
@@ -2540,7 +2547,6 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id,
-                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2559,7 +2565,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20])
                 };
                 let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row,
-                                                              &vec![], &vec![]).unwrap();
+                                                              &vec![], &vec![], None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 tx.commit().unwrap();
@@ -2612,7 +2618,6 @@ mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id,
-                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,((i+1)/256) as u8,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2631,7 +2636,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row,
-                                                              &vec![], &vec![]).unwrap();
+                                                              &vec![], &vec![], None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 // should succeed within the tx
@@ -2752,7 +2757,6 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxId::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20])
@@ -2776,7 +2780,6 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxId::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20])
@@ -2800,7 +2803,6 @@ mod tests {
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
-            pox_id: PoxId::stubbed(),
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20])
@@ -2823,7 +2825,7 @@ mod tests {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
             let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
-            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_without_sortition, &vec![], &vec![]).unwrap();
+            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_without_sortition, &vec![], &vec![], None).unwrap();
             tx.commit().unwrap();
         }
         
@@ -2842,7 +2844,7 @@ mod tests {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn()).unwrap();
             let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
-            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], &vec![]).unwrap();
+            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], &vec![], None).unwrap();
             tx.commit().unwrap();
         }
         
@@ -2926,7 +2928,7 @@ mod tests {
             next_snapshot.consensus_hash = ConsensusHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             
             let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
             tx.commit().unwrap();
 
             last_snapshot = next_snapshot.clone();
@@ -2969,7 +2971,7 @@ mod tests {
                 next_snapshot.consensus_hash = ConsensusHash([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
                 tx.commit().unwrap();
 
                 next_snapshot.index_root = next_index_root;
@@ -3014,7 +3016,7 @@ mod tests {
 
                 let next_index_root = {
                     let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                    let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+                    let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
                     tx.commit().unwrap();
                     next_index_root
                 };
@@ -3039,7 +3041,7 @@ mod tests {
 
             let next_index_root = {
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
                 tx.commit().unwrap();
                 next_index_root
             };
@@ -3073,7 +3075,6 @@ mod tests {
                 let snapshot_row = 
                     if i % 3 == 0 {
                         BlockSnapshot {
-                            pox_id: PoxId::stubbed(),
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -3100,7 +3101,6 @@ mod tests {
                         total_burn += 1;
                         total_sortitions += 1;
                         BlockSnapshot {
-                            pox_id: PoxId::stubbed(),
                             block_height: i+1,
                             burn_header_timestamp: get_epoch_time_secs(),
                             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -3128,7 +3128,7 @@ mod tests {
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
 
-                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
+                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], &vec![], None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
 
@@ -3281,7 +3281,6 @@ mod tests {
         let mut last_snapshot = start_snapshot.clone();
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
-                pox_id: PoxId::stubbed(),
                 block_height: last_snapshot.block_height + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),
@@ -3305,7 +3304,7 @@ mod tests {
             };
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
-                let _index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![]).unwrap();
+                let _index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![], None).unwrap();
                 tx.commit().unwrap();
             }
             last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id).unwrap().unwrap();
@@ -3337,8 +3336,8 @@ mod tests {
             let height = i;
 
             {
-                let mut tx = db.tx_begin().unwrap();
-                tx.set_stacks_block_accepted_stubbed(
+                let mut tx = db.tx_begin_at_tip();
+                tx.set_stacks_block_accepted(
                     &consensus_hash, &parent_stacks_block_hash, &stacks_block_hash, height).unwrap();
                 tx.commit().unwrap();
             }
@@ -3388,8 +3387,8 @@ mod tests {
             let stacks_block_hash = BlockHeaderHash([(i | 0x80) as u8; 32]);
                 
             {
-                let mut tx = db.tx_begin().unwrap();
-                tx.set_stacks_block_accepted_stubbed(
+                let mut tx = db.tx_begin_at_tip();
+                tx.set_stacks_block_accepted(
                     &consensus_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
                 tx.commit().unwrap();
             }
@@ -3419,8 +3418,8 @@ mod tests {
             let stacks_block_hash = BlockHeaderHash([(i | 0x80) as u8; 32]);
                 
             {
-                let mut tx = db.tx_begin().unwrap();
-                tx.set_stacks_block_accepted_stubbed(
+                let mut tx = db.tx_begin_at_tip();
+                tx.set_stacks_block_accepted(
                     &consensus_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
                 tx.commit().unwrap();
             }
@@ -3440,8 +3439,8 @@ mod tests {
             let stacks_block_hash = BlockHeaderHash([(i | 0x80) as u8; 32]);
                 
             {
-                let mut tx = db.tx_begin().unwrap();
-                tx.set_stacks_block_accepted_stubbed(
+                let mut tx = db.tx_begin_at_tip();
+                tx.set_stacks_block_accepted(
                     &consensus_hash, &parent_stacks_block_hash, &stacks_block_hash, *height).unwrap();
                 tx.commit().unwrap();
             }
@@ -3480,8 +3479,8 @@ mod tests {
 
         // set the stacks block at 0x4b as accepted as the 5th block
         {
-            let mut tx = db.tx_begin().unwrap();
-            tx.set_stacks_block_accepted_stubbed(
+            let mut tx = db.tx_begin_at_tip();
+            tx.set_stacks_block_accepted(
                 &ConsensusHash([0x4c; 20]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x4b; 32]), 5).unwrap();
             tx.commit().unwrap();
         }
@@ -3521,11 +3520,10 @@ mod tests {
         
         // set the stacks block at 0x29 and 0x2a as accepted as the 5th and 6th blocks
         {
-            let mut tx = db.tx_begin().unwrap();
-            let tip_snapshot = SortitionDB::get_block_snapshot(&tx, &SortitionId([0x2a; 32])).unwrap().unwrap();
-            tx.set_stacks_block_accepted_at_tip(&tip_snapshot,
+            let mut tx = db.tx_handle_begin(&SortitionId([0x2a; 32])).unwrap();
+            tx.set_stacks_block_accepted(
                 &ConsensusHash([0x2a; 20]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x29; 32]), 5).unwrap();
-            tx.set_stacks_block_accepted_at_tip(&tip_snapshot,
+            tx.set_stacks_block_accepted(
                 &ConsensusHash([0x2b; 20]), &BlockHeaderHash([0x29; 32]), &BlockHeaderHash([0x2a; 32]), 6).unwrap();
             tx.commit().unwrap();
         }
@@ -3559,14 +3557,15 @@ mod tests {
         // insert stacks blocks #6, #7, #8, #9 off of the burn chain tip starting at 0x4b (i.e. the
         // canonical burn chain tip), on blocks 0x45, 0x46, and 0x47
         {
-            let mut tx = db.tx_begin().unwrap();
-            tx.set_stacks_block_accepted_stubbed(
+            
+            let mut tx = db.tx_begin_at_tip();
+            tx.set_stacks_block_accepted(
                 &ConsensusHash([0x46; 20]), &BlockHeaderHash([0x04; 32]), &BlockHeaderHash([0x45; 32]), 5).unwrap();
-            tx.set_stacks_block_accepted_stubbed(
+            tx.set_stacks_block_accepted(
                 &ConsensusHash([0x47; 20]), &BlockHeaderHash([0x45; 32]), &BlockHeaderHash([0x46; 32]), 6).unwrap();
-            tx.set_stacks_block_accepted_stubbed(
+            tx.set_stacks_block_accepted(
                 &ConsensusHash([0x48; 20]), &BlockHeaderHash([0x46; 32]), &BlockHeaderHash([0x47; 32]), 7).unwrap();
-            tx.set_stacks_block_accepted_stubbed(
+            tx.set_stacks_block_accepted(
                 &ConsensusHash([0x49; 20]), &BlockHeaderHash([0x47; 32]), &BlockHeaderHash([0x48; 32]), 8).unwrap();
             tx.commit().unwrap();
         }
