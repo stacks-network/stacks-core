@@ -458,46 +458,17 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
 ];
 
 /// Built-in "system-level" smart contracts that are there from the beginning.
-/// Includes BNS and the miner trust fund.
+/// Includes BNS, PoX.
 #[cfg(test)]
 const STACKS_MINER_AUTH_KEY : &'static str = "a5879925788dcb3fe1f2737453e371ba04c4064e6609552ef59a126ac4fa598001";
 
 const STACKS_BOOT_CODE : &'static [&'static str] = &[
-    r#"
-    (define-constant ERR-NO-PRINCIPAL 1)
-    (define-constant ERR-NOT-AUTHORIZED 2)
-
-    (define-constant AUTHORIZER 'ST3REJ5WQ42JGJZ6W77CX79JYMCVTKD73D6R6Z4R3)   ;; addr of STACKS_MINER_AUTH_KEY
-
-    (define-map rewards
-        ((participant principal))
-        ((available uint) (authorized bool))
-    )
-    (define-private (get-participant-info (participant principal))
-        (default-to {available: u0, authorized: false} (map-get? rewards {participant: participant})))
-
-    (define-public (get-participant-reward (participant principal))
-        (ok (get available (get-participant-info participant))))
-
-    (define-public (is-participant-authorized? (participant principal))
-        (ok (get authorized (get-participant-info participant))))
-
-    ;; TODO: authorize STX withdrawals
-    ;; TODO: withdraw STX
-    "#
 ];
 
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "ST000000000000000000002AMW42H";
 
 const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
-    "miner-rewards"
 ];
-
-pub const BOOT_CODE_MINER_CONTRACT_NAME : &'static str = "miner-rewards";
-pub const BOOT_CODE_MINER_REWARDS_MAP : &'static str = "rewards";
-pub const BOOT_CODE_MINER_REWARDS_PARTICIPANT : &'static str = "participant";
-pub const BOOT_CODE_MINER_REWARDS_AVAILABLE : &'static str = "available";
-pub const BOOT_CODE_MINER_REWARDS_AUTHORIZED : &'static str = "authorized";
 
 #[cfg(test)]
 pub const MINER_REWARD_MATURITY : u64 = 2;       // small for testing purposes
