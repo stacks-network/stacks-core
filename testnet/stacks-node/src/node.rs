@@ -27,7 +27,6 @@ use stacks::net::{
 };
 
 use stacks::util::vrf::VRFPublicKey;
-use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
@@ -488,7 +487,6 @@ impl Node {
             self.chain_state.preprocess_anchored_block(
                 &ic,
                 consensus_hash,
-                get_epoch_time_secs(),
                 &anchored_block, 
                 &parent_consensus_hash).unwrap();
 

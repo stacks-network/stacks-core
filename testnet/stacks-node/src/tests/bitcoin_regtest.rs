@@ -6,6 +6,7 @@ use crate::helium::RunLoop;
 use stacks::chainstate::burn::operations::BlockstackOperationType::{LeaderBlockCommit, LeaderKeyRegister};
 use stacks::util::hash::{hex_bytes};
 
+use std::env;
 use std::io::{BufReader, BufRead};
 use super::{PUBLISH_CONTRACT};
 
@@ -101,6 +102,9 @@ impl Drop for BitcoinCoreController {
 #[test]
 #[ignore]
 fn bitcoind_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return
+    }
 
     let mut conf = super::new_test_conf();
     conf.burnchain.commit_anchor_block_within = 2000;
@@ -141,7 +145,7 @@ fn bitcoind_integration_test() {
                 for op in &state_transition.accepted_ops {
                     match op {
                         LeaderKeyRegister(op) => {
-                            assert!(op.public_key.to_hex() == "99fe9d43bbb0d36a23e4102cef59accfa983a342ae1e5acedc1b8dcb06b17cd4");
+                            assert_eq!(op.public_key.to_hex(), "325dfe3ba0b52e6b800f5cea1283dd2cd0aee88be0270e45dc8a6e01d19218b4");
                         },
                         LeaderBlockCommit(op) => {
                             assert!(op.parent_block_ptr == 0);
@@ -166,7 +170,7 @@ fn bitcoind_integration_test() {
                 for op in &state_transition.accepted_ops {
                     match op {
                         LeaderKeyRegister(op) => {
-                            assert!(op.public_key.to_hex() == "f6fb508bdbeb8c64faf4a376d773c4b6514874d8e508a30aa9ee4db86c6b7e8e");
+                            assert_eq!(op.public_key.to_hex(), "e131b0305f0146e2ce8bd7d6b5004200bf19538b32e29c20d2002e9cd8d7907f");
                         },
                         LeaderBlockCommit(op) => {
                             assert!(op.parent_block_ptr == 203);
@@ -192,7 +196,7 @@ fn bitcoind_integration_test() {
                 for op in &state_transition.accepted_ops {
                     match op {
                         LeaderKeyRegister(op) => {
-                            assert!(op.public_key.to_hex() == "e89fc82ea3b5cfeab082e3a3294a6fbc6b9bb9a18d8179898898c2acafe21ab0");
+                            assert_eq!(op.public_key.to_hex(), "1840db439989068a9bfe32beaab4a2ce1ab46b0149f54b20c330333a5de51b3d");
                         },
                         LeaderBlockCommit(op) => {
                             assert!(op.parent_block_ptr == 204);
@@ -218,7 +222,7 @@ fn bitcoind_integration_test() {
                 for op in &state_transition.accepted_ops {
                     match op {
                         LeaderKeyRegister(op) => {
-                            assert!(op.public_key.to_hex() == "c44604de9b87ee911db176c8d416c53c6aa046aa4be88333f5bc74d7f7c5a561");
+                            assert_eq!(op.public_key.to_hex(), "d5f8569cc5aeadfb508b93f8a5740144bb52ef409d9f0afbe5a2e1d11a57f4a3");
                         },
                         LeaderBlockCommit(op) => {
                             assert!(op.parent_block_ptr == 205);
@@ -244,7 +248,7 @@ fn bitcoind_integration_test() {
                 for op in &state_transition.accepted_ops {
                     match op {
                         LeaderKeyRegister(op) => {
-                            assert!(op.public_key.to_hex() == "cb58759fcb51972f98b53d755f5980695e5a0abd0e307002f32e8d73b40c2019");
+                            assert_eq!(op.public_key.to_hex(), "81a60590f859300f994f725cd35e510d2ffa05789d0e2b2dc71bf7bc09eca576");
                         },
                         LeaderBlockCommit(op) => {
                             assert!(op.parent_block_ptr == 206);
@@ -270,7 +274,7 @@ fn bitcoind_integration_test() {
                 for op in &state_transition.accepted_ops {
                     match op {
                         LeaderKeyRegister(op) => {
-                            assert!(op.public_key.to_hex() == "848a6ec4da123bd44b79e05dd8eb90fcfb92b985812cb54c886987f7dd54ac90");
+                            assert_eq!(op.public_key.to_hex(), "e8de363ffd6baec1ddf629eab0a6eff6a56385d34e4d7f0f2caff8febe74acc4");
                         },
                         LeaderBlockCommit(op) => {
                             assert!(op.parent_block_ptr == 207);

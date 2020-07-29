@@ -149,7 +149,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
         if bytes_so_far + mempool_tx.metadata.len >= MAX_EPOCH_SIZE.into() {
             return Err(Error::BlockTooBigError);
         }
-        match StacksChainState::process_transaction(clarity_tx, &mempool_tx.tx) {
+        match StacksChainState::process_transaction(clarity_tx, &mempool_tx.tx, true) {
             Ok(_) => {
                 return Ok(Some((mempool_tx.tx, mempool_tx.metadata.len)))
             },
@@ -311,7 +311,7 @@ impl StacksBlockBuilder {
         builder
     }
 
-    fn first_pubkey_hash(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
+    fn first_pubkey_hash(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_height: u32, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
@@ -319,7 +319,8 @@ impl StacksBlockBuilder {
             index_root: TrieHash([0u8; 32]),
             consensus_hash: genesis_consensus_hash.clone(),
             burn_header_hash: genesis_burn_header_hash.clone(),
-            burn_header_timestamp: genesis_burn_header_timestamp
+            burn_header_timestamp: genesis_burn_header_timestamp,
+            burn_header_height: genesis_burn_header_height,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(miner_id, &genesis_chain_tip, &StacksWorkScore::initial(), proof, pubkh);
@@ -327,12 +328,12 @@ impl StacksBlockBuilder {
         builder
     }
     
-    pub fn first(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+    pub fn first(miner_id: usize, genesis_consensus_hash: &ConsensusHash, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_height: u32, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
         let pubkh = Hash160::from_data(&pubk.to_bytes());
 
-        let mut builder = StacksBlockBuilder::first_pubkey_hash(miner_id, genesis_consensus_hash, genesis_burn_header_hash, genesis_burn_header_timestamp, proof, pubkh);
+        let mut builder = StacksBlockBuilder::first_pubkey_hash(miner_id, genesis_consensus_hash, genesis_burn_header_hash, genesis_burn_header_height, genesis_burn_header_timestamp, proof, pubkh);
         builder.miner_privkey = microblock_privkey.clone();
         builder
     }
@@ -372,10 +373,10 @@ impl StacksBlockBuilder {
         if !self.anchored_done {
             // building up the anchored blocks
             if tx.anchor_mode != TransactionAnchorMode::OnChainOnly && tx.anchor_mode != TransactionAnchorMode::Any {
-                return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for anchored data".to_string()));
+                return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for anchored data".to_string(), false));
             }
 
-            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx)
+            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, true)
                 .map_err(|e| {
                     match e {
                         Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
@@ -394,10 +395,10 @@ impl StacksBlockBuilder {
         else {
             // building up the microblocks
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly && tx.anchor_mode != TransactionAnchorMode::Any {
-                return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for streamed data".to_string()));
+                return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for streamed data".to_string(), false));
             }
             
-            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx)
+            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, true)
                 .map_err(|e| {
                     match e {
                         Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
@@ -432,7 +433,7 @@ impl StacksBlockBuilder {
         
         if !self.anchored_done {
             // save
-            match StacksChainState::process_transaction(clarity_tx, tx) {
+            match StacksChainState::process_transaction(clarity_tx, tx, true) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 },
@@ -444,7 +445,7 @@ impl StacksBlockBuilder {
             self.txs.push(tx.clone());
         }
         else {
-            match StacksChainState::process_transaction(clarity_tx, tx) {
+            match StacksChainState::process_transaction(clarity_tx, tx, true) {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 },
@@ -642,7 +643,7 @@ impl StacksBlockBuilder {
 
         let builder = 
             if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-                StacksBlockBuilder::first_pubkey_hash(0, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
+                StacksBlockBuilder::first_pubkey_hash(0, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_HEIGHT, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
             }
             else {
                 // building off an existing stacks block
@@ -717,6 +718,10 @@ impl StacksBlockBuilder {
                         // done mining -- our execution budget is exceeded.
                         // Make the block from the transactions we did manage to get
                         debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                    },
+                    Err(Error::InvalidStacksTransaction(_, true)) => {
+                        // if we have an invalid transaction that was quietly ignored, don't warn here either
+                        continue;
                     },
                     Err(e) => {
                         warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
@@ -1162,60 +1167,10 @@ pub mod test {
             return None;
         }
 
-        pub fn get_miner_status<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> Option<(bool, u128)> {
-            let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
-            let miner_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::try_from(BOOT_CODE_MINER_CONTRACT_NAME.to_string()).unwrap());
-            
-            let miner_participant_principal = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_PARTICIPANT.to_string()).unwrap();
-            let miner_available_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AVAILABLE.to_string()).unwrap();
-            let miner_authorized_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AUTHORIZED.to_string()).unwrap();
-            
-            let miner_principal = Value::Tuple(TupleData::from_data(vec![
-                    (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))))])
-                .expect("FATAL: failed to construct miner principal key"));
-
-            let miner_status = clarity_tx.with_clarity_db_readonly(|db| {
-                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)
-                    .expect("FATAL: Clarity DB Error");
-                let miner_status = match miner_status_opt {
-                    Value::Optional(ref optional_data) => {
-                        match optional_data.data {
-                            None => None,
-                            Some(ref miner_status) => {
-                                match **miner_status {
-                                    Value::Tuple(ref tuple) => {
-                                        let authorized = match tuple.get(&miner_authorized_name).expect("FATAL: no miner authorized in tuple") {
-                                            Value::Bool(ref authorized) => *authorized,
-                                            _ => {
-                                                panic!("FATAL: miner reward data map is malformed");
-                                            }
-                                        };
-
-                                        let available = match tuple.get(&miner_available_name).expect("FATAL: no miner available in tuple") {
-                                            Value::UInt(ref available) => *available,
-                                            _ => {
-                                                panic!("FATAL: miner reward data map is malformed");
-                                            }
-                                        };
-                                        
-                                        Some((authorized, available))
-                                    },
-                                    ref x => {
-                                        panic!("FATAL: miner status is not a tuple: {:?}", &x);
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    ref x => {
-                        panic!("FATAL: fetched miner status it not an optional: {:?}", &x);
-                    }
-                };
-            
-                miner_status
-            });
-
-            miner_status
+        pub fn get_miner_balance<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> u128 {
+            clarity_tx.with_clarity_db_readonly(|db| {
+                db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
+            })
         }
 
         pub fn make_tenure_commitment(&mut self, 
@@ -1258,7 +1213,13 @@ pub mod test {
             let (builder, parent_block_snapshot_opt) = match parent_stacks_block {
                 None => {
                     // first stacks block
-                    let builder = StacksBlockBuilder::first(miner.id, &burn_block.parent_snapshot.consensus_hash, &burn_block.parent_snapshot.burn_header_hash, burn_block.parent_snapshot.burn_header_timestamp, &proof, &miner.next_microblock_privkey());
+                    let builder = StacksBlockBuilder::first(miner.id, 
+                                                            &burn_block.parent_snapshot.consensus_hash, 
+                                                            &burn_block.parent_snapshot.burn_header_hash, 
+                                                            burn_block.parent_snapshot.block_height as u32, 
+                                                            burn_block.parent_snapshot.burn_header_timestamp, 
+                                                            &proof, 
+                                                            &miner.next_microblock_privkey());
                     (builder, None)
                 },
                 Some(parent_stacks_block) => {
@@ -1325,7 +1286,7 @@ pub mod test {
 
         // "discover" this stacks block
         test_debug!("\n\nPreprocess Stacks block {}/{} ({})", &commit_snapshot.consensus_hash, &block_hash, StacksBlockHeader::make_index_block_hash(&commit_snapshot.consensus_hash, &block_hash));
-        let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.consensus_hash, commit_snapshot.burn_header_timestamp, &stacks_block, &parent_block_consensus_hash).unwrap();
+        let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.consensus_hash, &stacks_block, &parent_block_consensus_hash).unwrap();
 
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
@@ -1367,20 +1328,16 @@ pub mod test {
             }
         }
 
-        let miner_status_opt = TestStacksNode::get_miner_status(clarity_tx, &miner.origin_address().unwrap());
-        match miner_status_opt {
-            None => {
-                test_debug!("Miner {} '{}' has no mature funds in this fork", miner.id, miner.origin_address().unwrap().to_string());
-                return total == 0;
+        let amount = TestStacksNode::get_miner_balance(clarity_tx, &miner.origin_address().unwrap());
+        if amount == 0 {
+            test_debug!("Miner {} '{}' has no mature funds in this fork", miner.id, miner.origin_address().unwrap().to_string());
+            return total == 0;
+        } else {
+            if amount != total {
+                test_debug!("Amount {} != {}", amount, total);
+                return false;
             }
-            Some((authorized, amount)) => {
-                test_debug!("Miner {} '{}' is authorized: {}, with amount: {} in this fork", miner.id, miner.origin_address().unwrap().to_string(), authorized, amount);
-                if amount != total {
-                    test_debug!("Amount {} != {}", amount, total);
-                    return false;
-                }
-                return true;
-            }
+            return true;
         }
     }
 
@@ -4008,7 +3965,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), 100000000));
         }
 
-        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_too_expensive_transactions", 2012, 2013);
+        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_too_expensive_transactions", 2013, 2014);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -4275,6 +4232,132 @@ pub mod test {
 
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch(&stacks_block, &consensus_hash, &microblocks);
+        }
+    }
+
+    #[test]
+    fn test_build_anchored_blocks_bad_nonces() {
+        let mut privks = vec![];
+        let mut balances = vec![];
+        let num_blocks = 10;
+
+        for _ in 0..num_blocks {
+            let privk = StacksPrivateKey::new();
+            let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk)]).unwrap();
+
+            privks.push(privk);
+            balances.push((addr.to_account_principal(), 100000000));
+        }
+
+        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_too_expensive_transactions", 2012, 2013);
+        peer_config.initial_balances = balances;
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let first_stacks_block_height = {
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let mut last_block = None;
+        for tenure_id in 0..num_blocks {
+            eprintln!("Start tenure {:?}", tenure_id);
+            // send transactions to the mempool
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_tip = match parent_opt {
+                    None => {
+                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                    }
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_tip_ch = parent_tip.consensus_hash.clone();
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+                if tenure_id == 2 {
+                    let contract = "
+                    (define-data-var bar int 0)
+                    (define-public (get-bar) (ok (var-get bar)))
+                    (define-public (set-bar (x int) (y int))
+                      (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+
+                    // should be mined once
+                    let contract_tx = make_user_contract_publish(&privks[tenure_id], 0, 10000, &format!("hello-world-{}", tenure_id), &contract);
+                    let mut contract_tx_bytes = vec![];
+                    contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_tip_ch, &parent_header_hash, contract_tx_bytes).unwrap();
+
+                    eprintln!("first tx submitted");
+                    // eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
+
+                    sleep_ms(2000);
+
+                    // should never be mined
+                    let contract_tx = make_user_contract_publish(&privks[tenure_id], 1, 10000, &format!("hello-world-{}-2", tenure_id), &contract);
+                    let mut contract_tx_bytes = vec![];
+                    contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_tip_ch, &parent_header_hash, contract_tx_bytes).unwrap();
+
+                    eprintln!("second tx submitted");
+                    // eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
+
+                    sleep_ms(2000);
+                }
+
+                if tenure_id == 3 {
+                    let contract = "
+                    (define-data-var bar int 0)
+                    (define-public (get-bar) (ok (var-get bar)))
+                    (define-public (set-bar (x int) (y int))
+                      (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+
+                    // should be mined once
+                    let contract_tx = make_user_contract_publish(&privks[tenure_id], 0, 10000, &format!("hello-world-{}", tenure_id), &contract);
+                    let mut contract_tx_bytes = vec![];
+                    contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_tip_ch, &parent_header_hash, contract_tx_bytes).unwrap();
+
+                    eprintln!("third tx submitted");
+                    // eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
+
+                    sleep_ms(2000);
+
+                    // should never be mined
+                    let contract_tx = make_user_contract_publish(&privks[tenure_id], 1, 10000, &format!("hello-world-{}-2", tenure_id), &contract);
+                    let mut contract_tx_bytes = vec![];
+                    contract_tx.consensus_serialize(&mut contract_tx_bytes).unwrap();
+                    mempool.submit_raw(&parent_tip_ch, &parent_header_hash, contract_tx_bytes).unwrap();
+
+                    eprintln!("fourth tx submitted");
+                    // eprintln!("\n\ntransaction:\n{:#?}\n\n", &contract_tx);
+
+                    sleep_ms(2000);
+                }
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+
+                (anchored_block.0, vec![])
+            });
+
+            last_block = Some(stacks_block.clone());
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            test_debug!("\n\ncheck tenure {}: {} transactions\n", tenure_id, stacks_block.txs.len());
+
+            // assert_eq!(stacks_block.txs.len(), 1);
         }
     }
 

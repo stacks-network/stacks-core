@@ -718,7 +718,7 @@ impl Burnchain {
                 let ipc_block = downloader.download(&ipc_header)?;
                 let download_end = get_epoch_time_ms();
 
-                debug!("Downloaded block {} in {}ms", ipc_block.height(), download_end - download_start);
+                debug!("Downloaded block {} in {}ms", ipc_block.height(), download_end.saturating_sub(download_start));
 
                 parser_send.send(Some(ipc_block))
                     .map_err(|_e| burnchain_error::ThreadChannelError)?;
@@ -736,7 +736,7 @@ impl Burnchain {
                 let burnchain_block = parser.parse(&ipc_block)?;
                 let parse_end = get_epoch_time_ms();
 
-                debug!("Parsed block {} in {}ms", burnchain_block.block_height(), parse_end - parse_start);
+                debug!("Parsed block {} in {}ms", burnchain_block.block_height(), parse_end.saturating_sub(parse_start));
 
                 db_send.send(Some(burnchain_block))
                     .map_err(|_e| burnchain_error::ThreadChannelError)?;
@@ -759,7 +759,7 @@ impl Burnchain {
                 last_processed = Burnchain::process_block(&mut burnchain_db, &burnchain_block)?;
                 let insert_end = get_epoch_time_ms();
 
-                debug!("Inserted block {} in {}ms", burnchain_block.block_height(), insert_end - insert_start);
+                debug!("Inserted block {} in {}ms", burnchain_block.block_height(), insert_end.saturating_sub(insert_start));
             }
             Ok(last_processed)
         });

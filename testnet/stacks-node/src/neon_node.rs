@@ -29,7 +29,6 @@ use stacks::chainstate::stacks::StacksPublicKey;
 
 use stacks::core::mempool::MemPoolDB;
 use stacks::util::vrf::VRFPublicKey;
-use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
 use stacks::util::hash::{
     Hash160, Sha256Sum, to_hex
@@ -123,7 +122,6 @@ fn inner_process_tenure(
         chain_state.preprocess_anchored_block(
             &ic,
             consensus_hash,
-            get_epoch_time_secs(),
             &anchored_block,
             &parent_consensus_hash)?;
     }
