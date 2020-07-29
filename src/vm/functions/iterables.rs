@@ -42,7 +42,7 @@ pub fn special_filter(args: &[SymbolicExpression], env: &mut Environment, contex
                 } else {
                     return Err(CheckErrors::TypeValueError(BoolType, filter_eval).into())
                 }
-            });
+            })?;
         },
         _ => return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
     };
@@ -63,9 +63,12 @@ pub fn special_fold(args: &[SymbolicExpression], env: &mut Environment, context:
 
     match sequence {
         Value::Sequence(sequence_data) => {
-            sequence_data.atom_values().iter().try_fold(initial, |acc, x| {
-                apply(&function, &[x.clone(), SymbolicExpression::atom_value(acc)], env, context)
-            })
+            sequence_data.atom_values()
+                .iter()
+                .try_fold(initial, |acc, x| {
+                    println!("Folding {} {:?}", acc, x);
+                    apply(&function, &[x.clone(), SymbolicExpression::atom_value(acc)], env, context)
+                })
         },
         _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
     }
@@ -126,29 +129,19 @@ pub fn special_append(args: &[SymbolicExpression], env: &mut Environment, contex
 pub fn special_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    let lhs_val = eval(&args[0], env, context)?;
-    let rhs_val = eval(&args[1], env, context)?;
+    let mut wrapped_seq = eval(&args[0], env, context)?;
+    let mut other_wrapped_seq = eval(&args[1], env, context)?;
 
     runtime_cost!(cost_functions::CONCAT, env,
-                  u64::from(lhs_val.size()).cost_overflow_add(
-                      u64::from(rhs_val.size()))?)?;
+                  u64::from(wrapped_seq.size()).cost_overflow_add(
+                      u64::from(other_wrapped_seq.size()))?)?;
 
-    match (&lhs_val, &rhs_val) {
-        (Value::Sequence(lhs_seq), Value::Sequence(rhs_seq)) =>
-            match (lhs_seq, rhs_seq) {
-                (SequenceData::List(_), SequenceData::List(_)) | 
-                (SequenceData::Buffer(_), SequenceData::Buffer(_)) | 
-                (SequenceData::String(CharType::ASCII(_)), SequenceData::String(CharType::ASCII(_))) | 
-                (SequenceData::String(CharType::UTF8(_)), SequenceData::String(CharType::UTF8(_))) => {
-                    // let mut data = lhs_data.data;
-                    // data.append(&mut rhs_data.data);
-                    // Value::list_from(data)
-                    Ok(lhs_val.clone())
-                },
-                _ => Err(RuntimeErrorType::BadTypeConstruction.into())
-            },
+    match (&mut wrapped_seq, &mut other_wrapped_seq) {
+        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => seq.append(other_seq),
         _ => Err(RuntimeErrorType::BadTypeConstruction.into())
-    }
+    }?;
+
+    Ok(wrapped_seq)
 }
 
 pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {

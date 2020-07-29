@@ -16,7 +16,7 @@ use util::hash;
 pub use vm::types::signatures::{
     TupleTypeSignature, AssetIdentifier, FixedFunction, FunctionSignature,
     TypeSignature, SequenceSubtype, StringSubtype, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    BUFF_64, BUFF_32, BUFF_20, BUFF_6, BUFF_1, BufferLength
+    BUFF_64, BUFF_32, BUFF_20, BUFF_6, BUFF_1, BufferLength, StringUTF8Length
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -226,7 +226,7 @@ impl SequenceData {
                 let mut i = 0;
                 while i != data.data.len() {
                     match filter(&data.data[i]) {
-                        Ok(res) if res == true => { data.data.remove(i); },
+                        Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
                         Err(err) => return Err(err),
                     }
@@ -236,7 +236,7 @@ impl SequenceData {
                 let mut i = 0;
                 while i != data.data.len() {
                     match filter(&data.data[i]) {
-                        Ok(res) if res == true => { data.data.remove(i); },
+                        Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
                         Err(err) => return Err(err),
                     }
@@ -246,7 +246,7 @@ impl SequenceData {
                 let mut i = 0;
                 while i != data.data.len() {
                     match filter(&data.data[i]) {
-                        Ok(res) if res == true => { data.data.remove(i); },
+                        Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
                         Err(err) => return Err(err),
                     }
@@ -257,13 +257,33 @@ impl SequenceData {
                 let mut i = 0;
                 while i != data.data.len() {
                     match filter(&data.data[i]) {
-                        Ok(res) if res == true => { data.data.remove(i); },
+                        Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
                         Err(err) => return Err(err),
                     }
                 }
             },
         }
+        Ok(())
+    }
+
+    pub fn append(&mut self, other_seq: &mut SequenceData) -> Result<()> {
+
+        match (self, other_seq) {
+            (SequenceData::List(ref mut inner_data), SequenceData::List(ref mut other_inner_data)) => {
+                inner_data.append(other_inner_data)
+            },
+            (SequenceData::Buffer(ref mut inner_data), SequenceData::Buffer(ref mut other_inner_data)) => {
+                inner_data.append(other_inner_data)
+            },
+            (SequenceData::String(CharType::ASCII(ref mut inner_data)), SequenceData::String(CharType::ASCII(ref mut other_inner_data))) => {
+                inner_data.append(other_inner_data)
+            },
+            (SequenceData::String(CharType::UTF8(ref mut inner_data)), SequenceData::String(CharType::UTF8(ref mut other_inner_data))) => {
+                inner_data.append(other_inner_data)
+            },
+            _ => Err(RuntimeErrorType::BadTypeConstruction.into())
+        }?;
         Ok(())
     }
 }
@@ -346,7 +366,6 @@ pub trait Sequenceable<T: SequenceItem> {
     fn type_signature(&self) -> TypeSignature;
     
     fn items(&self) -> &Vec<T>;
-    fn append(&mut self, other_seq: &mut Vec<T>);
     fn clear(&mut self);
 
     fn values(&self) -> Vec<Value> {
@@ -369,16 +388,7 @@ impl Sequenceable<Value> for ListData {
     }
     
     fn type_signature(&self) -> TypeSignature {
-        self.type_signature.get_list_item_type().clone() // todo(ludo): revisit
-    }
-
-    fn append(&mut self, other_seq: &mut Vec<Value>) {
-        let type_sig = self.type_signature();
-        for v in other_seq.drain(..) {
-            if type_sig.admits(&v) {
-                self.data.push(v);
-            } 
-        }
+        TypeSignature::SequenceType(SequenceSubtype::ListType(self.type_signature.clone()))
     }
 
     fn clear(&mut self) {
@@ -393,11 +403,9 @@ impl Sequenceable<u8> for BuffData {
     }
 
     fn type_signature(&self) -> TypeSignature {
-        BUFF_1
-    }
-
-    fn append(&mut self, other_seq: &mut Vec<u8>) {
-        self.data.append(other_seq);
+        let buff_length = BufferLength::try_from(self.data.len())
+            .expect("ERROR: Too large of a buffer successfully constructed.");
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(buff_length))
     }
 
     fn clear(&mut self) {
@@ -405,6 +413,7 @@ impl Sequenceable<u8> for BuffData {
     }
 }
 
+// todo(ludo): rename to SequenceableValue ?
 impl Sequenceable<u8> for ASCIIData {
     
     fn items(&self) -> &Vec<u8> {
@@ -412,11 +421,16 @@ impl Sequenceable<u8> for ASCIIData {
     }
 
     fn type_signature(&self) -> TypeSignature {
-        BUFF_1
+        let buff_length = BufferLength::try_from(self.data.len())
+            .expect("ERROR: Too large of a buffer successfully constructed.");
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_length)))
     }
 
-    fn append(&mut self, other_seq: &mut Vec<u8>) {
-        self.data.append(other_seq);
+    fn atom_values(&self) -> Vec<SymbolicExpression> { // todo(ludo): i don't like this.
+        self.items().iter().map(|item| {
+            let v = Value::ascii_string_from(vec![*item]).unwrap();
+            SymbolicExpression::atom_value(v)
+        }).collect()
     }
 
     fn clear(&mut self) {
@@ -431,12 +445,12 @@ impl Sequenceable<Vec<u8>> for UTF8Data {
     }
 
     fn type_signature(&self) -> TypeSignature {
-        BUFF_6
+        let str_len = StringUTF8Length::try_from(self.data.len())
+            .expect("ERROR: Too large of a buffer successfully constructed.");
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(str_len)))
     }
 
-    fn append(&mut self, other_seq: &mut Vec<Vec<u8>>) {
-        self.data.append(other_seq);
-    }
+
 
     fn clear(&mut self) {
         self.data.clear()
@@ -601,6 +615,7 @@ impl Value {
         Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: buff_data })))
     }
 
+    // todo(ludo): the isssue is lying in the fact that to_value() is returnign a buffer 1, instead of a string 1
     pub fn buff_from_byte(byte: u8) -> Value {
         Value::Sequence(SequenceData::Buffer(BuffData { data: vec![byte] }))
     }
@@ -648,10 +663,47 @@ impl BuffData {
     pub fn len(&self) -> BufferLength {
         self.data.len().try_into().unwrap()
     }
+
+    fn append(&mut self, other_seq: &mut BuffData) -> Result<()> {
+        self.data.append(&mut other_seq.data);
+        Ok(())
+    }
 }
 
 impl ListData {
     pub fn len(&self) -> u32 {
+        self.data.len().try_into().unwrap()
+    }
+
+    fn append(&mut self, other_seq: &mut ListData) -> Result<()> {
+        let entry_type_a = self.type_signature.get_list_item_type();
+        let entry_type_b = self.type_signature.get_list_item_type();
+        let entry_type = TypeSignature::factor_out_no_type(&entry_type_a, &entry_type_b)?;
+        let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
+        self.type_signature = ListTypeData::new_list(entry_type, max_len)?;
+        self.data.append(&mut other_seq.data);
+        Ok(())
+    }
+}
+
+impl ASCIIData {
+    fn append(&mut self, other_seq: &mut ASCIIData) -> Result<()> {
+        self.data.append(&mut other_seq.data);
+        Ok(())
+    }
+
+    pub fn len(&self) -> BufferLength {
+        self.data.len().try_into().unwrap()
+    }
+}
+
+impl UTF8Data {
+    fn append(&mut self, other_seq: &mut UTF8Data) -> Result<()> {
+        self.data.append(&mut other_seq.data);
+        Ok(())
+    }
+
+    pub fn len(&self) -> BufferLength {
         self.data.len().try_into().unwrap()
     }
 }

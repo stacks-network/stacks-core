@@ -138,7 +138,7 @@ impl ContractInterfaceAtomType {
             TraitReferenceType(_) => ContractInterfaceAtomType::trait_reference,
             TupleType(sig) => ContractInterfaceAtomType::from_tuple_type(sig),
             SequenceType(StringType(ASCII(len))) => ContractInterfaceAtomType::string_ascii { length: len.into() },
-            SequenceType(StringType(UTF8(len))) => ContractInterfaceAtomType::string_utf8 { length: 1 }, // todo(ludo): fixme
+            SequenceType(StringType(UTF8(len))) => ContractInterfaceAtomType::string_utf8 { length: len.into() },
             SequenceType(BufferType(len)) => ContractInterfaceAtomType::buffer { length: len.into() },
             SequenceType(ListType(list_data)) => {
                 let (type_f, length) = list_data.clone().destruct();

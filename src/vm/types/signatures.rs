@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use address::c32;
 use vm::costs::{cost_functions, CostOverflowingMath};
-use vm::types::{Value, SequenceData, CharType, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
+use vm::types::{Value, SequenceData, Sequenceable, CharType, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
                 QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName, TraitDefinition};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
@@ -587,7 +587,7 @@ impl TypeSignature {
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
-    fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
         if a.is_no_type() {
             Ok(b.clone())
         } else if b.is_no_type() {
@@ -664,6 +664,23 @@ impl TypeSignature {
                 }.clone();
                 Ok(SequenceType(SequenceSubtype::BufferType(buff_len)))
             },
+            (SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_a))), SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_b)))) => {
+                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                    string_a
+                } else {
+                    string_b
+                }.clone();
+                Ok(SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(str_len))))
+            },
+            (SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_a))), SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_b)))) => {
+                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                    string_a
+                } else {
+                    string_b
+                }.clone();
+                Ok(SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(str_len))))
+            },
+            // todo(ludo): refactor
             (NoType, x) | (x, NoType) => {
                 Ok(x.clone())
             },
@@ -696,22 +713,10 @@ impl TypeSignature {
             Value::Bool(_v) => BoolType,
             Value::Tuple(v) => TupleType(
                 v.type_signature.clone()),
-            Value::Sequence(SequenceData::List(list_data)) => SequenceType(SequenceSubtype::ListType(list_data.type_signature.clone())),
-            Value::Sequence(SequenceData::Buffer(buff_data)) => {
-                let buff_length = BufferLength::try_from(buff_data.data.len())
-                    .expect("ERROR: Too large of a buffer successfully constructed.");
-                SequenceType(SequenceSubtype::BufferType(buff_length))
-            },    
-            Value::Sequence(SequenceData::String(CharType::ASCII(ascii_string))) => {
-                let str_len = BufferLength::try_from(ascii_string.data.len())
-                    .expect("ERROR: Too large of a buffer successfully constructed.");
-                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(str_len)))
-            },
-            Value::Sequence(SequenceData::String(CharType::UTF8(utf8_string))) => {
-                let str_len = StringUTF8Length::try_from(utf8_string.data.len())
-                    .expect("ERROR: Too large of a buffer successfully constructed.");
-                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(str_len)))
-            },
+            Value::Sequence(SequenceData::List(list_data)) => list_data.type_signature(),
+            Value::Sequence(SequenceData::Buffer(buff_data)) => buff_data.type_signature(),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data.type_signature(),
+            Value::Sequence(SequenceData::String(CharType::UTF8(utf8_data))) => utf8_data.type_signature(),
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature()
         }
@@ -955,7 +960,7 @@ impl TypeSignature {
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             SequenceType(SequenceSubtype::BufferType(len)) | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => Some(4 + u32::from(len)),
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.inner_size(),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4 * 1), // todo(ludo): use safe math instead
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4 * 1), // todo(ludo): use safe math instead + revisit size
             OptionalType(t) => t.size().checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
                 // ResponseTypes are 1 byte for the committed bool,
@@ -987,7 +992,7 @@ impl TypeSignature {
             SequenceType(SequenceSubtype::BufferType(_)) => Some(1 + 4),
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
             SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => Some(1 + 4),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4), // todo(ludo): revisit
             OptionalType(t) => {
                 t.inner_type_size()?
                     .checked_add(1)
@@ -1189,9 +1194,11 @@ mod test {
     #[test]
     fn type_of_list_of_buffs() {
         let value = execute("(list \"abc\" \"abcde\")").unwrap().unwrap();
-        let type_descr = "(list 2 (buff 5))".into();
+        let type_descr = "(list 2 (string-ascii 5))".into();
         assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
+
+    // todo(ludo): add a test for list of string
 
     #[test]
     fn type_signature_way_too_big() {

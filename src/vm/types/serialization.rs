@@ -1,6 +1,6 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
-use vm::types::{Value, SequenceSubtype, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, MAX_VALUE_SIZE,
+use vm::types::{Value, SequenceSubtype, StringSubtype, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, StringUTF8Length, MAX_VALUE_SIZE,
                 BOUND_VALUE_SERIALIZATION_BYTES, BUFF_6,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
@@ -132,8 +132,8 @@ impl From<&Value> for TypePrefix {
             Tuple(_) => TypePrefix::Tuple,
             Sequence(Buffer(_)) => TypePrefix::Buffer,
             Sequence(List(_)) => TypePrefix::List,
-            Sequence(String(CharType::ASCII(_))) => TypePrefix::Buffer,
-            Sequence(String(CharType::UTF8(_))) => TypePrefix::List,
+            Sequence(String(CharType::ASCII(_))) => TypePrefix::ASCIIString,
+            Sequence(String(CharType::UTF8(_))) => TypePrefix::UTF8String,
         }
     }
 }
@@ -454,7 +454,6 @@ impl Value {
                         .map(Value::from)
                 }
             },
-            // todo(ludo): revisit this implementation
             TypePrefix::ASCIIString => {
                 let mut buffer_len = [0; 4];
                 r.read_exact(&mut buffer_len)?;
@@ -463,7 +462,7 @@ impl Value {
 
                 if let Some(x) = expected_type {
                     let passed_test = match x {
-                        TypeSignature::SequenceType(SequenceSubtype::BufferType(expected_len)) => {
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(expected_len))) => {
                             u32::from(&buffer_len) <= u32::from(expected_len)
                         },
                         _ => false
@@ -478,41 +477,34 @@ impl Value {
                 r.read_exact(&mut data[..])?;
 
                 // can safely unwrap, because the buffer length was _already_ checked.
-                Ok(Value::buff_from(data).unwrap())
+                Ok(Value::ascii_string_from(data).unwrap())
             },
+            // todo(ludo): revisit this implementation
             TypePrefix::UTF8String => {
-                let mut len = [0; 4];
-                r.read_exact(&mut len)?;
-                let len = u32::from_be_bytes(len);
+                let mut buffer_len = [0; 4];
+                r.read_exact(&mut buffer_len)?;
+                let buffer_len = StringUTF8Length::try_from(
+                    u32::from_be_bytes(buffer_len))?;
 
-                if len > MAX_VALUE_SIZE {
-                    return Err("Illegal list type".into());
+                if let Some(x) = expected_type {
+                    let passed_test = match x {
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(expected_len))) => {
+                            u32::from(&buffer_len) <= u32::from(expected_len)
+                        },
+                        _ => false
+                    };
+                    if !passed_test {
+                        return Err(SerializationError::DeserializeExpected(x.clone()))
+                    }
                 }
 
-                let (list_type, entry_type) = match expected_type {
-                    None => (None, None),
-                    Some(TypeSignature::SequenceType(SequenceSubtype::ListType(list_type))) => {
-                        if len > list_type.get_max_len() {
-                            return Err(SerializationError::DeserializeExpected(
-                                expected_type.unwrap().clone()))
-                        }
-                        (Some(list_type), Some(list_type.get_list_item_type()))
-                    },
-                    Some(x) => return Err(SerializationError::DeserializeExpected(x.clone()))
-                };
+                let mut data = vec![0; u32::from(buffer_len) as usize];
 
-                let mut items = Vec::with_capacity(len as usize);
-                for _i in 0..len {
-                    items.push(Value::inner_deserialize_read(r, entry_type, depth + 1)?);
-                }
+                r.read_exact(&mut data[..])?;
 
-                if let Some(list_type) = list_type {
-                    Value::list_with_type(items, list_type.clone())
-                        .map_err(|_| "Illegal list type".into())
-                } else {
-                    Value::list_from(items)
-                        .map_err(|_| "Illegal list type".into())
-                }
+                // can safely unwrap, because the buffer length was _already_ checked.
+                Ok(Value::ascii_string_from(data).unwrap())
+
             },
         }
 
@@ -563,9 +555,8 @@ impl Value {
                 // todo(ludo): implement this
             },
             Sequence(SequenceData::String(ASCII(value))) => {
-                // w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
-                // w.write_all(&value.data)?
-                // todo(ludo): implement this
+                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
+                w.write_all(&value.data)?
             },
             Tuple(data) => {
                 w.write_all(&u32::try_from(data.data_map.len())
@@ -614,6 +605,7 @@ impl Value {
     }
 
     pub fn deserialize(hex: &str, expected: &TypeSignature) -> Self {
+        println!("DESER -> {} -> {:?}", hex, expected);
         Value::try_deserialize_hex(hex, expected)
             .expect("ERROR: Failed to parse Clarity hex string")
     }

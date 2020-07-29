@@ -266,7 +266,9 @@ fn test_concat_append_supertype() {
     ];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+        .for_each(|(program, expectation)| {
+        println!("1");
+        assert_eq!(expectation.clone(), execute(program))});
 }
 
 #[test]

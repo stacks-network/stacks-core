@@ -317,12 +317,12 @@ fn test_get_list_max_len() {
 }
 
 #[test]
-fn test_set_buffer_variable() {
+fn test_set_string_variable() {
     let contract_src = r#"
-        (define-data-var name (buff 5) "alice")
+        (define-data-var name (string-ascii 5) "alice")
         (define-private (get-name)
             (var-get name))
-        (define-private (set-name (new-name (buff 5)))
+        (define-private (set-name (new-name (string-ascii 5)))
             (if (var-set name new-name)
                 new-name
                 (get-name)))
@@ -331,9 +331,9 @@ fn test_set_buffer_variable() {
     let mut contract_src = contract_src.to_string();
     contract_src.push_str("(list (get-name) (set-name \"celia\") (get-name))");
     let expected = Value::list_from(vec![
-        Value::buff_from("alice".to_string().into_bytes()).unwrap(),
-        Value::buff_from("celia".to_string().into_bytes()).unwrap(),
-        Value::buff_from("celia".to_string().into_bytes()).unwrap(),
+        Value::ascii_string_from("alice".to_string().into_bytes()).unwrap(),
+        Value::ascii_string_from("celia".to_string().into_bytes()).unwrap(),
+        Value::ascii_string_from("celia".to_string().into_bytes()).unwrap(),
     ]);
     assert_executes(expected, &contract_src);
 }
@@ -528,10 +528,10 @@ fn lists_system() {
 fn tuples_system() {
     let test1 =
         "(define-map tuples ((name int))
-                            ((contents (tuple (name (buff 5))
-                                              (owner (buff 5))))))
+                            ((contents (tuple (name (string-ascii 5))
+                                              (owner (string-ascii 5))))))
 
-         (define-private (add-tuple (name int) (content (buff 5)))
+         (define-private (add-tuple (name int) (content (string-ascii 5)))
            (map-insert tuples (tuple (name name))
                                  (tuple (contents
                                    (tuple (name content)
@@ -565,10 +565,11 @@ fn tuples_system() {
     test_bad_tuple_5.push_str("(map-delete tuples (tuple (names 1)))");
 
     let expected = || {
-        let buff1 = Value::buff_from("abcde".to_string().into_bytes())?;
-        let buff2 = Value::buff_from("abcd".to_string().into_bytes())?;
+        let buff1 = Value::ascii_string_from("abcde".to_string().into_bytes())?;
+        let buff2 = Value::ascii_string_from("abcd".to_string().into_bytes())?;
         Value::list_from(vec![buff1, buff2])
     };
+    println!("Testing {:?}", test1);
 
     assert_executes(expected(), test1);
 
@@ -576,6 +577,7 @@ fn tuples_system() {
                             test_bad_tuple_4, test_bad_tuple_5];
 
     for test in type_error_tests.iter() {
+        println!("Testing {:?}", test);
         let expected_type_error = match execute(test) {
             Err(Error::Unchecked(CheckErrors::TypeValueError(_,_))) => true,
             _ => {
