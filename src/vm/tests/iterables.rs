@@ -41,7 +41,7 @@ fn test_string_ascii_admission() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -52,7 +52,7 @@ fn test_string_utf8_admission() {
         "(define-private (set-name (x (string-utf8 14))) x)";
     let t1 = format!("{} (set-name u\"my 2 \\u{{c2a2}} (cents)\")", defines);    
 
-    let expected = Value::utf8_string_from_string("my 2 \\u{c2a2} (cents)".into()).unwrap();
+    let expected = Value::string_utf8_from_string_utf8_literal("my 2 \\u{c2a2} (cents)".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -63,7 +63,7 @@ fn test_string_ascii_to_utf8() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -74,7 +74,7 @@ fn test_string_ascii_map() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -85,7 +85,7 @@ fn test_string_utf8_map() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -96,7 +96,7 @@ fn test_string_ascii_fold() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -107,7 +107,7 @@ fn test_string_utf8_fold() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -119,7 +119,7 @@ fn test_string_ascii_concat() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -130,7 +130,7 @@ fn test_string_utf8_concat() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -141,7 +141,7 @@ fn test_string_ascii_append() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -152,7 +152,7 @@ fn test_string_utf8_append() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -163,7 +163,7 @@ fn test_string_ascii_slice() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -174,7 +174,7 @@ fn test_string_utf8_slice() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -185,7 +185,7 @@ fn test_string_ascii_get_len() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -196,7 +196,7 @@ fn test_string_utf8_get_len() {
         "(define-private (set-name (x (string-ascii 11))) x)";
     let t1 = format!("{} (set-name \"hello world\")", defines);    
 
-    let expected = Value::ascii_string_from("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -488,7 +488,7 @@ fn test_simple_folds_string() {
 
     let expected = [
         Value::Int(10),
-        Value::ascii_string_from(vec![48, 49, 50, 51, 52]).unwrap()];
+        Value::string_ascii_from_bytes(vec![48, 49, 50, 51, 52]).unwrap()];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
         println!("1");

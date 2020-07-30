@@ -16,7 +16,7 @@ use util::hash;
 pub use vm::types::signatures::{
     TupleTypeSignature, AssetIdentifier, FixedFunction, FunctionSignature,
     TypeSignature, SequenceSubtype, StringSubtype, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    BUFF_64, BUFF_32, BUFF_20, BUFF_6, BUFF_1, BufferLength, StringUTF8Length
+    BUFF_64, BUFF_32, BUFF_20, BUFF_1, BufferLength, StringUTF8Length
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -310,11 +310,6 @@ impl fmt::Debug for CharType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UTF8Data {
-    pub data: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ASCIIData {
     pub data: Vec<u8>,
 }
@@ -323,6 +318,11 @@ impl fmt::Display for ASCIIData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "\"{}\"", format!("{}", str::from_utf8(&self.data).unwrap()))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UTF8Data {
+    pub data: Vec<Vec<u8>>,
 }
 
 impl fmt::Display for UTF8Data {
@@ -428,7 +428,7 @@ impl Sequenceable<u8> for ASCIIData {
 
     fn atom_values(&self) -> Vec<SymbolicExpression> { // todo(ludo): i don't like this.
         self.items().iter().map(|item| {
-            let v = Value::ascii_string_from(vec![*item]).unwrap();
+            let v = Value::string_ascii_from_bytes(vec![*item]).unwrap();
             SymbolicExpression::atom_value(v)
         }).collect()
     }
@@ -449,8 +449,6 @@ impl Sequenceable<Vec<u8>> for UTF8Data {
             .expect("ERROR: Too large of a buffer successfully constructed.");
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(str_len)))
     }
-
-
 
     fn clear(&mut self) {
         self.data.clear()
@@ -620,23 +618,26 @@ impl Value {
         Value::Sequence(SequenceData::Buffer(BuffData { data: vec![byte] }))
     }
 
-    pub fn ascii_string_from(data: Vec<u8>) -> Result<Value> {
+    pub fn string_ascii_from_bytes(bytes: Vec<u8>) -> Result<Value> {
+        for b in bytes.iter() {
+            if !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace() {
+                return Err(CheckErrors::InvalidCharactersDetected.into());
+                // todo(ludo): should we subset ascii?
+            }
+        }
         // check the buffer size
-        BufferLength::try_from(data.len())?;
+        BufferLength::try_from(bytes.len())?;
         // construct the buffer        
-        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))))
+        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: bytes }))))
     }
 
-    pub fn utf8_string_from_data(data: Vec<Vec<u8>>) -> Result<Value> {
-        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
-    }
-
-    pub fn utf8_string_from_string(tokenized_str: String) -> Result<Value> {
+    pub fn string_utf8_from_string_utf8_literal(tokenized_str: String) -> Result<Value> {
         let wrapped_codepoints_matcher = Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}").unwrap();
         let mut window = tokenized_str.as_str();
         let mut cursor = 0;
         let mut data: Vec<Vec<u8>> = vec![];
         // todo(ludo): add a max
+        // todo(ludo): revisit this approach. we might validate the escaped grapheme instead
         while !window.is_empty() {
             if let Some(captures) = wrapped_codepoints_matcher.captures(window) {
                 let matched = captures.name("value").unwrap();
@@ -654,6 +655,20 @@ impl Value {
                 cursor += 1;
             }
             window = &tokenized_str[cursor..];
+        }
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
+    }
+
+    pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value> {
+        let validated_utf8_str = match str::from_utf8(&bytes) {
+            Ok(string) => string,
+            _ => return Err(CheckErrors::InvalidCharactersDetected.into())
+        };
+        let mut data = vec![];
+        for char in validated_utf8_str.chars() {
+            let mut encoded_char: Vec<u8> = vec![0; char.len_utf8()];
+            char.encode_utf8(&mut encoded_char[..]);
+            data.push(encoded_char);
         }
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
     }
@@ -1027,6 +1042,10 @@ mod test {
         // should error!
         t.get("abcd").unwrap_err();
     }
+
+    // todo(ludo): test this:
+    // Value::string_ascii_from_bytes(vec![61, 62, 63, 0])
+
 
     #[test]
     fn test_some_displays() {

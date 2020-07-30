@@ -44,6 +44,7 @@ pub enum ParseErrors {
     TraitReferenceUnknown(String),
     CommaSeparatorUnexpected,
     ColonSeparatorUnexpected,
+    InvalidCharactersDetected,
 }
 
 #[derive(Debug, PartialEq)]
@@ -155,6 +156,7 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             ParseErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
             ParseErrors::ExpressionStackDepthTooDeep => format!("AST has too deep of an expression nesting. The maximum stack depth is {}", MAX_CALL_STACK_DEPTH),
+            ParseErrors::InvalidCharactersDetected => format!("invalid characters detected"),
         }
     }
 

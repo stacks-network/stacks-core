@@ -147,6 +147,9 @@ pub enum CheckErrors {
     TraitBasedContractCallInReadOnly,
     ContractOfExpectsTrait,
 
+    // strings
+    InvalidCharactersDetected,
+
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
 }
@@ -368,6 +371,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
+            CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },

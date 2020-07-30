@@ -1,7 +1,7 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
 use vm::types::{Value, SequenceSubtype, StringSubtype, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, StringUTF8Length, MAX_VALUE_SIZE,
-                BOUND_VALUE_SERIALIZATION_BYTES, BUFF_6,
+                BOUND_VALUE_SERIALIZATION_BYTES, SequenceData, CharType,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
@@ -15,7 +15,7 @@ use serde_json::{Value as JSONValue};
 use util::hash::{hex_bytes, to_hex};
 use util::retry::{BoundReader};
 
-use std::{error, fmt};
+use std::{error, fmt, str};
 use std::io::{Write, Read};
 
 
@@ -89,8 +89,8 @@ define_u8_enum!(TypePrefix {
     OptionalSome = 10,
     List = 11,
     Tuple = 12,
-    ASCIIString = 13,
-    UTF8String = 14
+    StringASCII = 13,
+    StringUTF8 = 14
 });
 
 impl From<&PrincipalData> for TypePrefix {
@@ -132,8 +132,8 @@ impl From<&Value> for TypePrefix {
             Tuple(_) => TypePrefix::Tuple,
             Sequence(Buffer(_)) => TypePrefix::Buffer,
             Sequence(List(_)) => TypePrefix::List,
-            Sequence(String(CharType::ASCII(_))) => TypePrefix::ASCIIString,
-            Sequence(String(CharType::UTF8(_))) => TypePrefix::UTF8String,
+            Sequence(String(CharType::ASCII(_))) => TypePrefix::StringASCII,
+            Sequence(String(CharType::UTF8(_))) => TypePrefix::StringUTF8,
         }
     }
 }
@@ -454,7 +454,7 @@ impl Value {
                         .map(Value::from)
                 }
             },
-            TypePrefix::ASCIIString => {
+            TypePrefix::StringASCII => {
                 let mut buffer_len = [0; 4];
                 r.read_exact(&mut buffer_len)?;
                 let buffer_len = BufferLength::try_from(
@@ -476,20 +476,27 @@ impl Value {
 
                 r.read_exact(&mut data[..])?;
 
-                // can safely unwrap, because the buffer length was _already_ checked.
-                Ok(Value::ascii_string_from(data).unwrap())
+                // can safely unwrap, because the string length was _already_ checked.
+                Ok(Value::string_ascii_from_bytes(data).unwrap())
             },
-            // todo(ludo): revisit this implementation
-            TypePrefix::UTF8String => {
-                let mut buffer_len = [0; 4];
-                r.read_exact(&mut buffer_len)?;
-                let buffer_len = StringUTF8Length::try_from(
-                    u32::from_be_bytes(buffer_len))?;
+            TypePrefix::StringUTF8 => {
+                let mut total_len = [0; 4];
+                r.read_exact(&mut total_len)?;
+                let total_len = BufferLength::try_from(
+                    u32::from_be_bytes(total_len))?;
+
+                let mut data: Vec<u8> = vec![0; u32::from(total_len) as usize];
+
+                r.read_exact(&mut data[..])?;
+
+                let value = Value::string_utf8_from_bytes(data)
+                    .map_err(|_| "Illegal string_utf8 type".into());
 
                 if let Some(x) = expected_type {
-                    let passed_test = match x {
-                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(expected_len))) => {
-                            u32::from(&buffer_len) <= u32::from(expected_len)
+                    let passed_test = match (x, &value) {
+                        (TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(expected_len))), 
+                         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(utf8))))) => {
+                            utf8.data.len() as u32 <= u32::from(expected_len)
                         },
                         _ => false
                     };
@@ -498,13 +505,7 @@ impl Value {
                     }
                 }
 
-                let mut data = vec![0; u32::from(buffer_len) as usize];
-
-                r.read_exact(&mut data[..])?;
-
-                // can safely unwrap, because the buffer length was _already_ checked.
-                Ok(Value::ascii_string_from(data).unwrap())
-
+                value
             },
         }
 
@@ -547,12 +548,14 @@ impl Value {
                 w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
                 w.write_all(&value.data)?
             },
-            Sequence(SequenceData::String(UTF8(data))) => {
-                // w.write_all(&data.len().to_be_bytes())?;
-                // for item in data.data.iter() {
-                //     item.serialize_write(w)?;
-                // }
-                // todo(ludo): implement this
+            Sequence(SequenceData::String(UTF8(value))) => {
+                let total_len = value.data.iter()
+                    .flatten()
+                    .count() as u32;
+                w.write_all(&(total_len.to_be_bytes()))?;
+                for bytes in value.data.iter() {
+                    w.write_all(&bytes)?
+                }
             },
             Sequence(SequenceData::String(ASCII(value))) => {
                 w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
@@ -605,7 +608,6 @@ impl Value {
     }
 
     pub fn deserialize(hex: &str, expected: &TypeSignature) -> Self {
-        println!("DESER -> {} -> {:?}", hex, expected);
         Value::try_deserialize_hex(hex, expected)
             .expect("ERROR: Failed to parse Clarity hex string")
     }
@@ -790,6 +792,31 @@ mod tests {
             Value::buff_from(vec![0,0xde,0xad,0xbe,0xef,0]).unwrap(),
             TypeSignature::from("(buff 2)"));
         
+    }
+
+    #[test]
+    fn test_string_ascii() {
+        test_deser_ser(Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap());
+
+        // fail because we expect a shorter string
+        test_bad_expectation(
+            Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap(),
+            TypeSignature::from("(string-ascii 3)"));
+    }
+
+    #[test]
+    fn test_string_utf8() {
+        test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap());
+        test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap());
+
+        // fail because we expect a shorter string
+        test_bad_expectation(
+            Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap(),
+            TypeSignature::from("(string-utf8 3)"));
+
+        test_bad_expectation(
+            Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap(),
+            TypeSignature::from("(string-utf8 3)"));    
     }
 
     #[test]

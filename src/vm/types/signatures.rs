@@ -81,8 +81,8 @@ impl SequenceSubtype {
         match &self {
             SequenceSubtype::ListType(ref list_data) => list_data.clone().destruct().0,
             SequenceSubtype::BufferType(_) => TypeSignature::min_buffer(),
-            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => TypeSignature::min_ascii_string(),
-            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_utf8_string(),    
+            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => TypeSignature::min_string_ascii(),
+            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_string_utf8(),    
         }
     }
 }
@@ -109,7 +109,6 @@ use self::TypeSignature::{
 pub const BUFF_64: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(64)));
 pub const BUFF_32: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(32)));
 pub const BUFF_20: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(20)));
-pub const BUFF_6: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(6)));
 pub const BUFF_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -573,11 +572,11 @@ impl TypeSignature {
         SequenceType(SequenceSubtype::BufferType(1_u32.try_into().unwrap()))
     }
 
-    pub fn min_ascii_string() -> TypeSignature {
+    pub fn min_string_ascii() -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(1_u32.try_into().unwrap())))
     }
 
-    pub fn min_utf8_string() -> TypeSignature {
+    pub fn min_string_utf8() -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(1_u32.try_into().unwrap())))
     }
 

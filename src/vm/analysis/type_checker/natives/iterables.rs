@@ -50,11 +50,11 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
             (mapped_type, buffer_data.into())
         },
         TypeSignature::SequenceType(StringType(ASCII(ascii_data))) => {
-            let mapped_type = function_type.check_args(checker, &[TypeSignature::min_ascii_string()])?;
+            let mapped_type = function_type.check_args(checker, &[TypeSignature::min_string_ascii()])?;
             (mapped_type, ascii_data.into())
         },
         TypeSignature::SequenceType(StringType(UTF8(utf8_data))) => {
-            let mapped_type = function_type.check_args(checker, &[TypeSignature::min_utf8_string()])?;
+            let mapped_type = function_type.check_args(checker, &[TypeSignature::min_string_utf8()])?;
             (mapped_type, utf8_data.into())
         },
         _ => return Err(CheckErrors::ExpectedSequence(argument_type).into())

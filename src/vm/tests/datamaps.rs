@@ -331,9 +331,9 @@ fn test_set_string_variable() {
     let mut contract_src = contract_src.to_string();
     contract_src.push_str("(list (get-name) (set-name \"celia\") (get-name))");
     let expected = Value::list_from(vec![
-        Value::ascii_string_from("alice".to_string().into_bytes()).unwrap(),
-        Value::ascii_string_from("celia".to_string().into_bytes()).unwrap(),
-        Value::ascii_string_from("celia".to_string().into_bytes()).unwrap(),
+        Value::string_ascii_from_bytes("alice".to_string().into_bytes()).unwrap(),
+        Value::string_ascii_from_bytes("celia".to_string().into_bytes()).unwrap(),
+        Value::string_ascii_from_bytes("celia".to_string().into_bytes()).unwrap(),
     ]);
     assert_executes(expected, &contract_src);
 }
@@ -565,8 +565,8 @@ fn tuples_system() {
     test_bad_tuple_5.push_str("(map-delete tuples (tuple (names 1)))");
 
     let expected = || {
-        let buff1 = Value::ascii_string_from("abcde".to_string().into_bytes())?;
-        let buff2 = Value::ascii_string_from("abcd".to_string().into_bytes())?;
+        let buff1 = Value::string_ascii_from_bytes("abcde".to_string().into_bytes())?;
+        let buff2 = Value::string_ascii_from_bytes("abcd".to_string().into_bytes())?;
         Value::list_from(vec![buff1, buff2])
     };
     println!("Testing {:?}", test1);
