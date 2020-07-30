@@ -233,7 +233,7 @@ impl From<StringUTF8Length> for u32 {
 impl TryFrom<u32> for StringUTF8Length {
     type Error = CheckErrors;
     fn try_from(data: u32) -> Result<StringUTF8Length> {
-        if data > MAX_VALUE_SIZE {
+        if data * 4 > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(StringUTF8Length(data))
@@ -244,7 +244,7 @@ impl TryFrom<u32> for StringUTF8Length {
 impl TryFrom<usize> for StringUTF8Length {
     type Error = CheckErrors;
     fn try_from(data: usize) -> Result<StringUTF8Length> {
-        if data > (MAX_VALUE_SIZE as usize) {
+        if data * 4 > (MAX_VALUE_SIZE as usize) {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(StringUTF8Length(data as u32))
@@ -255,7 +255,7 @@ impl TryFrom<usize> for StringUTF8Length {
 impl TryFrom<i128> for StringUTF8Length {
     type Error = CheckErrors;
     fn try_from(data: i128) -> Result<StringUTF8Length> {
-        if data > (MAX_VALUE_SIZE as i128) {
+        if data * 4 > (MAX_VALUE_SIZE as i128) {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(StringUTF8Length(data as u32))
@@ -363,7 +363,7 @@ impl TypeSignature {
                     false
                 }
             },
-            SequenceType(SequenceSubtype::BufferType(ref my_len)) => { // todo(ludo): should be tuned
+            SequenceType(SequenceSubtype::BufferType(ref my_len)) => {
                 if let SequenceType(SequenceSubtype::BufferType(ref other_len)) = other {
                     my_len.0 >= other_len.0
                 } else {
@@ -377,7 +377,7 @@ impl TypeSignature {
                     false
                 }
             },
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => { // todo(ludo): should be tuned
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
                 if let SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(other_len))) = other {
                     len.0 >= other_len.0
                 } else {
@@ -679,7 +679,6 @@ impl TypeSignature {
                 }.clone();
                 Ok(SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(str_len))))
             },
-            // todo(ludo): refactor
             (NoType, x) | (x, NoType) => {
                 Ok(x.clone())
             },
@@ -801,9 +800,9 @@ impl TypeSignature {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription)
         }
-        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            StringUTF8Length::try_from(*buff_len)
-                .map(|buff_len| SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(buff_len)))) // todo(ludo): bound inadequate
+        if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
+            StringUTF8Length::try_from(*utf8_len)
+                .map(|utf8_len| SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(utf8_len))))
         } else {
             Err(CheckErrors::InvalidTypeDescription)
         }
@@ -959,7 +958,7 @@ impl TypeSignature {
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             SequenceType(SequenceSubtype::BufferType(len)) | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => Some(4 + u32::from(len)),
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.inner_size(),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4 * 1), // todo(ludo): use safe math instead + revisit size
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4 * u32::from(len)),
             OptionalType(t) => t.size().checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
                 // ResponseTypes are 1 byte for the committed bool,
@@ -991,7 +990,7 @@ impl TypeSignature {
             SequenceType(SequenceSubtype::BufferType(_)) => Some(1 + 4),
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
             SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(1 + 4),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4), // todo(ludo): revisit
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(1 + 4),
             OptionalType(t) => {
                 t.inner_type_size()?
                     .checked_add(1)
@@ -1202,8 +1201,6 @@ mod test {
         let type_descr = "(list 2 (string-ascii 5))".into();
         assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
-
-    // todo(ludo): add a test for list of string
 
     #[test]
     fn type_signature_way_too_big() {

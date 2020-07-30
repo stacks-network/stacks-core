@@ -193,15 +193,6 @@ pub enum SequenceData {
 
 impl SequenceData {
 
-    pub fn values(&self) -> Vec<Value> {
-        match &self {
-            SequenceData::Buffer(data) => data.values(),
-            SequenceData::List(data) => data.values(),
-            SequenceData::String(CharType::ASCII(data)) => data.values(),
-            SequenceData::String(CharType::UTF8(data)) => data.values(),
-        }
-    }
-
     pub fn atom_values(&self) -> Vec<SymbolicExpression> {
         match &self {
             SequenceData::Buffer(data) => data.atom_values(),
@@ -225,7 +216,7 @@ impl SequenceData {
             SequenceData::Buffer(ref mut data) => {
                 let mut i = 0;
                 while i != data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(data.data[i].to_value());
+                    let atom_value = SymbolicExpression::atom_value(BuffData::to_value(&data.data[i]));
                     match filter(atom_value) {
                         Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
@@ -236,7 +227,7 @@ impl SequenceData {
             SequenceData::List(ref mut data) => {
                 let mut i = 0;
                 while i != data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(data.data[i].to_value());
+                    let atom_value = SymbolicExpression::atom_value(ListData::to_value(&data.data[i]));
                     match filter(atom_value) {
                         Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
@@ -247,8 +238,7 @@ impl SequenceData {
             SequenceData::String(CharType::ASCII(ref mut data)) => {
                 let mut i = 0;
                 while i != data.data.len() {
-                    let value = Value::string_ascii_from_bytes(vec![data.data[i]]).unwrap();
-                    let atom_value = SymbolicExpression::atom_value(value);
+                    let atom_value = SymbolicExpression::atom_value(ASCIIData::to_value(&data.data[i]));
                     match filter(atom_value) {
                         Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
@@ -260,7 +250,7 @@ impl SequenceData {
             SequenceData::String(CharType::UTF8(ref mut data)) => {
                 let mut i = 0;
                 while i != data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(data.data[i].to_value());
+                    let atom_value = SymbolicExpression::atom_value(UTF8Data::to_value(&data.data[i]));
                     match filter(atom_value) {
                         Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
@@ -335,53 +325,31 @@ impl fmt::Display for UTF8Data {
         let mut result = String::new();
         for char in self.data.iter() {
             if char.len() > 1 {
+                // We escape extended charset
                 result.push_str(&format!( "\\u{{{}}}", hash::to_hex(&char[..])));
             } else {
-                result.push_str(str::from_utf8(&char[..]).unwrap()); // todo(ludo): could be improved
+                // We render ASCII charset
+                let ascii_char = str::from_utf8(&char[..])
+                    .expect("ERROR: Invalid ASCII string successfully constructed");
+                result.push_str(ascii_char);
             }
         }
         write!(f, "\"{}\"", format!("{}", result))
     }
 }
 
-pub trait SequenceItem {
-    fn to_value(&self) -> Value;
-}
-
-impl SequenceItem for u8 {
-    fn to_value(&self) -> Value {
-        Value::buff_from_byte(*self)
-    }
-}
-
-impl SequenceItem for Value {
-    fn to_value(&self) -> Value {
-        self.clone()
-    }
-}
-
-impl SequenceItem for Vec<u8> {
-    fn to_value(&self) -> Value {
-        Value::string_utf8_from_bytes(self.clone()).unwrap() // todo(ludo): safe unwrap
-    }
-}
-
-pub trait SequencedValue<T: SequenceItem> {
+pub trait SequencedValue<T> {
 
     fn type_signature(&self) -> TypeSignature;
     
     fn items(&self) -> &Vec<T>;
     fn clear(&mut self);
 
-    fn values(&self) -> Vec<Value> {
-        self.items().iter().map(|item| {
-            item.clone().to_value()
-        }).collect()
-    }
+    fn to_value(v: &T) -> Value;
 
     fn atom_values(&self) -> Vec<SymbolicExpression> {
         self.items().iter().map(|item| {
-            SymbolicExpression::atom_value(item.clone().to_value())
+            SymbolicExpression::atom_value(Self::to_value(item))
         }).collect()
     }
 }
@@ -398,6 +366,10 @@ impl SequencedValue<Value> for ListData {
 
     fn clear(&mut self) {
         self.data.clear()
+    }
+
+    fn to_value(v: &Value) -> Value {
+        v.clone()
     }
 }
 
@@ -416,6 +388,10 @@ impl SequencedValue<u8> for BuffData {
     fn clear(&mut self) {
         self.data.clear()
     }
+
+    fn to_value(v: &u8) -> Value {
+        Value::buff_from_byte(*v)
+    }
 }
 
 impl SequencedValue<u8> for ASCIIData {
@@ -430,15 +406,13 @@ impl SequencedValue<u8> for ASCIIData {
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_length)))
     }
 
-    fn atom_values(&self) -> Vec<SymbolicExpression> { // todo(ludo): i don't like this.
-        self.items().iter().map(|item| {
-            let v = Value::string_ascii_from_bytes(vec![*item]).unwrap();
-            SymbolicExpression::atom_value(v)
-        }).collect()
-    }
-
     fn clear(&mut self) {
         self.data.clear()
+    }
+
+    fn to_value(v: &u8) -> Value {
+        Value::string_ascii_from_bytes(vec![*v])
+            .expect("ERROR: Invalid ASCII string successfully constructed")
     }
 }
 
@@ -456,6 +430,11 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
 
     fn clear(&mut self) {
         self.data.clear()
+    }
+
+    fn to_value(v: &Vec<u8>) -> Value {
+        Value::string_utf8_from_bytes(v.clone())
+            .expect("ERROR: Invalid UTF8 string successfully constructed")
     }
 }
 
@@ -625,12 +604,11 @@ impl Value {
         for b in bytes.iter() {
             if !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace() {
                 return Err(CheckErrors::InvalidCharactersDetected.into());
-                // todo(ludo): should we subset ascii?
             }
         }
-        // check the buffer size
+        // check the string size
         BufferLength::try_from(bytes.len())?;
-        // construct the buffer        
+        // construct the string        
         Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: bytes }))))
     }
 
@@ -639,13 +617,9 @@ impl Value {
         let mut window = tokenized_str.as_str();
         let mut cursor = 0;
         let mut data: Vec<Vec<u8>> = vec![];
-        // todo(ludo): add a max
-        // todo(ludo): revisit this approach. we might validate the escaped grapheme instead
         while !window.is_empty() {
             if let Some(captures) = wrapped_codepoints_matcher.captures(window) {
                 let matched = captures.name("value").unwrap();
-                // let matched = captures.name("value").ok_or(
-                //     ParseError::new(ParseErrors::FailedCapturingInput))?;
                 let scalar_value = window[matched.start()..matched.end()].to_string();
                 let unicode_char = {
                     let u = u32::from_str_radix(&scalar_value, 16).unwrap();
@@ -664,6 +638,9 @@ impl Value {
             }
             window = &tokenized_str[cursor..];
         }
+        // check the string size
+        StringUTF8Length::try_from(data.len())?;
+        // construct the string        
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
     }
 
@@ -1050,10 +1027,6 @@ mod test {
         // should error!
         t.get("abcd").unwrap_err();
     }
-
-    // todo(ludo): test this:
-    // Value::string_ascii_from_bytes(vec![61, 62, 63, 0])
-
 
     #[test]
     fn test_some_displays() {

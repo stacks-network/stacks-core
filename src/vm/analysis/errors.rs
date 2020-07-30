@@ -338,7 +338,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
-            CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list' or 'buff', found '{}'", found_type),
+            CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::max_value()),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
             CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),

@@ -1,6 +1,6 @@
 use vm::costs::{cost_functions, CostOverflowingMath};
 use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
-use vm::types::{Value, SequenceData, CharType, ListData, SequenceItem, signatures::ListTypeData, TypeSignature::BoolType, TypeSignature};
+use vm::types::{Value, SequenceData, CharType, ListData, signatures::ListTypeData, TypeSignature::BoolType, TypeSignature};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, CallableType, eval, apply, lookup_function};
 use std::convert::TryInto;
