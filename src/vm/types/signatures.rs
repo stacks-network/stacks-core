@@ -990,7 +990,7 @@ impl TypeSignature {
             TupleType(tuple_sig) => tuple_sig.type_size(),
             SequenceType(SequenceSubtype::BufferType(_)) => Some(1 + 4),
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => Some(1 + 4),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(1 + 4),
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4), // todo(ludo): revisit
             OptionalType(t) => {
                 t.inner_type_size()?

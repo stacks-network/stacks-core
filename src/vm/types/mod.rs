@@ -220,12 +220,13 @@ impl SequenceData {
         }
     }
 
-    pub fn filter<F>(&mut self, filter: &mut F) -> Result<()> where F: FnMut(&dyn SequenceItem) -> Result<bool> {
+    pub fn filter<F>(&mut self, filter: &mut F) -> Result<()> where F: FnMut(SymbolicExpression) -> Result<bool> {
         match self {
             SequenceData::Buffer(ref mut data) => {
                 let mut i = 0;
                 while i != data.data.len() {
-                    match filter(&data.data[i]) {
+                    let atom_value = SymbolicExpression::atom_value(data.data[i].to_value());
+                    match filter(atom_value) {
                         Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
                         Err(err) => return Err(err),
@@ -235,7 +236,8 @@ impl SequenceData {
             SequenceData::List(ref mut data) => {
                 let mut i = 0;
                 while i != data.data.len() {
-                    match filter(&data.data[i]) {
+                    let atom_value = SymbolicExpression::atom_value(data.data[i].to_value());
+                    match filter(atom_value) {
                         Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
                         Err(err) => return Err(err),
@@ -245,7 +247,9 @@ impl SequenceData {
             SequenceData::String(CharType::ASCII(ref mut data)) => {
                 let mut i = 0;
                 while i != data.data.len() {
-                    match filter(&data.data[i]) {
+                    let value = Value::string_ascii_from_bytes(vec![data.data[i]]).unwrap();
+                    let atom_value = SymbolicExpression::atom_value(value);
+                    match filter(atom_value) {
                         Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
                         Err(err) => return Err(err),
@@ -256,7 +260,8 @@ impl SequenceData {
             SequenceData::String(CharType::UTF8(ref mut data)) => {
                 let mut i = 0;
                 while i != data.data.len() {
-                    match filter(&data.data[i]) {
+                    let atom_value = SymbolicExpression::atom_value(data.data[i].to_value());
+                    match filter(atom_value) {
                         Ok(res) if res == false => { data.data.remove(i); },
                         Ok(_) => { i += 1; },
                         Err(err) => return Err(err),

@@ -93,6 +93,28 @@ fn test_string_utf8_map() {
 }
 
 #[test]
+fn test_string_ascii_filter() {
+    let defines =
+        "(define-private (remove-a (c (string-ascii 1))) (not (is-eq \"a\" c)))";
+    let t1 = format!("{} (filter remove-a \"ababab\")", defines);    
+
+    let expected = Value::string_ascii_from_bytes("bbb".into()).unwrap();
+
+    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+}
+
+#[test]
+fn test_string_utf8_filter() {
+    let defines =
+        "(define-private (keep-dog (c (string-utf8 1))) (is-eq u\"\\u{1F436}\" c))";
+    let t1 = format!("{} (filter keep-dog u\"fox \\u{{1F98A}} \\u{{1F436}}\")", defines);    
+
+    let expected = Value::string_utf8_from_bytes("🐶".into()).unwrap();
+
+    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+}
+
+#[test]
 fn test_string_ascii_fold() {
     let test1 =
         "(define-private (merge (x (string-ascii 1)) (acc (string-ascii 5))) (concat acc x))
@@ -135,24 +157,16 @@ fn test_string_utf8_concat() {
 
 #[test]
 fn test_string_ascii_get_len() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
-
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
-
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+    let test1 = "(len \"ABCDE\")";
+    let expected = Value::UInt(5);
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
 #[test]
 fn test_string_utf8_get_len() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
-
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
-
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+    let test1 = "(len u\"ABCDE\\u{1F926}\\u{1F3FC}\\u{200D}\\u{2642}\\u{FE0F}\")";
+    let expected = Value::UInt(10);
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
 #[test]
@@ -353,11 +367,11 @@ fn test_simple_filter_list() {
                  (filter test (list 1 2 3 4 5))";
 
     let bad_tests = [
-        "(filter 123 (list 123))",     // must have function name supplied
+        "(filter 123 (list 123))",    // must have function name supplied
         "(filter not (list 123) 3)",  // must be 2 args
-        "(filter +)",  // must be 2 args
-        "(filter not false)",       // must supply list
-        "(filter - (list 1 2 3))"]; // must return bool
+        "(filter +)",                 // must be 2 args
+        "(filter not false)",         // must supply list
+        "(filter - (list 1 2 3))"];   // must return bool
 
 
     let expected = Value::list_from(vec![

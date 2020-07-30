@@ -34,8 +34,8 @@ pub fn special_filter(args: &[SymbolicExpression], env: &mut Environment, contex
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => {
-            sequence_data.filter(&mut |x: &dyn SequenceItem| {
-                let argument = [ SymbolicExpression::atom_value(x.to_value()) ];
+            sequence_data.filter(&mut |atom_value: SymbolicExpression| {
+                let argument = [atom_value];
                 let filter_eval = apply(&function, &argument, env, context)?;
                 if let Value::Bool(include) = filter_eval {
                     return Ok(include);
