@@ -296,7 +296,7 @@ impl FromRow<StagingBlock> for StagingBlock {
 
         let processed = processed_i64 != 0;
         let attachable = attachable_i64 != 0;
-        let orphaned = orphaned_i64 == 0;
+        let orphaned = orphaned_i64 != 0;
 
         Ok(StagingBlock {
             anchored_block_hash,
@@ -482,7 +482,8 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_blocks_db(&mut conn)?;
         }
-        
+       
+        debug!("Opened blocks DB {}", db_path);
         Ok(conn)
     }
     
@@ -695,6 +696,13 @@ impl StacksChainState {
             .map_err(Error::DBError)?;
 
         Ok(blocks.drain(..).map(|b| (b.burn_header_hash, b.anchored_block_hash)).collect())
+    }
+
+    /// Get all stacks block headers.  Great for testing!
+    pub fn get_all_staging_block_headers(blocks_conn: &DBConn) -> Result<Vec<StagingBlock>, Error> {
+        let sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
+        query_rows::<StagingBlock, _>(blocks_conn, &sql, NO_PARAMS)
+            .map_err(Error::DBError)
     }
 
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
@@ -1107,7 +1115,7 @@ impl StacksChainState {
 
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
-    pub fn load_parent_block_header(sort_ic: &SortitionDBConn, _blocks_conn: &DBConn, blocks_path: &String, 
+    pub fn load_parent_block_header(sort_ic: &SortitionDBConn, blocks_path: &String, 
                                     burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<(StacksBlockHeader, BurnchainHeaderHash)>, Error> {
         let header = match StacksChainState::load_block_header(blocks_path, burn_header_hash, anchored_block_hash)? {
             Some(hdr) => hdr,
@@ -1120,13 +1128,13 @@ impl StacksChainState {
 
         // find all blocks that we have that could be this block's parent
         let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
-        let possible_parent_snapshots = query_rows::<BlockSnapshot, _>(
-            &sort_handle, &sql, &[&header.parent_block])?;
+        let possible_parent_snapshots = query_rows::<BlockSnapshot, _>(&sort_handle, &sql, &[&header.parent_block])?;
         for possible_parent in possible_parent_snapshots.into_iter() {
             let burn_ancestor = sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
             if let Some(ancestor) = burn_ancestor {
                 // found!
-                let ret = StacksChainState::load_block_header(blocks_path, &ancestor.burn_header_hash, anchored_block_hash)?
+                // NOTE: this will be None if the parent block was orphaned
+                let ret = StacksChainState::load_block_header(blocks_path, &ancestor.burn_header_hash, &header.parent_block)?
                     .map(|header| { (header, ancestor.burn_header_hash) });
 
                 return Ok(ret);
@@ -2385,6 +2393,7 @@ impl StacksChainState {
     }
 
     /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
+    /// This does not work when forking
     #[cfg(test)]
     pub fn preprocess_stacks_epoch(&mut self, sort_ic: &SortitionDBConn, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
         self.preprocess_anchored_block(sort_ic, &snapshot.burn_header_hash, snapshot.burn_header_timestamp, block, &snapshot.parent_burn_header_hash)?;
@@ -2632,7 +2641,7 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for tx in microblock.txs.iter() {
-                let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)
+                let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx, false)
                     .map_err(|e| (e, microblock.block_hash()))?;
 
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
@@ -2650,7 +2659,7 @@ impl StacksChainState {
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
-            let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)?;
+            let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx, false)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
             burns = burns.checked_add(tx_receipt.stx_burned as u128).expect("Burns overflow");
             receipts.push(tx_receipt);
@@ -2717,7 +2726,8 @@ impl StacksChainState {
                     }
                 };
 
-            debug!("Grant miner {} {} STX", miner_reward.address.to_string(), miner_reward_total);
+            debug!("Grant miner {} {} STX. Updated to: {}", miner_reward.address.to_string(), miner_reward_total,
+                   &new_miner_status);
             db.set_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, miner_principal, new_miner_status)?;
             Ok(())
         })}).map_err(Error::ClarityError)?;
@@ -2788,7 +2798,7 @@ impl StacksChainState {
                     let last_microblock_hash = microblocks[num_mblocks-1].block_hash();
                     let last_microblock_seq = microblocks[num_mblocks-1].header.sequence;
 
-                    test_debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_burn_header_hash, _first_mblock_hash, last_microblock_hash, parent_burn_header_hash, parent_block_hash);
+                    debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_burn_header_hash, _first_mblock_hash, last_microblock_hash, parent_burn_header_hash, parent_block_hash);
                     (last_microblock_hash, last_microblock_seq)
                 }
                 else {
@@ -2819,10 +2829,10 @@ impl StacksChainState {
 
             let microblock_cost = clarity_tx.cost_so_far();
             
-            test_debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
-                        chain_tip_burn_header_hash, block.block_hash(), parent_burn_header_hash, parent_block_hash,
-                        block.header.total_work.work, block.header.total_work.burn,
-                        last_microblock_hash, last_microblock_seq, microblocks.len());
+            debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
+                   chain_tip_burn_header_hash, block.block_hash(), parent_burn_header_hash, parent_block_hash,
+                   block.header.total_work.work, block.header.total_work.burn,
+                   last_microblock_hash, last_microblock_seq, microblocks.len());
 
             // process anchored block
             let (block_fees, block_burns, mut txs_receipts) = match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
@@ -2929,7 +2939,7 @@ impl StacksChainState {
     ///
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
-    fn process_next_staging_block(&mut self, sort_tx: &mut SortitionDBTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
+    pub fn process_next_staging_block(&mut self, sort_tx: &mut SortitionDBTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
@@ -3286,7 +3296,7 @@ impl StacksChainState {
         }
 
         // 4: the account nonces must be correct
-        let (origin, payer) = match StacksChainState::check_transaction_nonces(clarity_connection, &tx) {
+        let (origin, payer) = match StacksChainState::check_transaction_nonces(clarity_connection, &tx, true) {
             Ok(x) => x,
             Err((mut e, (origin, payer))) => {
                 // let's see if the tx has matching nonce in the mempool
@@ -3435,6 +3445,7 @@ pub mod test {
     use chainstate::stacks::test::*;
     use chainstate::stacks::db::*;
     use chainstate::stacks::db::test::*;
+    use chainstate::stacks::miner::test::*;
         
     use burnchains::*;
     use chainstate::burn::*;
@@ -3444,6 +3455,9 @@ pub mod test {
     use util::hash::*;
     use util::retry::*;
     use std::fs;
+    
+    use net::test::*;
+    use core::mempool::*;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex("59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01").unwrap();
@@ -5088,7 +5102,68 @@ pub mod test {
         }
     }
 
-   
+    #[test]
+    fn test_get_parent_block_header() {
+        let peer_config = TestPeerConfig::new("test_get_parent_block_header", 21313, 21314);
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let mut last_block_bhh : Option<BurnchainHeaderHash> = None;
+        let mut last_parent_opt : Option<StacksBlock> = None;
+        for tenure_id in 0..num_blocks {
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                last_parent_opt = parent_opt.cloned();
+                let parent_tip = match parent_opt {
+                    None => {
+                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                    }
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                    }
+                };
+                
+                let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                (anchored_block.0, vec![])
+            });
+
+            let (_, burn_header_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            let blocks_path = peer.chainstate().blocks_path.clone();
+
+            if tenure_id == 0 {
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &burn_header_hash, &stacks_block.block_hash());
+                assert!(parent_header_opt.is_err());
+            }
+            else {
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &burn_header_hash, &stacks_block.block_hash()).unwrap();
+                let (parent_header, parent_bhh) = parent_header_opt.unwrap();
+                
+                assert_eq!(last_parent_opt.as_ref().unwrap().header, parent_header);
+                assert_eq!(parent_bhh, last_block_bhh.clone().unwrap());
+            }
+            
+            last_block_bhh = Some(burn_header_hash.clone());
+        }
+    }
+
     // TODO: test multiple anchored blocks confirming the same microblock stream (in the same
     // place, and different places, with/without orphans)
     // TODO: process_next_staging_block

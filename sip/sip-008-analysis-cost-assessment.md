@@ -90,7 +90,7 @@ to another top-level definition.
 
 ## Type signature size
 
-Types in Clarity may described using type signatures. For example,
+Types in Clarity may be described using type signatures. For example,
 `(tuple (a int) (b int))` describes a tuple with two keys `a` and `b`
 of type `int`. These type descriptions are used by the Clarity analysis
 passes to check the type correctness of Clarity code. Clarity type signatures
@@ -214,7 +214,7 @@ This is also the _entire_ cost of type analysis for most function calls
 ## Iterating the AST
 
 Static analysis iterates over the entire program's AST in the type checker,
-the trait checker, and in the read-only checker. This cost is assed
+the trait checker, and in the read-only checker. This cost is assessed
 as a constant cost for each node visited in the AST during the type
 checking pass.
 

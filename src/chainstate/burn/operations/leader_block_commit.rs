@@ -262,11 +262,12 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         write_next(fd, &self.parent_vtxindex)?;
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
-        let memo = match self.memo.len() > 0 {
-            true => self.memo[0],
-            false => 0x00,
-        };
-        write_next(fd, &memo)?;
+        if self.memo.len() > 0 {
+            write_next(fd, &self.memo[0])?;
+        }
+        else {
+            write_next(fd, &0u8)?;
+        }
         Ok(())
     }
 

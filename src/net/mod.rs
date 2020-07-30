@@ -349,7 +349,7 @@ impl From<chain_error> for Error {
         match e {
             chain_error::InvalidStacksBlock(s) => Error::ChainstateError(format!("Invalid stacks block: {}", s)),
             chain_error::InvalidStacksMicroblock(msg, hash) => Error::ChainstateError(format!("Invalid stacks microblock {:?}: {}", hash, msg)),
-            chain_error::InvalidStacksTransaction(s) => Error::ChainstateError(format!("Invalid stacks transaction: {}", s)),
+            chain_error::InvalidStacksTransaction(s, _) => Error::ChainstateError(format!("Invalid stacks transaction: {}", s)),
             chain_error::PostConditionFailed(s) => Error::ChainstateError(format!("Postcondition failed: {}", s)),
             chain_error::ClarityError(e) => Error::ClarityError(e),
             chain_error::DBError(e) => Error::DBError(e),
@@ -2130,6 +2130,38 @@ pub mod test {
                 let ic = sortdb.index_conn();
                 let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
                 node.chainstate.preprocess_stacks_epoch(&ic, &tip, block, microblocks).unwrap();
+            }
+    
+            loop {
+                let processed = node.chainstate.process_blocks(&mut sortdb, 1).unwrap();
+                if processed.len() == 0 {
+                    break;
+                }
+                match processed[0] {
+                    (Some(ref header_info), _) => {
+                        continue;
+                    },
+                    (None, _) => {
+                        break;
+                    }
+                }
+            }
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
+        }
+        
+        pub fn process_stacks_epoch(&mut self, block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, microblocks: &Vec<StacksMicroblock>) -> () {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            {
+                let ic = sortdb.index_conn();
+                Relayer::process_new_anchored_block(&ic, &mut node.chainstate, burn_header_hash, block).unwrap();
+                
+                let block_hash = block.block_hash();
+                for mblock in microblocks.iter() {
+                    node.chainstate.preprocess_streamed_microblock(burn_header_hash, &block_hash, mblock).unwrap();
+                }
             }
     
             loop {

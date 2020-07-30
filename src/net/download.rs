@@ -789,7 +789,7 @@ impl PeerNetwork {
                     // does this anchor block _confirm_ a microblock stream that we don't know about?
                     let parent_header_opt = {
                         let ic = sortdb.index_conn();
-                        match StacksChainState::load_parent_block_header(&ic, &chainstate.blocks_db, &chainstate.blocks_path, &burn_header_hash, &block_hash) {
+                        match StacksChainState::load_parent_block_header(&ic, &chainstate.blocks_path, &burn_header_hash, &block_hash) {
                             Ok(header_opt) => header_opt,
                             Err(chainstate_error::DBError(db_error::NotFoundError)) => {
                                 // we don't know about this parent block yet
