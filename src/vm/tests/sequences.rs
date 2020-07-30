@@ -170,6 +170,42 @@ fn test_string_utf8_get_len() {
 }
 
 #[test]
+fn test_string_ascii_max_len() {
+    let tests = [
+        "(as-max-len? \"ABC\" u3)",
+        "(as-max-len? \"ABC\" u2)",
+        "(as-max-len? \"ABC\" u4)"];
+
+    let expected = [
+        Value::some(Value::string_ascii_from_bytes("ABC".into()).unwrap()).unwrap(),
+        Value::none(),
+        Value::some(Value::string_ascii_from_bytes("ABC".into()).unwrap()).unwrap(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
+    }
+}
+
+#[test]
+fn test_string_utf8_max_len() {
+    let tests = [
+        "(as-max-len? u\"ABCDE\\u{1F926}\\u{1F3FC}\\u{200D}\\u{2642}\\u{FE0F}\" u10)",
+        "(as-max-len? u\"ABCDE\\u{1F926}\\u{1F3FC}\\u{200D}\\u{2642}\\u{FE0F}\" u9)",
+        "(as-max-len? u\"ABCDE\\u{1F926}\\u{1F3FC}\\u{200D}\\u{2642}\\u{FE0F}\" u11)"];
+
+    let expected = [
+        Value::some(Value::string_utf8_from_bytes("ABCDE🤦🏼‍♂️".into()).unwrap()).unwrap(),
+        Value::none(),
+        Value::some(Value::string_utf8_from_bytes("ABCDE🤦🏼‍♂️".into()).unwrap()).unwrap(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
+    }
+}
+
+#[test]
 fn test_simple_map_list() {
     let test1 =
         "(define-private (square (x int)) (* x x))
