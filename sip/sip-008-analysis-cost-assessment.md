@@ -222,9 +222,9 @@ checking pass.
 
 Some functions require additional work from the static analysis system.
 
-## Functions on iterables (e.g., map, filter, fold)
+## Functions on sequences (e.g., map, filter, fold)
 
-Functions on iterables need to perform an additional check that the
+Functions on sequences need to perform an additional check that the
 supplied type is a list or buffer before performing the normal
 argument type checking. This cost is assessed as:
 
@@ -236,7 +236,7 @@ where a is a constant.
 
 ## Functions on options/responses
 
-Similarly to the functions on iterables, option/response functions
+Similarly to the functions on sequences, option/response functions
 must perform a simple check to see if the supplied input is an option or
 response before performing additional argument type checking. This cost is
 assessed as:

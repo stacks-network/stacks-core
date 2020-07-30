@@ -485,7 +485,7 @@ X := the size of the list _entry_ type
 ### concat
 
 The cost of concatting two lists or buffers is linear in
-the size of the two iterables:
+the size of the two sequences:
 
 ```
 a + b * (X+Y)

@@ -1,6 +1,6 @@
 pub mod define;
 pub mod tuples;
-mod iterables;
+mod sequences;
 mod arithmetic;
 mod boolean;
 mod database;
@@ -116,14 +116,14 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Let => SpecialFunction("special_let", &special_let),
             FetchVar => SpecialFunction("special_var-get", &database::special_fetch_variable),
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
-            Map => SpecialFunction("special_map", &iterables::special_map),
-            Filter => SpecialFunction("special_filter", &iterables::special_filter),
-            Fold => SpecialFunction("special_fold", &iterables::special_fold),
-            Concat => SpecialFunction("special_concat", &iterables::special_concat),
-            AsMaxLen => SpecialFunction("special_as_max_len", &iterables::special_as_max_len),
-            Append => SpecialFunction("special_append", &iterables::special_append),
-            Len => NativeFunction("native_len", NativeHandle::SingleArg(&iterables::native_len), cost_functions::LEN),
-            ListCons => SpecialFunction("special_list_cons", &iterables::list_cons),
+            Map => SpecialFunction("special_map", &sequences::special_map),
+            Filter => SpecialFunction("special_filter", &sequences::special_filter),
+            Fold => SpecialFunction("special_fold", &sequences::special_fold),
+            Concat => SpecialFunction("special_concat", &sequences::special_concat),
+            AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
+            Append => SpecialFunction("special_append", &sequences::special_append),
+            Len => NativeFunction("native_len", NativeHandle::SingleArg(&sequences::native_len), cost_functions::LEN),
+            ListCons => SpecialFunction("special_list_cons", &sequences::list_cons),
             FetchEntry => SpecialFunction("special_map-get?", &database::special_fetch_entry),
             SetEntry => SpecialFunction("special_set-entry", &database::special_set_entry),
             InsertEntry => SpecialFunction("special_insert-entry", &database::special_insert_entry),

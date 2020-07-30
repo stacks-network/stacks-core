@@ -208,10 +208,10 @@ pub fn check_special_as_max_len(checker: &mut TypeChecker, args: &[SymbolicExpre
     let expected_len = u32::try_from(expected_len)
         .map_err(|_e| CheckErrors::MaxLengthOverflow)?;
 
-    let iterable = checker.type_check(&args[0], context)?;
-    analysis_typecheck_cost(checker, &iterable, &iterable)?;
+    let sequence = checker.type_check(&args[0], context)?;
+    analysis_typecheck_cost(checker, &sequence, &sequence)?;
 
-    match iterable {
+    match sequence {
         TypeSignature::SequenceType(ListType(list)) => {
             let (lhs_entry_type, _) = list.destruct();
             let resized_list = ListTypeData::new_list(lhs_entry_type, expected_len)?;
@@ -226,7 +226,7 @@ pub fn check_special_as_max_len(checker: &mut TypeChecker, args: &[SymbolicExpre
         TypeSignature::SequenceType(StringType(UTF8(_))) => {
             Ok(TypeSignature::OptionalType(Box::new(TypeSignature::SequenceType(StringType(UTF8(StringUTF8Length::try_from(expected_len).unwrap()))))))
         },
-        _ => Err(CheckErrors::ExpectedSequence(iterable).into())
+        _ => Err(CheckErrors::ExpectedSequence(sequence).into())
     }
 }
 
