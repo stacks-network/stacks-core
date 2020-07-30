@@ -791,7 +791,6 @@ mod tests {
         test_bad_expectation(
             Value::buff_from(vec![0,0xde,0xad,0xbe,0xef,0]).unwrap(),
             TypeSignature::from("(buff 2)"));
-        
     }
 
     #[test]

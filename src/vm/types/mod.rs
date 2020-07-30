@@ -361,7 +361,7 @@ impl SequenceItem for Vec<u8> {
     }
 }
 
-pub trait Sequenceable<T: SequenceItem> {
+pub trait SequencedValue<T: SequenceItem> {
 
     fn type_signature(&self) -> TypeSignature;
     
@@ -381,7 +381,7 @@ pub trait Sequenceable<T: SequenceItem> {
     }
 }
 
-impl Sequenceable<Value> for ListData {
+impl SequencedValue<Value> for ListData {
     
     fn items(&self) -> &Vec<Value> {
         &self.data
@@ -396,7 +396,7 @@ impl Sequenceable<Value> for ListData {
     }
 }
 
-impl Sequenceable<u8> for BuffData {
+impl SequencedValue<u8> for BuffData {
     
     fn items(&self) -> &Vec<u8> {
         &self.data
@@ -413,8 +413,7 @@ impl Sequenceable<u8> for BuffData {
     }
 }
 
-// todo(ludo): rename to SequenceableValue ?
-impl Sequenceable<u8> for ASCIIData {
+impl SequencedValue<u8> for ASCIIData {
     
     fn items(&self) -> &Vec<u8> {
         &self.data
@@ -438,7 +437,7 @@ impl Sequenceable<u8> for ASCIIData {
     }
 }
 
-impl Sequenceable<Vec<u8>> for UTF8Data {
+impl SequencedValue<Vec<u8>> for UTF8Data {
     
     fn items(&self) -> &Vec<Vec<u8>> {
         &self.data
@@ -613,7 +612,6 @@ impl Value {
         Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: buff_data })))
     }
 
-    // todo(ludo): the isssue is lying in the fact that to_value() is returnign a buffer 1, instead of a string 1
     pub fn buff_from_byte(byte: u8) -> Value {
         Value::Sequence(SequenceData::Buffer(BuffData { data: vec![byte] }))
     }

@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use address::c32;
 use vm::costs::{cost_functions, CostOverflowingMath};
-use vm::types::{Value, SequenceData, Sequenceable, CharType, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
+use vm::types::{Value, SequenceData, SequencedValue, CharType, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
                 QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName, TraitDefinition};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
@@ -1159,13 +1159,19 @@ impl fmt::Display for TypeSignature {
             SequenceType(SequenceSubtype::BufferType(len)) => write!(f, "(buff {})", len),
             SequenceType(SequenceSubtype::ListType(list_type_data)) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type),
             SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => write!(f, "(string-ascii {})", len),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => write!(f, "(string-utf8 {})", 1), // todo(ludo): fix
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => write!(f, "(string-utf8 {})", len),
             TraitReferenceType(trait_alias) => write!(f, "<{}>", trait_alias.to_string()),
         }
     }
 }
 
 impl fmt::Display for BufferLength {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Display for StringUTF8Length {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
     }
