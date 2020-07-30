@@ -66,7 +66,6 @@ pub fn special_fold(args: &[SymbolicExpression], env: &mut Environment, context:
             sequence_data.atom_values()
                 .iter()
                 .try_fold(initial, |acc, x| {
-                    println!("Folding {} {:?}", acc, x);
                     apply(&function, &[x.clone(), SymbolicExpression::atom_value(acc)], env, context)
                 })
         },

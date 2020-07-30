@@ -304,7 +304,6 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     },
                     TokenType::StringUTF8Literal => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        println!("=> {}", str_value);
                         let quote_unescaped = str_value.replace("\\\"","\"");
                         let string = quote_unescaped.replace("\\\\","\\").to_string();
                         let value = match Value::string_utf8_from_string_utf8_literal(string) {

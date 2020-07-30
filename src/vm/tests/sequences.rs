@@ -289,13 +289,12 @@ fn test_simple_list_concat() {
         ]).unwrap()];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        println!("{:?}", expected);
         assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
     }
 
-    // assert_eq!(
-    //     execute("(concat (list 1) (list u4 u8))").unwrap_err(),
-    //     CheckErrors::TypeError(IntType, UIntType).into());
+    assert_eq!(
+        execute("(concat (list 1) (list u4 u8))").unwrap_err(),
+        CheckErrors::TypeError(IntType, UIntType).into());
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
@@ -460,9 +459,6 @@ fn test_list_tuple_admission() {
     let not_expected_type = TypeSignature::type_of(testing_value);
 
     assert_eq!(expected_type, result_type);
-    println!("{:?}", not_expected_type);
-    println!("{:?}", result_type);
-
     assert!(not_expected_type != result_type);
     assert!(result_type.admits(&testing_value));
 }
@@ -495,7 +491,6 @@ fn test_simple_folds_string() {
         Value::string_ascii_from_bytes(vec![48, 49, 50, 51, 52]).unwrap()];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        println!("1");
         assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
     }
 }

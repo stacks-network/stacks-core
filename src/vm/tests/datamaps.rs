@@ -569,7 +569,6 @@ fn tuples_system() {
         let buff2 = Value::string_ascii_from_bytes("abcd".to_string().into_bytes())?;
         Value::list_from(vec![buff1, buff2])
     };
-    println!("Testing {:?}", test1);
 
     assert_executes(expected(), test1);
 
@@ -577,7 +576,6 @@ fn tuples_system() {
                             test_bad_tuple_4, test_bad_tuple_5];
 
     for test in type_error_tests.iter() {
-        println!("Testing {:?}", test);
         let expected_type_error = match execute(test) {
             Err(Error::Unchecked(CheckErrors::TypeValueError(_,_))) => true,
             _ => {

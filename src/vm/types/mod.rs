@@ -700,7 +700,7 @@ impl ListData {
 
     fn append(&mut self, other_seq: &mut ListData) -> Result<()> {
         let entry_type_a = self.type_signature.get_list_item_type();
-        let entry_type_b = self.type_signature.get_list_item_type();
+        let entry_type_b = other_seq.type_signature.get_list_item_type();
         let entry_type = TypeSignature::factor_out_no_type(&entry_type_a, &entry_type_b)?;
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         self.type_signature = ListTypeData::new_list(entry_type, max_len)?;
