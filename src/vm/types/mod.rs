@@ -4,7 +4,7 @@ pub mod signatures;
 use std::{fmt, cmp};
 use std::convert::{TryInto, TryFrom};
 use std::collections::BTreeMap;
-use std::str;
+use std::{char, str};
 
 use regex::Regex;
 
@@ -357,7 +357,7 @@ impl SequenceItem for Value {
 
 impl SequenceItem for Vec<u8> {
     fn to_value(&self) -> Value {
-        Value::buff_from(self.clone()).unwrap() // todo(ludo): revisit
+        Value::string_utf8_from_bytes(self.clone()).unwrap() // todo(ludo): safe unwrap
     }
 }
 
@@ -643,12 +643,17 @@ impl Value {
                 let matched = captures.name("value").unwrap();
                 // let matched = captures.name("value").ok_or(
                 //     ParseError::new(ParseErrors::FailedCapturingInput))?;
-                let value = window[matched.start()..matched.end()].to_string();
-                let unicode_char = hash::hex_bytes(&value).unwrap();
-                // let unicode_char = hex_bytes(&value)
-                //     .map_err(|x| { ParseError::new(ParseErrors::FailedParsingHexValue(value.clone(), x.to_string())) })?;
+                let scalar_value = window[matched.start()..matched.end()].to_string();
+                let unicode_char = {
+                    let u = u32::from_str_radix(&scalar_value, 16).unwrap();
+                    let c = char::from_u32(u).unwrap();
+                    let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
+                    c.encode_utf8(&mut encoded_char[..]);
+                    encoded_char
+                };
+
                 data.push(unicode_char);
-                cursor += value.len() + 4;
+                cursor += scalar_value.len() + 4;
             } else {
                 let ascii_char = window[0..1].to_string().into_bytes();
                 data.push(ascii_char);

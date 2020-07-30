@@ -58,23 +58,19 @@ fn test_string_utf8_admission() {
 }
 
 #[test]
-fn test_string_ascii_to_utf8() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
-
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
-
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
-}
-
-#[test]
 fn test_string_ascii_map() {
     let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
+        "(define-private (replace-a-with-b (c (string-ascii 1))) (if (is-eq \"a\" c) \"b\" c))";
+    let t1 = format!("{} (map replace-a-with-b \"ababab\")", defines);    
 
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
+    let expected = Value::list_from(vec![
+        Value::string_ascii_from_bytes("b".into()).unwrap(),
+        Value::string_ascii_from_bytes("b".into()).unwrap(),
+        Value::string_ascii_from_bytes("b".into()).unwrap(),
+        Value::string_ascii_from_bytes("b".into()).unwrap(),
+        Value::string_ascii_from_bytes("b".into()).unwrap(),
+        Value::string_ascii_from_bytes("b".into()).unwrap(),
+        ]).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
@@ -82,101 +78,59 @@ fn test_string_ascii_map() {
 #[test]
 fn test_string_utf8_map() {
     let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
+        "(define-private (replace-dog-with-fox (c (string-utf8 1))) (if (is-eq u\"\\u{1F436}\" c) u\"\\u{1F98A}\" c))";
+    let t1 = format!("{} (map replace-dog-with-fox u\"fox \\u{{1F436}}\")", defines);    
 
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
+    let expected = Value::list_from(vec![
+        Value::string_utf8_from_bytes("f".into()).unwrap(),
+        Value::string_utf8_from_bytes("o".into()).unwrap(),
+        Value::string_utf8_from_bytes("x".into()).unwrap(),
+        Value::string_utf8_from_bytes(" ".into()).unwrap(),
+        Value::string_utf8_from_bytes("🦊".into()).unwrap(),
+    ]).unwrap();
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
 }
 
 #[test]
 fn test_string_ascii_fold() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
+    let test1 =
+        "(define-private (merge (x (string-ascii 1)) (acc (string-ascii 5))) (concat acc x))
+        (fold merge (list \"A\" \"B\" \"C\" \"D\" \"E\") \"\")";
 
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("ABCDE".into()).unwrap();
 
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
 #[test]
 fn test_string_utf8_fold() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
+    let test1 =
+        "(define-private (build-face-palm (x (string-utf8 1)) (acc (string-utf8 5))) (concat acc x))
+         (fold build-face-palm (list u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\") u\"\")";
 
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
+    let expected = Value::string_utf8_from_bytes("🤦🏼‍♂️".into()).unwrap();
 
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
-
 
 #[test]
 fn test_string_ascii_concat() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
+    let test1 = "(concat (concat \"A\" \"B\") \"C\")";
 
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
+    let expected = Value::string_ascii_from_bytes("ABC".into()).unwrap();
 
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
 #[test]
 fn test_string_utf8_concat() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
+    let test1 =
+        "(concat (concat (concat (concat u\"\\u{1F926}\" u\"\\u{1F3FC}\") u\"\\u{200D}\") u\"\\u{2642}\") u\"\\u{FE0F}\")";
 
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
+    let expected = Value::string_utf8_from_bytes("🤦🏼‍♂️".into()).unwrap();
 
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
-}
-
-#[test]
-fn test_string_ascii_append() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
-
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
-
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
-}
-
-#[test]
-fn test_string_utf8_append() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
-
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
-
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
-}
-
-#[test]
-fn test_string_ascii_slice() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
-
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
-
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
-}
-
-#[test]
-fn test_string_utf8_slice() {
-    let defines =
-        "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);    
-
-    let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
-
-    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
 #[test]
