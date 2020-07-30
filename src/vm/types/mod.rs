@@ -343,7 +343,6 @@ pub trait SequencedValue<T> {
     fn type_signature(&self) -> TypeSignature;
     
     fn items(&self) -> &Vec<T>;
-    fn clear(&mut self);
 
     fn to_value(v: &T) -> Value;
 
@@ -364,10 +363,6 @@ impl SequencedValue<Value> for ListData {
         TypeSignature::SequenceType(SequenceSubtype::ListType(self.type_signature.clone()))
     }
 
-    fn clear(&mut self) {
-        self.data.clear()
-    }
-
     fn to_value(v: &Value) -> Value {
         v.clone()
     }
@@ -383,10 +378,6 @@ impl SequencedValue<u8> for BuffData {
         let buff_length = BufferLength::try_from(self.data.len())
             .expect("ERROR: Too large of a buffer successfully constructed.");
         TypeSignature::SequenceType(SequenceSubtype::BufferType(buff_length))
-    }
-
-    fn clear(&mut self) {
-        self.data.clear()
     }
 
     fn to_value(v: &u8) -> Value {
@@ -406,10 +397,6 @@ impl SequencedValue<u8> for ASCIIData {
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_length)))
     }
 
-    fn clear(&mut self) {
-        self.data.clear()
-    }
-
     fn to_value(v: &u8) -> Value {
         Value::string_ascii_from_bytes(vec![*v])
             .expect("ERROR: Invalid ASCII string successfully constructed")
@@ -426,10 +413,6 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
         let str_len = StringUTF8Length::try_from(self.data.len())
             .expect("ERROR: Too large of a buffer successfully constructed.");
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(str_len)))
-    }
-
-    fn clear(&mut self) {
-        self.data.clear()
     }
 
     fn to_value(v: &Vec<u8>) -> Value {
