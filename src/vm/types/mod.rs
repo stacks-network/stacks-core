@@ -212,51 +212,36 @@ impl SequenceData {
     }
 
     pub fn filter<F>(&mut self, filter: &mut F) -> Result<()> where F: FnMut(SymbolicExpression) -> Result<bool> {
+        
+        // Note: this macro can probably get removed once 
+        // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
+        // is available in rust stable channel (experimental at this point).
+        macro_rules! drain_filter {
+            ($data:expr, $seq_type:ident) => {
+                let mut i = 0;
+                while i != $data.data.len() {
+                    let atom_value = SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i]));
+                    match filter(atom_value) {
+                        Ok(res) if res == false => { $data.data.remove(i); },
+                        Ok(_) => { i += 1; },
+                        Err(err) => return Err(err),
+                    }
+                }
+            };
+        }
+
         match self {
             SequenceData::Buffer(ref mut data) => {
-                let mut i = 0;
-                while i != data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(BuffData::to_value(&data.data[i]));
-                    match filter(atom_value) {
-                        Ok(res) if res == false => { data.data.remove(i); },
-                        Ok(_) => { i += 1; },
-                        Err(err) => return Err(err),
-                    }
-                }
+                drain_filter!(data, BuffData);
             },
             SequenceData::List(ref mut data) => {
-                let mut i = 0;
-                while i != data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(ListData::to_value(&data.data[i]));
-                    match filter(atom_value) {
-                        Ok(res) if res == false => { data.data.remove(i); },
-                        Ok(_) => { i += 1; },
-                        Err(err) => return Err(err),
-                    }
-                }
+                drain_filter!(data, ListData);
             },
             SequenceData::String(CharType::ASCII(ref mut data)) => {
-                let mut i = 0;
-                while i != data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(ASCIIData::to_value(&data.data[i]));
-                    match filter(atom_value) {
-                        Ok(res) if res == false => { data.data.remove(i); },
-                        Ok(_) => { i += 1; },
-                        Err(err) => return Err(err),
-                    }
-                }
-
+                drain_filter!(data, ASCIIData);
             },
             SequenceData::String(CharType::UTF8(ref mut data)) => {
-                let mut i = 0;
-                while i != data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(UTF8Data::to_value(&data.data[i]));
-                    match filter(atom_value) {
-                        Ok(res) if res == false => { data.data.remove(i); },
-                        Ok(_) => { i += 1; },
-                        Err(err) => return Err(err),
-                    }
-                }
+                drain_filter!(data, UTF8Data);
             },
         }
         Ok(())
