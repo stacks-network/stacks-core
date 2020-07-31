@@ -1705,3 +1705,96 @@ fn test_set_entry_unbound_variables() {
         });
     }
 }
+
+#[test]
+fn test_string_ascii_fold() {
+    let good = [
+        "(define-private (get-len (x (string-ascii 1)) (acc uint)) (+ acc u1))
+        (fold get-len \"blockstack\" u0)",
+        "(define-private (slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
+            (if (< (get cursor acc) (get limit acc))
+                (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
+                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
+                acc))
+        (fold slice \"blockstack\" (tuple (limit u5) (cursor u0) (data \"\")))"];
+    let expected = ["uint", "(tuple (cursor uint) (data (string-ascii 10)) (limit uint))"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+}
+
+#[test]
+fn test_string_ascii_as_max_len() {
+    let tests = [
+        "(as-max-len? \"12345\" u5)",
+        "(as-max-len? \"12345\" u8)",
+        "(as-max-len? \"12345\" u4)"];
+    let expected = [
+        "(optional (string-ascii 5))",
+        "(optional (string-ascii 8))",
+        "(optional (string-ascii 4))"];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));
+    }
+}
+
+#[test]
+fn test_string_ascii_concat() {
+    let good = [
+        "(concat \"block\" \"stack\")"];
+    let expected = ["(string-ascii 10)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+
+#[test]
+fn test_string_utf8_fold() {
+    let good = [
+        "(define-private (get-len (x (string-utf8 1)) (acc uint)) (+ acc u1))
+        (fold get-len u\"blockstack\" u0)",
+        "(define-private (slice (x (string-utf8 1)) (acc (tuple (limit uint) (cursor uint) (data (string-utf8 11)))))
+            (if (< (get cursor acc) (get limit acc))
+                (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u11))))
+                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
+                acc))
+        (fold slice u\"blockstack\\u{1F926}\" (tuple (limit u5) (cursor u0) (data u\"\")))"];
+    let expected = ["uint", "(tuple (cursor uint) (data (string-utf8 11)) (limit uint))"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+}
+
+#[test]
+fn test_string_utf8_as_max_len() {
+    let tests = [
+        "(as-max-len? \"1234\\u{1F926}\" u5)",
+        "(as-max-len? \"1234\\u{1F926}\" u8)",
+        "(as-max-len? \"1234\\u{1F926}\" u4)"];
+    let expected = [
+        "(optional (string-ascii 5))",
+        "(optional (string-ascii 8))",
+        "(optional (string-ascii 4))"];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));
+    }
+}
+
+#[test]
+fn test_string_utf8_concat() {
+    let good = [
+        "(concat u\"block\" u\"stack\\u{1F926}\")"];
+    let expected = ["(string-utf8 11)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
