@@ -311,7 +311,7 @@ pub struct ASCIIData {
 
 impl fmt::Display for ASCIIData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "\"{}\"", format!("{}", str::from_utf8(&self.data).unwrap()))
+        write!(f, "{}", format!("{}", str::from_utf8(&self.data).unwrap()))
     }
 }
 
@@ -334,7 +334,7 @@ impl fmt::Display for UTF8Data {
                 result.push_str(ascii_char);
             }
         }
-        write!(f, "\"{}\"", format!("{}", result))
+        write!(f, "{}", format!("{}", result))
     }
 }
 

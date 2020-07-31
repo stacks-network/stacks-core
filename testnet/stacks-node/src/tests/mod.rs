@@ -343,7 +343,7 @@ fn should_succeed_mining_valid_txs() {
                     StacksTransactionEvent::SmartContractEvent(data) => {
                         format!("{}", data.key.0) == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store" &&
                         data.key.1 == "print" &&
-                        format!("{}", data.value) == "0x53657474696e67206b657920666f6f" // "Setting key foo" in hexa
+                        format!("{}", data.value) == "Setting key foo".to_string()
                     },
                     _ => false
                 });
@@ -379,7 +379,7 @@ fn should_succeed_mining_valid_txs() {
                     StacksTransactionEvent::SmartContractEvent(data) => {
                         format!("{}", data.key.0) == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store" &&
                         data.key.1 == "print" &&
-                        format!("{}", data.value) == "0x47657474696e67206b657920666f6f" // "Getting key foo" in hexa
+                        format!("{}", data.value) == "Getting key foo".to_string()
                     },
                     _ => false
                 });
