@@ -227,7 +227,7 @@ impl Node {
 
         let view = {
             let ic = sortdb.index_conn();
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&ic)
                 .expect("Failed to get sortition tip");
             ic.get_burnchain_view(&burnchain, &sortition_tip).unwrap()
         };
@@ -506,7 +506,7 @@ impl Node {
 
         let mut processed_blocks = vec![];
         loop {
-            match self.chain_state.process_blocks(db, 1) {
+            match self.chain_state.process_blocks_at_tip(db, 1) {
                 Err(e) => panic!("Error while processing block - {:?}", e),
                 Ok(ref mut blocks) => {
                     if blocks.len() == 0 {

@@ -309,7 +309,7 @@ fn main() {
         let sort_path = &argv[3];
         let mut chainstate = StacksChainState::open(false, 0x80000000, path).unwrap();
         let mut sortition_db = SortitionDB::open(sort_path, true).unwrap();
-        let sortition_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortition_db.conn()).unwrap().sortition_id;
+        let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap().sortition_id;
         let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
         chainstate.process_next_staging_block(&mut tx).unwrap();
         return
@@ -415,7 +415,7 @@ fn main() {
             loop {
                 // simulate the p2p refreshing itself
                 // update p2p's read-only view of the unconfirmed state
-                let (canonical_burn_tip, canonical_block_tip) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(p2p_new_sortition_db.conn())
+                let (canonical_burn_tip, canonical_block_tip) = SortitionDB::get_canonical_stacks_chain_tip_hash(p2p_new_sortition_db.conn())
                     .expect("Failed to read canonical stacks chain tip");
                 let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_burn_tip, &canonical_block_tip);
                 p2p_chainstate.refresh_unconfirmed_state_readonly(canonical_tip)
@@ -435,7 +435,7 @@ fn main() {
             }
             
             let (new_snapshot, _) = {
-                let sortition_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(new_sortition_db.conn()).unwrap();
+                let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
                 new_sortition_db.evaluate_sortition(&burn_block_header, blockstack_txs, &burnchain, &sortition_tip.sortition_id, None).unwrap()
             };
 
@@ -493,7 +493,7 @@ fn main() {
             // process all new blocks
             let mut epoch_receipts = vec![];
             loop {
-                let sortition_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(new_sortition_db.conn()).unwrap().sortition_id;
+                let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap().sortition_id;
                 let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
                 let receipts = new_chainstate.process_blocks(sortition_tx, 1).unwrap();
                 if receipts.len() == 0 {

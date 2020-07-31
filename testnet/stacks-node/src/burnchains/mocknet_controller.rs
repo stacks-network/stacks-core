@@ -5,10 +5,10 @@ use super::super::{Config};
 use super::{BurnchainController, BurnchainTip};
 use super::super::operations::BurnchainOpSigner;
 
-use stacks::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransition};
+use stacks::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransitionOps};
 use stacks::burnchains::bitcoin::BitcoinBlock;
 use stacks::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionHandleTx
+    SortitionDB, SortitionHandleTx, PoxId,
 };
 use stacks::chainstate::burn::{BlockSnapshot};
 use stacks::chainstate::burn::operations::{
@@ -94,18 +94,14 @@ impl BurnchainController for MocknetController {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
         };
-        let block_snapshot = SortitionDB::get_canonical_burn_chain_tip_stubbed(db.conn())
+        let block_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn())
             .expect("FATAL: failed to get canonical chain tip");
 
         self.db = Some(db);
 
         let genesis_state = BurnchainTip {
             block_snapshot,
-            state_transition: BurnchainStateTransition {
-                burn_dist: vec![],
-                accepted_ops: vec![],
-                consumed_leader_keys: vec![]
-            },
+            state_transition: BurnchainStateTransitionOps::noop(),
             received_at: Instant::now(),
         };
         self.chain_tip = Some(genesis_state.clone());
@@ -188,11 +184,16 @@ impl BurnchainController for MocknetController {
                     let mut burn_tx = SortitionHandleTx::begin(
                         burn_db, &chain_tip.block_snapshot.sortition_id).unwrap();
                     let new_chain_tip = burn_tx.process_block_ops(
-                        &self.burnchain, &chain_tip.block_snapshot, &next_block_header, ops).unwrap();
+                        &self.burnchain, &chain_tip.block_snapshot, &next_block_header, ops, None, PoxId::stubbed()).unwrap();
                     burn_tx.commit().unwrap();
                     new_chain_tip
                 }
             }
+        };
+
+        let state_transition = BurnchainStateTransitionOps {
+            accepted_ops: state_transition.accepted_ops,
+            consumed_leader_keys: state_transition.consumed_leader_keys
         };
 
         // Transmit the new state

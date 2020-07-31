@@ -8,6 +8,7 @@ use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Address;
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
                                   address::{BitcoinAddressType}};
+use stacks::chainstate::coordinator::ChainsCoordinator;
 
 use super::RunLoopCallbacks;
 
@@ -73,6 +74,8 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, _expected_num_rounds: u64) {
 
+        ChainsCoordinator::instantiate();
+
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::new(self.config.clone());
 
@@ -99,7 +102,14 @@ impl RunLoop {
             false
         };
 
-        let mut burnchain_tip = burnchain.start();
+        let _burnchain_tip = burnchain.start();
+
+        let workdir = self.config.node.working_dir.clone();
+        thread::spawn(move || {
+            ChainsCoordinator::run(&workdir, "regtest");
+        });        
+
+        let mut burnchain_tip = burnchain.resync();
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 

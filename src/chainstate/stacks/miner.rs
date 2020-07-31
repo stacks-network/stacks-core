@@ -3430,14 +3430,14 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block : Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
             if let Some(block) = last_block {
@@ -3487,7 +3487,7 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3498,7 +3498,7 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3572,7 +3572,7 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3583,7 +3583,7 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3679,7 +3679,7 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3690,7 +3690,7 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3796,14 +3796,14 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3890,14 +3890,14 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3973,14 +3973,14 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -4053,7 +4053,7 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -4077,7 +4077,7 @@ pub mod test {
 
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let mut tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let mut tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             
             if tenure_id == bad_block_ancestor_tenure {
                 bad_block_tip = Some(tip.clone());
@@ -4257,7 +4257,7 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -4265,7 +4265,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             eprintln!("Start tenure {:?}", tenure_id);
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {

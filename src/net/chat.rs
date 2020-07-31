@@ -2359,7 +2359,7 @@ mod test {
         };
 
         // convo_1 sends a getblocksinv to convo_2 for all the blocks
-        let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb_1.conn()).unwrap();
+        let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip(sortdb_1.conn()).unwrap();
         let getblocksdata_1 = GetBlocksInv { consensus_hash: convo_1_chaintip.consensus_hash, num_blocks: BLOCKS_INV_DATA_MAX_BITLEN as u16 };
         let getblocksdata_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_1.clone())).unwrap();
         let mut rh_1 = convo_1.send_signed_request(getblocksdata_1_msg, 10000000).unwrap();

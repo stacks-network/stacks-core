@@ -745,7 +745,7 @@ impl Relayer {
 
     /// Set up the unconfirmed chain state off of the canonical chain tip
     pub fn setup_unconfirmed_state(chainstate: &mut StacksChainState, sortdb: &SortitionDB, block_receipts: &Vec<StacksEpochReceipt>) -> Result<(), Error> {
-        let (canonical_consensus_hash, canonical_block_hash) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(sortdb.conn())?;
+        let (canonical_consensus_hash, canonical_block_hash) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_consensus_hash, &canonical_block_hash);
         for receipt in block_receipts.iter() {
             if receipt.header.anchored_header.block_hash() == canonical_block_hash && receipt.header.consensus_hash == canonical_consensus_hash {
@@ -1590,7 +1590,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
@@ -1745,7 +1745,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            let saved_copy : Vec<(ConsensusHash, StacksBlock, Vec<StacksMicroblock>)> = block_data.clone().drain(..).map(|(ch, blk_opt, mblocks_opt)| (ch, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
@@ -1945,7 +1945,7 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            *blocks_and_microblocks.borrow_mut() = block_data.clone().drain(..).map(|(ch, blk_opt, mblocks_opt)| (ch, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();

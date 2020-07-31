@@ -17,13 +17,14 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 
 use stacks::burnchains::Burnchain;
-use stacks::burnchains::BurnchainStateTransition;
+use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
 use stacks::burnchains::bitcoin::spv::SpvClient; 
 use stacks::burnchains::PublicKey;
+use stacks::chainstate::coordinator::ChainsCoordinator;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -51,6 +52,7 @@ pub struct BitcoinRegtestController {
     config: Config,
     indexer_config: BitcoinIndexerConfig,
     db: Option<SortitionDB>,
+    burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
 }
 
@@ -93,6 +95,7 @@ impl BitcoinRegtestController {
             config: config,
             indexer_config,
             db: None,
+            burnchain_db: None,
             chain_tip: None,
         }
     }
@@ -120,6 +123,7 @@ impl BitcoinRegtestController {
             config: config,
             indexer_config,
             db: None,
+            burnchain_db: None,
             chain_tip: None,
         }        
     }
@@ -145,11 +149,19 @@ impl BitcoinRegtestController {
 
     fn receive_blocks(&mut self) -> BurnchainTip {
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
-
+        let sortitions_processed = ChainsCoordinator::get_sortitions_processed();
         let (block_snapshot, state_transition) = loop {
             match burnchain.sync_with_indexer(&mut burnchain_indexer) {
                 Ok(x) => {
                     increment_btc_blocks_received_counter();
+                    if !ChainsCoordinator::wait_for_sortitions_processed(sortitions_processed, 5000) {
+                        warn!("Timed out waiting for chains coordinator to bump sortitions processed");
+                    }
+                    let sort_tip = SortitionDB::get_canonical_sortition_tip(self.sortdb_mut().conn())
+                        .expect("Sortition DB error.");
+                    let x = self.sortdb_ref().get_sortition_result(&sort_tip)
+                        .expect("Sortition DB error.")
+                        .expect("BUG: no data for the canonical chain tip");
                     break x;
                 }
                 Err(e) => {
@@ -176,31 +188,16 @@ impl BitcoinRegtestController {
             }
         };
 
-        let rest = match (&state_transition, &self.chain_tip) {
-            (None, Some(chain_tip)) => chain_tip.clone(),
-            (Some(state_transition), _) => {
-                let burnchain_tip = BurnchainTip {
-                    block_snapshot: block_snapshot,
-                    state_transition: state_transition.clone(),
-                    received_at: Instant::now()
-                };
-                self.chain_tip = Some(burnchain_tip.clone());
-                burnchain_tip
-            },
-            (None, None) => {
-                // can happen at genesis
-                let burnchain_tip = BurnchainTip {
-                    block_snapshot: block_snapshot,
-                    state_transition: BurnchainStateTransition::noop(),
-                    received_at: Instant::now()
-                };
-                self.chain_tip = Some(burnchain_tip.clone());
-                burnchain_tip
-            }
+        let burnchain_tip = BurnchainTip {
+            block_snapshot: block_snapshot,
+            state_transition: state_transition,
+            received_at: Instant::now()
         };
 
+        self.chain_tip = Some(burnchain_tip.clone());
         debug!("Done receiving blocks");
-        rest
+
+        burnchain_tip
     }
 
     pub fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
@@ -500,6 +497,30 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// wait until the ChainsCoordinator has processed sortitions up to the
+    ///   canonical chain tip
+    pub fn resync(&self) -> BurnchainTip {
+        loop {
+            let canonical_burnchain_tip = self.burnchain_db.as_ref()
+                .expect("BurnchainDB not opened")
+                .get_canonical_chain_tip().unwrap();
+            let canonical_sortition_tip = SortitionDB::get_canonical_burn_chain_tip(
+                self.sortdb_ref().conn()).unwrap();
+            if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height {
+                let (_, state_transition) = self.sortdb_ref().get_sortition_result(&canonical_sortition_tip.sortition_id)
+                        .expect("Sortition DB error.")
+                        .expect("BUG: no data for the canonical chain tip");
+
+                return BurnchainTip {
+                    block_snapshot: canonical_sortition_tip,
+                    received_at: Instant::now(),
+                    state_transition
+                }
+            }
+        }
+        
+    }
+
     pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
@@ -546,8 +567,9 @@ impl BurnchainController for BitcoinRegtestController {
             }
         };
 
-        let (db, _) = burnchain.open_db(true).unwrap();
+        let (db, burnchain_db) = burnchain.open_db(true).unwrap();
         self.db = Some(db);
+        self.burnchain_db = Some(burnchain_db);
 
         match self.db {
             Some(ref mut sortdb) => sortdb,

@@ -1932,7 +1932,7 @@ pub mod test {
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
                 let ic = sortdb.index_conn();
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                 ic.get_burnchain_view(&config.burnchain, &chaintip).unwrap()
             };
             let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.peer_version, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
@@ -1958,7 +1958,7 @@ pub mod test {
             let chain_view = match self.sortdb {
                 Some(ref mut sortdb) => {
                     let ic = sortdb.index_conn();
-                    let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                    let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                     ic.get_burnchain_view(&self.config.burnchain, &chaintip).unwrap()
                 }
                 None => panic!("Misconfigured peer: no sortdb")
@@ -2039,7 +2039,7 @@ pub mod test {
         fn make_empty_burnchain_block(&mut self) -> BurnchainBlock {
             let empty_block = {
                 let sortdb = self.sortdb.take().unwrap();
-                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 let empty_block = self.empty_burnchain_block(sn.block_height);
                 self.sortdb = Some(sortdb);
                 empty_block
@@ -2050,7 +2050,7 @@ pub mod test {
         pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> (u64, BurnchainHeaderHash, ConsensusHash) {
             let mut sortdb = self.sortdb.take().unwrap();
             let (block_height, block_hash) = {
-                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn()).unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
                 let block_header_hash = BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345);
                 let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, block_header_hash.clone(), blockstack_ops.len() as u64);
                 let mut tx = SortitionHandleTx::begin(&mut sortdb, &tip.sortition_id).unwrap();
@@ -2074,7 +2074,7 @@ pub mod test {
                 tx.commit().unwrap();
                 (block_header.block_height, block_header_hash)
             };
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
             self.sortdb = Some(sortdb);
             (block_height, block_hash, tip.consensus_hash)
         }
@@ -2085,7 +2085,7 @@ pub mod test {
             let res = {
                 let sn = {
                     let ic = sortdb.index_conn();
-                    let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                    let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                     let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap();
                     if sn_opt.is_none() {
                         return Err(format!("No such block in canonical burn fork: {}", &block.block_hash()));
@@ -2116,7 +2116,7 @@ pub mod test {
                 let anchor_block_hash = microblocks[0].header.prev_block.clone();
                 let sn = {
                     let ic = sortdb.index_conn();
-                    let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                    let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                     let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &anchor_block_hash).unwrap();
                     if sn_opt.is_none() {
                         return Err(format!("No such block in canonical burn fork: {}", &anchor_block_hash));
@@ -2146,7 +2146,7 @@ pub mod test {
             let mut node = self.stacks_node.take().unwrap();
             {
                 let ic = sortdb.index_conn();
-                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                 node.chainstate.preprocess_stacks_epoch(&ic, &tip, block, microblocks).unwrap();
             }
     
@@ -2250,11 +2250,11 @@ pub mod test {
         {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut burn_block = {
-                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
             };
 
-            let last_sortition_block = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();        // no forks here
+            let last_sortition_block = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();        // no forks here
           
             let mut stacks_node = self.stacks_node.take().unwrap();
 
@@ -2283,7 +2283,7 @@ pub mod test {
         pub fn make_default_tenure(&mut self) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>) {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut burn_block = {
-                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
             };
           
@@ -2335,7 +2335,7 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let view_res = {
                 let ic = sortdb.index_conn();
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                 ic.get_burnchain_view(&self.config.burnchain, &chaintip)
             };
             self.sortdb = Some(sortdb);

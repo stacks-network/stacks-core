@@ -106,6 +106,8 @@ fn bump_processed_counter(blocks_processed: &BlocksProcessedCounter) {
 fn bump_processed_counter(_blocks_processed: &BlocksProcessedCounter) {
 }
 
+use stacks::chainstate::coordinator::ChainsCoordinator;
+
 /// Process artifacts from the tenure.
 /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
 fn inner_process_tenure(
@@ -115,6 +117,9 @@ fn inner_process_tenure(
     burn_db: &mut SortitionDB,
     chain_state: &mut StacksChainState,
     dispatcher: &mut EventDispatcher) -> Result<(), ChainstateError> {
+
+    let stacks_blocks_processed = ChainsCoordinator::get_stacks_blocks_processed();
+
     {
         let ic = burn_db.index_conn();
 
@@ -126,8 +131,9 @@ fn inner_process_tenure(
             &parent_consensus_hash)?;
     }
 
-    let mut epoch_receipts = vec![];
-    loop {
+
+//    let mut epoch_receipts = vec![];
+/*    loop {
         match chain_state.process_blocks(burn_db, 1) {
             Err(e) => panic!("Error while processing block - {:?}", e),
             Ok(blocks) => {
@@ -143,7 +149,14 @@ fn inner_process_tenure(
             }
         }
     }
+*/
 
+    ChainsCoordinator::announce_new_stacks_block();
+    if !ChainsCoordinator::wait_for_stacks_blocks_processed(stacks_blocks_processed, 5000) {
+        warn!("ChainsCoordinator timed out while waiting for new stacks block to be processed");
+    }
+
+/*
     if epoch_receipts.len() == 0 {
         warn!("Chainstate expected to process a new block, but we didn't");
         return Err(ChainstateError::InvalidStacksBlock("Could not process expected block".into()));
@@ -157,6 +170,9 @@ fn inner_process_tenure(
         dispatcher_announce_block(&chain_state.blocks_path, dispatcher,
                                   epoch_receipt.header, Some(parent_consensus_hash), burn_db, epoch_receipt.tx_receipts); 
     }
+
+*/
+
     Ok(())
 }
 
@@ -272,7 +288,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 };
 
             // update p2p's read-only view of the unconfirmed state
-            let (canonical_consensus_tip, canonical_block_tip) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(sortdb.conn())
+            let (canonical_consensus_tip, canonical_block_tip) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
                 .expect("Failed to read canonical stacks chain tip");
             let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_consensus_tip, &canonical_block_tip);
             chainstate.refresh_unconfirmed_state_readonly(canonical_tip)
@@ -374,6 +390,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     debug!("Relayer: Try process attacheable blocks");
 
                     // process any attachable blocks
+                    /*
                     let block_receipts = chainstate.process_blocks(&mut sortdb, 1).expect("BUG: failure processing chainstate");
                     let mut epoch_receipts = vec![];
                     let mut num_processed = 0;
@@ -396,6 +413,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             warn!("Failed to setup unconfirmed state: {:?}", &e);
                         }
                     }
+                     */
                 },
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
                     debug!("Relayer: Handle network result");
@@ -573,7 +591,7 @@ impl InitializedNeonNode {
 
         let view = {
             let ic = sortdb.index_conn();
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&ic)
                 .expect("Failed to get sortition tip");
             ic.get_burnchain_view(&burnchain, &sortition_tip).unwrap()
         };

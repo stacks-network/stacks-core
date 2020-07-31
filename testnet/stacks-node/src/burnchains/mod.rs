@@ -8,7 +8,7 @@ use super::operations::BurnchainOpSigner;
 
 use std::time::Instant;
 
-use stacks::burnchains::BurnchainStateTransition;
+use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -28,7 +28,7 @@ pub trait BurnchainController {
 #[derive(Debug, Clone)]
 pub struct BurnchainTip {
     pub block_snapshot: BlockSnapshot,
-    pub state_transition: BurnchainStateTransition,
+    pub state_transition: BurnchainStateTransitionOps,
     pub received_at: Instant,
 }
 

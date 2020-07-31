@@ -137,6 +137,7 @@ pub struct BlockSnapshot {
     pub canonical_stacks_tip_hash: BlockHeaderHash,     // memoized canonical stacks chain tip
     pub canonical_stacks_tip_consensus_hash: ConsensusHash, // memoized canonical stacks chain tip
     pub sortition_id: SortitionId,
+    pub pox_valid: bool
 }
 
 impl BlockHeaderHash {
@@ -352,6 +353,7 @@ mod tests {
             burn_block_hashes.push(prev_snapshot.sortition_id.clone());
             for i in 1..256 {
                 let snapshot_row = BlockSnapshot {
+                    pox_valid: true,
                     block_height: i,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),

@@ -310,7 +310,7 @@ mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -320,7 +320,7 @@ mod test {
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
 
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
             if let Some(block) = last_block {
@@ -400,7 +400,7 @@ mod test {
             
             // move 1 stx per round
             assert_eq!(recv_balance, (tenure_id + 1) as u128);
-            let (canonical_burn, canonical_block) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(peer.sortdb().conn()).unwrap();
+            let (canonical_burn, canonical_block) = SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
             let confirmed_recv_balance = peer.chainstate().with_read_only_clarity_tx(&canonical_tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
@@ -430,7 +430,7 @@ mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             tip.block_height
         };
 
@@ -440,7 +440,7 @@ mod test {
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
 
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
             if let Some(block) = last_block {
@@ -529,7 +529,7 @@ mod test {
                 
                 // move 100 ustx per round -- 10 per mblock
                 assert_eq!(recv_balance, (100*tenure_id + 10*(i+1)) as u128);
-                let (canonical_burn, canonical_block) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(peer.sortdb().conn()).unwrap();
+                let (canonical_burn, canonical_block) = SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
                 let confirmed_recv_balance = peer.chainstate().with_read_only_clarity_tx(&canonical_tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {

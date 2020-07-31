@@ -190,6 +190,9 @@ fn bitcoind_integration_test() {
     // first block wakes up the run loop
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    // this block does something else?
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
     // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 

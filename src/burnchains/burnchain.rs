@@ -50,6 +50,7 @@ use burnchains::db::{
 use burnchains::indexer::{BurnchainIndexer, BurnchainBlockParser, BurnchainBlockDownloader, BurnBlockIPC};
 use burnchains::BurnchainParameters;
 use burnchains::BurnchainStateTransition;
+use burnchains::BurnchainStateTransitionOps;
 
 use burnchains::bitcoin::{BitcoinTxInput, BitcoinTxOutput, BitcoinInputType};
 use burnchains::bitcoin::address::to_c32_version_byte;
@@ -97,12 +98,22 @@ use burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET as BITCOIN_FIRST_BLOCK_MAI
 use burnchains::bitcoin::indexer::FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TESTNET;
 use burnchains::bitcoin::indexer::FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST;
 
+impl BurnchainStateTransitionOps {
+    pub fn noop() -> BurnchainStateTransitionOps {
+        BurnchainStateTransitionOps {
+            accepted_ops: vec![],
+            consumed_leader_keys: vec![]
+        }
+    }
+}
+
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {
         BurnchainStateTransition {
             burn_dist: vec![],
             accepted_ops: vec![],
-            consumed_leader_keys: vec![]
+            consumed_leader_keys: vec![],
+            
         }
     }
 
@@ -431,6 +442,7 @@ impl Burnchain {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
 
+        info!("Paths: {} {}", db_path, burnchain_db_path);
         let sortitiondb = SortitionDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
 
         let burnchaindb = BurnchainDB::connect(&burnchain_db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
@@ -1101,6 +1113,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_121_snapshot = BlockSnapshot {
+            pox_valid: true,
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
             sortition_id: SortitionId(block_121_hash.0.clone()),
@@ -1133,6 +1146,7 @@ pub mod tests {
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
         let mut block_122_snapshot = BlockSnapshot {
+            pox_valid: true,
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
             sortition_id: SortitionId(block_122_hash.0.clone()),
@@ -1171,6 +1185,7 @@ pub mod tests {
             block_121_snapshot.consensus_hash.clone(),
         ];
         let mut block_123_snapshot = BlockSnapshot {
+            pox_valid: true,
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
             sortition_id: SortitionId(block_123_hash.0.clone()),
@@ -1318,6 +1333,7 @@ pub mod tests {
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
             
             let mut block_124_snapshot = BlockSnapshot {
+                pox_valid: true,
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
                 sortition_id: SortitionId(block_124_hash.0.clone()),

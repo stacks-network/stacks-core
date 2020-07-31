@@ -672,6 +672,7 @@ mod tests {
             let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap(); 
             for i in 0..block_header_hashes.len() {
                 let mut snapshot_row = BlockSnapshot {
+                    pox_valid: true,
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),

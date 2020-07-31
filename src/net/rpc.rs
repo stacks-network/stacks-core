@@ -147,7 +147,7 @@ impl fmt::Debug for ConversationHttp {
 
 impl RPCPeerInfoData {
     pub fn from_db(burnchain: &Burnchain, sortdb: &SortitionDB, chainstate: &StacksChainState, peerdb: &PeerDB, exit_at_block_height: &Option<&u64>) -> Result<RPCPeerInfoData, net_error> {
-        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn)?;
+        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn)?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn())?;
         let stable_burnchain_tip = {
             let ic = sortdb.index_conn();
@@ -1412,7 +1412,7 @@ mod test {
         tx_signer.sign_origin(&privk1).unwrap();
         let tx_unconfirmed_contract_signed = tx_signer.get_tx().unwrap();
             
-        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
         let mut anchor_cost = ExecutionCost::zero();
         let mut anchor_size = 0;
 

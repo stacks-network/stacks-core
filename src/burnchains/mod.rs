@@ -293,6 +293,16 @@ pub struct BurnchainStateTransition {
     pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
 }
 
+/// The burnchain block's state transition's ops:
+/// -- the new burn distribution
+/// -- the sequence of valid blockstack operations that went into it
+/// -- the set of previously-accepted leader VRF keys consumed
+#[derive(Debug, Clone)]
+pub struct BurnchainStateTransitionOps {
+    pub accepted_ops: Vec<BlockstackOperationType>,
+    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
+}
+
 #[derive(Debug)]
 pub enum Error {
     /// Unsupported burn chain
@@ -757,7 +767,7 @@ pub mod test {
             
             let last_snapshot = match fork_snapshot {
                 Some(sn) => sn.clone(),
-                None => SortitionDB::get_canonical_burn_chain_tip_stubbed(ic).unwrap()
+                None => SortitionDB::get_canonical_burn_chain_tip(ic).unwrap()
             };
 
             let last_snapshot_with_sortition = match parent_block_snapshot {
