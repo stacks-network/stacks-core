@@ -61,7 +61,7 @@ pub const RELAYER_MAX_BUFFER: usize = 100;
 
 struct AssembledAnchorBlock {
     parent_consensus_hash: ConsensusHash,
-    my_consensus_hash: ConsensusHash,
+    my_burn_hash: BurnchainHeaderHash,
     anchored_block: StacksBlock,
     consumed_execution: ExecutionCost,
     bytes_so_far: u64
@@ -69,7 +69,7 @@ struct AssembledAnchorBlock {
 
 enum RelayerDirective {
     HandleNetResult(NetworkResult),
-    ProcessTenure(ConsensusHash, BlockHeaderHash),
+    ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
     RunTenure(RegisteredKey, BlockSnapshot),
     RegisterKey(BlockSnapshot),
     TryProcessAttachable
@@ -414,20 +414,20 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
                 },
-                RelayerDirective::ProcessTenure(consensus_hash, block_header_hash) => {
+                RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
                     debug!("Relayer: Process tenure");
                     if let Some(my_mined) = last_mined_block.take() {
                         let AssembledAnchorBlock {
                             parent_consensus_hash,
                             anchored_block: mined_block,
-                            my_consensus_hash: mined_consensus_hash,
+                            my_burn_hash: mined_burn_hash,
                             consumed_execution,
                             bytes_so_far } = my_mined;
-                        if mined_block.block_hash() == block_header_hash && parent_consensus_hash == mined_consensus_hash {
+                        if mined_block.block_hash() == block_header_hash && burn_hash == mined_burn_hash {
                             // we won!
-                            info!("Won sortition! stacks_header={}, consensus_hash={}",
+                            info!("Won sortition! stacks_header={}, burn_hash={}",
                                   block_header_hash,
-                                  mined_consensus_hash);
+                                  mined_burn_hash);
 
                             increment_stx_blocks_mined_counter();
 
@@ -489,7 +489,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                 }
                                 // update unconfirmed state
                                 if let Err(e) = chainstate.refresh_unconfirmed_state() {
-                                    warn!("Failed to refresh unconfirmed state after processing microblock {}/{}-{}: {:?}", &mined_consensus_hash, &block_header_hash, mined_microblock.block_hash(), &e);
+                                    warn!("Failed to refresh unconfirmed state after processing microblock {}/{}-{}: {:?}", &mined_burn_hash, &block_header_hash, mined_microblock.block_hash(), &e);
                                 }
                                 // broadcast to peers
                                 let microblock_hash = mined_microblock.header.block_hash();
@@ -499,8 +499,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                 }
                             }
                         } else {
-                            warn!("Did not win sortition, my blocks [consensus_hash= {}, block_hash= {}], their blocks [parent_consenus_hash= {}, consensus_hash= {}, block_hash ={}]",
-                                  mined_consensus_hash, mined_block.block_hash(), parent_consensus_hash, consensus_hash, block_header_hash);
+                            warn!("Did not win sortition, my blocks [burn_hash= {}, block_hash= {}], their blocks [parent_consenus_hash= {}, burn_hash= {}, block_hash ={}]",
+                                  mined_burn_hash, mined_block.block_hash(), parent_consensus_hash, burn_hash, block_header_hash);
                         }
                     }
                 },
@@ -709,6 +709,7 @@ impl InitializedNeonNode {
                 return self.relay_channel
                     .send(RelayerDirective::ProcessTenure(
                         snapshot.consensus_hash.clone(),
+                        snapshot.parent_burn_header_hash.clone(),
                         snapshot.winning_stacks_block_hash.clone()))
                     .is_ok();
             }
@@ -855,7 +856,7 @@ impl InitializedNeonNode {
 
         Some(AssembledAnchorBlock {
             parent_consensus_hash: parent_consensus_hash,
-            my_consensus_hash: burn_block.consensus_hash,
+            my_burn_hash: burn_block.burn_header_hash,
             consumed_execution,
             anchored_block,
             bytes_so_far
