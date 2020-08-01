@@ -2,7 +2,7 @@ use std::process;
 use std::thread;
 
 use crate::{Config, NeonGenesisNode, BurnchainController, 
-            BitcoinRegtestController, Keychain};
+            BitcoinRegtestController, Keychain, neon_node};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Address;
@@ -105,10 +105,14 @@ impl RunLoop {
         let _burnchain_tip = burnchain.start();
 
         let workdir = self.config.node.working_dir.clone();
-        thread::spawn(move || {
-            ChainsCoordinator::run(&workdir, "regtest");
-        });        
+        let mainnet = false;
+        let chainid = neon_node::TESTNET_CHAIN_ID;
+        let block_limit = self.config.block_limit.clone();
 
+        thread::spawn(move || {
+            ChainsCoordinator::run(&workdir, "regtest", mainnet, chainid, block_limit);
+        });        
+        
         let mut burnchain_tip = burnchain.resync();
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;

@@ -28,6 +28,7 @@ use chainstate::stacks::db::{
 };
 use core;
 use chainstate::stacks::events::{StacksTransactionReceipt};
+use vm::costs::ExecutionCost;
 
 use burnchains::db::{
     BurnchainDB, BurnchainBlockData
@@ -209,7 +210,7 @@ impl ChainsCoordinator {
         });
     }
 
-    pub fn run(state_path: &str, burnchain: &str) {
+    pub fn run(state_path: &str, burnchain: &str, stacks_mainnet: bool, stacks_chain_id: u32, block_limit: ExecutionCost) {
         let receivers = COORDINATOR_RECEIVERS.write().unwrap().take()
             .expect("FAIL: run() called before receiver channels set up, or ChainsCoordinator already running");
 
@@ -221,7 +222,9 @@ impl ChainsCoordinator {
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let chain_state_db = StacksChainState::open(true, 0x80, &format!("{}/chainstate/", state_path)).unwrap();
+        let chain_state_db = StacksChainState::open_with_block_limit(
+            stacks_mainnet, stacks_chain_id, &format!("{}/chainstate/", state_path), block_limit)
+            .unwrap();
 
         let canonical_sortition_tip = SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
@@ -358,9 +361,11 @@ impl ChainsCoordinator {
             .expect("FAIL: processing a new Stacks block, but don't have a canonical sortition tip");
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+        info!("Processing blocks...");
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
 
         while let Some(block_result) = processed_blocks.pop() {
+            info!("Got block_result");
             if let (Some(block_receipt), _) = block_result {
                 // only bump the coordinator's state if the processed block
                 //   is in our sortition fork
@@ -368,6 +373,7 @@ impl ChainsCoordinator {
                 //    blocks like these from getting processed at all.
                 let in_sortition_set = self.sortition_db.is_stacks_block_in_sortition_set(
                     canonical_sortition_tip, &block_receipt.header.anchored_header.block_hash())?;
+                info!("In my sortition set: {}", in_sortition_set);
                 if in_sortition_set {
                     let new_canonical_stacks_block = SortitionDB::get_block_snapshot(self.sortition_db.conn(), canonical_sortition_tip)?
                         .expect(&format!("FAIL: could not find data for the canonical sortition {}", canonical_sortition_tip))
@@ -378,7 +384,7 @@ impl ChainsCoordinator {
                         return Ok(Some(pox_anchor));
                     }
                 }
-
+                info!("Bump blocks processed");
                 STACKS_BLOCKS_PROCESSED.fetch_add(1, Ordering::SeqCst);
 
 
