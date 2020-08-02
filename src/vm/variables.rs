@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 use vm::types::Value;
+use vm::types::BuffData;
 use vm::contexts::{LocalContext, Environment};
 use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 
@@ -7,6 +8,7 @@ define_named_enum!(NativeVariables {
     ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),
     BurnBlockHeight("burn-block-height"), NativeNone("none"),
     NativeTrue("true"), NativeFalse("false"),
+    ConsensusHash("consensus-hash"), // MicroSTXLiquid("total-liquid-ustx"),
 });
 
 pub fn is_reserved_name(name: &str) -> bool {
@@ -43,6 +45,15 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &mut E
             NativeVariables::NativeFalse => {
                 Ok(Some(Value::Bool(false)))
             },
+            NativeVariables::ConsensusHash => {
+                let ch = env.global_context.database.get_tip_consensus_hash();
+                Ok(Some(Value::Buffer(BuffData { data: ch.as_bytes().to_vec() })))
+            },
+            /*
+            NativeVariables::MicroSTXLiquid => {
+                let liq = 0; // env.global_context.database.get_num_liquid_ustx();
+                Ok(Some(Value::UInt(liq)))
+            }*/
         }
     } else {
         Ok(None)
