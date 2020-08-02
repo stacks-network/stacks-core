@@ -59,6 +59,10 @@ pub const BURNCHAIN_BOOT_CONSENSUS_HASH : ConsensusHash = ConsensusHash([0xff; 2
 
 pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
+pub const POX_REGISTRATION_WINDOW_LENGTH: u32 = 250;
+pub const POX_REWARD_WINDOW_LENGTH: u32 = 1000;
+pub const POX_REWARD_CYCLE_LENGTH: u32 = POX_REGISTRATION_WINDOW_LENGTH + POX_REWARD_WINDOW_LENGTH;
+
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Result<u64, burnchain_error> {
     use burnchains::bitcoin::indexer::BitcoinIndexer;
