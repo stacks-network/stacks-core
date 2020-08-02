@@ -6,7 +6,7 @@ use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
 use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
-                   NULL_HEADER_DB};
+                   NULL_HEADER_DB, NULL_POX_STATE_DB};
 
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::stacks::index::MarfTrieId;
@@ -46,7 +46,7 @@ where F: FnOnce(&mut OwnedEnvironment) -> ()
                   &StacksBlockId([0 as u8; 32]));
 
     {
-        marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
+        marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_POX_STATE_DB).initialize();
     }
 
     marf_kv.test_commit();
@@ -54,7 +54,7 @@ where F: FnOnce(&mut OwnedEnvironment) -> ()
                   &StacksBlockId([1 as u8; 32]));
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_POX_STATE_DB));
         // start an initial transaction.
         if !top_level {
             owned_env.begin();
