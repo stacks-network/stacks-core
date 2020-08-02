@@ -8,7 +8,7 @@ use vm::representations::{SymbolicExpression, ClarityName, depth_traverse};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
                 FunctionType, FixedFunction, parse_name_type_pairs, Value, PrincipalData};
-use vm::types::signatures::{FunctionSignature};
+use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
@@ -190,6 +190,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             NativeNone => TypeSignature::new_option(no_type()).unwrap(),
             NativeTrue => TypeSignature::BoolType,
             NativeFalse => TypeSignature::BoolType,
+            ConsensusHash => BUFF_20
         };
         Some(var_type)
     } else {
