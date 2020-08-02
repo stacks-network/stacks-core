@@ -41,6 +41,7 @@ use core::*;
 use burnchains::Address;
 
 use chainstate::burn::ConsensusHash;
+use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionDB};
 
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
@@ -93,7 +94,9 @@ use vm::database::marf::MarfedKV;
 use vm::database::{
     SqliteConnection,
     ClarityDatabase,
-    HeadersDB
+    HeadersDB,
+    PoxStateDB,
+    NULL_POX_STATE_DB,
 };
 use vm::clarity::{
     ClarityInstance,
@@ -610,10 +613,10 @@ impl StacksChainState {
     /// Install the boot code into the chain history.
     /// TODO: instantiate all account balances as well.
     fn install_boot_code<F>(chainstate: &mut StacksChainState, 
-                         mainnet: bool, 
-                         additional_boot_code_contract_names: &Vec<String>, 
-                         additional_boot_code: &Vec<String>, 
-                         initial_balances: Option<Vec<(PrincipalData, u64)>>, f: F) -> Result<(), Error> where F: FnOnce(&mut ClarityTx) -> () {
+                            mainnet: bool, 
+                            additional_boot_code_contract_names: &Vec<String>, 
+                            additional_boot_code: &Vec<String>, 
+                            initial_balances: Option<Vec<(PrincipalData, u64)>>, f: F) -> Result<(), Error> where F: FnOnce(&mut ClarityTx) -> () {
 
         debug!("Begin install boot code");
         assert_eq!(STACKS_BOOT_CODE.len(), STACKS_BOOT_CODE_CONTRACT_NAMES.len());
@@ -644,7 +647,7 @@ impl StacksChainState {
         };
 
         {
-            let mut clarity_tx = chainstate.block_begin(&BURNCHAIN_BOOT_CONSENSUS_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+            let mut clarity_tx = chainstate.block_begin(&NULL_POX_STATE_DB, &BURNCHAIN_BOOT_CONSENSUS_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
             for i in 0..STACKS_BOOT_CODE.len() {
                 let smart_contract = TransactionPayload::SmartContract(
                     TransactionSmartContract {
@@ -885,15 +888,16 @@ impl StacksChainState {
 
     // NOTE: used for testing in the stacks testnet code.
     // DO NOT CALL FROM PRODUCTION
-    pub fn clarity_eval_read_only(&mut self, parent_id_bhh: &StacksBlockId,
+    pub fn clarity_eval_read_only(&mut self, pox_dbconn: &dyn PoxStateDB, parent_id_bhh: &StacksBlockId,
                                   contract: &QualifiedContractIdentifier, code: &str) -> Value {
-        let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, contract, code);
+        let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, pox_dbconn, contract, code);
         result.unwrap()
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
     pub fn chainstate_block_begin<'a>(chainstate_tx: &'a ChainstateTx<'a>,
                                       clarity_instance: &'a mut ClarityInstance,
+                                      pox_dbconn: &'a dyn PoxStateDB,
                                       parent_consensus_hash: &ConsensusHash,
                                       parent_block: &BlockHeaderHash,
                                       new_consensus_hash: &ConsensusHash,
@@ -901,14 +905,15 @@ impl StacksChainState {
 
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(conf, chainstate_tx.headers_tx.deref().deref(),
-                                                 clarity_instance, parent_consensus_hash, parent_block, new_consensus_hash, new_block)
+                                                 clarity_instance, pox_dbconn,
+                                                 parent_consensus_hash, parent_block, new_consensus_hash, new_block)
     }
     
     /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
     /// transaction.  Used by the miner for producing blocks.
-    pub fn block_begin<'a>(&'a mut self, parent_consensus_hash: &ConsensusHash, parent_block: &BlockHeaderHash, new_consensus_hash: &ConsensusHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+    pub fn block_begin<'a>(&'a mut self, pox_dbconn: &'a dyn PoxStateDB, parent_consensus_hash: &ConsensusHash, parent_block: &BlockHeaderHash, new_consensus_hash: &ConsensusHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         let conf = self.config();
-        StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state,
+        StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state, pox_dbconn,
                                                  parent_consensus_hash, parent_block, new_consensus_hash, new_block)
     }
 
@@ -917,26 +922,26 @@ impl StacksChainState {
         self.clarity_state.with_marf(f)
     }
     
-    fn begin_read_only_clarity_tx<'a>(&'a mut self, index_block: &StacksBlockId) -> ClarityReadOnlyConnection<'a> {
-        self.clarity_state.read_only_connection(&index_block, &self.headers_db)
+    fn begin_read_only_clarity_tx<'a>(&'a mut self, pox_dbconn: &'a dyn PoxStateDB, index_block: &StacksBlockId) -> ClarityReadOnlyConnection<'a> {
+        self.clarity_state.read_only_connection(&index_block, &self.headers_db, pox_dbconn)
     }
     
     /// Run to_do on the state of the Clarity VM at the given chain tip
-    pub fn with_read_only_clarity_tx<F, R>(&mut self, parent_tip: &StacksBlockId, to_do: F) -> R
+    pub fn with_read_only_clarity_tx<F, R>(&mut self, pox_dbconn: &dyn PoxStateDB, parent_tip: &StacksBlockId, to_do: F) -> R
     where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
-        let mut conn = self.begin_read_only_clarity_tx(parent_tip);
+        let mut conn = self.begin_read_only_clarity_tx(pox_dbconn, parent_tip);
         let result = to_do(&mut conn);
         conn.done();
         result
     }
 
     /// Run to_do on the unconfirmed Clarity VM state
-    pub fn with_read_only_unconfirmed_clarity_tx<F, R>(&mut self, to_do: F) -> Option<R>
+    pub fn with_read_only_unconfirmed_clarity_tx<F, R>(&mut self, pox_dbconn: &dyn PoxStateDB, to_do: F) -> Option<R>
     where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
         let mut unconfirmed_state_opt = self.unconfirmed_state.take();
         let res = 
             if let Some(ref mut unconfirmed_state) = unconfirmed_state_opt {
-                let mut conn = unconfirmed_state.clarity_inst.read_only_connection(&unconfirmed_state.unconfirmed_chain_tip, &self.headers_db);
+                let mut conn = unconfirmed_state.clarity_inst.read_only_connection(&unconfirmed_state.unconfirmed_chain_tip, &self.headers_db, pox_dbconn);
                 let result = to_do(&mut conn);
                 conn.done();
                 Some(result)
@@ -951,7 +956,7 @@ impl StacksChainState {
     /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the unconfirmed state;
     /// otherwise run to_do on the confirmed state of the Clarity VM.  If the tip doesn't exist,
     /// then return None.
-    pub fn maybe_read_only_clarity_tx<F, R>(&mut self, parent_tip: &StacksBlockId, to_do: F) -> R
+    pub fn maybe_read_only_clarity_tx<F, R>(&mut self, pox_dbconn: &dyn PoxStateDB, parent_tip: &StacksBlockId, to_do: F) -> R
     where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
         let unconfirmed =
             if let Some(ref unconfirmed_state) = self.unconfirmed_state {
@@ -962,10 +967,10 @@ impl StacksChainState {
             };
 
         if unconfirmed {
-            self.with_read_only_unconfirmed_clarity_tx(to_do).expect("BUG: both have and do not have unconfirmed chain state")
+            self.with_read_only_unconfirmed_clarity_tx(pox_dbconn, to_do).expect("BUG: both have and do not have unconfirmed chain state")
         }
         else {
-            self.with_read_only_clarity_tx(parent_tip, to_do)
+            self.with_read_only_clarity_tx(pox_dbconn, parent_tip, to_do)
         }
     }
 
@@ -984,9 +989,9 @@ impl StacksChainState {
         }
     }
 
-    /// Begin an unconfirmed VM transaction, if there's no other open transaction for it.
-    pub fn begin_unconfirmed<'a>(conf: DBConfig, headers_db: &'a dyn HeadersDB, clarity_instance: &'a mut ClarityInstance, tip: &StacksBlockId) -> ClarityTx<'a> {
-        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db);
+    /// Begin an unconfirmed VM transaction, if there's no other open transaction for it. 
+    pub fn begin_unconfirmed<'a>(conf: DBConfig, headers_db: &'a dyn HeadersDB, clarity_instance: &'a mut ClarityInstance, pox_dbconn: &'a dyn PoxStateDB, tip: &StacksBlockId) -> ClarityTx<'a> {
+        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, pox_dbconn);
         ClarityTx {
             block: inner_clarity_tx,
             config: conf
@@ -997,6 +1002,7 @@ impl StacksChainState {
     fn inner_clarity_tx_begin<'a>(conf: DBConfig,
                                   headers_db: &'a Connection,
                                   clarity_instance: &'a mut ClarityInstance,
+                                  pox_dbconn: &'a dyn PoxStateDB,
                                   parent_consensus_hash: &ConsensusHash,
                                   parent_block: &BlockHeaderHash,
                                   new_consensus_hash: &ConsensusHash,
@@ -1012,7 +1018,7 @@ impl StacksChainState {
         test_debug!("Child MARF index root:  {} = {} + {}", new_index_block, new_consensus_hash, new_block);
         test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block, parent_consensus_hash, parent_block);
 
-        let inner_clarity_tx = clarity_instance.begin_block(&parent_index_block, &new_index_block, headers_db);
+        let inner_clarity_tx = clarity_instance.begin_block(&parent_index_block, &new_index_block, headers_db, pox_dbconn);
 
         test_debug!("Got clarity TX!");
         ClarityTx {
@@ -1117,6 +1123,8 @@ pub mod test {
     use chainstate::stacks::*;
     use chainstate::stacks::db::*;
     use std::fs;
+
+    use vm::database::NULL_POX_STATE_DB;
     
     pub fn instantiate_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
@@ -1157,7 +1165,7 @@ pub mod test {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "instantiate-chainstate");
 
         // verify that the boot code is there
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
+        let mut conn = chainstate.block_begin(&NULL_POX_STATE_DB, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
         let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
         for boot_contract_name in STACKS_BOOT_CODE_CONTRACT_NAMES.iter() {
