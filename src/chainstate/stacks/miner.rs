@@ -1170,60 +1170,10 @@ pub mod test {
             return None;
         }
 
-        pub fn get_miner_status<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> Option<(bool, u128)> {
-            let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
-            let miner_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::try_from(BOOT_CODE_MINER_CONTRACT_NAME.to_string()).unwrap());
-            
-            let miner_participant_principal = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_PARTICIPANT.to_string()).unwrap();
-            let miner_available_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AVAILABLE.to_string()).unwrap();
-            let miner_authorized_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AUTHORIZED.to_string()).unwrap();
-            
-            let miner_principal = Value::Tuple(TupleData::from_data(vec![
-                    (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))))])
-                .expect("FATAL: failed to construct miner principal key"));
-
-            let miner_status = clarity_tx.with_clarity_db_readonly(|db| {
-                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)
-                    .expect("FATAL: Clarity DB Error");
-                let miner_status = match miner_status_opt {
-                    Value::Optional(ref optional_data) => {
-                        match optional_data.data {
-                            None => None,
-                            Some(ref miner_status) => {
-                                match **miner_status {
-                                    Value::Tuple(ref tuple) => {
-                                        let authorized = match tuple.get(&miner_authorized_name).expect("FATAL: no miner authorized in tuple") {
-                                            Value::Bool(ref authorized) => *authorized,
-                                            _ => {
-                                                panic!("FATAL: miner reward data map is malformed");
-                                            }
-                                        };
-
-                                        let available = match tuple.get(&miner_available_name).expect("FATAL: no miner available in tuple") {
-                                            Value::UInt(ref available) => *available,
-                                            _ => {
-                                                panic!("FATAL: miner reward data map is malformed");
-                                            }
-                                        };
-                                        
-                                        Some((authorized, available))
-                                    },
-                                    ref x => {
-                                        panic!("FATAL: miner status is not a tuple: {:?}", &x);
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    ref x => {
-                        panic!("FATAL: fetched miner status it not an optional: {:?}", &x);
-                    }
-                };
-            
-                miner_status
-            });
-
-            miner_status
+        pub fn get_miner_balance<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> u128 {
+            clarity_tx.with_clarity_db_readonly(|db| {
+                db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
+            })
         }
 
         pub fn make_tenure_commitment(&mut self, 
@@ -1381,20 +1331,16 @@ pub mod test {
             }
         }
 
-        let miner_status_opt = TestStacksNode::get_miner_status(clarity_tx, &miner.origin_address().unwrap());
-        match miner_status_opt {
-            None => {
-                test_debug!("Miner {} '{}' has no mature funds in this fork", miner.id, miner.origin_address().unwrap().to_string());
-                return total == 0;
+        let amount = TestStacksNode::get_miner_balance(clarity_tx, &miner.origin_address().unwrap());
+        if amount == 0 {
+            test_debug!("Miner {} '{}' has no mature funds in this fork", miner.id, miner.origin_address().unwrap().to_string());
+            return total == 0;
+        } else {
+            if amount != total {
+                test_debug!("Amount {} != {}", amount, total);
+                return false;
             }
-            Some((authorized, amount)) => {
-                test_debug!("Miner {} '{}' is authorized: {}, with amount: {} in this fork", miner.id, miner.origin_address().unwrap().to_string(), authorized, amount);
-                if amount != total {
-                    test_debug!("Amount {} != {}", amount, total);
-                    return false;
-                }
-                return true;
-            }
+            return true;
         }
     }
 
@@ -4433,6 +4379,7 @@ pub mod test {
             // assert_eq!(stacks_block.txs.len(), 1);
         }
     }
+
     // TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
     // within the same fork)
     // TODO: (BLOCKED) build off of different points in the same microblock stream
