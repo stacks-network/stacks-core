@@ -84,6 +84,14 @@ contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
 };
 
+const CONSENSUS_HASH_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "consensus-hash",
+    output_type: "(buff 20)",
+    description: "Returns the consensus hash of the current burnchain block.  This opaque value uniquely identifies the PoX fork in which this Stacks block
+was mined, and is guaranteed to be globally unique.",
+    example: "(print consensus-hash) ;; Will print out a consensus hash"
+};
+
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "none",
     output_type: "(optional ?)",
@@ -639,7 +647,7 @@ const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
 const AT_BLOCK: SpecialAPI = SpecialAPI {
     input_type: "(buff 32), A",
     output_type: "A",
-    signature: "(at-block block-hash expr)",
+    signature: "(at-block id-block-hash expr)",
     description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
 block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
 
@@ -1400,6 +1408,7 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
         NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
+        NativeVariables::ConsensusHash => Some(CONSENSUS_HASH_KEYWORD.clone())
     }
 }
 
@@ -1474,11 +1483,11 @@ mod test {
     use super::make_json_api_reference;
     use super::make_all_api_reference;
     use chainstate::stacks::{StacksAddress, StacksBlockId, index::MarfTrieId};
-    use chainstate::burn::{BlockHeaderHash, VRFSeed};
+    use chainstate::burn::{BlockHeaderHash, VRFSeed, ConsensusHash};
     use burnchains::BurnchainHeaderHash;
 
     use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext,
-              database::{ MarfedKV, HeadersDB },
+              database::{ MarfedKV, HeadersDB, PoxStateDB },
               LimitedCostTracker, GlobalContext, Error, contexts::OwnedEnvironment };
 
     struct DocHeadersDB {}
@@ -1505,6 +1514,26 @@ mod test {
         }
     }
 
+    struct DocPoxStateDB {}
+    const DOC_POX_STATE_DB: DocPoxStateDB = DocPoxStateDB {};
+
+    impl PoxStateDB for DocPoxStateDB {
+        fn get_tip_consensus_hash(&self) -> ConsensusHash {
+            ConsensusHash::from_hex("f0170762e9aff0164e949be1e0832e05fa8188c4").unwrap()
+        }
+
+        fn get_ancestor_consensus_hash(&self, tip: &ConsensusHash, height: u32) -> Option<ConsensusHash> {
+            Some(ConsensusHash::from_hex("75c73040c91f3951091116e2e8c8122511f4b8d2").unwrap())
+        }
+
+        fn get_winning_stacks_block(&self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
+            Some(StacksBlockId::from_hex("e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8").unwrap())
+        }
+        
+        fn get_pox_anchor_block(&self, burn_block_height: u32) -> Option<StacksBlockId> {
+            Some(StacksBlockId::from_hex("eb3ca5386acbac4e69e61452277530b1b37d8f25ef43e7798edb7169fec73fe2").unwrap())
+        }
+    }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
         // start the next block,
@@ -1528,7 +1557,7 @@ mod test {
             segments.push(current_segment);
         }
 
-        let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+        let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
         let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
@@ -1578,7 +1607,7 @@ mod test {
         // first, load the samples for contract-call
         // and give the doc environment's contract some STX
         {
-            let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+            let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
             let mut env = OwnedEnvironment::new(conn);
             env.execute_in_env(QualifiedContractIdentifier::local("tokens").unwrap().into(),
