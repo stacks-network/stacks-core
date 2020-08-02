@@ -12,7 +12,7 @@ use vm::tests::{with_memory_environment, with_marfed_environment, symbols_from_v
 use vm::contexts::{Environment};
 use vm::costs::{ExecutionCost};
 use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
-                   NULL_HEADER_DB};
+                   NULL_HEADER_DB, NULL_POX_STATE_DB};
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
@@ -137,7 +137,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
                   &StacksBlockId([0 as u8; 32]));
 
     {
-        marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
+        marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_POX_STATE_DB).initialize();
     }
 
     marf_kv.test_commit();
@@ -145,7 +145,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
                   &StacksBlockId([1 as u8; 32]));
 
 
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_POX_STATE_DB));
 
 
     owned_env.initialize_contract(trait_contract_id.clone(), contract_trait).unwrap();
