@@ -458,11 +458,11 @@ impl ConversationHttp {
     /// Handle a GET on an existing account, given the current chain tip.  Optionally supplies a
     /// MARF proof for each account detail loaded from the chain tip.
     fn handle_get_account_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                          chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                          account: &PrincipalData, with_proof: bool) -> Result<(), net_error> {
+                                          sortdb: &SortitionDB, chainstate: &mut StacksChainState, 
+                                          tip: &StacksBlockId, account: &PrincipalData, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
                 let (balance, balance_proof) = clarity_db.get_with_proof::<u128>(&key)
@@ -497,13 +497,13 @@ impl ConversationHttp {
     /// Handle a GET on a smart contract's data map, given the current chain tip.  Optionally
     /// supplies a MARF proof for the value.
     fn handle_get_map_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                      chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                      contract_addr: &StacksAddress, contract_name: &ContractName,
+                                      sortdb: &SortitionDB, chainstate: &mut StacksChainState, 
+                                      tip: &StacksBlockId, contract_addr: &StacksAddress, contract_name: &ContractName,
                                       map_name: &ClarityName, key: &Value, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
                 let (value, marf_proof) = clarity_db.get_with_proof::<Value>(&key)
@@ -533,8 +533,8 @@ impl ConversationHttp {
     /// Handle a POST to run a read-only function call with the given parameters on the given chain
     /// tip.  Returns the result of the function call.  Returns a CallReadOnlyResponse on success.
     fn handle_readonly_function_call<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                               chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                               contract_addr: &StacksAddress, contract_name: &ContractName,
+                                               sortdb: &SortitionDB, chainstate: &mut StacksChainState,
+                                               tip: &StacksBlockId, contract_addr: &StacksAddress, contract_name: &ContractName,
                                                function: &ClarityName, sender: &PrincipalData, args: &[Value], options: &ConnectionOptions) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
@@ -543,7 +543,7 @@ impl ConversationHttp {
 
         let args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
                 env.execute_contract(&contract_identifier, function.as_str(), &args, true)
             })
@@ -564,12 +564,12 @@ impl ConversationHttp {
     /// Handle a GET to fetch a contract's source code, given the chain tip.  Optionally returns a
     /// MARF proof as well.
     fn handle_get_contract_src<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                         chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                         contract_addr: &StacksAddress, contract_name: &ContractName, with_proof: bool) -> Result<(), net_error> {
+                                         sortdb: &SortitionDB, chainstate: &mut StacksChainState,
+                                         tip: &StacksBlockId, contract_addr: &StacksAddress, contract_name: &ContractName, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|db| {
                 let source = db.get_contract_src(&contract_identifier)?;
                 let contract_commit_key = MarfedKV::make_contract_hash_key(&contract_identifier);
@@ -599,12 +599,12 @@ impl ConversationHttp {
     /// Callers who don't trust the Stacks node should just fetch the contract source
     /// code and analyze it offline.
     fn handle_get_contract_abi<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                         chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                         contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
+                                         sortdb: &SortitionDB, chainstate: &mut StacksChainState,
+                                         tip: &StacksBlockId, contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_analysis_db_readonly(|db| {
                 let contract = db.load_contract(&contract_identifier)?;
                 contract.contract_interface
@@ -788,15 +788,15 @@ impl ConversationHttp {
             },
             HttpRequestType::GetAccount(ref _md, ref principal, ref tip_opt, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate,
+                    ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
                                                                &tip, principal, *with_proof)?;
                 }
                 None
             },
             HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key, ref tip_opt, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
-                                                           contract_addr, contract_name, map_name, key, *with_proof)?;
+                    ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
+                                                           &tip, contract_addr, contract_name, map_name, key, *with_proof)?;
                 }
                 None
             },
@@ -806,23 +806,23 @@ impl ConversationHttp {
             },
             HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name, ref tip_opt) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
-                                                              contract_addr, contract_name)?;
+                    ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
+                                                              &tip, contract_addr, contract_name)?;
                 }
                 None
             },
             HttpRequestType::CallReadOnlyFunction(ref _md, ref ctrct_addr, ref ctrct_name, ref as_sender, ref func_name, ref args, ref tip_opt) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
                     ConversationHttp::handle_readonly_function_call(
-                        &mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
-                        ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
+                        &mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
+                        &tip, ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
                 }
                 None
             },
             HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name, ref tip_opt, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
-                                                              contract_addr, contract_name, *with_proof)?;
+                    ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
+                                                              &tip, contract_addr, contract_name, *with_proof)?;
                 }
                 None
             },
@@ -1432,7 +1432,7 @@ mod test {
             };
 
             let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
-            let (anchored_block, anchored_block_size, anchored_block_cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, vec![tx_coinbase_signed.clone(), tx_contract_signed.clone()]).unwrap();
+            let (anchored_block, anchored_block_size, anchored_block_cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), vec![tx_coinbase_signed.clone(), tx_contract_signed.clone()]).unwrap();
 
             anchor_size = anchored_block_size;
             anchor_cost = anchored_block_cost;
@@ -1448,14 +1448,20 @@ mod test {
 
         // build 1-block microblock stream with the contract-call and the unconfirmed contract
         let microblock = {
-            let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), consensus_hash.clone(), peer_1.chainstate(), anchor_cost.clone(), anchor_size).unwrap();
-            let microblock = microblock_builder.mine_next_microblock_from_txs(
-                vec![
-                    MemPoolTxInfo::from_tx(tx_cc_signed, 0, consensus_hash.clone(), stacks_block.block_hash(), tip.block_height),
-                    MemPoolTxInfo::from_tx(tx_unconfirmed_contract_signed, 0, consensus_hash.clone(), stacks_block.block_hash(), tip.block_height)
-                ], 
-                &microblock_privkey).unwrap();
-            microblock
+            let sortdb = peer_1.sortdb.take().unwrap();
+            let mblock = {
+                let sort_iconn = sortdb.index_conn();
+                let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), consensus_hash.clone(), peer_1.chainstate(), &sort_iconn, anchor_cost.clone(), anchor_size).unwrap();
+                let microblock = microblock_builder.mine_next_microblock_from_txs(
+                    vec![
+                        MemPoolTxInfo::from_tx(tx_cc_signed, 0, consensus_hash.clone(), stacks_block.block_hash(), tip.block_height),
+                        MemPoolTxInfo::from_tx(tx_unconfirmed_contract_signed, 0, consensus_hash.clone(), stacks_block.block_hash(), tip.block_height)
+                    ], 
+                    &microblock_privkey).unwrap();
+                microblock
+            };
+            peer_1.sortdb = Some(sortdb);
+            mblock
         };
 
         // store microblock stream
@@ -1464,8 +1470,12 @@ mod test {
 
         // process microblock stream to generate unconfirmed state
         let canonical_tip = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-        peer_1.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
-        peer_2.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
+        let sortdb_1 = peer_1.sortdb.take().unwrap();
+        let sortdb_2 = peer_2.sortdb.take().unwrap();
+        peer_1.chainstate().reload_unconfirmed_state(&sortdb_1.index_conn(), canonical_tip.clone(), anchor_cost.clone()).unwrap();
+        peer_2.chainstate().reload_unconfirmed_state(&sortdb_2.index_conn(), canonical_tip.clone(), anchor_cost.clone()).unwrap();
+        peer_1.sortdb = Some(sortdb_1);
+        peer_2.sortdb = Some(sortdb_2);
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
