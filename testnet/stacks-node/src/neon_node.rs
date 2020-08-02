@@ -795,28 +795,28 @@ impl InitializedNeonNode {
 
                 // the stacks block I'm mining off of's burn header hash and vtx index:
                 let parent_consensus_hash = stacks_tip.consensus_hash.clone();
-                let parent_snapshot = SortitionDB::get_block_snapshot_consensus(burn_db.conn(), &stacks_tip.parent_consensus_hash)
+                let parent_snapshot = SortitionDB::get_block_snapshot_consensus(burn_db.conn(), &stacks_tip.consensus_hash)
                     .expect("Failed to look up block's parent snapshot")
                     .expect("Failed to look up block's parent snapshot");
 
-                let parent_sortition_id = SortitionId::stubbed(&parent_snapshot.burn_header_hash);
+                let parent_sortition_id = &parent_snapshot.sortition_id;
                 let parent_winning_vtxindex =
-                    match SortitionDB::get_block_winning_vtxindex(burn_db.conn(), &parent_sortition_id)
+                    match SortitionDB::get_block_winning_vtxindex(burn_db.conn(), parent_sortition_id)
                     .expect("SortitionDB failure.") {
                         Some(x) => x,
                         None => {
                             warn!("Failed to find winning vtx index for the parent sortition {}",
-                                  &parent_sortition_id);
+                                  parent_sortition_id);
                             return None
                         }
                     };
 
-                let parent_block = match SortitionDB::get_block_snapshot(burn_db.conn(), &parent_sortition_id)
+                let parent_block = match SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
                     .expect("SortitionDB failure.") {
                         Some(x) => x,
                         None => {
                             warn!("Failed to find block snapshot for the parent sortition {}",
-                                  &parent_sortition_id);
+                                  parent_sortition_id);
                             return None
                         }
                     };
