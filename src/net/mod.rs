@@ -2295,9 +2295,10 @@ pub mod test {
             let chainstate_path = self.chainstate_path.clone();
             let burn_block_height = burn_block.block_height;
 
-            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut sortdb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut sortdb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 let mut miner_chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
 
                 let (stacks_block, microblocks) = mine_smart_contract_block_contract_call_microblock(&mut epoch, &mut builder, miner, burn_block_height as usize, parent_microblock_header_opt.as_ref());
 
