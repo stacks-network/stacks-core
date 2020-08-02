@@ -213,7 +213,7 @@ lazy_static! {
         soft_max_clients_per_host: 1000,
         walk_interval: 30,
         inv_sync_interval: 45,
-        download_interval: 60,
+        download_interval: 10,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         .. std::default::Default::default()
@@ -608,7 +608,7 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
-            wait_time_for_microblocks: 0,
+            wait_time_for_microblocks: 15000,
             prometheus_bind: None,
         }
     }
