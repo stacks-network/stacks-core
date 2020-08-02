@@ -2173,7 +2173,7 @@ impl PeerNetwork {
             }
         };
 
-        test_debug!("{:?}: Process BlocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.available.len());
+        debug!("{:?}: Process BlocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.available.len());
 
         for (consensus_hash, _) in new_blocks.available.iter() {
             let block_sortition_height = match self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, consensus_hash, false) {
@@ -2204,7 +2204,7 @@ impl PeerNetwork {
             }
         };
 
-        test_debug!("{:?}: Process MicroblocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_mblocks.available.len());
+        debug!("{:?}: Process MicroblocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_mblocks.available.len());
 
         for (consensus_hash, _) in new_mblocks.available.iter() {
             let mblock_sortition_height = match self.handle_unsolicited_inv_update(sortdb, event_id, &outbound_neighbor_key, consensus_hash, true) {
@@ -2235,7 +2235,7 @@ impl PeerNetwork {
             }
         };
 
-        test_debug!("{:?}: Process BlocksData from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.blocks.len());
+        debug!("{:?}: Process BlocksData from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.blocks.len());
 
         for (burn_header_hash, block) in new_blocks.blocks.iter() {
             // TODO(PoX): burn_header_hash to be replaced with a ConsensusHash, so we can just use
