@@ -20,6 +20,7 @@
 pub mod address;
 pub mod auth;
 pub mod block;
+pub mod boot;
 pub mod db;
 pub mod events;
 pub mod index;
