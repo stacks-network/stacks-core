@@ -1464,8 +1464,8 @@ mod test {
 
         // process microblock stream to generate unconfirmed state
         let canonical_tip = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-        peer_1.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
-        peer_2.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
+        peer_1.chainstate().reload_unconfirmed_state(canonical_tip.clone()).unwrap();
+        peer_2.chainstate().reload_unconfirmed_state(canonical_tip.clone()).unwrap();
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
