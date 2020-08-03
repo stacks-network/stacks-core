@@ -537,17 +537,19 @@ impl_byte_array_message_codec!(SortitionId, 32);
 ///  outside of the PoX DB, however, they are sufficient
 ///  to uniquely identify a "sortition" when paired with
 ///  a burn header hash
+// TODO: Vec<bool> is an aggressively unoptimized implementation,
+//       replace with a real bitvec
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoxId(Vec<bool>);
 
 struct db_keys;
 impl db_keys {
-    /// store a key that maps from <stacks-block-header> to <sortition-id of last block in sortition that chose it>
+    /// store an entry that maps from a PoX anchor's <stacks-block-header-hash> to <sortition-id of last block in prepare phase that chose it>
     pub fn pox_anchor_to_prepare_end(block_hash: &BlockHeaderHash) -> String {
         format!("sortition_db::pox_anchor_to_prepare_end::{}", block_hash)
     }
 
-    /// store a key that maps from <stacks-block-header> to <sortition-id of last block in sortition that chose it>
+    /// store an entry for retrieving the PoX identifier (i.e., the PoX bitvector) for this PoX fork
     pub fn pox_identifier() -> &'static str {
         "sortition_db::pox_identifier"
     }
@@ -1045,8 +1047,6 @@ impl fmt::Display for PoxId {
 }
 
 impl SortitionId {
-    /// PoX Todo: any caller of this would need to instead
-    ///  construct a sortition ID with a burn header hash + pox fork identifier
     pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
         SortitionId::new(from, &PoxId::stubbed())
     }
