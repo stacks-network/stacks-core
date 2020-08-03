@@ -200,7 +200,7 @@ impl StacksChainState {
     /// -- if the canonical chain tip has changed, then drop the current view, make a new view, and
     /// process that new view's unconfirmed microblocks.
     /// Call after storing all microblocks from the network.
-    pub fn reload_unconfirmed_state(&mut self, canonical_tip: StacksBlockId, block_cost: ExecutionCost) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
+    pub fn reload_unconfirmed_state(&mut self, canonical_tip: StacksBlockId) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         debug!("Reload unconfirmed state off of {}", &canonical_tip);
 
         let unconfirmed_state = self.unconfirmed_state.take();
@@ -216,7 +216,10 @@ impl StacksChainState {
                 self.unconfirmed_state = Some(unconfirmed_state);
             }
         }
-        
+
+        let block_cost = StacksChainState::get_stacks_block_anchored_cost(&self.headers_db, &canonical_tip)?
+            .ok_or_else(|| Error::NoSuchBlockError)?;
+
         // tip changed, or we don't have unconfirmed state yet
         let (new_unconfirmed_state, fees, burns, receipts) = self.make_unconfirmed_state(canonical_tip, block_cost)?;
         if let Some(unconfirmed_state) = self.unconfirmed_state.take() {
@@ -390,7 +393,7 @@ mod test {
 
             // process microblock stream to generate unconfirmed state
             let canonical_tip = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-            peer.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost).unwrap();
+            peer.chainstate().reload_unconfirmed_state(canonical_tip.clone()).unwrap();
     
             let recv_balance = peer.chainstate().with_read_only_unconfirmed_clarity_tx(|clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
@@ -519,7 +522,7 @@ mod test {
 
                 // process microblock stream to generate unconfirmed state
                 let canonical_tip = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-                peer.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
+                peer.chainstate().reload_unconfirmed_state(canonical_tip.clone()).unwrap();
         
                 let recv_balance = peer.chainstate().with_read_only_unconfirmed_clarity_tx(|clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {

@@ -75,7 +75,7 @@ use chainstate::burn::db::sortdb::{
     PoxId
 };
 
-use chainstate::coordinator::ChainsCoordinator;
+use chainstate::coordinator::CoordinatorCommunication;
 
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
@@ -615,7 +615,7 @@ impl Burnchain {
 
         let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
 
-        ChainsCoordinator::announce_burn_block();
+        CoordinatorCommunication::announce_burn_block();
 
         let header = block.header();
 

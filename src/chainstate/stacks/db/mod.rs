@@ -407,6 +407,8 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
 
+        cost TEXT NOT NULL,
+
         PRIMARY KEY(consensus_hash,block_hash)
     );
     "#,
@@ -680,7 +682,7 @@ impl StacksChainState {
 
             let first_tip_info = StacksHeaderInfo::genesis_block_header_info(first_root_hash);
 
-            StacksChainState::insert_stacks_block_header(&mut headers_tx, &first_tip_info)?;
+            StacksChainState::insert_stacks_block_header(&mut headers_tx, &first_tip_info, &ExecutionCost::zero())?;
             headers_tx.commit()
                 .map_err(Error::DBError)?;
         }
@@ -1023,17 +1025,18 @@ impl StacksChainState {
    
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
-    pub fn advance_tip<'a>(headers_tx: &mut StacksDBTx<'a>, 
-                           parent_tip: &StacksBlockHeader, 
-                           parent_consensus_hash: &ConsensusHash,
-                           new_tip: &StacksBlockHeader, 
-                           new_consensus_hash: &ConsensusHash, 
-                           new_burn_header_hash: &BurnchainHeaderHash,
-                           new_burnchain_height: u32,
-                           new_burnchain_timestamp: u64,
-                           microblock_tail_opt: Option<StacksMicroblockHeader>,
-                           block_reward: &MinerPaymentSchedule,
-                           user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
+    pub fn advance_tip(headers_tx: &mut StacksDBTx, 
+                       parent_tip: &StacksBlockHeader, 
+                       parent_consensus_hash: &ConsensusHash,
+                       new_tip: &StacksBlockHeader, 
+                       new_consensus_hash: &ConsensusHash, 
+                       new_burn_header_hash: &BurnchainHeaderHash,
+                       new_burnchain_height: u32,
+                       new_burnchain_timestamp: u64,
+                       microblock_tail_opt: Option<StacksMicroblockHeader>,
+                       block_reward: &MinerPaymentSchedule,
+                       user_burns: &Vec<StagingUserBurnSupport>,
+                       anchor_block_cost: &ExecutionCost) -> Result<StacksHeaderInfo, Error>
     {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -1073,7 +1076,7 @@ impl StacksChainState {
             burn_header_timestamp: new_burnchain_timestamp
         };
 
-        StacksChainState::insert_stacks_block_header(headers_tx, &new_tip_info)?;
+        StacksChainState::insert_stacks_block_header(headers_tx, &new_tip_info, anchor_block_cost)?;
         StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
 
         debug!("Advanced to new tip! {}/{}", new_consensus_hash, new_tip.block_hash());

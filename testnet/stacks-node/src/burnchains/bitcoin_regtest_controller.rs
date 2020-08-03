@@ -24,7 +24,6 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
 use stacks::burnchains::bitcoin::spv::SpvClient; 
 use stacks::burnchains::PublicKey;
-use stacks::chainstate::coordinator::ChainsCoordinator;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -156,7 +155,7 @@ impl BitcoinRegtestController {
                     // initialize the dbs...
                     self.sortdb_mut();
                     if sync {
-                        self.resync();
+                        self.resync(Some(x.block_height));
                     }
                     let sort_tip = SortitionDB::get_canonical_sortition_tip(self.sortdb_ref().conn())
                         .expect("Sortition DB error.");
@@ -499,8 +498,8 @@ impl BitcoinRegtestController {
     }
 
     /// wait until the ChainsCoordinator has processed sortitions up to the
-    ///   canonical chain tip
-    pub fn resync(&self) -> BurnchainTip {
+    ///   canonical chain tip, or has processed up to height_to_wait
+    pub fn resync(&self, height_to_wait: Option<u64>) -> BurnchainTip {
         loop {
             let canonical_burnchain_tip = self.burnchain_db.as_ref()
                 .expect("BurnchainDB not opened")
@@ -517,9 +516,20 @@ impl BitcoinRegtestController {
                     received_at: Instant::now(),
                     state_transition
                 }
+            } else if let Some(height_to_wait) = height_to_wait {
+                if canonical_sortition_tip.block_height >= height_to_wait {
+                    let (_, state_transition) = self.sortdb_ref().get_sortition_result(&canonical_sortition_tip.sortition_id)
+                        .expect("Sortition DB error.")
+                        .expect("BUG: no data for the canonical chain tip");
+
+                    return BurnchainTip {
+                        block_snapshot: canonical_sortition_tip,
+                        received_at: Instant::now(),
+                        state_transition
+                    }
+                }
             }
         }
-        
     }
 
     pub fn build_next_block(&self, num_blocks: u64) {

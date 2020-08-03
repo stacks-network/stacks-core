@@ -171,6 +171,12 @@ pub enum Error {
     MemPoolError(String),
 }
 
+impl From<marf_error> for Error {
+    fn from(e: marf_error) -> Error {
+        Error::MARFError(e)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {

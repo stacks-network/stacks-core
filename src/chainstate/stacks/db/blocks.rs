@@ -39,6 +39,7 @@ use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use chainstate::stacks::index::MarfTrieId;
 
 use chainstate::burn::BlockSnapshot;
 
@@ -1090,6 +1091,20 @@ impl StacksChainState {
         
         let microblocks = StacksChainState::merge_microblock_streams(staging_microblocks, disk_microblocks)?;
         Ok(Some(microblocks))
+    }
+
+    /// stacks_block _must_ have been committed, or this will return an error
+    pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
+        let mut marf = self.headers_state_index.reopen_readonly()?;
+        marf.open_block(stacks_block)?;
+        let block_height = marf.get_block_height_of(stacks_block, stacks_block)?
+            .expect("CORRUPTION: no block height written for current block");
+        if block_height == 0 {
+            return Ok(StacksBlockId::sentinel());
+        }
+        let parent = marf.get_bhh_at_height(stacks_block, block_height - 1)?
+            .expect("CORRUPTION: No parent found for block");
+        Ok(parent)
     }
 
     pub fn get_parent_consensus_hash(sort_ic: &SortitionDBConn, parent_block_hash: &BlockHeaderHash, my_consensus_hash: &ConsensusHash) -> Result<Option<ConsensusHash>, Error> {
@@ -2856,7 +2871,8 @@ impl StacksChainState {
                                                     chain_tip_burn_header_timestamp,
                                                     microblock_tail_opt,
                                                     &scheduled_miner_reward,
-                                                    user_burns)
+                                                    user_burns,
+                                                    &block_execution_cost)
             .expect("FATAL: failed to advance chain tip");
 
         let epoch_receipt = StacksEpochReceipt {

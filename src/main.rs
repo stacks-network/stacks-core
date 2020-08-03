@@ -506,7 +506,7 @@ fn main() {
                 }
             }
            
-            Relayer::setup_unconfirmed_state(&mut new_chainstate, &mut new_sortition_db, &epoch_receipts).unwrap();
+            Relayer::setup_unconfirmed_state(&mut new_chainstate, &mut new_sortition_db).unwrap();
         }
 
         eprintln!("Final arrival index is {} out of {}", next_arrival, stacks_blocks_arrival_order.len());

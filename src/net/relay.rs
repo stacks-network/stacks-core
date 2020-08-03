@@ -39,7 +39,7 @@ use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, StacksEpochRece
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::coordinator::ChainsCoordinator;
+use chainstate::coordinator::CoordinatorCommunication;
 
 use core::mempool::*;
 
@@ -744,21 +744,12 @@ impl Relayer {
     }
 
     /// Set up the unconfirmed chain state off of the canonical chain tip
-    pub fn setup_unconfirmed_state(chainstate: &mut StacksChainState, sortdb: &SortitionDB, block_receipts: &Vec<StacksEpochReceipt>) -> Result<(), Error> {
+    pub fn setup_unconfirmed_state(chainstate: &mut StacksChainState, sortdb: &SortitionDB) -> Result<(), Error> {
         let (canonical_consensus_hash, canonical_block_hash) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_consensus_hash, &canonical_block_hash);
-        for receipt in block_receipts.iter() {
-            if receipt.header.anchored_header.block_hash() == canonical_block_hash && receipt.header.consensus_hash == canonical_consensus_hash {
-                // setup unconfirmed state off of this tip
-                debug!("Reload unconfirmed state");
-                chainstate.reload_unconfirmed_state(canonical_tip, receipt.anchored_block_cost.clone())?;
-                return Ok(());
-            }
-        }
-
-        // canonical chain was not updated, so just refresh
-        debug!("Refresh unconfirmed state");
-        chainstate.refresh_unconfirmed_state()?;
+        // setup unconfirmed state off of this tip
+        debug!("Reload unconfirmed state");
+        chainstate.reload_unconfirmed_state(canonical_tip)?;
         Ok(())
     }
 
@@ -805,16 +796,14 @@ impl Relayer {
 
         if new_blocks.len() > 0 {
             info!("Processing newly received blocks: {}", new_blocks.len());
-            ChainsCoordinator::announce_new_stacks_block();
+            CoordinatorCommunication::announce_new_stacks_block();
         }
 
-        let receipts = vec![];
-
-        if receipts.len() > 0 || network_result.uploaded_microblocks.len() > 0 {
-            Relayer::setup_unconfirmed_state(chainstate, sortdb, &receipts)?;
+        if network_result.uploaded_microblocks.len() > 0 {
+            Relayer::setup_unconfirmed_state(chainstate, sortdb)?;
         }
 
-        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, receipts))
+        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, vec![]))
     }
     
     /// Produce blocks-available messages from blocks we just got.

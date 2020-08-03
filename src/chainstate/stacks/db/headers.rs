@@ -17,8 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use rusqlite::Row;
-use rusqlite::types::ToSql;
+use rusqlite::{ OptionalExtension, Row, types::ToSql };
 
 use std::io;
 use std::io::prelude::*;
@@ -33,6 +32,7 @@ use chainstate::stacks::*;
 use chainstate::stacks::db::*;
 
 use std::path::{Path, PathBuf};
+use vm::costs::ExecutionCost;
 
 use util::db::Error as db_error;
 use util::db::{
@@ -114,7 +114,7 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
 
 impl StacksChainState {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
-    pub fn insert_stacks_block_header<'a>(tx: &mut StacksDBTx<'a>, tip_info: &StacksHeaderInfo) -> Result<(), Error> {
+    pub fn insert_stacks_block_header(tx: &mut StacksDBTx, tip_info: &StacksHeaderInfo, anchored_block_cost: &ExecutionCost) -> Result<(), Error> {
         assert_eq!(tip_info.block_height, tip_info.anchored_header.total_work.work);
         assert!(tip_info.burn_header_timestamp < i64::max_value() as u64);
 
@@ -138,7 +138,7 @@ impl StacksChainState {
             &header.version, &total_burn_str, &total_work_str, &header.proof, &header.parent_block, &header.parent_microblock, &header.parent_microblock_sequence,
             &header.tx_merkle_root, &header.state_index_root, &header.microblock_pubkey_hash,
             &block_hash, &index_block_hash, &consensus_hash, &burn_header_hash, &(burn_header_height as i64),
-            &(burn_header_timestamp as i64), &(block_height as i64), &index_root];
+            &(burn_header_timestamp as i64), &(block_height as i64), &index_root, anchored_block_cost];
 
         tx.execute("INSERT INTO block_headers \
                     (version, \
@@ -158,11 +158,19 @@ impl StacksChainState {
                     burn_header_height, \
                     burn_header_timestamp, \
                     block_height, \
-                    index_root) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)", args)
+                    index_root,
+                    cost) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
+    }
+
+    pub fn get_stacks_block_anchored_cost(conn: &DBConn, block: &StacksBlockId) -> Result<Option<ExecutionCost>, Error> {
+        let qry = "SELECT cost FROM block_headers WHERE index_block_hash = ?";
+        conn.query_row(qry, &[block], |row| row.get(0))
+            .optional()
+            .map_err(|e| Error::from(db_error::from(e)))
     }
    
     /// Insert a microblock header that is paired with an already-existing block header

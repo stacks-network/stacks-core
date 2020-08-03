@@ -1,14 +1,14 @@
 use std::process;
 use std::thread;
 
-use crate::{Config, NeonGenesisNode, BurnchainController, 
+use crate::{Config, NeonGenesisNode, BurnchainController, EventDispatcher,
             BitcoinRegtestController, Keychain, neon_node};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Address;
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
                                   address::{BitcoinAddressType}};
-use stacks::chainstate::coordinator::ChainsCoordinator;
+use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
 
 use super::RunLoopCallbacks;
 
@@ -74,7 +74,7 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, _expected_num_rounds: u64) {
 
-        ChainsCoordinator::instantiate();
+        CoordinatorCommunication::instantiate();
 
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::new(self.config.clone());
@@ -110,18 +110,25 @@ impl RunLoop {
         let block_limit = self.config.block_limit.clone();
         let initial_balances = self.config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
+        // setup dispatcher
+        let mut event_dispatcher = EventDispatcher::new();
+        for observer in self.config.events_observers.iter() {
+            event_dispatcher.register_observer(observer);
+        }
+
+        let coordinator_dispatcher = event_dispatcher.clone();
         thread::spawn(move || {
             ChainsCoordinator::run(&workdir, "regtest", mainnet, chainid,
                                    Some(initial_balances),
-                                   block_limit, |_| {});
+                                   block_limit, &coordinator_dispatcher, |_| {});
         });        
         
-        let mut burnchain_tip = burnchain.resync();
+        let mut burnchain_tip = burnchain.resync(None);
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
         // setup genesis
-        let node = NeonGenesisNode::new(self.config.clone(), |_| {});
+        let node = NeonGenesisNode::new(self.config.clone(), event_dispatcher, |_| {});
         let mut node = if is_miner {
             node.into_initialized_leader_node(burnchain_tip.clone(), self.get_blocks_processed_arc())
         } else {

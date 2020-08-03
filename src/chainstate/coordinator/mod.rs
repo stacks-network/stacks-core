@@ -12,31 +12,30 @@ use std::sync::{
 
 use crossbeam_channel::{select, bounded, Sender, Receiver, Select, TrySendError};
 
-
+use core;
 use burnchains::{
     BurnchainHeaderHash, Error as BurnchainError,
-    Burnchain, BurnchainBlockHeader
+    Burnchain, BurnchainBlockHeader,
+    db::{
+        BurnchainDB, BurnchainBlockData
+    }
 };
 use chainstate::burn::{BlockHeaderHash, BlockSnapshot};
 use chainstate::burn::db::sortdb::{SortitionDB, PoxId, SortitionId};
 use chainstate::stacks::{
     StacksBlock, StacksBlockId, TransactionPayload,
-    Error as ChainstateError
+    Error as ChainstateError, events::StacksTransactionReceipt,
 };
 use chainstate::stacks::db::{
     StacksHeaderInfo, StacksChainState, ClarityTx
 };
-use core;
-use chainstate::stacks::events::{StacksTransactionReceipt};
+use monitoring::{
+    increment_stx_blocks_processed_counter,
+};
 use vm::{
     costs::ExecutionCost,
     types::PrincipalData
 };
-
-use burnchains::db::{
-    BurnchainDB, BurnchainBlockData
-};
-
 use util::db::{
     Error as DBError
 };
@@ -49,7 +48,12 @@ pub struct RewardCycleInfo {
     pub anchor_block_known: bool
 }
 
-pub struct ChainsCoordinator {
+pub trait BlockEventDispatcher {
+    fn announce_block(&self, block: StacksBlock, metadata: StacksHeaderInfo,
+                      receipts: Vec<StacksTransactionReceipt>, parent: &StacksBlockId);
+}
+
+pub struct ChainsCoordinator<'a, T: BlockEventDispatcher> {
     canonical_sortition_tip: Option<SortitionId>,
     canonical_chain_tip: Option<StacksBlockId>,
     canonical_pox_id: Option<PoxId>,
@@ -57,6 +61,7 @@ pub struct ChainsCoordinator {
     chain_state_db: StacksChainState,
     sortition_db: SortitionDB,
     burnchain: Burnchain,
+    dispatcher: Option<&'a T>
 }
 
 #[derive(Debug)]
@@ -116,7 +121,33 @@ lazy_static! {
     static ref COORDINATOR_RECEIVERS: RwLock<Option<CoordinatorReceivers>> = RwLock::new(None);
 }
 
-impl ChainsCoordinator {
+pub struct CoordinatorCommunication;
+
+impl CoordinatorCommunication {
+    pub fn instantiate() {
+        let (event_stacks_block, event_burn_block) = {
+            let mut channel_storage = COORDINATOR_CHANNELS.write().unwrap();
+            if channel_storage.is_some() {
+                panic!("FAIL: attempted to start chains coordinator, but instance already constructed.");
+            }
+
+            let (stacks_block_sender, stacks_block_receiver) = bounded(1);
+            let (burn_block_sender, burn_block_receiver) = bounded(1);
+
+            channel_storage.replace(CoordinatorChannels {
+                new_stacks_block_channel: stacks_block_sender,
+                new_burn_block_channel: burn_block_sender
+            });
+
+            (stacks_block_receiver, burn_block_receiver)
+        };
+
+        let mut receiver_storage = COORDINATOR_RECEIVERS.write().unwrap();
+        receiver_storage.replace(CoordinatorReceivers {
+            event_burn_block, event_stacks_block
+        });
+    }
+
     pub fn announce_new_stacks_block() {
         let result = COORDINATOR_CHANNELS.read().unwrap()
             .as_ref()
@@ -188,36 +219,14 @@ impl ChainsCoordinator {
         }
         return true
     }
+}
 
-    pub fn instantiate() {
-        let (event_stacks_block, event_burn_block) = {
-            let mut channel_storage = COORDINATOR_CHANNELS.write().unwrap();
-            if channel_storage.is_some() {
-                panic!("FAIL: attempted to start chains coordinator, but instance already constructed.");
-            }
-
-            let (stacks_block_sender, stacks_block_receiver) = bounded(1);
-            let (burn_block_sender, burn_block_receiver) = bounded(1);
-
-            channel_storage.replace(CoordinatorChannels {
-                new_stacks_block_channel: stacks_block_sender,
-                new_burn_block_channel: burn_block_sender
-            });
-
-            (stacks_block_receiver, burn_block_receiver)
-        };
-
-        let mut receiver_storage = COORDINATOR_RECEIVERS.write().unwrap();
-        receiver_storage.replace(CoordinatorReceivers {
-            event_burn_block, event_stacks_block
-        });
-    }
-
+impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T> {
     pub fn run<F>(state_path: &str, burnchain: &str, stacks_mainnet: bool, stacks_chain_id: u32,
                   initial_balances: Option<Vec<(PrincipalData, u64)>>,
-                  block_limit: ExecutionCost,
+                  block_limit: ExecutionCost, dispatcher: &T,
                   boot_block_exec: F)
-        where F: FnOnce(&mut ClarityTx) {
+        where F: FnOnce(&mut ClarityTx), T: BlockEventDispatcher {
         let receivers = COORDINATOR_RECEIVERS.write().unwrap().take()
             .expect("FAIL: run() called before receiver channels set up, or ChainsCoordinator already running");
 
@@ -246,6 +255,7 @@ impl ChainsCoordinator {
             chain_state_db,
             sortition_db,
             burnchain,
+            dispatcher: Some(dispatcher)
         };
 
         loop {
@@ -370,7 +380,6 @@ impl ChainsCoordinator {
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
 
         while let Some(block_result) = processed_blocks.pop() {
-            info!("Processed block result");
             if let (Some(block_receipt), _) = block_result {
                 // only bump the coordinator's state if the processed block
                 //   is in our sortition fork
@@ -378,22 +387,35 @@ impl ChainsCoordinator {
                 //    blocks like these from getting processed at all.
                 let in_sortition_set = self.sortition_db.is_stacks_block_in_sortition_set(
                     canonical_sortition_tip, &block_receipt.header.anchored_header.block_hash())?;
-                info!("In my sortition set: {}", in_sortition_set);
                 if in_sortition_set {
                     let new_canonical_stacks_block = SortitionDB::get_block_snapshot(self.sortition_db.conn(), canonical_sortition_tip)?
                         .expect(&format!("FAIL: could not find data for the canonical sortition {}", canonical_sortition_tip))
                         .get_canonical_stacks_block_id();
                     self.canonical_chain_tip = Some(new_canonical_stacks_block);
+                    info!("Bump blocks processed");
+                    STACKS_BLOCKS_PROCESSED.fetch_add(1, Ordering::SeqCst);
+                    increment_stx_blocks_processed_counter();
                     let block_hash = block_receipt.header.anchored_header.block_hash();
+
+                    if let Some(dispatcher) = self.dispatcher {
+                        let metadata = &block_receipt.header;
+                        let block: StacksBlock = {
+                            let block_path = StacksChainState::get_block_path(
+                                &self.chain_state_db.blocks_path,
+                                &metadata.consensus_hash,
+                                &block_hash).unwrap();
+                            StacksChainState::consensus_load(&block_path).unwrap()
+                        };
+                        let stacks_block = StacksBlockId::new(&metadata.consensus_hash, &block_hash);
+                        let parent = self.chain_state_db.get_parent(&stacks_block)
+                            .expect("BUG: failed to get parent for processed block");
+                        dispatcher.announce_block(block, block_receipt.header, block_receipt.tx_receipts, &parent);
+                    }
+
                     if let Some(pox_anchor) = self.sortition_db.is_stacks_block_pox_anchor(&block_hash, canonical_sortition_tip)? {
                         return Ok(Some(pox_anchor));
                     }
                 }
-                info!("Bump blocks processed");
-                STACKS_BLOCKS_PROCESSED.fetch_add(1, Ordering::SeqCst);
-
-
-                // TODO: broadcast the events
             }
             // TODO: do something with a poison result
 
