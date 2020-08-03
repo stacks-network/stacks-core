@@ -90,7 +90,10 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            sortition_id: SortitionId::new(first_burn_header_hash, &PoxId::initial()),
+            // Initial snapshot sets sortition_id = burn_header_hash,
+            //  we shouldn't need to update this to use PoxId::initial(),
+            //  but if we do, we need to update a lot of test cases.
+            sortition_id: SortitionId::stubbed(first_burn_header_hash),
             pox_valid: true
         }
     }
