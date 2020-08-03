@@ -93,7 +93,7 @@ impl BitcoinRegtestController {
         };
                 
         Self {
-            use_coordinator: config.burnchain.mode == "helium",
+            use_coordinator: config.burnchain.mode != "helium",
             config: config,
             indexer_config,
             db: None,
