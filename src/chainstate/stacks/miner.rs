@@ -274,7 +274,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
 
 impl <'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
-        info!("Drop StacksMicroblockBuilder");
+        debug!("Drop StacksMicroblockBuilder");
         self.clarity_tx.take().expect("Attempted to reclose closed microblock builder")
             .rollback_block()
     }

@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, Duration};
 use stacks::util::hash::bytes_to_hex;
 use stacks::util::hash::Hash160;
+use stacks::chainstate::coordinator::CoordinatorCommunication;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -207,6 +208,8 @@ fn bitcoind_integration_test() {
     eprintln!("Response: {:#?}", res);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
     assert_eq!(res.nonce, 1);
+
+    CoordinatorCommunication::stop_chains_coordinator();
 }
 
 #[test]
@@ -394,6 +397,8 @@ fn microblock_integration_test() {
     eprintln!("{:#?}", res);
     assert_eq!(res.nonce, 2);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
+
+    CoordinatorCommunication::stop_chains_coordinator();
 }
 
 #[test]
@@ -544,4 +549,6 @@ fn size_check_integration_test() {
 
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 1);
+
+    CoordinatorCommunication::stop_chains_coordinator();
 }

@@ -442,9 +442,7 @@ impl Burnchain {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
 
-        info!("Paths: {} {}", db_path, burnchain_db_path);
         let sortitiondb = SortitionDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
-
         let burnchaindb = BurnchainDB::connect(&burnchain_db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)?;
 
         Ok((sortitiondb, burnchaindb))

@@ -190,7 +190,6 @@ impl RunLoop {
             }
 
             block_height = next_height;
-
         }
     }
 }
