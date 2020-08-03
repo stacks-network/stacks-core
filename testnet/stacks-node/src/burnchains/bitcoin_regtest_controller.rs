@@ -16,6 +16,7 @@ use super::{BurnchainController, BurnchainTip};
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 
+use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::Error as burnchain_error;
@@ -53,6 +54,7 @@ pub struct BitcoinRegtestController {
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
+    use_coordinator: bool,
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -91,6 +93,7 @@ impl BitcoinRegtestController {
         };
                 
         Self {
+            use_coordinator: config.burnchain.mode == "helium",
             config: config,
             indexer_config,
             db: None,
@@ -119,6 +122,7 @@ impl BitcoinRegtestController {
         };
                 
         Self {
+            use_coordinator: true,
             config: config,
             indexer_config,
             db: None,
@@ -146,7 +150,70 @@ impl BitcoinRegtestController {
         (burnchain, burnchain_indexer)
     }
 
+    fn receive_blocks_helium(&mut self) -> BurnchainTip {
+        let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
+
+        let (block_snapshot, state_transition) = loop {
+            match burnchain.sync_with_indexer_deprecated(&mut burnchain_indexer) {
+                Ok(x) => {
+                    break x;
+                }
+                Err(e) => {
+                    // keep trying
+                    error!("Unable to sync with burnchain: {}", e);
+                    match e {
+                        burnchain_error::TrySyncAgain => {
+                            // try again immediately
+                            continue;
+                        },
+                        burnchain_error::BurnchainPeerBroken => {
+                            // remote burnchain peer broke, and produced a shorter blockchain fork.
+                            // just keep trying
+                            sleep_ms(5000);
+                            continue;
+                        },
+                        _ => {
+                            // delay and try again
+                            sleep_ms(5000);
+                            continue;
+                        }
+                    }
+                }
+            }
+        };
+
+        let rest = match (state_transition, &self.chain_tip) {
+            (None, Some(chain_tip)) => chain_tip.clone(),
+            (Some(state_transition), _) => {
+                let burnchain_tip = BurnchainTip {
+                    block_snapshot: block_snapshot,
+                    state_transition: BurnchainStateTransitionOps::from(state_transition),
+                    received_at: Instant::now()
+                };
+                self.chain_tip = Some(burnchain_tip.clone());
+                burnchain_tip
+            },
+            (None, None) => {
+                // can happen at genesis
+                let burnchain_tip = BurnchainTip {
+                    block_snapshot: block_snapshot,
+                    state_transition: BurnchainStateTransitionOps::noop(),
+                    received_at: Instant::now()
+                };
+                self.chain_tip = Some(burnchain_tip.clone());
+                burnchain_tip
+            }
+        };
+
+        debug!("Done receiving blocks");
+        rest
+    }
+
     fn receive_blocks(&mut self, sync: bool) -> BurnchainTip {
+        if !self.use_coordinator {
+            return self.receive_blocks_helium();
+        }
+
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
         let (block_snapshot, state_transition) = loop {
             match burnchain.sync_with_indexer(&mut burnchain_indexer) {

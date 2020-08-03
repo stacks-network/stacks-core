@@ -105,6 +105,12 @@ impl BurnchainStateTransitionOps {
             consumed_leader_keys: vec![]
         }
     }
+    pub fn from(o: BurnchainStateTransition) -> BurnchainStateTransitionOps {
+        BurnchainStateTransitionOps {
+            accepted_ops: o.accepted_ops,
+            consumed_leader_keys: o.consumed_leader_keys
+        }
+    }
 }
 
 impl BurnchainStateTransition {
@@ -620,10 +626,17 @@ impl Burnchain {
         Ok(header)
     }
 
-    /// Hand off the block to the ChainsCoordinator, and wait until the snapshot has been
-    ///  processed by the SortitionDB
-    #[cfg(test)]
-    pub fn process_block_and_sortition(burnchain_db: &mut BurnchainDB, block: &BurnchainBlock) {
+    /// Hand off the block to the ChainsCoordinator _and_ process the sortition
+    ///   *only* to be used by legacy stacks node interfaces, like the Helium node
+    pub fn process_block_and_sortition_deprecated(db: &mut SortitionDB, burnchain_db: &mut BurnchainDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
+        debug!("Process block {} {}", block.block_height(), &block.block_hash());
+
+        let header = block.header();
+        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
+
+        let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
+
+        db.evaluate_sortition(&header, blockstack_txs, burnchain, &sortition_tip, None)
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
@@ -668,9 +681,174 @@ impl Burnchain {
     }
 
     /// Top-level burnchain sync.
+    /// Returns the burnchain block header for the new burnchain tip
+    /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
+
+    /// Deprecated top-level burnchain sync.
     /// Returns (snapshot of new burnchain tip, last state-transition processed if any)
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
-    pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<BurnchainBlockHeader, burnchain_error> {
+    pub fn sync_with_indexer_deprecated<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
+        self.setup_chainstate(indexer)?;
+        let (mut sortdb, mut burnchain_db) = self.connect_db(indexer, true)?;
+        let burn_chain_tip = burnchain_db.get_canonical_chain_tip()
+            .map_err(|e| {
+                error!("Failed to query burn chain tip from burn DB: {}", e);
+                e
+            })?;
+
+        let last_snapshot_processed = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+
+        // does the bunchain db have more blocks than the sortition db has processed?
+        assert_eq!(last_snapshot_processed.block_height,
+                   burn_chain_tip.block_height,
+                   "FATAL: Last snapshot processed height={} and current burnchain db height={} have diverged",
+                   last_snapshot_processed.block_height,
+                   burn_chain_tip.block_height);
+
+        let db_height = burn_chain_tip.block_height;
+
+        // handle reorgs
+        let orig_header_height = indexer.get_headers_height()?;     // 1-indexed
+        let sync_height = Burnchain::sync_reorg(indexer)?;
+        if sync_height + 1 < orig_header_height {
+            // a reorg happened
+            warn!("Dropping headers higher than {} due to burnchain reorg", sync_height);
+            indexer.drop_headers(sync_height)?;
+        }
+
+        // get latest headers.
+        debug!("Sync headers from {}", sync_height);
+
+        let end_block = indexer.sync_headers(sync_height, None)?;
+        let mut start_block = match sync_height {
+            0 => 0,
+            _ => sync_height,
+        };
+        if db_height < start_block {
+            start_block = db_height;
+        }
+        
+        debug!("Sync'ed headers from {} to {}. DB at {}", start_block, end_block, db_height);
+        if start_block == db_height && db_height == end_block {
+            // all caught up
+            return Ok((last_snapshot_processed, None));
+        }
+
+        info!("Node will fetch burnchain blocks {}-{}...", start_block, end_block);
+
+        // synchronize 
+        let (downloader_send, downloader_recv) = sync_channel(1);
+        let (parser_send, parser_recv) = sync_channel(1);
+        let (db_send, db_recv) = sync_channel(1);
+
+        let mut downloader = indexer.downloader();
+        let mut parser = indexer.parser();
+
+        let burnchain_config = self.clone();
+
+        // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
+        // and if so, do nothing.
+        let download_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
+            while let Ok(Some(ipc_header)) = downloader_recv.recv() {
+                debug!("Try recv next header");
+
+                let download_start = get_epoch_time_ms();
+                let ipc_block = downloader.download(&ipc_header)?;
+                let download_end = get_epoch_time_ms();
+
+                debug!("Downloaded block {} in {}ms", ipc_block.height(), download_end - download_start);
+
+                parser_send.send(Some(ipc_block))
+                    .map_err(|_e| burnchain_error::ThreadChannelError)?;
+            }
+            parser_send.send(None)
+                .map_err(|_e| burnchain_error::ThreadChannelError)?;
+            Ok(())
+        });
+
+        let parse_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
+            while let Ok(Some(ipc_block)) = parser_recv.recv() {
+                debug!("Try recv next block");
+
+                let parse_start = get_epoch_time_ms();
+                let burnchain_block = parser.parse(&ipc_block)?;
+                let parse_end = get_epoch_time_ms();
+
+                debug!("Parsed block {} in {}ms", burnchain_block.block_height(), parse_end - parse_start);
+
+                db_send.send(Some(burnchain_block))
+                    .map_err(|_e| burnchain_error::ThreadChannelError)?;
+            }
+            db_send.send(None)
+                .map_err(|_e| burnchain_error::ThreadChannelError)?;
+            Ok(())
+        });
+
+        let db_thread : thread::JoinHandle<Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error>> = thread::spawn(move || {
+            let mut last_processed = (last_snapshot_processed, None);
+            while let Ok(Some(burnchain_block)) = db_recv.recv() {
+                debug!("Try recv next parsed block");
+
+                if burnchain_block.block_height() == 0 {
+                    continue;
+                }
+                
+                let insert_start = get_epoch_time_ms();
+                let (tip, transition) = Burnchain::process_block_and_sortition_deprecated(
+                    &mut sortdb, &mut burnchain_db, &burnchain_config, &burnchain_block)?;
+                last_processed = (tip, Some(transition));
+                let insert_end = get_epoch_time_ms();
+
+                debug!("Inserted block {} in {}ms", burnchain_block.block_height(), insert_end - insert_start);
+            }
+            Ok(last_processed)
+        });
+
+        // feed the pipeline!
+        let input_headers = indexer.read_headers(start_block + 1, end_block + 1)?;
+        let mut downloader_result : Result<(), burnchain_error> = Ok(());
+        for i in 0..input_headers.len() {
+            debug!("Downloading burnchain block {} out of {}...", start_block + 1 + (i as u64), end_block);
+            if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
+                info!("Failed to feed burnchain block header {}: {:?}", start_block + 1 + (i as u64), &e);
+                downloader_result = Err(burnchain_error::TrySyncAgain);
+                break;
+            }
+        }
+
+        if downloader_result.is_ok() {
+            if let Err(e) = downloader_send.send(None) {
+                info!("Failed to instruct downloader thread to finish: {:?}", &e);
+                downloader_result = Err(burnchain_error::TrySyncAgain);
+            }
+        }
+
+        // join up 
+        let _ = download_thread.join().unwrap();
+        let _ = parse_thread.join().unwrap();
+        let (block_snapshot, state_transition_opt) = match db_thread.join().unwrap() {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Failed to join burnchain download thread: {:?}", &e);
+                return Err(burnchain_error::TrySyncAgain);
+            }
+        };
+
+        if block_snapshot.block_height < end_block {
+            warn!("Try synchronizing the burn chain again: final snapshot {} < {}", block_snapshot.block_height, end_block);
+            return Err(burnchain_error::TrySyncAgain);
+        }
+
+        if let Err(e) = downloader_result {
+            return Err(e);
+        }
+
+        Ok((block_snapshot, state_transition_opt))
+    }
+
+    pub fn sync_with_indexer<I>(&mut self, indexer: &mut I) -> Result<BurnchainBlockHeader, burnchain_error> 
+    where I: BurnchainIndexer + 'static {
+
         self.setup_chainstate(indexer)?;
         let (_, mut burnchain_db) = self.connect_db(indexer, true)?;
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip()
