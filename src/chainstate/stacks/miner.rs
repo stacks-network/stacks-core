@@ -79,12 +79,16 @@ impl <'a> StacksMicroblockBuilder <'a> {
     pub fn new(anchor_block: BlockHeaderHash, anchor_block_consensus_hash: ConsensusHash,
                chainstate: &'a mut StacksChainState, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let header_reader = chainstate.reopen()?;
-        let mut clarity_tx = chainstate.block_begin(&anchor_block_consensus_hash, &anchor_block,
-                                                    &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
         let anchor_block_height = 
             StacksChainState::get_anchored_block_header_info(&header_reader.headers_db, &anchor_block_consensus_hash, &anchor_block)?
             .ok_or(Error::NoSuchBlockError)?
             .block_height;
+
+        // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
+        //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
+        //  could take over.
+        let mut clarity_tx = chainstate.block_begin(&anchor_block_consensus_hash, &anchor_block,
+                                                    &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
         clarity_tx.reset_cost(initial_cost);
         Ok(StacksMicroblockBuilder {
@@ -270,7 +274,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
 
 impl <'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
-        test_debug!("Drop StacksMicroblockBuilder");
+        info!("Drop StacksMicroblockBuilder");
         self.clarity_tx.take().expect("Attempted to reclose closed microblock builder")
             .rollback_block()
     }

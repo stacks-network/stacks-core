@@ -152,7 +152,7 @@ fn inner_process_tenure(
 */
 
     ChainsCoordinator::announce_new_stacks_block();
-    if !ChainsCoordinator::wait_for_stacks_blocks_processed(stacks_blocks_processed, 5000) {
+    if !ChainsCoordinator::wait_for_stacks_blocks_processed(stacks_blocks_processed, 15000) {
         warn!("ChainsCoordinator timed out while waiting for new stacks block to be processed");
     }
 

@@ -1394,10 +1394,7 @@ impl SortitionDB {
 
     pub fn is_sortition_processed(&self, burnchain_header_hash: &BurnchainHeaderHash, sortition_tip: &SortitionId) -> Result<bool, BurnchainError> {
         self.get_sortition_id(burnchain_header_hash, sortition_tip)
-            .map(|x| {
-                info!("is_sortition_processed({}) = {}", burnchain_header_hash, x.is_some());
-                x.is_some()
-            })
+            .map(|x| x.is_some())
     }
 
     /// Is the given block an expected PoX anchor in this sortition history?

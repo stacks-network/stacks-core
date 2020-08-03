@@ -24,11 +24,14 @@ use chainstate::stacks::{
     Error as ChainstateError
 };
 use chainstate::stacks::db::{
-    StacksHeaderInfo, StacksChainState
+    StacksHeaderInfo, StacksChainState, ClarityTx
 };
 use core;
 use chainstate::stacks::events::{StacksTransactionReceipt};
-use vm::costs::ExecutionCost;
+use vm::{
+    costs::ExecutionCost,
+    types::PrincipalData
+};
 
 use burnchains::db::{
     BurnchainDB, BurnchainBlockData
@@ -210,7 +213,11 @@ impl ChainsCoordinator {
         });
     }
 
-    pub fn run(state_path: &str, burnchain: &str, stacks_mainnet: bool, stacks_chain_id: u32, block_limit: ExecutionCost) {
+    pub fn run<F>(state_path: &str, burnchain: &str, stacks_mainnet: bool, stacks_chain_id: u32,
+                  initial_balances: Option<Vec<(PrincipalData, u64)>>,
+                  block_limit: ExecutionCost,
+                  boot_block_exec: F)
+        where F: FnOnce(&mut ClarityTx) {
         let receivers = COORDINATOR_RECEIVERS.write().unwrap().take()
             .expect("FAIL: run() called before receiver channels set up, or ChainsCoordinator already running");
 
@@ -222,8 +229,11 @@ impl ChainsCoordinator {
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let chain_state_db = StacksChainState::open_with_block_limit(
-            stacks_mainnet, stacks_chain_id, &format!("{}/chainstate/", state_path), block_limit)
+        let chain_state_db = StacksChainState::open_and_exec(
+            stacks_mainnet, stacks_chain_id, &format!("{}/chainstate/", state_path),
+            initial_balances,
+            boot_block_exec,
+            block_limit)
             .unwrap();
 
         let canonical_sortition_tip = SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
@@ -277,9 +287,6 @@ impl ChainsCoordinator {
         let mut canonical_sortition_tip = self.canonical_sortition_tip.clone()
             .expect("FAIL: no canonical sortition tip");
 
-//        info!("Canonical sortition tip: {}", canonical_sortition_tip);
-//        info!("Canonical burnchain tip: {}@{}", canonical_burnchain_tip.block_hash, canonical_burnchain_tip.block_height);
-
         // Retrieve all the direct ancestors of this block with an unprocessed sortition 
         let mut cursor = canonical_burnchain_tip.block_hash.clone();
         let mut sortitions_to_process = VecDeque::new();
@@ -292,7 +299,6 @@ impl ChainsCoordinator {
                     Error::NonContiguousBurnchainBlock(e)
                 })?;
 
-            info!("Sortitions to process include: {}", cursor);
             let parent = current_block.header.parent_block_hash.clone();
             sortitions_to_process.push_front(current_block);
             cursor = parent;
@@ -361,11 +367,10 @@ impl ChainsCoordinator {
             .expect("FAIL: processing a new Stacks block, but don't have a canonical sortition tip");
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-        info!("Processing blocks...");
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
 
         while let Some(block_result) = processed_blocks.pop() {
-            info!("Got block_result");
+            info!("Processed block result");
             if let (Some(block_receipt), _) = block_result {
                 // only bump the coordinator's state if the processed block
                 //   is in our sortition fork

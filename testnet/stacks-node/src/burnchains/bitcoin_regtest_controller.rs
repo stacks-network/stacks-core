@@ -147,17 +147,18 @@ impl BitcoinRegtestController {
         (burnchain, burnchain_indexer)
     }
 
-    fn receive_blocks(&mut self) -> BurnchainTip {
+    fn receive_blocks(&mut self, sync: bool) -> BurnchainTip {
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
-        let sortitions_processed = ChainsCoordinator::get_sortitions_processed();
         let (block_snapshot, state_transition) = loop {
             match burnchain.sync_with_indexer(&mut burnchain_indexer) {
                 Ok(x) => {
                     increment_btc_blocks_received_counter();
-                    if !ChainsCoordinator::wait_for_sortitions_processed(sortitions_processed, 5000) {
-                        warn!("Timed out waiting for chains coordinator to bump sortitions processed");
+                    // initialize the dbs...
+                    self.sortdb_mut();
+                    if sync {
+                        self.resync();
                     }
-                    let sort_tip = SortitionDB::get_canonical_sortition_tip(self.sortdb_mut().conn())
+                    let sort_tip = SortitionDB::get_canonical_sortition_tip(self.sortdb_ref().conn())
                         .expect("Sortition DB error.");
                     let x = self.sortdb_ref().get_sortition_result(&sort_tip)
                         .expect("Sortition DB error.")
@@ -590,19 +591,19 @@ impl BurnchainController for BitcoinRegtestController {
 
 
     fn start(&mut self) -> BurnchainTip {
-        self.receive_blocks()
+        self.receive_blocks(false)
     }
 
     fn sync(&mut self) -> BurnchainTip {        
         let burnchain_tip = if self.config.burnchain.mode == "helium" {
             // Helium: this node is responsible for mining new burnchain blocks
             self.build_next_block(1);
-            self.receive_blocks()
+            self.receive_blocks(true)
         } else {
             // Neon: this node is waiting on a block to be produced
             let current_height = self.get_chain_tip().block_snapshot.block_height;
             loop {
-                let burnchain_tip = self.receive_blocks();
+                let burnchain_tip = self.receive_blocks(true);
                 if burnchain_tip.block_snapshot.block_height > current_height {
                     break burnchain_tip;
                 }

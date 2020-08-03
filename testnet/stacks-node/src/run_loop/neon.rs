@@ -108,9 +108,12 @@ impl RunLoop {
         let mainnet = false;
         let chainid = neon_node::TESTNET_CHAIN_ID;
         let block_limit = self.config.block_limit.clone();
+        let initial_balances = self.config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
         thread::spawn(move || {
-            ChainsCoordinator::run(&workdir, "regtest", mainnet, chainid, block_limit);
+            ChainsCoordinator::run(&workdir, "regtest", mainnet, chainid,
+                                   Some(initial_balances),
+                                   block_limit, |_| {});
         });        
         
         let mut burnchain_tip = burnchain.resync();
