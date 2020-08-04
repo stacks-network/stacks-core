@@ -2685,11 +2685,13 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Process matured miner rewards for this block
-    pub fn process_matured_miner_rewards<'a>(clarity_tx: &mut ClarityTx<'a>, miner_rewards: &Vec<MinerReward>) -> Result<(), Error> {
+    /// Process matured miner rewards for this block.
+    /// Returns the number of liquid uSTX created -- i.e. the coinbase
+    pub fn process_matured_miner_rewards<'a>(clarity_tx: &mut ClarityTx<'a>, miner_rewards: &Vec<MinerReward>) -> Result<u128, Error> {
         // must all be in order by vtxindex, and the first reward (the miner's) must have vtxindex 0
         assert!(miner_rewards.len() > 0);
         assert!(miner_rewards[0].vtxindex == 0);
+        let coinbase_reward = miner_rewards[0].coinbase;
         for i in 0..miner_rewards.len()-1 {
             assert!(miner_rewards[i].vtxindex < miner_rewards[i+1].vtxindex);
         }
@@ -2698,7 +2700,14 @@ impl StacksChainState {
         for reward in miner_rewards.iter() {
             StacksChainState::process_matured_miner_reward(clarity_tx, reward)?;
         }
-        Ok(())
+        Ok(coinbase_reward)
+    }
+
+    /// Process all STX that unlock at this block height.
+    /// Return the total number of uSTX unlocked in this block
+    pub fn process_stx_unlocks<'a>(_clarity_tx: &mut ClarityTx<'a>) -> Result<u128, Error> {
+        // TODO: call into the .lockup contract and get the list of unlocks
+        Ok(0)
     }
 
     /// Process the next pre-processed staging block.
@@ -2735,7 +2744,7 @@ impl StacksChainState {
             StacksChainState::find_mature_miner_rewards(&mut chainstate_tx.headers_tx, parent_chain_tip, Some(chainstate_tx.miner_payment_cache))?
         };
 
-        let (scheduled_miner_reward, txs_receipts, microblock_execution_cost, block_execution_cost) = {
+        let (scheduled_miner_reward, txs_receipts, microblock_execution_cost, block_execution_cost, total_liquid_ustx) = {
             let (parent_consensus_hash, parent_block_hash) = 
                 if block.is_first_mined() {
                     // has to be the sentinal hashes if this block has no parent
@@ -2804,10 +2813,20 @@ impl StacksChainState {
             block_cost.sub(&microblock_cost).expect("BUG: microblock cost + block cost < block cost");
 
             // grant matured miner rewards
-            if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
-                // grant in order by miner, then users
-                StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &mature_miner_rewards)?;
-            }
+            let new_liquid_miner_ustx =
+                if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
+                    // grant in order by miner, then users
+                    StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &mature_miner_rewards)?
+                }
+                else {
+                    0
+                };
+
+            // unlock any uSTX
+            let new_unlocked_ustx = StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+            let total_liquid_ustx = parent_chain_tip.total_liquid_ustx
+                .checked_add(new_liquid_miner_ustx).expect("FATAL: uSTX overflow")
+                .checked_add(new_unlocked_ustx).expect("FATAL: uSTX overflow");
 
             let root_hash = clarity_tx.get_root_hash();
             if root_hash != block.header.state_index_root {
@@ -2840,7 +2859,7 @@ impl StacksChainState {
 
             txs_receipts.append(&mut microblock_txs_receipts);
 
-            (scheduled_miner_reward, txs_receipts, microblock_cost, block_cost)
+            (scheduled_miner_reward, txs_receipts, microblock_cost, block_cost, total_liquid_ustx)
         };
 
         let microblock_tail_opt = match microblocks.len() {
@@ -2858,7 +2877,8 @@ impl StacksChainState {
                                                     chain_tip_burn_header_timestamp,
                                                     microblock_tail_opt,
                                                     &scheduled_miner_reward,
-                                                    user_burns)
+                                                    user_burns,
+                                                    total_liquid_ustx)
             .expect("FATAL: failed to advance chain tip");
 
         let epoch_receipt = StacksEpochReceipt {
@@ -2930,7 +2950,9 @@ impl StacksChainState {
                     if next_staging_block.is_first_mined() {
                         // this is the first-ever mined block
                         debug!("This is the first-ever block in this fork.  Parent is 00000000..00000000/00000000..00000000");
-                        StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]))        // NOTE: we don't use or care about the index_root_hash field here
+                        StacksChainState::get_anchored_block_header_info(&chainstate_tx.headers_tx, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+                            .expect("FATAL: failed to load initial block header")
+                            .expect("FATAL: initial block header not found in headers DB")
                     }
                     else {
                         // no parent stored
