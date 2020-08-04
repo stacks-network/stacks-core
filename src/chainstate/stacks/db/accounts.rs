@@ -585,6 +585,7 @@ mod test {
         new_tip.consensus_hash = ConsensusHash(Hash160::from_data(&Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0).0);
         new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0);
         new_tip.burn_header_height = parent_header_info.burn_header_height + 1;
+        new_tip.total_liquid_ustx = parent_header_info.total_liquid_ustx + block_reward.coinbase;
 
         block_reward.parent_consensus_hash = parent_header_info.consensus_hash.clone();
         block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
@@ -607,7 +608,8 @@ mod test {
                                                 new_tip.burn_header_timestamp, 
                                                 new_tip.microblock_tail.clone(), 
                                                 &block_reward, 
-                                                &user_burns).unwrap();
+                                                &user_burns,
+                                                new_tip.total_liquid_ustx).unwrap();
         tx.commit().unwrap();
         tip
     }
@@ -628,11 +630,11 @@ mod test {
 
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
-            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), 0).unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), 0).unwrap();
             assert!(ancestor_0.is_some());
         }
 
-        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), &mut miner_reward, &mut user_supports);
 
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
@@ -671,12 +673,12 @@ mod test {
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
-        let initial_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+        let initial_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
         
         let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
         let mut user_supports = vec![user_support];
 
-        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), &mut miner_reward, &mut user_supports);
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(&StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 0, 0, 0, 0, 0);
@@ -757,7 +759,7 @@ mod test {
         let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
         let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
 
-        let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+        let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
 
         let mut cache = MinerPaymentCache::new();
         let mut matured_miners = vec![];
