@@ -92,6 +92,20 @@ was mined, and is guaranteed to be globally unique.",
     example: "(print consensus-hash) ;; Will print out a consensus hash"
 };
 
+const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "total-liquid-ustx",
+    output_type: "uint",
+    description: "Returns the total number of micro-STX (uSTX) that are liquid in the system as of this block.",
+    example: "(print total-liquid-ustx) ;; Will print out the total number of liquid uSTX"
+};
+
+const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "is-in-regtest",
+    output_type: "bool",
+    description: "Returns whether or not the code is running in a regression test",
+    example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test"
+};
+
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "none",
     output_type: "(optional ?)",
@@ -1408,7 +1422,9 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
         NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
-        NativeVariables::ConsensusHash => Some(CONSENSUS_HASH_KEYWORD.clone())
+        NativeVariables::ConsensusHash => Some(CONSENSUS_HASH_KEYWORD.clone()),
+        NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
+        NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
     }
 }
 
@@ -1511,6 +1527,9 @@ mod test {
         }
         fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
             None
+        }
+        fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
+            1592653589333333u128
         }
     }
 
