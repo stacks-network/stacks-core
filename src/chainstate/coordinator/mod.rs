@@ -40,6 +40,9 @@ use util::db::{
     Error as DBError
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, PartialEq)]
 pub struct RewardCycleInfo {
     /// what was the elected PoX anchor, if any?
@@ -239,18 +242,29 @@ impl CoordinatorCommunication {
     }
 }
 
-// Destroy the singleton communication channels
-impl <'a, T: BlockEventDispatcher> Drop for ChainsCoordinator<'a, T> {
-    fn drop(&mut self) {
-        info!("Dropping chain coordinator instance");
-        COORDINATOR_CHANNELS.write().unwrap().take()
-            .expect("FAIL: ChainsCoordinator cleaning up channels, but send channels non-existant");
-        STACKS_BLOCKS_PROCESSED.store(0, Ordering::SeqCst);
-        SORTITIONS_PROCESSED.store(0, Ordering::SeqCst);
-    }
-}
-
 impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T> {
+    #[cfg(test)]
+    pub fn test_new(burnchain: &Burnchain, path: &str) -> ChainsCoordinator<'a, T> {
+        let burnchain = burnchain.clone();
+
+        let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
+        let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
+        let chain_state_db = StacksChainState::open(false, 0xdeadbeef, &format!("{}/chainstate/", path)).unwrap();
+
+        let canonical_sortition_tip = SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
+
+        ChainsCoordinator {
+            canonical_chain_tip: None,
+            canonical_sortition_tip: Some(canonical_sortition_tip),
+            canonical_pox_id: None,
+            burnchain_blocks_db,
+            chain_state_db,
+            sortition_db,
+            burnchain,
+            dispatcher: None
+        }
+    }
+
     pub fn run<F>(state_path: &str, burnchain: &str, stacks_mainnet: bool, stacks_chain_id: u32,
                   initial_balances: Option<Vec<(PrincipalData, u64)>>,
                   block_limit: ExecutionCost, dispatcher: &T,
@@ -292,6 +306,11 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T> {
             let ready_oper = match event_receiver.select_timeout(Duration::from_millis(500)) {
                 Ok(op) => op,
                 Err(_) => if STOP.read().unwrap().load(Ordering::SeqCst) {
+                    info!("Dropping coordinator channel instance");
+                    COORDINATOR_CHANNELS.write().unwrap().take()
+                        .expect("FAIL: ChainsCoordinator cleaning up channels, but send channels non-existant");
+                    STACKS_BLOCKS_PROCESSED.store(0, Ordering::SeqCst);
+                    SORTITIONS_PROCESSED.store(0, Ordering::SeqCst);
                     return
                 } else {
                     continue
@@ -390,6 +409,7 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T> {
     ///           * Was PoX anchor block known?
     fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Option<RewardCycleInfo> {
         if self.burnchain.is_reward_cycle_start(burn_header.block_height) {
+            info!("Beginning reward cycle. block_height={}", burn_header.block_height);
             Some(RewardCycleInfo {
                 anchor_block: None,
                 anchor_block_known: true

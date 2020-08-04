@@ -254,6 +254,20 @@ impl BurnchainDB {
 
         Ok(blockstack_ops)
     }
+
+    #[cfg(test)]
+    pub fn raw_store_burnchain_block(&mut self, header: BurnchainBlockHeader, mut blockstack_ops: Vec<BlockstackOperationType>) -> Result<(), BurnchainError> {
+        apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
+
+        let db_tx = self.tx_begin()?;
+
+        db_tx.store_burnchain_db_entry(&header)?;
+        db_tx.store_blockstack_ops(&header.block_hash, &blockstack_ops)?;
+
+        db_tx.commit()?;
+
+        Ok(())
+    }
 }
 
 
