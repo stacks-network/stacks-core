@@ -84,6 +84,8 @@ use util::hash::to_hex;
 
 use chainstate::burn::db::sortdb::*;
 
+use chainstate::stacks::boot::*;
+
 use net::Error as net_error;
 
 use vm::analysis::run_analysis;
@@ -165,7 +167,8 @@ pub struct StacksHeaderInfo {
     pub consensus_hash: ConsensusHash,
     pub burn_header_hash: BurnchainHeaderHash,
     pub burn_header_height: u32,
-    pub burn_header_timestamp: u64
+    pub burn_header_timestamp: u64,
+    pub total_liquid_ustx: u128
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,7 +190,7 @@ impl StacksHeaderInfo {
     pub fn index_block_hash(&self) -> StacksBlockId {
         self.anchored_header.index_block_hash(&self.consensus_hash)
     }
-    pub fn genesis_block_header_info(root_hash: TrieHash) -> StacksHeaderInfo {
+    pub fn genesis_block_header_info(root_hash: TrieHash, initial_liquid_ustx: u128) -> StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
@@ -196,7 +199,8 @@ impl StacksHeaderInfo {
             burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             burn_header_height: FIRST_BURNCHAIN_BLOCK_HEIGHT,
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP
+            burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
+            total_liquid_ustx: initial_liquid_ustx
         }
     }
     pub fn is_first_mined(&self) -> bool {
@@ -230,6 +234,9 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let burn_header_height = u64::from_column(row, "burn_header_height")? as u32;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
+        let total_liquid_ustx_str : String = row.get("total_liquid_ustx");
+        let total_liquid_ustx = total_liquid_ustx_str.parse::<u128>()
+            .map_err(|_| db_error::ParseError)?;
 
         if block_height != stacks_header.total_work.work {
             return Err(db_error::ParseError);
@@ -243,7 +250,8 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             consensus_hash: consensus_hash,
             burn_header_hash: burn_header_hash,
             burn_header_height: burn_header_height,
-            burn_header_timestamp: burn_header_timestamp
+            burn_header_timestamp: burn_header_timestamp,
+            total_liquid_ustx: total_liquid_ustx,
         })
     }
 }
@@ -409,6 +417,7 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         burn_header_hash TEXT NOT NULL,              -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can have 2+ blocks per burn block if there's a PoX fork)
         burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
+        total_liquid_ustx TEXT NOT NULL,             -- string representation of the u128 that encodes the total number of liquid uSTX (i.e. that exist and aren't locked in the .lockup contract)
 
         PRIMARY KEY(consensus_hash,block_hash)
     );
@@ -458,19 +467,6 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         mainnet INTEGER NOT NULL,
         chain_id INTEGER NOT NULL
     )"#
-];
-
-/// Built-in "system-level" smart contracts that are there from the beginning.
-/// Includes BNS, PoX.
-#[cfg(test)]
-const STACKS_MINER_AUTH_KEY : &'static str = "a5879925788dcb3fe1f2737453e371ba04c4064e6609552ef59a126ac4fa598001";
-
-const STACKS_BOOT_CODE : &'static [&'static str] = &[
-];
-
-pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "ST000000000000000000002AMW42H";
-
-const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
 ];
 
 #[cfg(test)]
@@ -585,13 +581,9 @@ impl StacksChainState {
     /// TODO: instantiate all account balances as well.
     fn install_boot_code<F>(chainstate: &mut StacksChainState, 
                             mainnet: bool, 
-                            additional_boot_code_contract_names: &Vec<String>, 
-                            additional_boot_code: &Vec<String>, 
                             initial_balances: Option<Vec<(PrincipalData, u64)>>, f: F) -> Result<(), Error> where F: FnOnce(&mut ClarityTx) -> () {
 
         debug!("Begin install boot code");
-        assert_eq!(STACKS_BOOT_CODE.len(), STACKS_BOOT_CODE_CONTRACT_NAMES.len());
-        assert_eq!(additional_boot_code_contract_names.len(), additional_boot_code.len());
         
         let tx_version = 
             if mainnet {
@@ -619,11 +611,12 @@ impl StacksChainState {
 
         {
             let mut clarity_tx = chainstate.block_begin(&NULL_POX_STATE_DB, &BURNCHAIN_BOOT_CONSENSUS_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-            for i in 0..STACKS_BOOT_CODE.len() {
+            for (boot_code_name, boot_code_contract) in STACKS_BOOT_CODE.iter() {
+                debug!("Instantiate boot code contract '{}.{}' ({} bytes)...", &STACKS_BOOT_CODE_CONTRACT_ADDRESS, boot_code_name, boot_code_contract.len());
                 let smart_contract = TransactionPayload::SmartContract(
                     TransactionSmartContract {
-                        name: ContractName::try_from(STACKS_BOOT_CODE_CONTRACT_NAMES[i].to_string()).expect("FATAL: invalid boot-code contract name"),
-                        code_body: StacksString::from_str(&STACKS_BOOT_CODE[i].to_string()).expect("FATAL: invalid boot code body"),
+                        name: ContractName::try_from(boot_code_name.to_string()).expect("FATAL: invalid boot-code contract name"),
+                        code_body: StacksString::from_str(&boot_code_contract.to_string()).expect("FATAL: invalid boot code body"),
                     }
                 );
 
@@ -636,27 +629,10 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
-            for i in 0..additional_boot_code.len() {
-                let smart_contract = TransactionPayload::SmartContract(
-                    TransactionSmartContract {
-                        name: ContractName::try_from(additional_boot_code_contract_names[i].clone()).expect("FATAL: invalid additional boot-code contract name"),
-                        code_body: StacksString::from_str(&additional_boot_code[i]).expect("FATAL: invalid additional boot code body"),
-                    }
-                );
-
-                let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-
-                clarity_tx.connection().as_transaction(|clarity| {
-                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
-                })?;
-                
-                boot_code_account.nonce += 1;
-            }
-
-            if let Some(initial_balances) = initial_balances {
+            if let Some(ref initial_balances) = &initial_balances {
                 for (address, amount) in initial_balances {
                     clarity_tx.connection().as_transaction(|clarity| {
-                        StacksChainState::account_credit(clarity, &address, amount)
+                        StacksChainState::account_credit(clarity, address, *amount)
                     })
                 }
             }
@@ -664,6 +640,13 @@ impl StacksChainState {
             f(&mut clarity_tx);
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+        }
+
+        let mut initial_liquid_ustx = 0u128;
+        if let Some(ref initial_balances) = &initial_balances {
+            for (_, balance) in initial_balances.iter() {
+                initial_liquid_ustx = initial_liquid_ustx.checked_add((*balance) as u128).expect("FATAL: liquid STX overflow");
+            }
         }
         
         {
@@ -681,7 +664,7 @@ impl StacksChainState {
                 .map_err(Error::DBError)?;
             test_debug!("Boot code headers index_commit {}-{}", &parent_hash, &first_index_hash);
 
-            let first_tip_info = StacksHeaderInfo::genesis_block_header_info(first_root_hash);
+            let first_tip_info = StacksHeaderInfo::genesis_block_header_info(first_root_hash, initial_liquid_ustx);
 
             StacksChainState::insert_stacks_block_header(&mut headers_tx, &first_tip_info)?;
             headers_tx.commit()
@@ -799,7 +782,7 @@ impl StacksChainState {
         };
 
         if !index_exists {
-            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![], initial_balances, in_boot_block)?;
+            StacksChainState::install_boot_code(&mut chainstate, mainnet, initial_balances, in_boot_block)?;
         }
 
         Ok(chainstate)
@@ -863,6 +846,12 @@ impl StacksChainState {
                                   contract: &QualifiedContractIdentifier, code: &str) -> Value {
         let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, pox_dbconn, contract, code);
         result.unwrap()
+    }
+    
+    pub fn clarity_eval_read_only_checked(&mut self, pox_dbconn: &dyn PoxStateDB, parent_id_bhh: &StacksBlockId,
+                                          contract: &QualifiedContractIdentifier, code: &str) -> Result<Value, Error> {
+        self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, pox_dbconn, contract, code)
+            .map_err(Error::ClarityError)
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
@@ -1039,7 +1028,8 @@ impl StacksChainState {
                            new_burnchain_timestamp: u64,
                            microblock_tail_opt: Option<StacksMicroblockHeader>,
                            block_reward: &MinerPaymentSchedule,
-                           user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
+                           user_burns: &Vec<StagingUserBurnSupport>,
+                           total_liquid_ustx: u128) -> Result<StacksHeaderInfo, Error>
     {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -1076,7 +1066,8 @@ impl StacksChainState {
             consensus_hash: new_consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,
-            burn_header_timestamp: new_burnchain_timestamp
+            burn_header_timestamp: new_burnchain_timestamp,
+            total_liquid_ustx
         };
 
         StacksChainState::insert_stacks_block_header(headers_tx, &new_tip_info)?;
@@ -1139,7 +1130,7 @@ pub mod test {
         let mut conn = chainstate.block_begin(&NULL_POX_STATE_DB, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
         let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
-        for boot_contract_name in STACKS_BOOT_CODE_CONTRACT_NAMES.iter() {
+        for (boot_contract_name, _) in STACKS_BOOT_CODE.iter() {
             let boot_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::try_from(boot_contract_name.to_string()).unwrap());
             let contract_res = StacksChainState::get_contract(&mut conn, &boot_contract_id).unwrap();
             assert!(contract_res.is_some());
