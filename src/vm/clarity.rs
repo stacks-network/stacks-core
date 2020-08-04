@@ -726,6 +726,37 @@ mod tests {
         }
     }
 
+    #[test]
+    pub fn test_initialize_contract_tx_sender_contract_caller() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+        {
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
+                                                        &NULL_HEADER_DB);
+
+            // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
+            let contract = "
+                (begin 
+                    (asserts! (is-eq tx-sender 'S1G2081040G2081040G2081040G208105NK8PE5)
+                        (err tx-sender))
+
+                    (asserts! (is-eq contract-caller 'S1G2081040G2081040G2081040G208105NK8PE5)
+                        (err contract-caller))
+                )";
+
+            conn.as_transaction(|conn| {
+                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                conn.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            });
+
+            conn.commit_block();
+        }
+    }
 
     #[test]
     pub fn tx_rollback() {
