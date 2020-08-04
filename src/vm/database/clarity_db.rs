@@ -66,6 +66,7 @@ pub trait HeadersDB {
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
+    fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128;
 }
 
 pub trait PoxStateDB {
@@ -125,6 +126,12 @@ impl HeadersDB for DBConn {
         get_miner_info(self, id_bhh)
             .map(|x| x.address)
     }
+
+    fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128 {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.total_liquid_ustx)
+            .unwrap_or(0)
+    }
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -143,8 +150,11 @@ impl HeadersDB for &dyn HeadersDB {
     fn get_burn_block_height_for_block(&self, bhh: &StacksBlockId) -> Option<u32> {
         (*self).get_burn_block_height_for_block(bhh)
     }
-    fn get_miner_address(&self, bhh: &StacksBlockId)  -> Option<StacksAddress> {
+    fn get_miner_address(&self, bhh: &StacksBlockId) -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
+    }
+    fn get_total_liquid_ustx(&self, bhh: &StacksBlockId) -> u128 {
+        (*self).get_total_liquid_ustx(bhh)
     }
 }
 
@@ -238,6 +248,9 @@ impl HeadersDB for NullHeadersDB {
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
         None
+    }
+    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
+        0
     }
 }
 
@@ -398,6 +411,10 @@ impl <'a> ClarityDatabase <'a> {
     pub fn destroy(self) -> RollbackWrapper<'a> {
         self.store
     }
+    
+    pub fn is_in_regtest(&self) -> bool {
+        cfg!(test)
+    }
 }
 
 // Get block information
@@ -414,11 +431,14 @@ impl <'a> ClarityDatabase <'a> {
         self.store.get_current_block_height()
     }
 
+    /// Get the last-known burnchain block height.
+    /// Note that this is _not_ the burnchain height in which this block was mined!
+    /// This is the burnchain block height of its parent.
     pub fn get_current_burnchain_block_height(&mut self) -> u32 {
         let cur_stacks_height = self.store.get_current_block_height();
-        let cur_id_bhh = self.get_index_block_header_hash(cur_stacks_height);
-        self.get_burnchain_block_height(&cur_id_bhh)
-            .expect("Block header hash must return for provided burn block height")
+        let last_mined_bhh = self.get_index_block_header_hash(cur_stacks_height.checked_sub(1).expect("BUG: cannot eval burn-block-height in boot code"));
+        self.get_burnchain_block_height(&last_mined_bhh)
+            .expect(&format!("Block header hash '{}' must return for provided burn block height", &last_mined_bhh))
     }
 
     pub fn get_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
@@ -454,6 +474,12 @@ impl <'a> ClarityDatabase <'a> {
         self.headers_db.get_miner_address(&id_bhh)
             .expect("Failed to get block data.")
             .into()
+    }
+
+    pub fn get_total_liquid_ustx(&mut self) -> u128 {
+        let cur_height = self.get_current_block_height();
+        let cur_id_bhh = self.get_index_block_header_hash(cur_height);
+        self.headers_db.get_total_liquid_ustx(&cur_id_bhh)
     }
 }
 
