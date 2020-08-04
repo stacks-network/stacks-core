@@ -323,6 +323,7 @@ impl StacksBlockBuilder {
             burn_header_hash: genesis_burn_header_hash.clone(),
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
+            total_liquid_ustx: 0,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(miner_id, &genesis_chain_tip, &StacksWorkScore::initial(), proof, pubkh);
@@ -557,7 +558,7 @@ impl StacksBlockBuilder {
         
         // there's no way the miner can learn either the burn block hash or the stacks block hash,
         // so use a sentinel hash value for each that will never occur in practice.
-        let new_burn_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
+        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
         test_debug!("\n\nMiner {} epoch begin off of {}/{}\n", self.miner_id, self.chain_tip.consensus_hash, self.header.parent_block);
@@ -575,7 +576,7 @@ impl StacksBlockBuilder {
             None => vec![]
         };
 
-        let mut tx = chainstate.block_begin(pox_dbconn, &parent_consensus_hash, &parent_header_hash, &new_burn_hash, &new_block_hash);
+        let mut tx = chainstate.block_begin(pox_dbconn, &parent_consensus_hash, &parent_header_hash, &new_consensus_hash, &new_block_hash);
 
         test_debug!("Miner {}: Apply {} parent microblocks", self.miner_id, parent_microblocks.len());
 
@@ -606,10 +607,10 @@ impl StacksBlockBuilder {
 
     /// Finish up mining an epoch's transactions
     pub fn epoch_finish(self, tx: ClarityTx) -> ExecutionCost {
-        let new_burn_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
+        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(&new_burn_hash, &new_block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
 
         // clear out the block trie we just created, so the block validator logic doesn't step all
         // over it.
@@ -625,9 +626,10 @@ impl StacksBlockBuilder {
     
     /// Unconditionally build an anchored block from a list of transactions.
     /// Used when we are re-building a valid block after we exceed budget
-    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate: &mut StacksChainState, pox_dbconn: &dyn PoxStateDB, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
+    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate_handle: &StacksChainState, pox_dbconn: &dyn PoxStateDB, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
-        let mut epoch_tx = builder.epoch_begin(chainstate, pox_dbconn)?;
+        let mut chainstate = chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?;  // used for processing a block up to the given limit
+        let mut epoch_tx = builder.epoch_begin(&mut chainstate, pox_dbconn)?;
         for tx in txs.drain(..) {
             builder.try_mine_tx(&mut epoch_tx, &tx)?;
         }
