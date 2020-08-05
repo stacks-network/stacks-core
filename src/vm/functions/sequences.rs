@@ -58,11 +58,11 @@ pub fn special_fold(args: &[SymbolicExpression], env: &mut Environment, context:
         .ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(&function_name, env)?;
-    let sequence = eval(&args[1], env, context)?;
+    let mut sequence = eval(&args[1], env, context)?;
     let initial = eval(&args[2], env, context)?;
 
     match sequence {
-        Value::Sequence(sequence_data) => {
+        Value::Sequence(ref mut sequence_data) => {
             sequence_data.atom_values()
                 .iter()
                 .try_fold(initial, |acc, x| {
@@ -80,11 +80,11 @@ pub fn special_map(args: &[SymbolicExpression], env: &mut Environment, context: 
 
     let function_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
-    let sequence = eval(&args[1], env, context)?;
+    let mut sequence = eval(&args[1], env, context)?;
     let function = lookup_function(&function_name, env)?;
 
     let mapped_sequence: Vec<_> = match sequence {
-        Value::Sequence(sequence_data) => {
+        Value::Sequence(ref mut sequence_data) => {
             sequence_data.atom_values()
                 .drain(..)
                 .map(|argument| apply(&function, &[argument], env, context))

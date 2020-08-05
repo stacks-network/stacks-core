@@ -193,12 +193,12 @@ pub enum SequenceData {
 
 impl SequenceData {
 
-    pub fn atom_values(&self) -> Vec<SymbolicExpression> {
-        match &self {
-            SequenceData::Buffer(data) => data.atom_values(),
-            SequenceData::List(data) => data.atom_values(),
-            SequenceData::String(CharType::ASCII(data)) => data.atom_values(),
-            SequenceData::String(CharType::UTF8(data)) => data.atom_values(),
+    pub fn atom_values(&mut self) -> Vec<SymbolicExpression> {
+        match self {
+            SequenceData::Buffer(ref mut data) => data.atom_values(),
+            SequenceData::List(ref mut data) => data.atom_values(),
+            SequenceData::String(CharType::ASCII(ref mut data)) => data.atom_values(),
+            SequenceData::String(CharType::UTF8(ref mut data)) => data.atom_values(),
         }
     }
 
@@ -329,11 +329,13 @@ pub trait SequencedValue<T> {
     
     fn items(&self) -> &Vec<T>;
 
+    fn drained_items(&mut self) -> Vec<T>;
+
     fn to_value(v: &T) -> Value;
 
-    fn atom_values(&self) -> Vec<SymbolicExpression> {
-        self.items().iter().map(|item| {
-            SymbolicExpression::atom_value(Self::to_value(item))
+    fn atom_values(&mut self) -> Vec<SymbolicExpression> {
+        self.drained_items().iter().map(|item| {
+            SymbolicExpression::atom_value(Self::to_value(&item))
         }).collect()
     }
 }
@@ -342,6 +344,10 @@ impl SequencedValue<Value> for ListData {
     
     fn items(&self) -> &Vec<Value> {
         &self.data
+    }
+
+    fn drained_items(&mut self) -> Vec<Value> {
+        self.data.drain(..).collect()
     }
     
     fn type_signature(&self) -> TypeSignature {
@@ -357,6 +363,10 @@ impl SequencedValue<u8> for BuffData {
     
     fn items(&self) -> &Vec<u8> {
         &self.data
+    }
+
+    fn drained_items(&mut self) -> Vec<u8> {
+        self.data.drain(..).collect()
     }
 
     fn type_signature(&self) -> TypeSignature {
@@ -376,6 +386,10 @@ impl SequencedValue<u8> for ASCIIData {
         &self.data
     }
 
+    fn drained_items(&mut self) -> Vec<u8> {
+        self.data.drain(..).collect()
+    }
+
     fn type_signature(&self) -> TypeSignature {
         let buff_length = BufferLength::try_from(self.data.len())
             .expect("ERROR: Too large of a buffer successfully constructed.");
@@ -392,6 +406,10 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     
     fn items(&self) -> &Vec<Vec<u8>> {
         &self.data
+    }
+
+    fn drained_items(&mut self) -> Vec<Vec<u8>> {
+        self.data.drain(..).collect()
     }
 
     fn type_signature(&self) -> TypeSignature {
@@ -623,6 +641,9 @@ impl Value {
             char.encode_utf8(&mut encoded_char[..]);
             data.push(encoded_char);
         }
+        // check the string size
+        StringUTF8Length::try_from(data.len())?;
+
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
     }
 }
