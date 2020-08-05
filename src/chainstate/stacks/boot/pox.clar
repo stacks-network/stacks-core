@@ -43,6 +43,8 @@
 ;; and reward cycle length.  Implemented as data vars
 ;; in order to test more efficiently -- i.e. the test
 ;; framework can override with smaller values.
+;; (TODO: at some point, this should be a function that the
+;; test harness can call to set its own window sizes)
 (define-data-var registration-window-length uint REGISTRATION-WINDOW-LENGTH)
 (define-data-var reward-cycle-length uint REWARD-CYCLE-LENGTH)
 (begin
@@ -158,25 +160,6 @@
     )
 )
 
-;; The Stacking anchor-block rejections.  Stackers send these to _reject_
-;; the miner-selected anchor block.  This is a PoX safety feature -- if miners
-;; get greedy and start banding together to stack their own STX in order to
-;; discount-mine, other Stackers can vote to shut down PoX for this reward cycle
-;; and revert to PoB.  Rejections can only be sent during the reward cycle's
-;; registration window.
-;;
-;; There are two ways this map can get updated:
-;; * via a contract-call to the (stack-reject-pox) method, or
-;; * via a transaction in the underlying burnchain that encodes the same data.
-;; In the latter case, this map will be updated by the Stacks node itself,
-;; and transactions in the burnchain will take priority over transactions
-;; in the Stacks chain when processing this block.
-;; NOTE: no deletions from this map!
-(define-map stacking-rejections
-    ((stacker principal))
-    ((reward-cycle uint))
-)
-
 ;; What's the reward cycle number, given the burnchain block height?
 ;; NOTE: the first-ever reward cycle number isn't 0.  This is deliberate.
 (define-private (burn-height-to-reward-cycle (height uint)) (/ height (var-get reward-cycle-length)))
@@ -186,6 +169,7 @@
 (define-read-only (get-current-reward-cycle) (burn-height-to-reward-cycle burn-block-height))
 
 ;; Is the given burn block height in a PoX registration window?
+;; (Not used in this contract; meant as an API endpoint)
 (define-read-only (is-burn-height-in-pox-registration-window (burn-height uint))
     (let (
         (reward-cycle-start-height (* (var-get reward-cycle-length) (/ burn-height (var-get reward-cycle-length))))
@@ -196,17 +180,9 @@
 )
 
 ;; Is the node _currently_ in a PoX registration window?
+;; (Not used in this contract; meant as an API endpoint)
 (define-read-only (is-pox-registration-window)
     (is-burn-height-in-pox-registration-window burn-block-height))
-
-;; Get the id-block-hash of the given reward cycle's anchor block.
-;; Returns (optional (buff 32))
-;; * will be (some (..)) if this PoX fork has an anchor block in that cycle
-;; * will be none if there was no anchor block confirmed, or no anchor block known
-(define-read-only (get-reward-cycle-anchor-block (reward-cycle uint))
-    ;; TODO: unstub
-    ;; (get-block-info? pox-anchor-block (* reward-cycle (var-get reward-cycle-length)))
-    (some 0x1111111111111111111111111111111111111111111111111111111111111111))
 
 ;; Get the _current_ PoX stacking principal information, with all the latest 
 ;; changes applied.  Do note that these changes may not be in effect for the
@@ -226,7 +202,8 @@
         u0
         (get len (map-get? reward-cycle-pox-address-list-len { reward-cycle: reward-cycle }))))
 
-;; Is a PoX address registered in a given range of reward cycles?
+;; Is a PoX address registered anywhere in a given range of reward cycles?
+;; Checkes the integer range [reward-cycle-start, reward-cycle-start + num-cycles)
 ;; Returns true if it's registered in at least one reward cycle in the given range.
 ;; Returns false if it's not registered in any reward cycle in the given range.
 (define-private (is-pox-addr-registered (pox-addr (tuple (version uint) (hashbytes (buff 20))))
@@ -306,7 +283,7 @@
                 { reward-cycle: reward-cycle }
                 { total-ustx: (+ (get amount-ustx args) total-ustx) }
             )
-
+            
             ;; updated _this_ reward cycle
             u1
         ))
@@ -322,23 +299,34 @@
                                                (first-reward-cycle uint)
                                                (num-cycles uint)
                                                (amount-ustx uint))
-    ;; For safety, add up the number of times (add-principal-to-ith-reward-cycle) returns 1.
-    ;; It _should_ be equal to num-cycles.  The caller _should_ check this.
-    (fold +
-       (map add-pox-addr-to-ith-reward-cycle (list
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u0 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u1 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u2 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u3 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u4 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u5 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u6 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u7 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u8 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u9 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u10 }
-           { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u11 }))
-       u0)
+    (begin
+        ;; For safety, add up the number of times (add-principal-to-ith-reward-cycle) returns 1.
+        ;; It _should_ be equal to num-cycles.
+        (asserts! (is-eq num-cycles (fold +
+           (map add-pox-addr-to-ith-reward-cycle (list
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u0 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u1 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u2 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u3 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u4 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u5 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u6 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u7 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u8 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u9 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u10 }
+              { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u11 }))
+           u0))
+           (err ERR-STACKING-UNREACHABLE))
+
+        ;; mark address in use over this range
+        (map-set pox-addr-reward-cycles
+            { pox-addr: pox-addr }
+            { first-reward-cycle: first-reward-cycle, num-cycles: num-cycles }
+        )
+
+        (ok true)
+    )
 )
 
 ;; What is the minimum number of uSTX to be stacked in the current reward cycle?
@@ -375,14 +363,16 @@
 (define-private (register-pox-addr-checked (pox-addr (tuple (version uint) (hashbytes (buff 20))))
                                            (amount-ustx uint)
                                            (first-reward-cycle uint)
-                                           (num-cycles uint))
+                                           (num-cycles uint)
+                                           (is-delegate bool))
     (let (
         (ustx-min (get-stacking-minimum))
         (is-registered (is-pox-addr-registered pox-addr first-reward-cycle num-cycles))
     )
     (begin
-        ;; can't be registered yet
-        (asserts! (not is-registered)
+        ;; can't be registered yet if not a delegate
+        ;; (the delegate claims its PoX address when it registers)
+        (asserts! (or (not is-registered) is-delegate)
             (err ERR-STACKING-POX-ADDRESS-IN-USE))
 
         ;; minimum uSTX must be met
@@ -456,14 +446,18 @@
 ;; A delegate must register itself and a PoX address before
 ;; other Stackers can delegate to it.  It also registers the duration
 ;; for which its clients' uSTX will be locked.
-(define-public (register-delegate (delegate principal)
-                                  (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+;; tx-sender is the delegate.
+(define-public (register-delegate (pox-addr (tuple (version uint) (hashbytes (buff 20))))
                                   (tenure-burn-block-begin uint)
                                   (tenure-reward-cycles uint)
                                   (withdrawal (optional (tuple (recipient principal) (deadline uint)))))
+    (let (
+        ;; tenure begins in the first full reward cycle after when the tenure burn block passes
+        (first-reward-cycle (+ u1 (burn-height-to-reward-cycle tenure-burn-block-begin)))
+    )
     (begin
         ;; must not be a registered delegate already
-        (asserts! (is-none (get-delegate-control-info delegate))
+        (asserts! (is-none (get-delegate-control-info tx-sender))
             (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
 
         ;; lock period must be in acceptable range.
@@ -475,23 +469,29 @@
             (err ERR-STACKING-INVALID-POX-ADDRESS))
 
         ;; tenure start height must be in the next reward cycle or later
-        (asserts! (< (get-current-reward-cycle) (burn-height-to-reward-cycle tenure-burn-block-begin))
+        (asserts! (< (get-current-reward-cycle) first-reward-cycle)
             (err ERR-STACKING-INVALID-LOCK-PERIOD))
 
         ;; register!
         (map-set delegate-control
-            { delegate: delegate }
+            { delegate: tx-sender }
             {
                 total-ustx: u0,
                 pox-addr: pox-addr,
-                first-reward-cycle: (burn-height-to-reward-cycle tenure-burn-block-begin),
+                first-reward-cycle: first-reward-cycle,
                 tenure: tenure-reward-cycles,
                 withdrawal: withdrawal,
                 withdrawn: false
             }
         )
+
+        ;; claim PoX address up-front
+        (map-set pox-addr-reward-cycles
+            { pox-addr: pox-addr }
+            { first-reward-cycle: first-reward-cycle, num-cycles: tenure-reward-cycles }
+        )
         (ok true)
-    )
+    ))
 )
 
 ;; Delegated uSTX lock-up.
@@ -541,7 +541,7 @@
             (err ERR-STACKING-ALREADY-DELEGATED))
 
         ;; the delegate's tenure must not have started yet
-        (asserts! (< (get first-reward-cycle delegate-control-info) (get-current-reward-cycle))
+        (asserts! (< (get-current-reward-cycle) (get first-reward-cycle delegate-control-info))
             (err ERR-STACKING-DELEGATE-EXPIRED))
 
         ;; lock up the uSTX in this contract
@@ -631,7 +631,7 @@
         
         ;; register the PoX address with the amount stacked
         (try!
-            (register-pox-addr-checked pox-addr amount-ustx first-reward-cycle lock-period))
+            (register-pox-addr-checked pox-addr amount-ustx first-reward-cycle lock-period false))
 
         ;; add stacker record
         (map-set stacking-state
@@ -660,9 +660,6 @@
             (unwrap!
                 (get-delegate-control-info tx-sender)
                 (err ERR-STACKING-NO-SUCH-DELEGATE)))
-
-        ;; this stacker's first reward cycle is the _next_ reward cycle
-        (first-reward-cycle (+ u1 (get-current-reward-cycle)))
     )
     (begin
         ;; tx-sender principal is the delegate, and it must not yet be stacking
@@ -670,16 +667,18 @@
             (err ERR-STACKING-ALREADY-STACKED))
 
         ;; delegate's tenure must not have begun yet
-        (asserts! (< (get first-reward-cycle delegate-control-info) (get-current-reward-cycle))
+        (asserts! (< (get-current-reward-cycle) (get first-reward-cycle delegate-control-info))
             (err ERR-STACKING-DELEGATE-EXPIRED))
 
+        ;; lock it in!
         ;; register the PoX address with the amount stacked
         (try!
             (register-pox-addr-checked
                 (get pox-addr delegate-control-info)
                 (get total-ustx delegate-control-info)
-                first-reward-cycle
-                (get tenure delegate-control-info)))
+                (get first-reward-cycle delegate-control-info)
+                (get tenure delegate-control-info)
+                true))
 
         ;; add stacker record for the delegate
         (map-set stacking-state
@@ -687,7 +686,7 @@
             {
                 amount-ustx: (get total-ustx delegate-control-info),
                 pox-addr: (get pox-addr delegate-control-info),
-                first-reward-cycle: first-reward-cycle,
+                first-reward-cycle: (get first-reward-cycle delegate-control-info),
                 lock-period: (get tenure delegate-control-info),
                 delegate: none
             }
@@ -773,8 +772,6 @@
 ;; Returns (err ..) in other irrecoverable cases
 (define-public (withdraw-stx (recipient principal))
     (let (
-        (this-contract (as-contract tx-sender))
-
         ;; tx-sender must have been stacking
         (stacker-info
             (unwrap!
@@ -783,23 +780,24 @@
     )
     (begin
         ;; lock period must have passed
-        (asserts! (> (get-current-reward-cycle) (+ (get first-reward-cycle stacker-info) (get lock-period stacker-info)))
+        (asserts! (>= (get-current-reward-cycle) (+ (get first-reward-cycle stacker-info) (get lock-period stacker-info)))
             (err ERR-STACKING-STX-LOCKED))
 
         ;; tx-sender cannot be a delegate
         (asserts! (is-none (get-delegate-control-info tx-sender))
             (err ERR-STACKING-BAD-DELEGATE))
 
-        ;; if tx-sender has a delegate, then deduct the uSTX it controls from its total amount.
+        ;; if tx-sender has a delegate, then deduct the uSTX it controls from its delegate's total amount.
         (match (update-total-ustx-delegated)
             ok-case
                 (begin
                     ;; clear stacking state
                     (map-delete stacking-state { stacker: tx-sender })
 
-                    ;; withdraw funds
+                    ;; withdraw funds from contract
                     (unwrap!
-                        (stx-transfer? (get amount-ustx stacker-info) this-contract recipient)
+                        (as-contract
+                            (stx-transfer? (get amount-ustx stacker-info) tx-sender recipient))
                         (err ERR-STACKING-UNREACHABLE))
 
                     (ok ok-case)
@@ -808,6 +806,7 @@
                 (if (is-eq err-case ERR-STACKING-ALREADY-WITHDRAWN)
                     ;; Stacker had a delegate that already withdrew the tokens.
                     ;; Just clear out the state.  No withdrawal will happen.
+                    ;; You should go talk to your delegate to get your STX back.
                     (begin
                         (map-delete delegates { stacker: tx-sender })
                         (map-delete stacking-state { stacker: tx-sender })
@@ -827,8 +826,6 @@
 ;; It cannot be called more than once.
 (define-public (delegate-withdraw-stx)
     (let (
-        (this-contract (as-contract tx-sender))
-
         ;; tx-sender (the delegate) must have a stacking record
         (stacker-info
             (unwrap!
@@ -863,12 +860,13 @@
         )
         (begin
             ;; withdrawl burn block deadline must have passed
-            (asserts! (< burn-block-height (get deadline withdrawal))
+            (asserts! (< (get deadline withdrawal) burn-block-height)
                 (err ERR-STACKING-PERMISSION-DENIED))
 
-            ;; withdraw all remaining uSTX to the given recipient
+            ;; withdraw all remaining uSTX from the contract to the given recipient
             (unwrap!
-                (stx-transfer? (get total-ustx delegate-control-info) this-contract (get recipient withdrawal))
+                (as-contract
+                    (stx-transfer? (get total-ustx delegate-control-info) tx-sender (get recipient withdrawal)))
                 (err ERR-STACKING-UNREACHABLE))
 
             ;; clear total-ustx and mark withdrawn
@@ -891,4 +889,3 @@
         (ok true)
     ))
 )
-
