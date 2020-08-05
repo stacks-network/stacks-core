@@ -132,7 +132,7 @@ impl RunLoop {
                                    coordinator_receivers, |_| {});
         });        
         
-        let mut burnchain_tip = burnchain.resync(None);
+        let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
