@@ -387,8 +387,8 @@ has to be a literal function name.",
 (fold * (list 2 2 2) 0) ;; Returns 0
 ;; calculates (- 11 (- 7 (- 3 2)))
 (fold - (list 3 7 11) 2) ;; Returns 5 
-(fold concat \"cdef\" \"ab\")   ;; Returns fedcab
-(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns efcdab"
+(fold concat \"cdef\" \"ab\")   ;; Returns \"fedcab\"
+(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\""
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -397,7 +397,7 @@ const CONCAT_API: SpecialAPI = SpecialAPI {
     signature: "(concat buff-a buff-b)",
     description: "The `concat` function takes two buffers or two lists with the same entry type,
 and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
-    example: "(concat \"hello \" \"world\") ;; Returns hello world"
+    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
