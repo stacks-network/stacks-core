@@ -342,10 +342,6 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                                                         &mut sortdb, &mut chainstate, &mut mem_pool)
                         .expect("BUG: failure processing network results");
 
-                    if net_receipts.blocks_processed.len() > 0 {
-                        error!("Relayer processed block receipts");
-                    }
-
                     let mempool_txs_added = net_receipts.mempool_txs_added.len();
                     if mempool_txs_added > 0 {
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);

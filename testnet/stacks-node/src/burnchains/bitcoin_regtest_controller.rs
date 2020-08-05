@@ -222,7 +222,7 @@ impl BitcoinRegtestController {
                     // initialize the dbs...
                     self.sortdb_mut();
                     if sync {
-                        self.resync(Some(x.block_height));
+                        self.wait_for_sortitions(Some(x.block_height));
                     }
                     let sort_tip = SortitionDB::get_canonical_sortition_tip(self.sortdb_ref().conn())
                         .expect("Sortition DB error.");
@@ -566,7 +566,7 @@ impl BitcoinRegtestController {
 
     /// wait until the ChainsCoordinator has processed sortitions up to the
     ///   canonical chain tip, or has processed up to height_to_wait
-    pub fn resync(&self, height_to_wait: Option<u64>) -> BurnchainTip {
+    pub fn wait_for_sortitions(&self, height_to_wait: Option<u64>) -> BurnchainTip {
         loop {
             let canonical_burnchain_tip = self.burnchain_db.as_ref()
                 .expect("BurnchainDB not opened")

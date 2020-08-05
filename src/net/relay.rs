@@ -90,7 +90,6 @@ pub struct RelayerStats {
 }
 
 pub struct ProcessedNetReceipts {
-    pub blocks_processed: Vec<StacksEpochReceipt>,
     pub mempool_txs_added: Vec<StacksTransaction>
 }
 
@@ -759,13 +758,11 @@ impl Relayer {
     /// * list of confirmed microblock consensus hashes for newly-discovered microblock streams, so we can turn them into MicroblocksAvailable messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
-    /// * list of transaction receipts for the processed blocks (a tuple of block header info and associated receipts)
     pub fn process_new_blocks(network_result: &mut NetworkResult, sortdb: &mut SortitionDB, chainstate: &mut StacksChainState)
                               -> Result<(Vec<ConsensusHash>,
                                          Vec<ConsensusHash>, 
                                          Vec<(Vec<RelayData>, MicroblocksData)>,
-                                         Vec<NeighborKey>,
-                                         Vec<StacksEpochReceipt>), net_error> {
+                                         Vec<NeighborKey>), net_error> {
         let mut new_blocks = HashSet::new();
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
@@ -803,7 +800,7 @@ impl Relayer {
             Relayer::setup_unconfirmed_state(chainstate, sortdb)?;
         }
 
-        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, vec![]))
+        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors))
     }
     
     /// Produce blocks-available messages from blocks we just got.
@@ -910,8 +907,8 @@ impl Relayer {
     /// turned into peer bans.
     pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult,
                                   sortdb: &mut SortitionDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<ProcessedNetReceipts, net_error> {
-        let blocks_processed = match Relayer::process_new_blocks(network_result, sortdb, chainstate) {
-            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors, receipts)) => {
+        match Relayer::process_new_blocks(network_result, sortdb, chainstate) {
+            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
                 test_debug!("{:?}: Ban {} peers", &_local_peer, bad_block_neighbors.len());
@@ -949,13 +946,9 @@ impl Relayer {
                         warn!("Message relay error: {:?}", &relay_error);
                     }
                 }
-
-                receipts
             },
             Err(e) => {
                 warn!("Failed to process new blocks: {:?}", &e);
-
-                Vec::new()
             }
         };
 
@@ -978,7 +971,6 @@ impl Relayer {
         }
 
         let receipts = ProcessedNetReceipts {
-            blocks_processed,
             mempool_txs_added
         };
 

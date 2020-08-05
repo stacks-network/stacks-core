@@ -5,7 +5,7 @@ use crate::{Config, NeonGenesisNode, BurnchainController, EventDispatcher,
             BitcoinRegtestController, Keychain, neon_node};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::Address;
+use stacks::burnchains::{Address, Burnchain};
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
                                   address::{BitcoinAddressType}};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
@@ -74,7 +74,7 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, _expected_num_rounds: u64) {
 
-        CoordinatorCommunication::instantiate();
+        let coordinator_receivers = CoordinatorCommunication::instantiate_singleton();
 
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::new(self.config.clone());
@@ -104,7 +104,6 @@ impl RunLoop {
 
         let _burnchain_tip = burnchain.start();
 
-        let workdir = self.config.node.working_dir.clone();
         let mainnet = false;
         let chainid = neon_node::TESTNET_CHAIN_ID;
         let block_limit = self.config.block_limit.clone();
@@ -117,13 +116,23 @@ impl RunLoop {
         }
 
         let coordinator_dispatcher = event_dispatcher.clone();
+        let burnchain_config = match Burnchain::new(&self.config.get_burn_db_path(), &self.config.burnchain.chain, "regtest") {
+            Ok(burnchain) => burnchain,
+            Err(e) => {
+                error!("Failed to instantiate burnchain: {}", e);
+                panic!()
+            }
+        };
+        let chainstate_path = self.config.get_chainstate_path();
+
         thread::spawn(move || {
-            ChainsCoordinator::run(&workdir, "regtest", mainnet, chainid,
+            ChainsCoordinator::run(&chainstate_path, burnchain_config, mainnet, chainid,
                                    Some(initial_balances),
-                                   block_limit, &coordinator_dispatcher, |_| {});
+                                   block_limit, &coordinator_dispatcher,
+                                   coordinator_receivers, |_| {});
         });        
         
-        let mut burnchain_tip = burnchain.resync(None);
+        let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
