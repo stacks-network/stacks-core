@@ -76,6 +76,7 @@ pub enum Error {
     NoSortitions,
     FailedToProcessSortition(BurnchainError),
     DBError(DBError),
+    NotPrepareEndBlock,
 }
 
 impl From<BurnchainError> for Error {
@@ -232,7 +233,7 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
 
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in reward cycle.
-            let reward_cycle_info = self.get_reward_cycle_info(&header);
+            let reward_cycle_info = self.get_reward_cycle_info(&header)?;
             let sortition_id = self.sortition_db.evaluate_sortition(
                 &header, ops, &self.burnchain, &canonical_sortition_tip, reward_cycle_info)
                 .map_err(|e| {
@@ -264,15 +265,25 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
     ///                     in our current sortition view:
     ///           * PoX anchor block
     ///           * Was PoX anchor block known?
-    fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Option<RewardCycleInfo> {
+    fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Result<Option<RewardCycleInfo>, Error> {
         if self.burnchain.is_reward_cycle_start(burn_header.block_height) {
             info!("Beginning reward cycle. block_height={}", burn_header.block_height);
-            Some(RewardCycleInfo {
-                anchor_block: None,
-                anchor_block_known: true
-            })
+            let ic = self.sortition_db.index_handle_at_tip();
+            if let Some((consensus_hash, stacks_block_hash)) = ic.get_reward_cycle_info(&burn_header.block_hash)? {
+                let anchor_block_known = StacksChainState::is_stacks_block_processed(
+                    &self.chain_state_db.headers_db, &consensus_hash, &stacks_block_hash)?;
+                Ok(Some(RewardCycleInfo {
+                    anchor_block: Some(stacks_block_hash),
+                    anchor_block_known
+                }))
+            } else {
+                Ok(Some(RewardCycleInfo {
+                    anchor_block: None,
+                    anchor_block_known: true
+                }))
+            }
         } else {
-            None
+            Ok(None)
         }
     }
 

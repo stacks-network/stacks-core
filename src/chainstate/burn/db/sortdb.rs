@@ -603,7 +603,6 @@ impl <'a> SortitionHandleTx <'a> {
 }
 
 impl <'a> SortitionHandleTx <'a> { 
-    // PoX todo: this acceptance tracking will need to change once the StacksChainView is integrated
     pub fn set_stacks_block_accepted(&mut self, consensus_hash: &ConsensusHash, parent_stacks_block_hash: &BlockHeaderHash,
                                      stacks_block_hash: &BlockHeaderHash, stacks_block_height: u64) -> Result<(), db_error> {
 
@@ -944,6 +943,14 @@ impl <'a> SortitionHandleConn <'a> {
         SortitionDB::get_block_commit_parent(self, block_height, vtxindex, &self.context.chain_tip)
     }
 
+    /// Get a block commit by txid. In the event of a burnchain fork, this may not be unique.
+    ///   this function simply returns one of those block commits: only use data that is
+    ///   immutable across burnchain/pox forks, e.g., parent block ptr,  
+    pub fn get_block_commit_by_txid(&self, txid: &Txid) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        let qry = "SELECT * FROM block_commits WHERE txid = ?1 LIMIT 1";
+        query_row(&self.conn, qry, &[&txid])
+    }
+
     /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
     /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
     /// construction.
@@ -986,6 +993,91 @@ impl <'a> SortitionHandleConn <'a> {
         Ok(key_status)
     }
 
+    /// Return a vec of sortition winner's burn header hash and stacks header hash, ordered by
+    ///   increasing block height.
+    fn get_sortition_winners_in_fork(&self, block_height_begin: u32, block_height_end: u32) -> Result<Vec<(Txid, u64)>,  BurnchainError> {
+        let mut result = vec![];
+        for height in block_height_begin..block_height_end {
+            let snapshot = SortitionDB::get_ancestor_snapshot(self, height as u64, &self.context.chain_tip)?
+                .ok_or_else(|| BurnchainError::MissingParentBlock)?;
+            if snapshot.sortition {
+                result.push((snapshot.winning_block_txid, snapshot.block_height));
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn get_reward_cycle_info(&self, prepare_end: &BurnchainHeaderHash) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+        let prepare_end_sortid = self.get_sortition_id_for_bhh(prepare_end)?
+            .ok_or_else(|| BurnchainError::MissingParentBlock)?;
+        let my_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
+            .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
+
+        let POX_PREPARE_LENGTH = 240;
+        let POX_REWARD_LENGTH = 1000;
+        let POX_ANCHOR_THRESHOLD = 240 * 4 / 5;
+
+        // there can be either 1 or 0 PoX anchors.
+        assert!(POX_ANCHOR_THRESHOLD > (POX_PREPARE_LENGTH / 2));
+
+        // if this block is the _end_ of a prepare phase,
+        //    height = (REWARD_LENGTH - 1) mod REWARD_LENGTH  
+        if ! (my_height % POX_REWARD_LENGTH == POX_REWARD_LENGTH - 1) {
+            return Err(CoordinatorError::NotPrepareEndBlock)
+        }
+
+        let prepare_end = my_height;
+        let prepare_begin = prepare_end - POX_PREPARE_LENGTH;
+
+        let mut candidate_anchors = HashMap::new();
+        let mut memoized_candidates: HashMap<_, (Txid, u64)> = HashMap::new();
+
+        // iterate over every sortition winner in the prepare phase
+        //   looking for their highest ancestor _before_ prepare_begin.
+        let winners = self.get_sortition_winners_in_fork(prepare_begin, prepare_end)?;
+        for (winner_commit_txid, winner_block_height) in winners.into_iter() {
+            let mut cursor = (winner_commit_txid, winner_block_height);
+
+            while cursor.1 >= (prepare_begin as u64) {
+                // check if we've already discovered the candidate for this block
+                if let Some(ancestor) = memoized_candidates.get(&cursor.1) {
+                    cursor = ancestor.clone();
+                } else {
+                    // get the block commit
+                    let block_commit = self.get_block_commit_by_txid(&cursor.0)?
+                        .expect("CORRUPTED: Failed to fetch block commit for known sortition winner");
+                    // find the parent sortition
+                    let sn = SortitionDB::get_ancestor_snapshot(self, block_commit.parent_block_ptr as u64, &self.context.chain_tip)?
+                        .expect("CORRUPTED: accepted block commit, but parent pointer not in sortition set");
+                    assert!(sn.sortition, "CORRUPTED: accepted block commit, but parent pointer not a sortition winner");
+
+                    cursor = (sn.winning_block_txid, sn.block_height);
+                }
+            }
+            // this is the burn block height of the sortition that chose the
+            //   highest ancestor of winner_stacks_bh whose sortition occurred before prepare_begin
+            //  the winner of that sortition is the PoX anchor block candidate that winner_stacks_bh is "voting for"
+            let highest_ancestor = cursor.1;
+            memoized_candidates.insert(winner_block_height, cursor);
+            if let Some(x) = candidate_anchors.get_mut(&highest_ancestor) {
+                *x += 1;
+            } else {
+                candidate_anchors.insert(highest_ancestor, 1u32);
+            }
+        }
+
+        // did any candidate receive > F*w?
+        for (candidate, confirmed_by) in candidate_anchors.into_iter() {
+            if confirmed_by > POX_ANCHOR_THRESHOLD {
+                // find the sortition at height
+                let sn = SortitionDB::get_ancestor_snapshot(self, candidate, &self.context.chain_tip)?
+                    .expect("BUG: cannot find chosen PoX candidate's sortition");
+                return Ok(Some((sn.consensus_hash, sn.winning_stacks_block_hash)))
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 impl PoxId {
@@ -1396,6 +1488,12 @@ impl SortitionDB {
             .map(|x| x.is_some())
     }
 
+    fn get_block_height(conn: &Connection, sortition_id: &SortitionId) -> Result<Option<u32>, db_error> {
+        let qry = "SELECT block_height FROM snapshots WHERE sortition_id = ? LIMIT 1) LIMIT 1";
+        conn.query_row(qry, &[sortition_id], |row| row.get(0)).optional()
+            .map_err(db_error::from)
+    }
+
     /// Is the given block an expected PoX anchor in this sortition history?
     ///  if so, return the Stacks block hash
     pub fn is_stacks_block_pox_anchor(&mut self, block: &BlockHeaderHash, sortition_tip: &SortitionId) -> Result<Option<BlockHeaderHash>, BurnchainError> {
@@ -1532,6 +1630,11 @@ impl SortitionDB {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e))
         }
+    }
+
+    pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
+        self.index_handle(&sortition_id)
     }
 
     /// Open a tx handle at the burn chain tip
