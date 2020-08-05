@@ -142,7 +142,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
     }
 }
 
-pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher> {
+pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, ()> {
     ChainsCoordinator::test_new(&get_burnchain(path), path)
 }
 

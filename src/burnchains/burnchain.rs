@@ -619,7 +619,7 @@ impl Burnchain {
 
         let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
 
-        CoordinatorCommunication::announce_burn_block();
+        CoordinatorCommunication::announce_new_burn_block();
 
         let header = block.header();
 

@@ -74,7 +74,7 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, _expected_num_rounds: u64) {
 
-        CoordinatorCommunication::instantiate();
+        let coordinator_receivers = CoordinatorCommunication::instantiate_singleton();
 
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::new(self.config.clone());
@@ -120,7 +120,8 @@ impl RunLoop {
         thread::spawn(move || {
             ChainsCoordinator::run(&workdir, "regtest", mainnet, chainid,
                                    Some(initial_balances),
-                                   block_limit, &coordinator_dispatcher, |_| {});
+                                   block_limit, &coordinator_dispatcher,
+                                   coordinator_receivers, |_| {});
         });        
         
         let mut burnchain_tip = burnchain.resync(None);
