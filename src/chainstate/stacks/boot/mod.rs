@@ -1507,7 +1507,7 @@ pub mod test {
     fn test_pox_lockup_register_delegate_withdraw_single() {
         let (mut peer, mut keys) = instantiate_pox_peer("test-pox-lockup-register-delegate-withdraw-single", 6014);
 
-        let num_blocks = 10;
+        let num_blocks = 16;
 
         let alice = keys.pop().unwrap();
         let bob = keys.pop().unwrap();
@@ -1747,7 +1747,6 @@ pub mod test {
         let mut reward_cycle = 0;
         let mut withdraw_reward_cycle = 0;
         let mut alice_withdrawn = false;
-        let mut bob_withdrawn = false;
         let mut danielle_withdrawn = false;
 
         for tenure_id in 0..num_blocks {
