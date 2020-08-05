@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::{
     thread, process
 };
@@ -7,38 +6,11 @@ use std::time::{
 };
 use std::sync::{
     Arc, RwLock,
-    atomic::{Ordering, AtomicU64, AtomicBool}
+    atomic::{Ordering, AtomicU64}
 };
 
-use crossbeam_channel::{select, bounded, Sender, Receiver, Select, TrySendError};
+use crossbeam_channel::{bounded, Sender, Receiver, TrySendError};
 
-use core;
-use burnchains::{
-    BurnchainHeaderHash, Error as BurnchainError,
-    Burnchain, BurnchainBlockHeader,
-    db::{
-        BurnchainDB, BurnchainBlockData
-    }
-};
-use chainstate::burn::{BlockHeaderHash, BlockSnapshot};
-use chainstate::burn::db::sortdb::{SortitionDB, PoxId, SortitionId};
-use chainstate::stacks::{
-    StacksBlock, StacksBlockId, TransactionPayload,
-    Error as ChainstateError, events::StacksTransactionReceipt,
-};
-use chainstate::stacks::db::{
-    StacksHeaderInfo, StacksChainState, ClarityTx
-};
-use monitoring::{
-    increment_stx_blocks_processed_counter,
-};
-use vm::{
-    costs::ExecutionCost,
-    types::PrincipalData
-};
-use util::db::{
-    Error as DBError
-};
 
 /// Trait for use by the ChainsCoordinator
 /// 

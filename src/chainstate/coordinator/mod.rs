@@ -1,30 +1,20 @@
-#[warn(unused_imports)]
 use std::collections::VecDeque;
-use std::{
-    thread, process
-};
 use std::time::{
-    Duration, Instant
+    Duration
 };
-use std::sync::{
-    Arc, RwLock,
-    atomic::{Ordering, AtomicU64, AtomicBool}
-};
+use crossbeam_channel::{Select};
 
-use crossbeam_channel::{select, bounded, Sender, Receiver, Select, TrySendError};
-
-use core;
 use burnchains::{
-    BurnchainHeaderHash, Error as BurnchainError,
+    Error as BurnchainError,
     Burnchain, BurnchainBlockHeader,
     db::{
         BurnchainDB, BurnchainBlockData
     }
 };
-use chainstate::burn::{BlockHeaderHash, BlockSnapshot};
+use chainstate::burn::{BlockHeaderHash};
 use chainstate::burn::db::sortdb::{SortitionDB, PoxId, SortitionId};
 use chainstate::stacks::{
-    StacksBlock, StacksBlockId, TransactionPayload,
+    StacksBlock, StacksBlockId,
     Error as ChainstateError, events::StacksTransactionReceipt,
 };
 use chainstate::stacks::db::{
@@ -107,7 +97,7 @@ impl From<DBError> for Error {
 }
 
 impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinatorNotices> {
-    pub fn run<F>(state_path: &str, burnchain: &str, stacks_mainnet: bool, stacks_chain_id: u32,
+    pub fn run<F>(chain_state_path: &str, burnchain: Burnchain, stacks_mainnet: bool, stacks_chain_id: u32,
                   initial_balances: Option<Vec<(PrincipalData, u64)>>,
                   block_limit: ExecutionCost, dispatcher: &T, comms: CoordinatorReceivers,
                   boot_block_exec: F)
@@ -124,16 +114,11 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
         let event_burn_block = event_receiver.recv(&burn_block_channel);
         let event_stop = event_receiver.recv(&stop_channel);
 
-        let burnchain = Burnchain::new(&format!("{}/burnchain/db/", state_path), "bitcoin", burnchain).unwrap();
-
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
         let chain_state_db = StacksChainState::open_and_exec(
-            stacks_mainnet, stacks_chain_id, &format!("{}/chainstate/", state_path),
-            initial_balances,
-            boot_block_exec,
-            block_limit)
-            .unwrap();
+            stacks_mainnet, stacks_chain_id, chain_state_path,
+            initial_balances, boot_block_exec, block_limit).unwrap();
 
         let canonical_sortition_tip = SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
