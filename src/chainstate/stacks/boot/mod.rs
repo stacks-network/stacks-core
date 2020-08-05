@@ -107,6 +107,34 @@ impl Value {
             panic!(format!("Value '{:?}' is not a bool", &self));
         }
     }
+    
+    pub fn expect_result_ok(self) -> Value {
+        if let Value::Response(res_data) = self {
+            if res_data.committed {
+                *res_data.data
+            }
+            else {
+                panic!("FATAL: not a (ok ..)");
+            }
+        }
+        else {
+            panic!("FATAL: not a response");
+        }
+    }
+
+    pub fn expect_result_err(self) -> Value {
+        if let Value::Response(res_data) = self {
+            if !res_data.committed {
+                *res_data.data
+            }
+            else {
+                panic!("FATAL: not a (err ..)");
+            }
+        }
+        else {
+            panic!("FATAL: not a response");
+        }
+    }
 }
 
 impl StacksChainState {
@@ -212,21 +240,7 @@ pub mod test {
     use std::fs;
     use std::convert::From;
 
-    impl Value {
-        fn expect_result_err(self) -> Value {
-            if let Value::Response(res_data) = self {
-                if !res_data.committed {
-                    *res_data.data
-                }
-                else {
-                    panic!("FATAL: not a (err ..)");
-                }
-            }
-            else {
-                panic!("FATAL: not a (response ..)");
-            }
-        }
-    }
+    use util::hash::to_hex;
 
     fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
         StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(key)]).unwrap()
@@ -357,6 +371,143 @@ pub mod test {
         bare_code.set_fee_rate(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&bare_code);
+        tx_signer.sign_origin(key).unwrap();
+        tx_signer.get_tx().unwrap()
+    }
+    
+    fn make_register_delegate(key: &StacksPrivateKey, nonce: u64, 
+                              addr_version: AddressHashMode, addr_bytes: Hash160, 
+                              tenure_burn_block_begin: u128, 
+                              tenure_reward_cycles: u128,
+                              withdrawal: Option<(StacksAddress, u128)>) -> StacksTransaction {
+        // (define-public (register-delegate (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+        //                                   (tenure-burn-block-begin uint)
+        //                                   (tenure-reward-cycles uint)
+        //                                   (withdrawal (optional (tuple (recipient principal) (deadline uint)))))
+        let auth = TransactionAuth::from_p2pkh(key).unwrap();
+        let addr = auth.origin().address_testnet();
+        let withdrawal_value = match withdrawal {
+            Some((addr, deadline)) => {
+                Value::some(Value::Tuple(TupleData::from_data(vec![
+                    (ClarityName::try_from("recipient").unwrap(), Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(addr)))),
+                    (ClarityName::try_from("deadline").unwrap(), Value::UInt(deadline))
+                ]).unwrap())).unwrap()
+            },
+            None => {
+                Value::none()
+            }
+        };
+
+        let mut register_delegate = StacksTransaction::new(
+                                        TransactionVersion::Testnet, auth,
+                                        TransactionPayload::new_contract_call(boot_code_addr(),
+                                                                             "pox-api",
+                                                                             "register-delegate",
+                                                                             vec![
+                                                                                make_pox_addr(addr_version, addr_bytes),
+                                                                                Value::UInt(tenure_burn_block_begin),
+                                                                                Value::UInt(tenure_reward_cycles),
+                                                                                withdrawal_value
+                                                                             ]).unwrap());
+        register_delegate.chain_id = 0x80000000;
+        register_delegate.auth.set_origin_nonce(nonce);
+        register_delegate.set_post_condition_mode(TransactionPostConditionMode::Deny);
+        register_delegate.set_fee_rate(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&register_delegate);
+        tx_signer.sign_origin(key).unwrap();
+        tx_signer.get_tx().unwrap()
+    }
+
+    fn make_delegate_stx(key: &StacksPrivateKey, nonce: u64, delegate: &StacksAddress, amount: u128) -> StacksTransaction {
+        // (define-public (delegate-stx (delegate principal)
+        //                              (amount-ustx uint))
+        let auth = TransactionAuth::from_p2pkh(key).unwrap();
+        let addr = auth.origin().address_testnet();
+        
+        let mut delegate_stx = StacksTransaction::new(
+                                        TransactionVersion::Testnet, auth,
+                                        TransactionPayload::new_contract_call(boot_code_addr(),
+                                                                             "pox-api",
+                                                                             "delegate-stx",
+                                                                             vec![
+                                                                                Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(delegate.clone()))),
+                                                                                Value::UInt(amount)
+                                                                             ]).unwrap());
+        delegate_stx.chain_id = 0x80000000;
+        delegate_stx.auth.set_origin_nonce(nonce);
+        delegate_stx.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        delegate_stx.set_fee_rate(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&delegate_stx);
+        tx_signer.sign_origin(key).unwrap();
+        tx_signer.get_tx().unwrap()
+    }
+    
+    fn make_delegate(key: &StacksPrivateKey, nonce: u64) -> StacksTransaction {
+        // (define-public (delegate-stack-stx))
+        let auth = TransactionAuth::from_p2pkh(key).unwrap();
+        let addr = auth.origin().address_testnet();
+        
+        let mut delegate = StacksTransaction::new(
+                                        TransactionVersion::Testnet, auth,
+                                        TransactionPayload::new_contract_call(boot_code_addr(),
+                                                                             "pox-api",
+                                                                             "delegate-stack-stx",
+                                                                             vec![]).unwrap());
+
+        delegate.chain_id = 0x80000000;
+        delegate.auth.set_origin_nonce(nonce);
+        delegate.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        delegate.set_fee_rate(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&delegate);
+        tx_signer.sign_origin(key).unwrap();
+        tx_signer.get_tx().unwrap()
+    }
+    
+    fn make_withdraw_stx(key: &StacksPrivateKey, nonce: u64, recipient: &StacksAddress) -> StacksTransaction {
+        // (define-public (withdraw-stx (recipient principal))
+        let auth = TransactionAuth::from_p2pkh(key).unwrap();
+        let addr = auth.origin().address_testnet();
+        
+        let mut withdraw = StacksTransaction::new(
+                                        TransactionVersion::Testnet, auth,
+                                        TransactionPayload::new_contract_call(boot_code_addr(),
+                                                                             "pox-api",
+                                                                             "withdraw-stx",
+                                                                             vec![
+                                                                                Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(recipient.clone()))),
+                                                                             ]).unwrap());
+
+        withdraw.chain_id = 0x80000000;
+        withdraw.auth.set_origin_nonce(nonce);
+        withdraw.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        withdraw.set_fee_rate(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&withdraw);
+        tx_signer.sign_origin(key).unwrap();
+        tx_signer.get_tx().unwrap()
+    }
+    
+    fn make_delegate_withdraw_stx(key: &StacksPrivateKey, nonce: u64, recipient: &StacksAddress) -> StacksTransaction {
+        // (define-public (delegate-withdraw-stx))
+        let auth = TransactionAuth::from_p2pkh(key).unwrap();
+        let addr = auth.origin().address_testnet();
+        
+        let mut withdraw = StacksTransaction::new(
+                                        TransactionVersion::Testnet, auth,
+                                        TransactionPayload::new_contract_call(boot_code_addr(),
+                                                                             "pox-api",
+                                                                             "delegate-withdraw-stx",
+                                                                             vec![]).unwrap());
+
+        withdraw.chain_id = 0x80000000;
+        withdraw.auth.set_origin_nonce(nonce);
+        withdraw.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        withdraw.set_fee_rate(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&withdraw);
         tx_signer.sign_origin(key).unwrap();
         tx_signer.get_tx().unwrap()
     }
@@ -679,38 +830,53 @@ pub mod test {
                     block_txs.push(alice_lockup_2);
                 }
                 if tenure_id == 2 {
+                    // should fail -- Alice's PoX address is already in use, so Bob can't use it.
                     let bob_test_tx = make_bare_contract(&bob, 0, "bob-test", &format!(
                         "(define-data-var bob-test-run bool false)
+                        (let (
+                            (res
+                                (contract-call? '{}.pox-api stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
+                        )
                         (begin
-                            (asserts! (is-eq (err 12) (contract-call? '{}.pox-api stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
-                                (err \"Failed duplicate PoX address check\"))
+                            (asserts! (is-eq (err 12) res)
+                                (err res))
 
                             (var-set bob-test-run true)
-                        )
+                        ))
                         ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(bob_test_tx);
 
+                    // should fail -- Alice has already stacked.
                     let alice_test_tx = make_bare_contract(&alice, 2, "alice-test", &format!(
                         "(define-data-var alice-test-run bool false)
+                        (let (
+                            (res
+                                (contract-call? '{}.pox-api stack-stx u512000000 (tuple (version u0) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12))
+                        )
                         (begin
-                            (asserts! (is-eq (err 3) (contract-call? '{}.pox-api stack-stx u512000000 (tuple (version u0) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12))
-                                (err \"Failed duplicate stacker check\"))
+                            (asserts! (is-eq (err 3) res)
+                                (err res))
 
                             (var-set alice-test-run true)
-                        )
+                        ))
                         ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(alice_test_tx);
 
+                    // should fail -- Charlie doesn't have enough uSTX
                     let charlie_test_tx = make_bare_contract(&charlie, 0, "charlie-test", &format!(
                         "(define-data-var charlie-test-run bool false)
+                        (let (
+                            (res
+                                (contract-call? '{}.pox-api stack-stx u1024000000000 (tuple (version u0) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12))
+                        )
                         (begin
-                            (asserts! (is-eq (err 1) (contract-call? '{}.pox-api stack-stx u1024000000000 (tuple (version u0) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12))
-                                (err \"Failed insufficient funds check\"))
+                            (asserts! (is-eq (err 1) res)
+                                (err res))
 
                             (var-set charlie-test-run true)
-                        )
+                        ))
                         ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(charlie_test_tx);
@@ -768,48 +934,1085 @@ pub mod test {
                 assert!(bob_test_result.expect_bool());
                 assert!(charlie_test_result.expect_bool());
             }
-            /*
-            else {
-                // Alice's single address is locked as of the next reward cycle
+        }
+    }
+    
+    #[test]
+    fn test_pox_lockup_register_delegate_single() {
+        let (mut peer, mut keys) = instantiate_pox_peer("test-pox-lockup-register-delegate-single", 6008);
+
+        let num_blocks = 10;
+
+        let alice = keys.pop().unwrap();
+        let bob = keys.pop().unwrap();
+        let charlie = keys.pop().unwrap();
+        let danielle = keys.pop().unwrap();
+
+        for tenure_id in 0..num_blocks {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut block_txs = vec![
+                    coinbase_tx
+                ];
+
+                if tenure_id == 2 {
+                    // Danielle registers as a delegate.
+                    let danielle_delegate = make_register_delegate(&danielle, 0, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&danielle).bytes, parent_tip.burn_header_height as u128, 12, None);
+
+                    // Alice delegates her STX to danielle, and meets the minimum threshold
+                    let alice_delegate = make_delegate_stx(&alice, 0, &key_to_stacks_addr(&danielle), 1024 * 1000000);
+                    
+                    block_txs.push(danielle_delegate);
+                    block_txs.push(alice_delegate);
+                }
+                if tenure_id == 3 {
+                    // should fail -- danielle cannot register as a delegate again
+                    let danielle_test_tx = make_bare_contract(&danielle, 1, "danielle-test", &format!(
+                        "(define-data-var danielle-test-run bool false)
+                        (let (
+                            (res-del
+                                (contract-call? '{}.pox-api register-delegate (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u100 u6 none))
+                            
+                            (res-stx
+                                (contract-call? '{}.pox-api stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
+                        )
+                        (begin
+                            (asserts! (is-eq (err 8) res-stx)
+                                (err res-stx))
+
+                            (asserts! (is-eq (err 15) res-del)
+                                (err res-del))
+
+                            (var-set danielle-test-run true)
+                        ))
+                        ", STACKS_BOOT_CODE_CONTRACT_ADDRESS, STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+
+                    block_txs.push(danielle_test_tx);
+
+                    // should succeed -- danielle activates the delegation
+                    let danielle_delegate = make_delegate(&danielle, 2);
+                    block_txs.push(danielle_delegate);
+                }
+
+                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                (anchored_block, vec![])
+            });
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            let total_liquid_ustx = get_liquid_ustx(&mut peer);
+
+            if tenure_id < 2 {
+                // Alice has done nothing
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 1024 * 1000000);
+            }
+            else if tenure_id == 2 {
+                // Danielle has become a delegate over Alice's tokens
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                    "(let (
+                        (alice '{})
+                        (danielle '{})
+                        (alice-ustx u{})
+                        (danielle-addrbytes 0x{})
+                    )
+                    (begin
+                        ;; Danielle is a delegate
+                        (asserts! (is-some (map-get? delegate-control {{ delegate: danielle }}))
+                            (err \"Danielle is not a delegate\"))
+
+                        ;; Alice is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: alice }}))
+                            (err \"Alice is not a stacker\"))
+
+                        ;; Alice's delegate is Danielle
+                        (asserts! (is-eq (some (some danielle)) (get delegate (map-get? stacking-state {{ stacker: alice }})))
+                            (err \"Danielle is not the delegate of Alice\"))
+
+                        ;; Danielle has Alice's stacks
+                        (asserts! (is-eq (some alice-ustx) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))
+                            (err \"Danielle does not control Alice's tokens\"))
+
+                        ;; Danielle is _not_ a Stacker, yet
+                        (asserts! (is-none (map-get? stacking-state {{ stacker: danielle }}))
+                            (err \"Danielle is a Stacker already\"))
+
+                        ;; Danielle's PoX address is marked registered
+                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                            (err \"Danielle PoX address is not registered\"))
+
+                        ;; Danielle's PoX address is _not_ in the reward cycles, though!
+                        (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is registered to a reward cycle\"))
+
+                        (ok true)
+                    ))
+                    ", &key_to_stacks_addr(&alice), &key_to_stacks_addr(&danielle), 1024 * 1000000, &to_hex(&key_to_stacks_addr(&danielle).bytes.0)));
+
+                assert!(danielle_query_result.expect_result_ok().expect_bool());
+                
+                // Alice delegated everything to Danielle
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 0);
+
+                // No PoX addresses yet
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(sortdb)).unwrap();
+                assert_eq!(reward_addrs.len(), 0);
+            }
+            else if tenure_id == 3 {
+                // Danielle is now a Stacker
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                    "(let (
+                        (danielle '{})
+                        (danielle-addrbytes 0x{})
+                    )
+                    (begin
+                        ;; Danielle is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: danielle }}))
+                            (err \"Danielle is not a Stacker\"))
+
+                        ;; Danielle's PoX address is registered somewhere between reward cycles 0 and 2000
+                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                            (err \"Danielle PoX address not registered\"))
+
+                        ;; Danielle's PoX address is not currently active
+                        (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (get-current-reward-cycle) }})))
+                            (err \"Danielle PoX address is registered to the pre-first reward cycle\"))
+
+                        ;; Danielle's PoX address is in the first and last reward cycles
+                        (asserts! (is-eq (some u1) (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is not registered to the first reward cycle\"))
+                        
+                        (asserts! (is-eq (some u1) (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u12 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is not registered to the last reward cycle\"))
+                        
+                        ;; Danielle's PoX address is no longer active after the last reward cycle
+                        (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u13 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is registered beyond end of the last reward cycle\"))
+
+                        true
+                    ))
+                    ", &key_to_stacks_addr(&danielle), &to_hex(&key_to_stacks_addr(&danielle).bytes.0)));
+
+                assert!(danielle_query_result.expect_bool());
+            }
+
+            else if tenure_id >= 8 {
+                // next reward cycle is active.
+                // danielle's reward address is present, and it represents alice's tokens.
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(sortdb)).unwrap();
+                assert_eq!(reward_addrs.len(), 1);
+
+                assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
+                assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&danielle).bytes);
+                assert_eq!(reward_addrs[0].1, 1024 * 1000000);
+            }
+        }
+    }
+
+    #[test]
+    fn test_pox_lockup_register_delegate_multi() {
+        let (mut peer, mut keys) = instantiate_pox_peer("test-pox-lockup-register-delegate-multi", 6010);
+
+        let num_blocks = 10;
+
+        let alice = keys.pop().unwrap();
+        let bob = keys.pop().unwrap();
+        let charlie = keys.pop().unwrap();
+        let danielle = keys.pop().unwrap();
+
+        let mut alice_stacked = 0;
+        let mut bob_stacked = 0;
+        let mut min_ustx_before_stacking = 0;
+
+        for tenure_id in 0..num_blocks {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            if tenure_id == 2 {
+                min_ustx_before_stacking = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb)).unwrap();
+                assert!(min_ustx_before_stacking > 0);
+
+                alice_stacked = min_ustx_before_stacking - 1;
+                bob_stacked = 1;
+            }
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut block_txs = vec![
+                    coinbase_tx
+                ];
+
+                if tenure_id == 2 {
+                    assert!(min_ustx_before_stacking > 0);
+
+                    // Danielle registers as a delegate.
+                    let danielle_delegate = make_register_delegate(&danielle, 0, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&danielle).bytes, parent_tip.burn_header_height as u128, 12, None);
+
+                    // Alice delegates her STX to danielle, and does _not_ meet the minimum threshold by herself!
+                    let alice_delegate = make_delegate_stx(&alice, 0, &key_to_stacks_addr(&danielle), alice_stacked);
+
+                    // Bob delegates 1 uSTX to danielle, pushing the total over the minimum!
+                    let bob_delegate = make_delegate_stx(&bob, 0, &key_to_stacks_addr(&danielle), bob_stacked);
+                    
+                    block_txs.push(danielle_delegate);
+                    block_txs.push(alice_delegate);
+                    block_txs.push(bob_delegate);
+                }
+                if tenure_id == 3 {
+                    // should succeed -- danielle activates the delegation
+                    let danielle_delegate = make_delegate(&danielle, 1);
+                    block_txs.push(danielle_delegate);
+                }
+
+                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                (anchored_block, vec![])
+            });
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            let total_liquid_ustx = get_liquid_ustx(&mut peer);
+
+            if tenure_id < 2 {
+                // Alice has done nothing
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 1024 * 1000000);
+
+                // Bob has done nothing
+                let bob_balance = get_balance(&mut peer, &key_to_stacks_addr(&bob));
+                assert_eq!(bob_balance, 1024 * 1000000);
+            }
+            else if tenure_id == 2 {
+                // Danielle has become a delegate over Alice's tokens _and_ Bob's tokens
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                    "(let (
+                        (alice '{})
+                        (bob '{})
+                        (danielle '{})
+                        (alice-ustx u{})
+                        (bob-ustx u{})
+                        (danielle-addrbytes 0x{})
+                    )
+                    (begin
+                        ;; Danielle is a delegate
+                        (asserts! (is-some (map-get? delegate-control {{ delegate: danielle }}))
+                            (err \"Danielle is not a delegate\"))
+
+                        ;; Alice is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: alice }}))
+                            (err \"Alice is not a stacker\"))
+                        
+                        ;; Bob is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: bob }}))
+                            (err \"Bob is not a stacker\"))
+
+                        ;; Alice's delegate is Danielle
+                        (asserts! (is-eq (some (some danielle)) (get delegate (map-get? stacking-state {{ stacker: alice }})))
+                            (err \"Danielle is not the delegate of Alice\"))
+                        
+                        ;; Bob's delegate is Danielle
+                        (asserts! (is-eq (some (some danielle)) (get delegate (map-get? stacking-state {{ stacker: bob }})))
+                            (err \"Danielle is not the delegate of Alice\"))
+
+                        ;; Danielle has Alice's STX and Bob's STX
+                        (asserts! (is-eq (some (+ alice-ustx bob-ustx)) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))
+                            (err \"Danielle does not control Alice's tokens\"))
+
+                        ;; Danielle is _not_ a Stacker, yet
+                        (asserts! (is-none (map-get? stacking-state {{ stacker: danielle }}))
+                            (err \"Danielle is a Stacker already\"))
+
+                        ;; Danielle's PoX address is marked registered
+                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                            (err \"Danielle PoX address is not registered\"))
+
+                        ;; Danielle's PoX address is _not_ in the reward cycles, though!
+                        (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is registered to a reward cycle\"))
+
+                        (ok true)
+                    ))
+                    ", &key_to_stacks_addr(&alice), &key_to_stacks_addr(&bob), &key_to_stacks_addr(&danielle), alice_stacked, bob_stacked, &to_hex(&key_to_stacks_addr(&danielle).bytes.0)));
+
+                assert!(danielle_query_result.expect_result_ok().expect_bool());
+                
+                // Alice delegated balance to Danielle
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 1024 * 1000000 - alice_stacked);
+                
+                // Bob delegated balance to Danielle
+                let bob_balance = get_balance(&mut peer, &key_to_stacks_addr(&bob));
+                assert_eq!(bob_balance, 1024 * 1000000 - bob_stacked);
+
+                // No PoX addresses yet
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(sortdb)).unwrap();
+                assert_eq!(reward_addrs.len(), 0);
+            }
+            else if tenure_id == 3 {
+                // Danielle is now a Stacker
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                    "(let (
+                        (danielle '{})
+                        (danielle-addrbytes 0x{})
+                    )
+                    (begin
+                        ;; Danielle is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: danielle }}))
+                            (err \"Danielle is not a Stacker\"))
+
+                        ;; Danielle's PoX address is registered somewhere between reward cycles 0 and 2000
+                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                            (err \"Danielle PoX address not registered\"))
+
+                        ;; Danielle's PoX address is not currently active
+                        (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (get-current-reward-cycle) }})))
+                            (err \"Danielle PoX address is registered to the pre-first reward cycle\"))
+
+                        ;; Danielle's PoX address is in the first and last reward cycles
+                        (asserts! (is-eq (some u1) (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is not registered to the first reward cycle\"))
+                        
+                        (asserts! (is-eq (some u1) (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u12 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is not registered to the last reward cycle\"))
+                        
+                        ;; Danielle's PoX address is no longer active after the last reward cycle
+                        (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u13 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is registered beyond end of the last reward cycle\"))
+
+                        true
+                    ))
+                    ", &key_to_stacks_addr(&danielle), &to_hex(&key_to_stacks_addr(&danielle).bytes.0)));
+
+                assert!(danielle_query_result.expect_bool());
+            }
+            else if tenure_id >= 8 {
+                // next reward cycle is active.
+                // danielle's reward address is present, and it represents alice's and bob's tokens.
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(sortdb)).unwrap();
+                assert_eq!(reward_addrs.len(), 1);
+
+                assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
+                assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&danielle).bytes);
+                assert_eq!(reward_addrs[0].1, alice_stacked + bob_stacked);
+            }
+        }
+    }
+    
+    #[test]
+    fn test_pox_lockup_withdraw() {
+        let (mut peer, mut keys) = instantiate_pox_peer("test-pox-lockup-withdraw", 6012);
+
+        let num_blocks = 20;
+
+        let alice = keys.pop().unwrap();
+        let bob = keys.pop().unwrap();
+        let charlie = keys.pop().unwrap();
+        let danielle = keys.pop().unwrap();
+
+        let mut cur_reward_cycle = 0;
+        let mut alice_reward_cycle = 0;
+        let mut alice_withdraw_reward_cycle = 0;
+        let mut tried_bad_withdraw = false;
+        let mut alice_withdrawn = false;
+
+        for tenure_id in 0..num_blocks {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut block_txs = vec![
+                    coinbase_tx
+                ];
+
+                if tenure_id == 1 {
+                    // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
+                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1);
+                    block_txs.push(alice_lockup);
+                }
+                else if cur_reward_cycle > 0 && cur_reward_cycle < alice_withdraw_reward_cycle {
+                    // verify that we _can't_ withdraw
+                    if !tried_bad_withdraw {
+                        let danielle_test_tx = make_bare_contract(&alice, 1, "bad-withdraw-test", &format!(
+                            "(define-data-var withdraw-test-run bool false)
+                            (let (
+                                (recipient '{})
+                            )
+                            (begin
+                                (let (
+                                    (withdraw-res
+                                        (contract-call? '{}.pox-api withdraw-stx recipient))
+                                )
+                                (begin
+                                    ;; stx are still locked
+                                    (asserts! (is-eq (err 6) withdraw-res)
+                                        (err withdraw-res))
+                                ))
+
+                                (var-set withdraw-test-run true)
+                            ))
+                            ", &key_to_stacks_addr(&alice), STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+
+                        block_txs.push(danielle_test_tx);
+
+                        tried_bad_withdraw = true;
+                        test_debug!("try-bad-withdraw transaction sent");
+                    }
+                }
+                else if cur_reward_cycle > 0 && cur_reward_cycle == alice_withdraw_reward_cycle {
+                    if !alice_withdrawn {
+                        let alice_withdraw = make_withdraw_stx(&alice, 2, &key_to_stacks_addr(&alice));
+                        block_txs.push(alice_withdraw);
+
+                        alice_withdrawn = true;
+                        test_debug!("withdraw transaction sent");
+                    }
+                }
+
+                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                (anchored_block, vec![])
+            });
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            // refresh
+            cur_reward_cycle = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_current_reward_cycle(sortdb)).unwrap();
+            let total_liquid_ustx = get_liquid_ustx(&mut peer);
+
+            if tenure_id < 1 {
+                // Alice has not locked up STX
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 1024 * 1000000);
+            }
+            else if tenure_id == 1 {
+
+                // stacking minimum should be floor(total-liquid-ustx / 20000)
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb)).unwrap();
+                assert_eq!(min_ustx, total_liquid_ustx / 20000);
+
+                // no reward addresses
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(sortdb)).unwrap();
+                assert_eq!(reward_addrs.len(), 0);
+
+                // record the first reward cycle when Alice's tokens get stacked, as well as the
+                // cycle in which we can withdraw them.
+                alice_reward_cycle = 1 + cur_reward_cycle;
+                alice_withdraw_reward_cycle = alice_reward_cycle + 1;
                 let cur_reward_cycle = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_current_reward_cycle(sortdb)).unwrap();
 
-                // Alice has locked up STX no matter what
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
-                assert_eq!(alice_balance, 1024 * 1000000 / 2);
+                eprintln!("\nalice reward cycle: {}\ncur reward cycle: {}\n", alice_reward_cycle, cur_reward_cycle);
+            }
+            else {
+                // Alice has locked up STX no matter what, until she withdraws it
+                if !alice_withdrawn {
+                    let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                    assert_eq!(alice_balance, 0);
+                }
                 
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb)).unwrap();
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(sortdb)).unwrap();
                 
                 eprintln!("\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\n", cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx);
 
-                if cur_reward_cycle >= first_reward_cycle {
-                    // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= 8 {
-                        // miner rewards increased liquid supply, so less than 25% is locked.
-                        // minimum participation decreases.
-                        assert!(total_liquid_ustx > 4 * 1024 * 1000000);
-                    }
-                    else {
-                        // still at 25% or more locked
-                        assert!(total_liquid_ustx <= 4 * 1024 * 1000000);
-                    }
-                    
-                    // well under 25% locked, so this is always true
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
+                if cur_reward_cycle == alice_reward_cycle {
+                    // alice is in the reward cycle, and cannot withdraw.  Verify this
+                    let alice_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                        "(let (
+                            (alice '{})
+                            (alice-addrbytes 0x{})
+                        )
+                        (begin
+                            ;; Alice is a Stacker
+                            (asserts! (is-some (map-get? stacking-state {{ stacker: alice }}))
+                                (err \"Alice is not a Stacker\"))
 
-                    // only a single address (Alice's)
-                    assert_eq!(reward_addrs.len(), 1);
-                    assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
-                    assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&alice).bytes);
-                    assert_eq!(reward_addrs[0].1, 1024 * 1000000 / 2);
+                            ;; Alice's PoX address is registered
+                            (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes alice-addrbytes)) (get-current-reward-cycle) (+ u1 (get-current-reward-cycle)))
+                                (err \"Alice PoX address not registered\"))
+
+                            ;; Alice's PoX address is currently active
+                            (asserts! (is-eq (some u1) (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (get-current-reward-cycle) }})))
+                                (err \"Alice PoX address is not currently active\"))
+
+                            ;; Alice's PoX address will not be active in the next cycle
+                            (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                                (err \"ALice PoX address still registered to the next reward cycle\"))
+
+                            true
+                        ))
+                        ", &key_to_stacks_addr(&alice), &to_hex(&key_to_stacks_addr(&alice).bytes.0)));
+
+                    assert!(alice_query_result.expect_bool());
+
+                    let withdraw_failed = eval_contract_at_tip(&mut peer, &key_to_stacks_addr(&alice), "bad-withdraw-test", "(var-get withdraw-test-run)");
+                    assert!(withdraw_failed.expect_bool());
                 }
-                else {
-                    // no reward addresses
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
-                    assert_eq!(reward_addrs.len(), 0);
+                else if cur_reward_cycle > alice_reward_cycle {
+                    // alice is no longer in her single reward cycle, and can withdraw
+                    let alice_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                        "(let (
+                            (alice '{})
+                            (alice-addrbytes 0x{})
+                            (alice-withdrawn {})
+                        )
+                        (begin
+                            ;; Alice is a Stacker, until we withdraw!
+                            (asserts! (or (and alice-withdrawn (is-none (map-get? stacking-state {{ stacker: alice }})))
+                                          (and (not alice-withdrawn) (is-some (map-get? stacking-state {{ stacker: alice }}))))
+                                (err \"Alice is not a Stacker at the right time\"))
+
+                            ;; Alice's PoX address is not registered
+                            (asserts! (not (is-pox-addr-registered (tuple (version u0) (hashbytes alice-addrbytes)) (get-current-reward-cycle) (+ u1 (get-current-reward-cycle))))
+                                (err \"Alice PoX address still registered\"))
+
+                            ;; Alice's PoX address is not currently active
+                            (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (get-current-reward-cycle) }})))
+                                (err \"Alice PoX address is still active\"))
+
+                            true
+                        ))
+                        ", &key_to_stacks_addr(&alice), &to_hex(&key_to_stacks_addr(&alice).bytes.0), alice_withdrawn));
+
+                    assert!(alice_query_result.expect_bool());
+
+                    if alice_withdrawn {
+                        // alice got her uSTX back
+                        let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                        assert_eq!(alice_balance, 1024 * 1000000);
+                    }
                 }
             }
-            */
         }
+    }
+    
+    #[test]
+    fn test_pox_lockup_register_delegate_withdraw_single() {
+        let (mut peer, mut keys) = instantiate_pox_peer("test-pox-lockup-register-delegate-withdraw-single", 6014);
+
+        let num_blocks = 10;
+
+        let alice = keys.pop().unwrap();
+        let bob = keys.pop().unwrap();
+        let charlie = keys.pop().unwrap();
+        let danielle = keys.pop().unwrap();
+        
+        let mut cur_reward_cycle = 0;
+        let mut alice_reward_cycle = 0;
+        let mut alice_withdraw_reward_cycle = 0;
+        let mut alice_withdrawn = false;
+
+        for tenure_id in 0..num_blocks {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut block_txs = vec![
+                    coinbase_tx
+                ];
+
+                if tenure_id == 2 {
+                    // Danielle registers as a delegate.
+                    let danielle_delegate = make_register_delegate(&danielle, 0, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&danielle).bytes, parent_tip.burn_header_height as u128, 1, None);
+
+                    // Alice delegates her STX to danielle, and meets the minimum threshold
+                    let alice_delegate = make_delegate_stx(&alice, 0, &key_to_stacks_addr(&danielle), 1024 * 1000000);
+                    
+                    block_txs.push(danielle_delegate);
+                    block_txs.push(alice_delegate);
+
+                    alice_reward_cycle = 1 + cur_reward_cycle;
+                    alice_withdraw_reward_cycle = alice_reward_cycle + 1;
+                }
+                else if tenure_id == 3 {
+                    // should succeed -- danielle activates the delegation
+                    let danielle_delegate = make_delegate(&danielle, 1);
+                    block_txs.push(danielle_delegate);
+                }
+                else if cur_reward_cycle > 0 && cur_reward_cycle == alice_withdraw_reward_cycle {
+                    if !alice_withdrawn {
+                        let alice_withdraw = make_withdraw_stx(&alice, 1, &key_to_stacks_addr(&alice));
+                        block_txs.push(alice_withdraw);
+
+                        alice_withdrawn = true;
+                        test_debug!("withdraw transaction sent");
+                    }
+                }
+
+                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                (anchored_block, vec![])
+            });
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            let total_liquid_ustx = get_liquid_ustx(&mut peer);
+            cur_reward_cycle = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_current_reward_cycle(sortdb)).unwrap();
+
+            if tenure_id < 2 {
+                // Alice has done nothing
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 1024 * 1000000);
+            }
+            else if tenure_id == 2 {
+                // Danielle has become a delegate over Alice's tokens
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                    "(let (
+                        (alice '{})
+                        (danielle '{})
+                        (alice-ustx u{})
+                        (danielle-addrbytes 0x{})
+                    )
+                    (begin
+                        ;; Danielle is a delegate
+                        (asserts! (is-some (map-get? delegate-control {{ delegate: danielle }}))
+                            (err \"Danielle is not a delegate\"))
+
+                        ;; Alice is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: alice }}))
+                            (err \"Alice is not a stacker\"))
+
+                        ;; Alice's delegate is Danielle
+                        (asserts! (is-eq (some (some danielle)) (get delegate (map-get? stacking-state {{ stacker: alice }})))
+                            (err \"Danielle is not the delegate of Alice\"))
+
+                        ;; Danielle has Alice's stacks
+                        (asserts! (is-eq (some alice-ustx) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))
+                            (err \"Danielle does not control Alice's tokens\"))
+
+                        ;; Danielle is _not_ a Stacker, yet
+                        (asserts! (is-none (map-get? stacking-state {{ stacker: danielle }}))
+                            (err \"Danielle is a Stacker already\"))
+
+                        ;; Danielle's PoX address is _not_ in the reward cycles, though!
+                        (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is registered to a reward cycle\"))
+
+                        (ok true)
+                    ))
+                    ", &key_to_stacks_addr(&alice), &key_to_stacks_addr(&danielle), 1024 * 1000000, &to_hex(&key_to_stacks_addr(&danielle).bytes.0)));
+
+                assert!(danielle_query_result.expect_result_ok().expect_bool());
+                
+                // Alice delegated everything to Danielle
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 0);
+
+                // No PoX addresses yet
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(sortdb)).unwrap();
+                assert_eq!(reward_addrs.len(), 0);
+            }
+            else if tenure_id == 3 {
+                // Danielle is now a Stacker
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                    "(let (
+                        (danielle '{})
+                    )
+                    (begin
+                        ;; Danielle is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: danielle }}))
+                            (err \"Danielle is not a Stacker\"))
+
+                        true
+                    ))
+                    ", &key_to_stacks_addr(&danielle)));
+
+                assert!(danielle_query_result.expect_bool());
+            }
+            else {
+                if cur_reward_cycle == alice_reward_cycle {
+                    // alice is in the reward cycle, and cannot withdraw from danielle.  Verify this
+                    let alice_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                        "(let (
+                            (alice '{})
+                            (danielle '{})
+                            (danielle-addrbytes 0x{})
+                            (alice-stacked u{})
+                        )
+                        (begin
+                            ;; Alice is a Stacker
+                            (asserts! (is-some (map-get? stacking-state {{ stacker: alice }}))
+                                (err \"Alice is not a Stacker\"))
+                            
+                            ;; Danielle is a Stacker
+                            (asserts! (is-some (map-get? stacking-state {{ stacker: danielle }}))
+                                (err \"Danielle is not a Stacker\"))
+
+                            ;; Danielle's PoX address is registered
+                            (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) (get-current-reward-cycle) (+ u1 (get-current-reward-cycle)))
+                                (err \"Danielle PoX address not registered\"))
+
+                            ;; Danielle's PoX address is currently active
+                            (asserts! (is-eq (some u1) (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (get-current-reward-cycle) }})))
+                                (err \"Danielle PoX address is not currently active\"))
+
+                            ;; Danielle's PoX address will not be active in the next cycle
+                            (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                                (err \"Danielle PoX address still registered to the next reward cycle\"))
+
+                            ;; Danielle has Alice's STX 
+                            (asserts! (is-eq (some alice-stacked) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))
+                                (err \"Danielle does not control Alice's tokens\"))
+
+                            true
+                        ))
+                        ", &key_to_stacks_addr(&alice), &key_to_stacks_addr(&danielle), &to_hex(&key_to_stacks_addr(&danielle).bytes.0), 1024 * 1000000));
+
+                    assert!(alice_query_result.expect_bool());
+                }
+                else if cur_reward_cycle > alice_reward_cycle {
+                    // alice is no longer in her single delegated reward cycle, and can withdraw
+                    let alice_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                        "(let (
+                            (alice '{})
+                            (danielle '{})
+                            (danielle-addrbytes 0x{})
+                            (alice-withdrawn {})
+                            (alice-ustx u{})
+                        )
+                        (begin
+                            ;; Alice is a Stacker, until we withdraw!
+                            (asserts! (or (and alice-withdrawn (is-none (map-get? stacking-state {{ stacker: alice }})))
+                                          (and (not alice-withdrawn) (is-some (map-get? stacking-state {{ stacker: alice }}))))
+                                (err \"Alice is not a Stacker at the right time\"))
+
+                            ;; Danielle's PoX address is not registered
+                            (asserts! (not (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) (get-current-reward-cycle) (+ u1 (get-current-reward-cycle))))
+                                (err \"Danielle PoX address still registered\"))
+
+                            ;; Danielle's PoX address is not currently active
+                            (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (get-current-reward-cycle) }})))
+                                (err \"Danielle PoX address is still active\"))
+
+                            ;; Danielle remains a Stacker
+                            (asserts! (is-some (map-get? stacking-state {{ stacker: danielle }}))
+                                (err \"Danielle is not a Stacker\"))
+                            
+                            ;; Danielle has no-one's STX
+                            (asserts! (or (and alice-withdrawn (is-eq (some u0) (get total-ustx (map-get? delegate-control {{ delegate: danielle }}))))
+                                          (and (not alice-withdrawn) (is-eq (some alice-ustx) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))))
+                                (err \"Danielle does not control Alice's tokens\"))
+
+                            true
+                        ))
+                        ", &key_to_stacks_addr(&alice), &key_to_stacks_addr(&danielle), &to_hex(&key_to_stacks_addr(&danielle).bytes.0), alice_withdrawn, 1024 * 1000000));
+
+                    assert!(alice_query_result.expect_bool());
+
+                    if alice_withdrawn {
+                        // alice got her uSTX back
+                        let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                        assert_eq!(alice_balance, 1024 * 1000000);
+                    }
+                }
+            }
+        }
+        assert!(alice_withdrawn);
+    }
+
+    #[test]
+    fn test_pox_lockup_register_delegate_withdraw_multi() {
+        let (mut peer, mut keys) = instantiate_pox_peer("test-pox-lockup-register-delegate-withdraw-multi", 6016);
+
+        let num_blocks = 20;
+
+        let alice = keys.pop().unwrap();
+        let bob = keys.pop().unwrap();
+        let charlie = keys.pop().unwrap();
+        let danielle = keys.pop().unwrap();
+        
+        let mut cur_reward_cycle = 0;
+        let mut reward_cycle = 0;
+        let mut withdraw_reward_cycle = 0;
+        let mut alice_withdrawn = false;
+        let mut bob_withdrawn = false;
+        let mut danielle_withdrawn = false;
+
+        for tenure_id in 0..num_blocks {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut block_txs = vec![
+                    coinbase_tx
+                ];
+
+                if tenure_id == 2 {
+                    // Danielle registers as a delegate.
+                    // She can claim Bob's STX one reward cycle after her tenure ends
+                    let danielle_delegate = make_register_delegate(&danielle, 0, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&danielle).bytes, parent_tip.burn_header_height as u128, 1, Some((key_to_stacks_addr(&danielle), 1)));
+
+                    // Alice and Bob delegate their STX to danielle, and meets the minimum threshold
+                    let alice_delegate = make_delegate_stx(&alice, 0, &key_to_stacks_addr(&danielle), 1024 * 1000000);
+                    let bob_delegate = make_delegate_stx(&bob, 0, &key_to_stacks_addr(&danielle), 1024 * 1000000);
+                    
+                    block_txs.push(danielle_delegate);
+                    block_txs.push(alice_delegate);
+                    block_txs.push(bob_delegate);
+
+                    reward_cycle = 1 + cur_reward_cycle;
+                    withdraw_reward_cycle = reward_cycle + 1;
+                }
+                else if tenure_id == 3 {
+                    // should succeed -- danielle activates the delegation
+                    let danielle_delegate = make_delegate(&danielle, 1);
+                    block_txs.push(danielle_delegate);
+                }
+                else if cur_reward_cycle > 0 && cur_reward_cycle == withdraw_reward_cycle {
+                    if !alice_withdrawn {
+                        let alice_withdraw = make_withdraw_stx(&alice, 1, &key_to_stacks_addr(&alice));
+                        block_txs.push(alice_withdraw);
+
+                        alice_withdrawn = true;
+                        test_debug!("withdraw transaction sent");
+                    }
+                }
+                else if cur_reward_cycle > 0 && cur_reward_cycle == withdraw_reward_cycle + 1 {
+                    if !danielle_withdrawn {
+                        let danielle_withdraw = make_delegate_withdraw_stx(&danielle, 2, &key_to_stacks_addr(&alice));
+                        block_txs.push(danielle_withdraw);
+
+                        danielle_withdrawn = true;
+                        test_debug!("delegate-withdraw transaction sent");
+                    }
+                }
+
+                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                (anchored_block, vec![])
+            });
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            let total_liquid_ustx = get_liquid_ustx(&mut peer);
+            cur_reward_cycle = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_current_reward_cycle(sortdb)).unwrap();
+
+            if tenure_id < 2 {
+                // Alice has done nothing
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 1024 * 1000000);
+            }
+            else if tenure_id == 2 {
+                // Danielle has become a delegate over Alice's tokens
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                    "(let (
+                        (alice '{})
+                        (bob '{})
+                        (danielle '{})
+                        (alice-ustx u{})
+                        (bob-ustx u{})
+                        (danielle-addrbytes 0x{})
+                    )
+                    (begin
+                        ;; Danielle is a delegate
+                        (asserts! (is-some (map-get? delegate-control {{ delegate: danielle }}))
+                            (err \"Danielle is not a delegate\"))
+
+                        ;; Alice is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: alice }}))
+                            (err \"Alice is not a stacker\"))
+                        
+                        ;; Bob is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: bob }}))
+                            (err \"Bob is not a stacker\"))
+
+                        ;; Alice's delegate is Danielle
+                        (asserts! (is-eq (some (some danielle)) (get delegate (map-get? stacking-state {{ stacker: alice }})))
+                            (err \"Danielle is not the delegate of Alice\"))
+                        
+                        ;; Bob's delegate is Danielle
+                        (asserts! (is-eq (some (some danielle)) (get delegate (map-get? stacking-state {{ stacker: bob }})))
+                            (err \"Danielle is not the delegate of Bob\"))
+
+                        ;; Danielle has Alice's and Bob's STX
+                        (asserts! (is-eq (some (+ alice-ustx bob-ustx)) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))
+                            (err \"Danielle does not control Alice's tokens\"))
+
+                        ;; Danielle is _not_ a Stacker, yet
+                        (asserts! (is-none (map-get? stacking-state {{ stacker: danielle }}))
+                            (err \"Danielle is a Stacker already\"))
+
+                        ;; Danielle's PoX address is _not_ in the reward cycles, though!
+                        (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                            (err \"Danielle PoX address is registered to a reward cycle\"))
+
+                        (ok true)
+                    ))
+                    ", &key_to_stacks_addr(&alice), &key_to_stacks_addr(&bob), &key_to_stacks_addr(&danielle), 1024 * 1000000, 1024 * 1000000, &to_hex(&key_to_stacks_addr(&danielle).bytes.0)));
+
+                assert!(danielle_query_result.expect_result_ok().expect_bool());
+                
+                // Alice delegated everything to Danielle
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                assert_eq!(alice_balance, 0);
+
+                // No PoX addresses yet
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(sortdb)).unwrap();
+                assert_eq!(reward_addrs.len(), 0);
+            }
+            else if tenure_id == 3 {
+                // Danielle is now a Stacker
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                    "(let (
+                        (danielle '{})
+                    )
+                    (begin
+                        ;; Danielle is a Stacker
+                        (asserts! (is-some (map-get? stacking-state {{ stacker: danielle }}))
+                            (err \"Danielle is not a Stacker\"))
+
+                        true
+                    ))
+                    ", &key_to_stacks_addr(&danielle)));
+
+                assert!(danielle_query_result.expect_bool());
+            }
+            else {
+                if cur_reward_cycle == reward_cycle {
+                    // alice and bob are in the reward cycle, and cannot withdraw from danielle.  Verify this
+                    let alice_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                        "(let (
+                            (alice '{})
+                            (bob '{})
+                            (danielle '{})
+                            (danielle-addrbytes 0x{})
+                            (alice-stacked u{})
+                            (bob-stacked u{})
+                        )
+                        (begin
+                            ;; Alice is a Stacker
+                            (asserts! (is-some (map-get? stacking-state {{ stacker: alice }}))
+                                (err \"Alice is not a Stacker\"))
+                            
+                            ;; Bob is a Stacker
+                            (asserts! (is-some (map-get? stacking-state {{ stacker: bob }}))
+                                (err \"Bob is not a Stacker\"))
+                            
+                            ;; Danielle is a Stacker
+                            (asserts! (is-some (map-get? stacking-state {{ stacker: danielle }}))
+                                (err \"Danielle is not a Stacker\"))
+
+                            ;; Danielle's PoX address is registered
+                            (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) (get-current-reward-cycle) (+ u1 (get-current-reward-cycle)))
+                                (err \"Danielle PoX address not registered\"))
+
+                            ;; Danielle's PoX address is currently active
+                            (asserts! (is-eq (some u1) (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (get-current-reward-cycle) }})))
+                                (err \"Danielle PoX address is not currently active\"))
+
+                            ;; Danielle's PoX address will not be active in the next cycle
+                            (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (+ u1 (get-current-reward-cycle)) }})))
+                                (err \"Danielle PoX address still registered to the next reward cycle\"))
+
+                            ;; Danielle has Alice's and Bob's STX
+                            (asserts! (is-eq (some (+ alice-stacked bob-stacked)) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))
+                                (err \"Danielle does not control Alice's tokens\"))
+
+                            true
+                        ))
+                        ", &key_to_stacks_addr(&alice), &key_to_stacks_addr(&bob), &key_to_stacks_addr(&danielle), &to_hex(&key_to_stacks_addr(&danielle).bytes.0), 1024 * 1000000, 1024 * 1000000));
+
+                    assert!(alice_query_result.expect_bool());
+                }
+                else if cur_reward_cycle > reward_cycle {
+                    // alice is no longer in her single delegated reward cycle, and can withdraw
+                    let query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                        "(let (
+                            (alice '{})
+                            (bob '{})
+                            (danielle '{})
+                            (danielle-addrbytes 0x{})
+                            (alice-withdrawn {})
+                            (danielle-withdrawn {})
+                            (alice-ustx u{})
+                            (bob-ustx u{})
+                        )
+                        (begin
+                            ;; Alice is a Stacker, until we withdraw!
+                            (asserts! (or (and alice-withdrawn (is-none (map-get? stacking-state {{ stacker: alice }})))
+                                          (and (not alice-withdrawn) (is-some (map-get? stacking-state {{ stacker: alice }}))))
+                                (err \"Alice is not a Stacker at the right time\"))
+                            
+                            ;; Bob is a Stacker
+                            (asserts! (is-some (map-get? stacking-state {{ stacker: bob }}))
+                                (err \"Bob is not a Stacker at the right time\"))
+
+                            ;; Danielle's PoX address is not registered
+                            (asserts! (not (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) (get-current-reward-cycle) (+ u1 (get-current-reward-cycle))))
+                                (err \"Danielle PoX address still registered\"))
+
+                            ;; Danielle's PoX address is not currently active
+                            (asserts! (is-none (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: (get-current-reward-cycle) }})))
+                                (err \"Danielle PoX address is still active\"))
+
+                            ;; Danielle remains a Stacker, until withdrawing herself
+                            (asserts! (or (and danielle-withdrawn (is-none (map-get? stacking-state {{ stacker: danielle }})))
+                                          (and (not danielle-withdrawn) (is-some (map-get? stacking-state {{ stacker: danielle }}))))
+                                (err \"Danielle is not a Stacker at the right time\"))
+                            
+                            ;; Danielle has either Alice + Bob's STX, or just Bob's STX if Alice has withdrawn.
+                            ;; If Danielle has withdrawn, then she does not control any STX.
+                            (if (not danielle-withdrawn)
+                                (asserts! (or (and alice-withdrawn (is-eq (some alice-ustx) (get total-ustx (map-get? delegate-control {{ delegate: danielle }}))))
+                                              (and (not alice-withdrawn) (is-eq (some (+ alice-ustx bob-ustx)) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))))
+                                    (err \"Danielle does not control Alice's tokens\"))
+                                (asserts! (is-eq (some u0) (get total-ustx (map-get? delegate-control {{ delegate: danielle }})))
+                                    (err \"Danielle controls some STX after withdraw\"))
+                            )
+                            true
+                        ))
+                        ", &key_to_stacks_addr(&alice), &key_to_stacks_addr(&bob), &key_to_stacks_addr(&danielle), &to_hex(&key_to_stacks_addr(&danielle).bytes.0), alice_withdrawn, danielle_withdrawn, 1024 * 1000000, 1024 * 1000000));
+
+                    assert!(query_result.expect_bool());
+
+                    if alice_withdrawn {
+                        // alice got her uSTX back
+                        let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice));
+                        assert_eq!(alice_balance, 1024 * 1000000);
+                        
+                        test_debug!("Alice withdrew her STX");
+                    }
+                    if danielle_withdrawn {
+                        // danielle got bob's uSTX
+                        let danielle_balance = get_balance(&mut peer, &key_to_stacks_addr(&danielle));
+                        assert_eq!(danielle_balance, 2 * 1024 * 1000000);
+                        
+                        let bob_balance = get_balance(&mut peer, &key_to_stacks_addr(&bob));
+                        assert_eq!(bob_balance, 0);
+
+                        test_debug!("Danielle recovered Bob's STX");
+                    }
+                }
+            }
+        }
+        assert!(alice_withdrawn);
+        assert!(danielle_withdrawn);
     }
 }
