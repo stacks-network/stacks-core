@@ -631,7 +631,22 @@ impl StacksBlockBuilder {
         let mut chainstate = chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?;  // used for processing a block up to the given limit
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, pox_dbconn)?;
         for tx in txs.drain(..) {
-            builder.try_mine_tx(&mut epoch_tx, &tx)?;
+            match builder.try_mine_tx(&mut epoch_tx, &tx) {
+                Ok(_) => {},
+                Err(Error::BlockTooBigError) => {
+                    // done mining -- our execution budget is exceeded.
+                    // Make the block from the transactions we did manage to get
+                    debug!("Block budget exceeded on tx {}", &tx.txid());
+                },
+                Err(Error::InvalidStacksTransaction(_, true)) => {
+                    // if we have an invalid transaction that was quietly ignored, don't warn here either
+                    continue;
+                },
+                Err(e) => {
+                    warn!("Failed to apply tx {}: {:?}", &tx.txid(), &e);
+                    continue;
+                }
+            }
         }
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
