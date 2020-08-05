@@ -609,6 +609,8 @@ impl StacksChainState {
             stx_balance: 0
         };
 
+        let mut initial_liquid_ustx = 0u128;
+
         {
             let mut clarity_tx = chainstate.block_begin(&NULL_POX_STATE_DB, &BURNCHAIN_BOOT_CONSENSUS_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
             for (boot_code_name, boot_code_contract) in STACKS_BOOT_CODE.iter() {
@@ -633,20 +635,14 @@ impl StacksChainState {
                 for (address, amount) in initial_balances {
                     clarity_tx.connection().as_transaction(|clarity| {
                         StacksChainState::account_credit(clarity, address, *amount)
-                    })
+                    });
+                    initial_liquid_ustx = initial_liquid_ustx.checked_add((*amount) as u128).expect("FATAL: liquid STX overflow");
                 }
             }
 
             f(&mut clarity_tx);
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-        }
-
-        let mut initial_liquid_ustx = 0u128;
-        if let Some(ref initial_balances) = &initial_balances {
-            for (_, balance) in initial_balances.iter() {
-                initial_liquid_ustx = initial_liquid_ustx.checked_add((*balance) as u128).expect("FATAL: liquid STX overflow");
-            }
         }
         
         {
