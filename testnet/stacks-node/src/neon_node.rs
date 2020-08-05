@@ -85,7 +85,6 @@ pub struct InitializedNeonNode {
     active_keys: Vec<RegisteredKey>,
     sleep_before_tenure: u64,
     is_miner: bool,
-    initial_liquid_ustx: u128
 }
 
 pub struct NeonGenesisNode {
