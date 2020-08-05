@@ -329,7 +329,7 @@ fn microblock_integration_test() {
 
         // NOTE: it's not a zero execution cost, but there's currently not an easy way to get the
         // block's cost (and it's not like we're going to overflow the block budget in this test).
-        make_microblock(&privk, &mut chainstate, consensus_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
+        make_microblock(&privk, &mut chainstate, &btc_regtest_controller.sortdb_ref().index_conn(), consensus_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
     };
 
     let mut microblock_bytes = vec![];

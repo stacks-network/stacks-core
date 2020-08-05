@@ -452,6 +452,14 @@ impl Config {
         let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
         self.initial_balances.push(new_balance);
     }
+
+    pub fn get_initial_liquid_ustx(&self) -> u128 {
+        let mut total = 0;
+        for ib in self.initial_balances.iter() {
+            total += ib.amount as u128
+        }
+        total
+    }
 }
 
 impl std::default::Default for Config {

@@ -352,7 +352,7 @@ fn bitcoind_integration_test() {
 
     // Use block's hook for asserting expectations
     // In this serie of tests, the callback is fired post-burnchain-sync, post-stacks-sync
-    run_loop.callbacks.on_new_stacks_chain_state(|round, burnchain_tip, chain_tip, _chain_state| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, burnchain_tip, chain_tip, _chain_state, _pox_dbconn| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

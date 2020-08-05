@@ -24,6 +24,8 @@ use crate::helium::RunLoop;
 use super::node::{TESTNET_CHAIN_ID};
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 
+use stacks::vm::database::PoxStateDB;
+
 // $ cat /tmp/out.clar 
 pub const STORE_CONTRACT: &str =  r#"(define-map store ((key (buff 32))) ((value (buff 32))))
  (define-public (get-value (key (buff 32)))
@@ -173,12 +175,12 @@ pub fn make_contract_call(
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
-fn make_microblock(privk: &StacksPrivateKey, chainstate: &mut StacksChainState, consensus_hash: ConsensusHash, block: StacksBlock, block_cost: ExecutionCost, txs: Vec<StacksTransaction>) -> StacksMicroblock {
+fn make_microblock(privk: &StacksPrivateKey, chainstate: &mut StacksChainState, pox_dbconn: &dyn PoxStateDB, consensus_hash: ConsensusHash, block: StacksBlock, block_cost: ExecutionCost, txs: Vec<StacksTransaction>) -> StacksMicroblock {
     let mut block_bytes = vec![];
     block.consensus_serialize(&mut block_bytes).unwrap();
     let block_size = block_bytes.len() as u64;
 
-    let mut microblock_builder = StacksMicroblockBuilder::new(block.block_hash(), consensus_hash.clone(), chainstate, block_cost, block_size).unwrap();
+    let mut microblock_builder = StacksMicroblockBuilder::new(block.block_hash(), consensus_hash.clone(), chainstate, pox_dbconn, block_cost, block_size).unwrap();
     let mempool_txs : Vec<_> = txs.into_iter()
         .map(|tx| {
             // TODO: better fee estimation
@@ -242,7 +244,7 @@ fn should_succeed_mining_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, _chain_state| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, _chain_state, _pox_dbconn| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
@@ -473,7 +475,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, _chain_state| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, _chain_state, _pox_dbconn| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

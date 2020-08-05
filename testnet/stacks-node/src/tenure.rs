@@ -13,6 +13,8 @@ use stacks::core::mempool::MemPoolDB;
 use stacks::util::vrf::VRFProof;
 use stacks::util::hash::Hash160;
 
+use stacks::vm::database::PoxStateDB;
+
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,
     pub microblocks: Vec<StacksMicroblock>,
@@ -64,7 +66,7 @@ impl <'a> Tenure {
         }
     }
 
-    pub fn run(&mut self) -> Option<TenureArtifacts> {
+    pub fn run(&mut self, pox_dbconn: &dyn PoxStateDB) -> Option<TenureArtifacts> {
         info!("Node starting new tenure with VRF {:?}", self.vrf_seed);
 
         let duration_left: u128 = self.config.burnchain.commit_anchor_block_within as u128;
@@ -82,10 +84,10 @@ impl <'a> Tenure {
             self.config.block_limit.clone()).unwrap();
 
         let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
-            &mut chain_state, &mut self.mem_pool, &self.parent_block.metadata,
+            &mut chain_state, pox_dbconn, &mut self.mem_pool, &self.parent_block.metadata,
             self.parent_block_total_burn, self.vrf_proof.clone(), self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx, self.config.block_limit.clone()).unwrap();
-
+    
         info!("Finish tenure: {}", anchored_block.block_hash());
 
         let artifact = TenureArtifacts {
