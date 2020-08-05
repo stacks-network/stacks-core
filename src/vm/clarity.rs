@@ -735,7 +735,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0 as u8; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_POX_STATE_DB);
 
             // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
             let contract = "
