@@ -658,8 +658,6 @@ impl InitializedNeonNode {
 
         let active_keys = vec![];
 
-        let initial_liquid_ustx = config.get_initial_liquid_ustx();
-
         InitializedNeonNode {
             relay_channel: relay_send,
             last_burn_block,
@@ -667,7 +665,6 @@ impl InitializedNeonNode {
             is_miner,
             sleep_before_tenure,
             active_keys,
-            initial_liquid_ustx
         }
     }
 
