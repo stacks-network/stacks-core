@@ -1775,13 +1775,13 @@ fn test_string_utf8_fold() {
 #[test]
 fn test_string_utf8_as_max_len() {
     let tests = [
-        "(as-max-len? \"1234\\u{1F926}\" u5)",
-        "(as-max-len? \"1234\\u{1F926}\" u8)",
-        "(as-max-len? \"1234\\u{1F926}\" u4)"];
+        "(as-max-len? u\"1234\\u{1F926}\" u5)",
+        "(as-max-len? u\"1234\\u{1F926}\" u8)",
+        "(as-max-len? u\"1234\\u{1F926}\" u4)"];
     let expected = [
-        "(optional (string-ascii 5))",
-        "(optional (string-ascii 8))",
-        "(optional (string-ascii 4))"];
+        "(optional (string-utf8 5))",
+        "(optional (string-utf8 8))",
+        "(optional (string-utf8 4))"];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));
