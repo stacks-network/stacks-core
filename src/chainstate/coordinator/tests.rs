@@ -356,6 +356,9 @@ fn test_simple_setup() {
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
     assert_eq!(ops.consumed_leader_keys.len(), 0);
 
+    // at first, sortition_ids shouldn't have diverged
+    //  but once the first reward cycle begins, they should diverge.
+    let mut sortition_ids_diverged = false;
     let mut parent = BlockHeaderHash([0; 32]);
     // process sequential blocks, and their sortitions...
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
@@ -374,8 +377,25 @@ fn test_simple_setup() {
         coord.handle_new_burnchain_block().unwrap();
         coord_blind.handle_new_burnchain_block().unwrap();
 
-        // load the block into staging
+        let b = get_burnchain(path);
+        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
+            // the "blinded" sortition db and the one that's processed all the blocks
+            //   should have diverged in sortition_ids now...
+            sortition_ids_diverged = true;
+        }
+
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        let blinded_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
+        if sortition_ids_diverged {
+            assert_ne!(tip.sortition_id, blinded_tip.sortition_id,
+                       "Sortitions should have diverged by block height = {}", blinded_tip.block_height);
+        } else {
+            assert_eq!(tip.sortition_id, blinded_tip.sortition_id,
+                       "Sortitions should not have diverged at block height = {}", blinded_tip.block_height);
+        }
+
+        // load the block into staging
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
@@ -411,7 +431,7 @@ fn test_simple_setup() {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "11000000000",
+                   "10000000000",
                    "PoX ID should reflect the 1 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }

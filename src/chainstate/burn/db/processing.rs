@@ -119,7 +119,18 @@ impl <'a> SortitionHandleTx <'a> {
 
         let txids = state_transition.accepted_ops.iter().map(|ref op| op.txid()).collect();
 
-        let next_sortition_id = SortitionId::new(&this_block_hash, &parent_pox);
+        let mut next_pox = parent_pox;
+        if let Some(ref next_pox_info) = next_pox_info {
+            if next_pox_info.anchor_block_known {
+                info!("Begin reward-cycle sortition with present anchor block={:?}", &next_pox_info.anchor_block);
+                next_pox.extend_with_present_block();
+            } else {
+                info!("Begin reward-cycle sortition with absent anchor block={:?}", &next_pox_info.anchor_block);
+                next_pox.extend_with_not_present_block();
+            }
+        };
+
+        let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox);
 
         // do the cryptographic sortition and pick the next winning block.
         let mut snapshot = BlockSnapshot::make_snapshot(&self.as_conn(), burnchain, &next_sortition_id,

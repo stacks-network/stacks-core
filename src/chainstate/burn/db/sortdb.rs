@@ -995,10 +995,11 @@ impl <'a> SortitionHandleConn <'a> {
     }
 
     /// Return a vec of sortition winner's burn header hash and stacks header hash, ordered by
-    ///   increasing block height.
+    ///   increasing block height in the range (block_height_begin, block_height_end]
     fn get_sortition_winners_in_fork(&self, block_height_begin: u32, block_height_end: u32) -> Result<Vec<(Txid, u64)>,  BurnchainError> {
         let mut result = vec![];
-        for height in block_height_begin..block_height_end {
+        for height in (block_height_begin+1)..(block_height_end+1) {
+            info!("Looking for winners at height = {}", height);
             let snapshot = SortitionDB::get_ancestor_snapshot(self, height as u64, &self.context.chain_tip)?
                 .ok_or_else(|| BurnchainError::MissingParentBlock)?;
             if snapshot.sortition {
@@ -1018,12 +1019,16 @@ impl <'a> SortitionHandleConn <'a> {
         assert!(pox_consts.anchor_threshold > (pox_consts.prepare_length / 2));
 
         // if this block is the _end_ of a prepare phase,
-        //    height = (REWARD_LENGTH - 1) mod REWARD_LENGTH
-        if ! (my_height % pox_consts.reward_cycle_length == pox_consts.reward_cycle_length - 1) {
+        if ! (my_height % pox_consts.reward_cycle_length == 0) {
             return Err(CoordinatorError::NotPrepareEndBlock)
         }
 
         let prepare_end = my_height;
+        // if this block isn't greater than prepare_length, then this shouldn't be the end of a prepare block
+        if prepare_end < pox_consts.prepare_length {
+            return Err(CoordinatorError::NotPrepareEndBlock)
+        }
+
         let prepare_begin = prepare_end - pox_consts.prepare_length;
 
         let mut candidate_anchors = HashMap::new();
@@ -1035,7 +1040,7 @@ impl <'a> SortitionHandleConn <'a> {
         for (winner_commit_txid, winner_block_height) in winners.into_iter() {
             let mut cursor = (winner_commit_txid, winner_block_height);
 
-            while cursor.1 >= (prepare_begin as u64) {
+            while cursor.1 > (prepare_begin as u64) {
                 // check if we've already discovered the candidate for this block
                 if let Some(ancestor) = memoized_candidates.get(&cursor.1) {
                     cursor = ancestor.clone();
@@ -1061,6 +1066,12 @@ impl <'a> SortitionHandleConn <'a> {
             } else {
                 candidate_anchors.insert(highest_ancestor, 1u32);
             }
+        }
+
+        for (candidate, confirmed_by) in candidate_anchors.iter() {
+            let sn = SortitionDB::get_ancestor_snapshot(self, *candidate, &self.context.chain_tip)?
+                .expect("BUG: cannot find chosen PoX candidate's sortition");
+            info!("Candidate {} at height {}, received {} confirmations", &sn.burn_header_hash, *candidate, *confirmed_by)
         }
 
         // did any candidate receive >= F*w?

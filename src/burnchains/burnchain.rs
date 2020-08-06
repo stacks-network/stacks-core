@@ -347,11 +347,13 @@ impl Burnchain {
     }
 
     pub fn is_reward_cycle_start(&self, block_height: u64) -> bool {
-        if block_height < self.first_block_height {
+        if block_height <= (self.first_block_height + 1) {
+            // not a reward cycle start if we're the first block after genesis.
             false
         } else {
             let effective_height = block_height - self.first_block_height;
-            (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 0
+            // first block of the new reward cycle
+            (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
         }
     }
 
