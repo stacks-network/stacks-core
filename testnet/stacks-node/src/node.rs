@@ -506,7 +506,11 @@ impl Node {
 
         let mut processed_blocks = vec![];
         loop {
-            match self.chain_state.process_blocks_at_tip(db, 1) {
+            let mut process_blocks_at_tip = {
+                let tx = db.tx_begin_at_tip();
+                self.chain_state.process_blocks(tx, 1)
+            };
+            match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {:?}", e),
                 Ok(ref mut blocks) => {
                     if blocks.len() == 0 {
