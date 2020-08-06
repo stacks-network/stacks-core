@@ -587,13 +587,14 @@ impl Value {
     }
 
     pub fn string_ascii_from_bytes(bytes: Vec<u8>) -> Result<Value> {
+        // check the string size
+        BufferLength::try_from(bytes.len())?;
+
         for b in bytes.iter() {
             if !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace() {
                 return Err(CheckErrors::InvalidCharactersDetected.into());
             }
         }
-        // check the string size
-        BufferLength::try_from(bytes.len())?;
         // construct the string        
         Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: bytes }))))
     }
@@ -622,10 +623,11 @@ impl Value {
                 data.push(ascii_char);
                 cursor += 1;
             }
+            // check the string size
+            StringUTF8Length::try_from(data.len())?;
+
             window = &tokenized_str[cursor..];
         }
-        // check the string size
-        StringUTF8Length::try_from(data.len())?;
         // construct the string        
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
     }
