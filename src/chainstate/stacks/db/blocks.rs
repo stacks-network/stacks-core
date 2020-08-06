@@ -3121,10 +3121,11 @@ impl StacksChainState {
     }
 
     /// Process staging blocks at the canonical chain tip,
-    ///  this only only needs to be used in contexts that aren't
+    ///  this only needs to be used in contexts that aren't
     ///  PoX aware (i.e., unit tests, and old stacks-node loops),
     /// Elsewhere, block processing is invoked by the ChainsCoordinator,
     ///  which handles tracking the chain tip itself
+    #[cfg(test)]
     pub fn process_blocks_at_tip(&mut self, sort_db: &mut SortitionDB, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         let tx = sort_db.tx_begin_at_tip();
         self.process_blocks(tx, max_blocks)
