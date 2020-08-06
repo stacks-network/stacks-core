@@ -58,10 +58,11 @@ use chainstate::burn::operations::{
 };
 
 use burnchains::{Txid, BurnchainHeaderHash, PublicKey, Address};
-use burnchains::BurnchainView;
-use burnchains::Burnchain;
 
 use burnchains::{
+    Burnchain,
+    BurnchainView,
+    PoxConstants,
     BurnchainSigner,
     BurnchainRecipient,
     BurnchainTransaction,
@@ -709,7 +710,7 @@ impl <'a> SortitionHandleConn <'a> {
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
     }
 
-    fn get_pox_id(&self) -> Result<PoxId, db_error> {
+    pub fn get_pox_id(&self) -> Result<PoxId, db_error> {
         let pox_id = self.get_tip_indexed(db_keys::pox_identifier())?
             .map(|s| s.parse().expect("BUG: Bad PoX identifier stored in DB"))
             .expect("BUG: No PoX identifier stored.");
@@ -1007,27 +1008,23 @@ impl <'a> SortitionHandleConn <'a> {
         Ok(result)
     }
 
-    pub fn get_reward_cycle_info(&self, prepare_end: &BurnchainHeaderHash) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+    pub fn get_reward_cycle_info(&self, prepare_end: &BurnchainHeaderHash, pox_consts: &PoxConstants) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
         let prepare_end_sortid = self.get_sortition_id_for_bhh(prepare_end)?
             .ok_or_else(|| BurnchainError::MissingParentBlock)?;
         let my_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
             .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
 
-        let POX_PREPARE_LENGTH = 240;
-        let POX_REWARD_LENGTH = 1000;
-        let POX_ANCHOR_THRESHOLD = 240 * 4 / 5;
-
         // there can be either 1 or 0 PoX anchors.
-        assert!(POX_ANCHOR_THRESHOLD > (POX_PREPARE_LENGTH / 2));
+        assert!(pox_consts.anchor_threshold > (pox_consts.prepare_length / 2));
 
         // if this block is the _end_ of a prepare phase,
-        //    height = (REWARD_LENGTH - 1) mod REWARD_LENGTH  
-        if ! (my_height % POX_REWARD_LENGTH == POX_REWARD_LENGTH - 1) {
+        //    height = (REWARD_LENGTH - 1) mod REWARD_LENGTH
+        if ! (my_height % pox_consts.reward_cycle_length == pox_consts.reward_cycle_length - 1) {
             return Err(CoordinatorError::NotPrepareEndBlock)
         }
 
         let prepare_end = my_height;
-        let prepare_begin = prepare_end - POX_PREPARE_LENGTH;
+        let prepare_begin = prepare_end - pox_consts.prepare_length;
 
         let mut candidate_anchors = HashMap::new();
         let mut memoized_candidates: HashMap<_, (Txid, u64)> = HashMap::new();
@@ -1066,9 +1063,9 @@ impl <'a> SortitionHandleConn <'a> {
             }
         }
 
-        // did any candidate receive > F*w?
+        // did any candidate receive >= F*w?
         for (candidate, confirmed_by) in candidate_anchors.into_iter() {
-            if confirmed_by > POX_ANCHOR_THRESHOLD {
+            if confirmed_by >= pox_consts.anchor_threshold {
                 // find the sortition at height
                 let sn = SortitionDB::get_ancestor_snapshot(self, candidate, &self.context.chain_tip)?
                     .expect("BUG: cannot find chosen PoX candidate's sortition");
@@ -1489,7 +1486,7 @@ impl SortitionDB {
     }
 
     fn get_block_height(conn: &Connection, sortition_id: &SortitionId) -> Result<Option<u32>, db_error> {
-        let qry = "SELECT block_height FROM snapshots WHERE sortition_id = ? LIMIT 1) LIMIT 1";
+        let qry = "SELECT block_height FROM snapshots WHERE sortition_id = ? LIMIT 1";
         conn.query_row(qry, &[sortition_id], |row| row.get(0)).optional()
             .map_err(db_error::from)
     }

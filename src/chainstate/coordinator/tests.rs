@@ -58,7 +58,9 @@ pub fn next_hash160() -> Hash160 {
     Hash160::from_bytes(&bytes).unwrap()
 }
 
-pub fn produce_burn_block(burnchain_db: &mut BurnchainDB, par: &BurnchainHeaderHash, mut ops: Vec<BlockstackOperationType>) -> BurnchainHeaderHash {
+/// Produce a burn block, insert it into burnchain_db, and insert it into others as well
+pub fn produce_burn_block<'a, I: Iterator<Item=&'a mut BurnchainDB>>(
+    burnchain_db: &mut BurnchainDB, par: &BurnchainHeaderHash, mut ops: Vec<BlockstackOperationType>, others: I) -> BurnchainHeaderHash {
     let BurnchainBlockData { header: par_header, .. } = burnchain_db.get_burnchain_block(par).unwrap();
     assert_eq!(&par_header.block_hash, par);
     let block_height = par_header.block_height + 1;
@@ -76,7 +78,12 @@ pub fn produce_burn_block(burnchain_db: &mut BurnchainDB, par: &BurnchainHeaderH
         op.set_burn_header_hash(block_hash.clone());
     }
 
-    burnchain_db.raw_store_burnchain_block(header, ops).unwrap();
+    burnchain_db.raw_store_burnchain_block(header.clone(), ops.clone()).unwrap();
+
+    for other in others {
+        other.raw_store_burnchain_block(header.clone(), ops.clone()).unwrap();
+    }
+
     block_hash
 }
 
@@ -88,49 +95,64 @@ fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
         1, &vec![pk]).unwrap()
 }
 
-pub fn setup_states(path: &str, vrf_keys: &[VRFPrivateKey], committers: &[StacksPrivateKey]) {
-    let burnchain = get_burnchain(path);
+pub fn setup_states(paths: &[&str], vrf_keys: &[VRFPrivateKey], committers: &[StacksPrivateKey]) {
+    let mut burn_block = None;
+    let mut others = vec![];
 
-    let sortition_db = SortitionDB::connect(
-        &burnchain.get_db_path(), burnchain.first_block_height, &burnchain.first_block_hash,
-        0, true).unwrap();
+    for path in paths.iter() {
+        let burnchain = get_burnchain(path);
 
-    let mut burnchain_blocks_db = BurnchainDB::connect(
-        &burnchain.get_burnchaindb_path(), burnchain.first_block_height, &burnchain.first_block_hash,
-        0, true).unwrap();
+        let sortition_db = SortitionDB::connect(
+            &burnchain.get_db_path(), burnchain.first_block_height, &burnchain.first_block_hash,
+            0, true).unwrap();
 
-    let first_sortition = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap();
-    let first_consensus_hash = &first_sortition.consensus_hash;
+        let burnchain_blocks_db = BurnchainDB::connect(
+            &burnchain.get_burnchaindb_path(), burnchain.first_block_height, &burnchain.first_block_hash,
+            0, true).unwrap();
 
-    // build a bunch of VRF key registers
+        if burn_block.is_none() {
+            let first_sortition = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap();
+            let first_consensus_hash = &first_sortition.consensus_hash;
 
-    let mut registers = vec![];
-    for (ix, (sk, miner_sk)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
-        let public_key = VRFPublicKey::from_private(sk);
-        let consensus_hash = first_consensus_hash.clone();
-        let memo = vec![0];
-        let address = p2pkh_from(miner_sk);
-        let vtxindex = 1+ix as u32;
-        let block_height = 0;
-        let burn_header_hash = BurnchainHeaderHash([0; 32]);
-        let txid = next_txid();
+            // build a bunch of VRF key registers
 
-        registers.push(BlockstackOperationType::LeaderKeyRegister(
-            LeaderKeyRegisterOp {
-                public_key, consensus_hash, memo, address, vtxindex, block_height,
-                burn_header_hash, txid
-            }));
+            let mut registers = vec![];
+            for (ix, (sk, miner_sk)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
+                let public_key = VRFPublicKey::from_private(sk);
+                let consensus_hash = first_consensus_hash.clone();
+                let memo = vec![0];
+                let address = p2pkh_from(miner_sk);
+                let vtxindex = 1+ix as u32;
+                let block_height = 0;
+                let burn_header_hash = BurnchainHeaderHash([0; 32]);
+                let txid = next_txid();
+
+                registers.push(BlockstackOperationType::LeaderKeyRegister(
+                    LeaderKeyRegisterOp {
+                        public_key, consensus_hash, memo, address, vtxindex, block_height,
+                        burn_header_hash, txid
+                    }));
+            }
+
+            burn_block.replace((burnchain_blocks_db, first_sortition.burn_header_hash, registers));
+        } else {
+            others.push(burnchain_blocks_db);
+        }
     }
 
-    produce_burn_block(&mut burnchain_blocks_db, &first_sortition.burn_header_hash, registers);
+    let (mut burnchain_blocks_db, burn_header_hash, registers) = burn_block.take().unwrap();
+
+    produce_burn_block(&mut burnchain_blocks_db, &burn_header_hash, registers, others.iter_mut());
 
     let initial_balances = Some(vec![]);
     let block_limit = ExecutionCost::max_value();
 
-    let chain_state_db = StacksChainState::open_and_exec(
-        false, 0xdeadbeef, &format!("{}/chainstate/", path),
-        initial_balances, |_| {}, block_limit)
-        .unwrap();
+    for path in paths.iter() {
+        let chain_state_db = StacksChainState::open_and_exec(
+            false, 0xdeadbeef, &format!("{}/chainstate/", path),
+            initial_balances.clone(), |_| {}, block_limit.clone())
+            .unwrap();
+    }
 }
 
 pub struct NullEventDispatcher;
@@ -148,7 +170,11 @@ pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispat
 
 fn get_burnchain(path: &str) -> Burnchain {
     let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
-    b.reward_cycle_period = 5;
+    b.pox_constants = PoxConstants {
+        reward_cycle_length: 5,
+        prepare_length: 3,
+        anchor_threshold: 3
+    };
     b
 }
 
@@ -296,16 +322,21 @@ fn make_stacks_block(sort_db: &SortitionDB, state: &mut StacksChainState,
 #[test]
 fn test_simple_setup() {
     let path = "/tmp/stacks-blockchain-simple-setup";
+    // setup a second set of states that won't see the broadcasted blocks
+    let path_blinded = "/tmp/stacks-blockchain-simple-setup.blinded";
     let _r = std::fs::remove_dir_all(path);
+    let _r = std::fs::remove_dir_all(path_blinded);
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(path, &vrf_keys, &committers);
+    setup_states(&[path, path_blinded], &vrf_keys, &committers);
 
     let mut coord = make_coordinator(path);
+    let mut coord_blind = make_coordinator(path_blinded);
 
     coord.handle_new_burnchain_block().unwrap();
+    coord_blind.handle_new_burnchain_block().unwrap();
 
     let sort_db = get_sortition_db(path);
 
@@ -313,6 +344,13 @@ fn test_simple_setup() {
     assert_eq!(tip.block_height, 1);
     assert_eq!(tip.sortition, false);
     let (_, ops) = sort_db.get_sortition_result(&tip.sortition_id).unwrap().unwrap();
+
+    let sort_db_blind = get_sortition_db(path_blinded);
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db_blind.get_sortition_result(&tip.sortition_id).unwrap().unwrap();
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
@@ -330,10 +368,13 @@ fn test_simple_setup() {
                 make_stacks_block(&sort_db, &mut chainstate, &parent, miner, 10000, vrf_key, ix as u32)
             };
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        produce_burn_block(&mut burnchain, &burnchain_tip.block_hash, vec![op]);
+        let burnchain_blinded = get_burnchain_db(path_blinded);
+        produce_burn_block(&mut burnchain, &burnchain_tip.block_hash, vec![op], [burnchain_blinded].iter_mut());
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
+        coord_blind.handle_new_burnchain_block().unwrap();
 
+        // load the block into staging
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let block_hash = block.header.block_hash();
 
@@ -357,6 +398,22 @@ fn test_simple_setup() {
                 LimitedCostTracker::new_max_limit(),
                 |env| env.eval_raw("block-height")).unwrap()),
         Value::UInt(50));
+
+    {
+        let ic = sort_db.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "11111111111",
+                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+    }
+
+    {
+        let ic = sort_db_blind.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "11000000000",
+                   "PoX ID should reflect the 1 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+    }
 }
 
 fn preprocess_block(chain_state: &mut StacksChainState, sort_db: &SortitionDB,

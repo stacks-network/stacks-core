@@ -39,18 +39,19 @@ use burnchains::{
     BurnchainRecipient,
     BurnchainTransaction,
     BurnchainBlock,
-    BurnchainBlockHeader
+    BurnchainBlockHeader,
+    BurnchainParameters,
+    Error as burnchain_error,
+    BurnchainStateTransition,
+    BurnchainStateTransitionOps,
+    PoxConstants
 };
 
-use burnchains::Error as burnchain_error;
 use burnchains::db::{
     BurnchainDB
 };
 
 use burnchains::indexer::{BurnchainIndexer, BurnchainBlockParser, BurnchainBlockDownloader, BurnBlockIPC};
-use burnchains::BurnchainParameters;
-use burnchains::BurnchainStateTransition;
-use burnchains::BurnchainStateTransitionOps;
 
 use burnchains::bitcoin::{BitcoinTxInput, BitcoinTxOutput, BitcoinInputType};
 use burnchains::bitcoin::address::to_c32_version_byte;
@@ -341,7 +342,7 @@ impl Burnchain {
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,
             first_block_hash: params.first_block_hash.clone(),
-            reward_cycle_period: 1000,
+            pox_constants: PoxConstants::mainnet_default(),
         })
     }
 
@@ -350,7 +351,7 @@ impl Burnchain {
             false
         } else {
             let effective_height = block_height - self.first_block_height;
-            (effective_height % self.reward_cycle_period) == 0
+            (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 0
         }
     }
 
@@ -1005,18 +1006,10 @@ pub mod tests {
         SortitionHandleTx, SortitionDB, SortitionId, PoxId
     };
 
-    use burnchains::Address;
-    use burnchains::PublicKey;
-    use burnchains::Burnchain;
-    use burnchains::BurnchainSigner;
-    use burnchains::BurnchainBlock;
+    use burnchains::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::address::BitcoinAddressType;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::bitcoin::BitcoinInputType;
-    use burnchains::bitcoin::BitcoinTxInput;
-    use burnchains::bitcoin::BitcoinBlock;
+    use burnchains::bitcoin::address::*;
+    use burnchains::bitcoin::*;
 
     use util::hash::hex_bytes;
     use util::log;
@@ -1064,7 +1057,7 @@ pub mod tests {
         let first_block_height = 120;
         
         let burnchain = Burnchain {
-            reward_cycle_period: 10,
+            pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1699,7 +1692,7 @@ pub mod tests {
         let first_block_height = 120;
         
         let burnchain = Burnchain {
-            reward_cycle_period: 10,
+            pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),

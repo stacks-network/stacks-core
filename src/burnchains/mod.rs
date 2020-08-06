@@ -269,7 +269,37 @@ pub struct Burnchain {
     pub stable_confirmations: u32,
     pub first_block_height: u64,
     pub first_block_hash: BurnchainHeaderHash,
-    pub reward_cycle_period: u64,
+    pub pox_constants: PoxConstants,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct PoxConstants {
+    /// the length (in burn blocks) of the reward cycle
+    pub reward_cycle_length: u32,
+    /// the length (in burn blocks) of the prepare phase
+    pub prepare_length: u32,
+    /// the number of confirmations a PoX anchor block must
+    ///  receive in order to become the anchor. must be at least > prepare_length/2
+    pub anchor_threshold: u32
+}
+
+impl PoxConstants {
+    #[cfg(test)]
+    pub fn test_default() -> PoxConstants {
+        PoxConstants {
+            reward_cycle_length: 10,
+            prepare_length: 5,
+            anchor_threshold: 3
+        }
+    }
+
+    pub fn mainnet_default() -> PoxConstants {
+        PoxConstants {
+            reward_cycle_length: 1000,
+            prepare_length: 240,
+            anchor_threshold: 192
+        }
+    }
 }
 
 /// Structure for encoding our view of the network 

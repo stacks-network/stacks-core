@@ -268,8 +268,11 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
     fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Result<Option<RewardCycleInfo>, Error> {
         if self.burnchain.is_reward_cycle_start(burn_header.block_height) {
             info!("Beginning reward cycle. block_height={}", burn_header.block_height);
-            let ic = self.sortition_db.index_handle_at_tip();
-            if let Some((consensus_hash, stacks_block_hash)) = ic.get_reward_cycle_info(&burn_header.block_hash)? {
+            let reward_cycle_info = {
+                let ic = self.sortition_db.index_handle_at_tip();
+                ic.get_reward_cycle_info(&burn_header.parent_block_hash, &self.burnchain.pox_constants)
+            }?;
+            if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
                 let anchor_block_known = StacksChainState::is_stacks_block_processed(
                     &self.chain_state_db.headers_db, &consensus_hash, &stacks_block_hash)?;
                 Ok(Some(RewardCycleInfo {
