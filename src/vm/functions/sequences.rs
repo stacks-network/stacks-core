@@ -86,7 +86,7 @@ pub fn special_map(args: &[SymbolicExpression], env: &mut Environment, context: 
     let mapped_sequence: Vec<_> = match sequence {
         Value::Sequence(ref mut sequence_data) => {
             sequence_data.atom_values()
-                .drain(..)
+                .into_iter()
                 .map(|argument| apply(&function, &[argument], env, context))
                 .collect()
         },

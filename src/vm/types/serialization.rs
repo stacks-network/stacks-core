@@ -550,7 +550,7 @@ impl Value {
             },
             Sequence(SequenceData::String(UTF8(value))) => {
                 let total_len: u32 = value.data.iter()
-                    .fold(0u32, |mut len, c| len + c.len() as u32);
+                    .fold(0u32, |len, c| len + c.len() as u32);
                 w.write_all(&(total_len.to_be_bytes()))?;
                 for bytes in value.data.iter() {
                     w.write_all(&bytes)?
