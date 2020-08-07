@@ -212,6 +212,8 @@ impl TryFrom<i128> for BufferLength {
     fn try_from(data: i128) -> Result<BufferLength> {
         if data > (MAX_VALUE_SIZE as i128) {
             Err(CheckErrors::ValueTooLarge)
+        } else if data < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
         } else {
             Ok(BufferLength(data as u32))
         }
@@ -257,6 +259,8 @@ impl TryFrom<i128> for StringUTF8Length {
     fn try_from(data: i128) -> Result<StringUTF8Length> {
         if data * 4 > (MAX_VALUE_SIZE as i128) {
             Err(CheckErrors::ValueTooLarge)
+        } else if data < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
         } else {
             Ok(StringUTF8Length(data as u32))
         }

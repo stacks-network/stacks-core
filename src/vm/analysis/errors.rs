@@ -15,6 +15,7 @@ pub enum CheckErrors {
     MemoryBalanceExceeded(u64, u64),
 
     ValueTooLarge,
+    ValueOutOfBounds,
     TypeSignatureTooDeep,
     ExpectedName,
 
@@ -290,6 +291,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
             CheckErrors::UnknownTypeName(name) => format!("failed to parse type: '{}'", name),
             CheckErrors::ValueTooLarge => format!("created a type which was greater than maximum allowed value size"),
+            CheckErrors::ValueOutOfBounds => format!("created a type which value size was out of defined bounds"),
             CheckErrors::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
             CheckErrors::ExpectedName => format!("expected a name argument to this function"),
             CheckErrors::NoSuperType(a, b) => format!("unable to create a supertype for the two types: '{}' and '{}'", a, b),

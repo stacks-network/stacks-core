@@ -1798,3 +1798,42 @@ fn test_string_utf8_concat() {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
     }
 }
+
+#[test]
+fn test_buff_negative_len() {
+    let contract_src =
+        "(define-private (func (x (buff -12))) (len x))
+        (func 0x00)";
+
+    let res = mem_type_check(&contract_src).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::BadSyntaxBinding => true,
+        _ => false
+    });
+}
+
+#[test]
+fn test_string_ascii_negative_len() {
+    let contract_src =
+        "(define-private (func (x (string-ascii -12))) (len x))
+        (func \"\")";
+
+    let res = mem_type_check(&contract_src).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::BadSyntaxBinding => true,
+        _ => false
+    });
+}
+
+#[test]
+fn test_string_utf8_negative_len() {
+    let contract_src =
+        "(define-private (func (x (string-utf8 -12))) (len x))
+        (func u\"\")";
+
+    let res = mem_type_check(&contract_src).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::BadSyntaxBinding => true,
+        _ => false
+    });
+}
