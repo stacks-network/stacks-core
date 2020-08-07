@@ -1,4 +1,3 @@
-use std::process;
 use std::thread;
 
 use crate::{Config, NeonGenesisNode, BurnchainController, EventDispatcher,
@@ -114,7 +113,13 @@ impl RunLoop {
             false
         };
 
-        let _burnchain_tip = burnchain.start();
+        let _burnchain_tip = match burnchain.start() {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Burnchain controller stopped: {}", e);
+                return;
+            }
+        };
 
         let mainnet = false;
         let chainid = neon_node::TESTNET_CHAIN_ID;
@@ -171,7 +176,13 @@ impl RunLoop {
         }
 
         loop {
-            burnchain_tip = burnchain.sync();
+            burnchain_tip = match burnchain.sync() {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Burnchain controller stopped: {}", e);
+                    return;
+                }
+            };
 
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
@@ -200,14 +211,14 @@ impl RunLoop {
                 if !node.relayer_sortition_notify() {
                     // relayer hung up, exit.
                     error!("Block relayer and miner hung up, exiting.");
-                    process::exit(1);
+                    return
                 }
             }
             // now, let's tell the miner to try and mine.
             if !node.relayer_issue_tenure() {
                 // relayer hung up, exit.
                 error!("Block relayer and miner hung up, exiting.");
-                process::exit(1);
+                return
             }
 
             block_height = next_height;

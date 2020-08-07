@@ -1,5 +1,5 @@
 use crate::{Config, Node, BurnchainController, MocknetController, BitcoinRegtestController, ChainTip};
-
+use crate::burnchains::{Error as BurnchainControllerError};
 use stacks::chainstate::stacks::db::ClarityTx;
 
 use super::RunLoopCallbacks;
@@ -37,7 +37,7 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and 
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, expected_num_rounds: u64) {
+    pub fn start(&mut self, expected_num_rounds: u64) -> Result<(), BurnchainControllerError> {
 
         // Initialize and start the burnchain.
         let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.mode[..] {
@@ -52,7 +52,7 @@ impl RunLoop {
 
         self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 
-        let initial_state = burnchain.start();
+        let initial_state = burnchain.start()?;
 
         // Update each node with the genesis block.
         self.node.process_burnchain_state(&initial_state);
@@ -65,7 +65,7 @@ impl RunLoop {
         let mut round_index: u64 = 0;
 
         // Sync and update node with this new block.
-        let burnchain_tip = burnchain.sync();
+        let burnchain_tip = burnchain.sync()?;
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
         let mut chain_tip = ChainTip::genesis();
 
@@ -97,7 +97,7 @@ impl RunLoop {
             &mut burnchain, 
             artifacts_from_1st_tenure.burn_fee);
 
-        let mut burnchain_tip = burnchain.sync();
+        let mut burnchain_tip = burnchain.sync()?;
         self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
 
         let mut leader_tenure = None;
@@ -131,7 +131,7 @@ impl RunLoop {
         round_index = 1;
         loop {
             if expected_num_rounds == round_index {
-                return;
+                return Ok(());
             }
 
             // Run the last initialized tenure
@@ -155,7 +155,7 @@ impl RunLoop {
                 None => {}
             }
 
-            burnchain_tip = burnchain.sync();
+            burnchain_tip = burnchain.sync()?;
             self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
     
             leader_tenure = None;

@@ -12,7 +12,7 @@ use serde_json::value::RawValue;
 
 use secp256k1::{Secp256k1};
 
-use super::{BurnchainController, BurnchainTip};
+use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 
@@ -204,10 +204,10 @@ impl BitcoinRegtestController {
         rest
     }
 
-    fn receive_blocks(&mut self, sync: bool) -> BurnchainTip {
+    fn receive_blocks(&mut self, sync: bool) -> Result<BurnchainTip, BurnchainControllerError> {
         let coordinator_comms = match self.use_coordinator.as_ref() {
             Some(x) => x.clone(),
-            None => return self.receive_blocks_helium()
+            None => return Ok(self.receive_blocks_helium())
         };
 
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
@@ -231,6 +231,9 @@ impl BitcoinRegtestController {
                     // keep trying
                     error!("Unable to sync with burnchain: {}", e);
                     match e {
+                        burnchain_error::CoordinatorClosed => {
+                            return Err(BurnchainControllerError::CoordinatorClosed)
+                        },
                         burnchain_error::TrySyncAgain => {
                             // try again immediately
                             continue;
@@ -260,7 +263,7 @@ impl BitcoinRegtestController {
         self.chain_tip = Some(burnchain_tip.clone());
         debug!("Done receiving blocks");
 
-        burnchain_tip
+        Ok(burnchain_tip)
     }
 
     pub fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
@@ -663,20 +666,20 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
 
-    fn start(&mut self) -> BurnchainTip {
+    fn start(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
         self.receive_blocks(false)
     }
 
-    fn sync(&mut self) -> BurnchainTip {        
+    fn sync(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
         let burnchain_tip = if self.config.burnchain.mode == "helium" {
             // Helium: this node is responsible for mining new burnchain blocks
             self.build_next_block(1);
-            self.receive_blocks(true)
+            self.receive_blocks(true)?
         } else {
             // Neon: this node is waiting on a block to be produced
             let current_height = self.get_chain_tip().block_snapshot.block_height;
             loop {
-                let burnchain_tip = self.receive_blocks(true);
+                let burnchain_tip = self.receive_blocks(true)?;
                 if burnchain_tip.block_snapshot.block_height > current_height {
                     break burnchain_tip;
                 }
@@ -691,9 +694,9 @@ impl BurnchainController for BitcoinRegtestController {
                 info!("This process will automatically terminate in 30s, restart your node for participating in the next epoch.");
                 sleep_ms(30000);
                 std::process::exit(0);
-            }    
+            }
         }
-        burnchain_tip
+        Ok(burnchain_tip)
     }
 
     // returns true if the operation was submitted successfully, false otherwise 

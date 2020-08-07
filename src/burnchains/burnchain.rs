@@ -943,7 +943,7 @@ impl Burnchain {
                 let insert_start = get_epoch_time_ms();
                 last_processed = Burnchain::process_block(&mut burnchain_db, &burnchain_block)?;
                 if !coord_comm.announce_new_burn_block() {
-                    return Err(burnchain_error::ThreadChannelError);
+                    return Err(burnchain_error::CoordinatorClosed);
                 }
                 let insert_end = get_epoch_time_ms();
 
@@ -978,7 +978,11 @@ impl Burnchain {
             Ok(x) => x,
             Err(e) => {
                 warn!("Failed to join burnchain download thread: {:?}", &e);
-                return Err(burnchain_error::TrySyncAgain);
+                if let burnchain_error::CoordinatorClosed = e {
+                    return Err(burnchain_error::CoordinatorClosed)
+                } else {
+                    return Err(burnchain_error::TrySyncAgain)
+                }
             }
         };
 

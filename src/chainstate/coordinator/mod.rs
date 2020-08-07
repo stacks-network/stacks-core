@@ -258,11 +258,13 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
     }
 
     ///
-    /// Process any ready staging blocks until there are no more to process
-    ///  _or_ a PoX anchor block is discovered.
+    /// Process any ready staging blocks until there are either:
+    ///   * there are no more to process
+    ///   * a PoX anchor block is processed which invalidates the current PoX fork
     ///
-    /// Returns Some(StacksBlockId) if an anchor block is discovered,
+    /// Returns Some(StacksBlockId) if such an anchor block is discovered,
     ///   otherwise returns None
+    ///
     fn process_ready_blocks(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         let canonical_sortition_tip = self.canonical_sortition_tip.as_ref()
             .expect("FAIL: processing a new Stacks block, but don't have a canonical sortition tip");

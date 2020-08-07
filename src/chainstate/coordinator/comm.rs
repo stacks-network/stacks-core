@@ -40,13 +40,10 @@ impl CoordinatorNotices for ArcCounterCoordinatorNotices {
 ///   ChainsCoordinator
 #[derive(Clone)]
 pub struct CoordinatorChannels {
-    // ChainsCoordinator takes two kinds of signals:
-    //    new stacks block & new burn block
-    // These signals can be coalesced -- the coordinator doesn't need
-    //    handles _all_ new blocks whenever it processes an event
-    //    because of this, we can avoid trying to set large bounds on these
-    //    event channels by using a coalescing thread.
+    /// Mutex guarded signaling struct for communicating
+    ///  to the coordinator.
     signal_bools: Arc<Mutex<SignalBools>>,
+    /// Condvar for notifying on updates to signal_bools
     signal_wakeup: Arc<Condvar>,
     /// how many stacks blocks have been processed by this Coordinator thread since startup?
     stacks_blocks_processed: Arc<AtomicU64>,
@@ -54,6 +51,9 @@ pub struct CoordinatorChannels {
     sortitions_processed: Arc<AtomicU64>,
 }
 
+/// Notification struct for communicating to
+///  the coordinator. Each bool indicates a notice
+///  that there are new events of a type to check
 struct SignalBools {
     new_stacks_block: bool,
     new_burn_block: bool,
@@ -63,7 +63,12 @@ struct SignalBools {
 /// Structure used by the Coordinator's run-loop
 ///   to receive signals
 pub struct CoordinatorReceivers {
+    /// Mutex guarded signaling struct for communicating
+    ///  to the coordinator.
     signal_bools: Arc<Mutex<SignalBools>>,
+    /// Condvar for notifying on updates to signal_bools.
+    ///   the Condvar should only be used with the Mutex guarding
+    ///   signal_bools
     signal_wakeup: Arc<Condvar>,
     pub stacks_blocks_processed: Arc<AtomicU64>,
     pub sortitions_processed: Arc<AtomicU64>,
