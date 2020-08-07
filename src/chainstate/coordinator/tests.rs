@@ -360,6 +360,8 @@ fn test_simple_setup() {
     let mut sortition_ids_diverged = false;
     let mut parent = BlockHeaderHash([0; 32]);
     // process sequential blocks, and their sortitions...
+    let mut stacks_blocks = vec![];
+    let mut anchor_blocks = vec![];
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path);
         let mut chainstate = get_chainstate(path);
@@ -382,6 +384,11 @@ fn test_simple_setup() {
             // the "blinded" sortition db and the one that's processed all the blocks
             //   should have diverged in sortition_ids now...
             sortition_ids_diverged = true;
+            // store the anchor block for this sortition for later checking
+            let ic = sort_db.index_handle_at_tip();
+            let bhh = ic.get_last_anchor_block_hash()
+                .unwrap().unwrap();
+            anchor_blocks.push(bhh);
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -398,10 +405,12 @@ fn test_simple_setup() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
         // handle the stacks block
-        coord.process_ready_blocks().unwrap();
+        coord.handle_new_stacks_block().unwrap();
 
         parent = block_hash;
     }
@@ -433,15 +442,41 @@ fn test_simple_setup() {
                    "10000000000",
                    "PoX ID should reflect the 1 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
+
+    let mut pox_id_string = "1".to_string();
+    // now let's start revealing stacks blocks to the blinded coordinator
+    for (sortition_id, block) in stacks_blocks.iter() {
+        let mut chainstate = get_chainstate(path_blinded);
+        let sortition = SortitionDB::get_block_snapshot(sort_db.conn(), &sortition_id)
+            .unwrap().unwrap();
+        preprocess_block(&mut chainstate, &sort_db_blind, &sortition, block.clone());
+
+        coord_blind.handle_new_stacks_block().unwrap();
+        let pox_id_at_tip = {
+            let ic = sort_db_blind.index_handle_at_tip();
+            ic.get_pox_id().unwrap()
+        };
+
+        let block_hash = block.header.block_hash();
+        if anchor_blocks.contains(&block_hash) {
+            // just processed an anchor block, we should expect to have a pox_id
+            //   that has one more one!
+            pox_id_string.push('1');
+        }
+
+        assert_eq!(pox_id_at_tip.to_string(),
+                   // right-pad pox_id_string to 11 characters
+                   format!("{:0<11}", pox_id_string));
+    }
 }
 
 fn preprocess_block(chain_state: &mut StacksChainState, sort_db: &SortitionDB,
                     my_sortition: &BlockSnapshot, block: StacksBlock) {
+    let parent_sortition_id = sort_db.get_sortition_id(&my_sortition.parent_burn_header_hash, &my_sortition.sortition_id)
+        .unwrap().unwrap();
+    let parent_consensus_hash = SortitionDB::get_block_snapshot(sort_db.conn(), &parent_sortition_id)
+        .unwrap().unwrap().consensus_hash;
     let ic = sort_db.index_conn();
-
-    let parent_consensus_hash = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-        &ic, &my_sortition.sortition_id, &block.header.parent_block).unwrap().unwrap()
-        .consensus_hash;
     // Preprocess the anchored block
     chain_state.preprocess_anchored_block(
         &ic, &my_sortition.consensus_hash, &block,

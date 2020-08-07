@@ -1295,7 +1295,7 @@ pub mod tests {
             burn_header_timestamp: 121,
             parent_burn_header_hash: first_burn_hash.clone(),
             ops_hash: block_opshash_121.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_121_hash, &block_opshash_121, 0, &block_prev_chs_121),
+            consensus_hash: ConsensusHash::from_ops(&block_121_hash, &block_opshash_121, 0, &block_prev_chs_121, &PoxId::stubbed()),
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1328,7 +1328,7 @@ pub mod tests {
             burn_header_timestamp: 122,
             parent_burn_header_hash: block_121_hash.clone(),
             ops_hash: block_opshash_122.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_122_hash, &block_opshash_122, 0, &block_prev_chs_122),
+            consensus_hash: ConsensusHash::from_ops(&block_122_hash, &block_opshash_122, 0, &block_prev_chs_122, &PoxId::stubbed()),
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1367,7 +1367,7 @@ pub mod tests {
             burn_header_timestamp: 123,
             parent_burn_header_hash: block_122_hash.clone(),
             ops_hash: block_opshash_123.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_123_hash, &block_opshash_123, 0, &block_prev_chs_123),        // user burns not included, so zero burns this block
+            consensus_hash: ConsensusHash::from_ops(&block_123_hash, &block_opshash_123, 0, &block_prev_chs_123, &PoxId::stubbed()),        // user burns not included, so zero burns this block
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1515,7 +1515,7 @@ pub mod tests {
                 burn_header_timestamp: 124,
                 parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
                 ops_hash: block_opshash_124.clone(),
-                consensus_hash: ConsensusHash::from_ops(&block_124_hash, &block_opshash_124, burn_total, &block_prev_chs_124),
+                consensus_hash: ConsensusHash::from_ops(&block_124_hash, &block_opshash_124, burn_total, &block_prev_chs_124, &PoxId::stubbed()),
                 total_burn: burn_total,
                 sortition: next_sortition,
                 sortition_hash: SortitionHash::initial()

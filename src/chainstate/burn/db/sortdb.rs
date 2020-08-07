@@ -343,7 +343,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
     -- organizes the set of forks in the burn chain as well.
     CREATE TABLE snapshots(
         block_height INTEGER NOT NULL,
-        burn_header_hash TEXT UNIQUE NOT NULL,
+        burn_header_hash TEXT NOT NULL,
         sortition_id TEXT UNIQUE NOT NULL,
         burn_header_timestamp INT NOT NULL,
         parent_burn_header_hash TEXT NOT NULL,
@@ -550,6 +550,10 @@ impl db_keys {
         format!("sortition_db::pox_anchor_to_prepare_end::{}", block_hash)
     }
 
+    pub fn pox_last_anchor() -> &'static str {
+        "sortition_db::last_anchor_block"
+    }
+
     /// store an entry for retrieving the PoX identifier (i.e., the PoX bitvector) for this PoX fork
     pub fn pox_identifier() -> &'static str {
         "sortition_db::pox_identifier"
@@ -708,6 +712,20 @@ impl <'a> SortitionHandleConn <'a> {
         };
 
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
+    }
+
+    pub fn get_last_anchor_block_hash(&self) -> Result<Option<BlockHeaderHash>, db_error> {
+        let anchor_block_hash = self.get_tip_indexed(db_keys::pox_last_anchor())?
+            .map(|s| {
+                if s == "" {
+                    None
+                } else {
+                    Some(BlockHeaderHash::from_hex(&s)
+                         .expect("BUG: Bad BlockHeaderHash stored in DB"))
+                }
+            })
+            .flatten();
+        Ok(anchor_block_hash)
     }
 
     pub fn get_pox_id(&self) -> Result<PoxId, db_error> {
@@ -956,13 +974,12 @@ impl <'a> SortitionHandleConn <'a> {
     /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
     /// construction.
     pub fn get_block_commit(&self, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        // PoX TODO: note -- block_commits table will index on burn_header_hash: if a block_commit is reprocessed due to a PoX fork,
-        //                   it should be allowed to either overwrite the previous entry OR skip insertion (i.e., UNIQUE constraints
-        //                   should not be allowed to cause a panic)
         let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND burn_header_hash = ?2";
         let args: [&dyn ToSql; 2] = [&txid, &burn_header_hash];
-        query_row_panic(&self.conn, qry, &args,
-                        || format!("FATAL: multiple block commits for {},{}", &txid, &burn_header_hash))
+        // note: it's okay just grab the first result if there are multiple entries (because of PoX forks)
+        //       because all the content in the LeaderBlockCommitOp is content-addresses (i.e., the sortition_id isn't
+        //       included in that struct)
+        query_row(&self.conn, qry, &args)
     }
 
     /// Determine whether or not a leader key has been consumed by a subsequent block commitment in
@@ -999,7 +1016,7 @@ impl <'a> SortitionHandleConn <'a> {
     fn get_sortition_winners_in_fork(&self, block_height_begin: u32, block_height_end: u32) -> Result<Vec<(Txid, u64)>,  BurnchainError> {
         let mut result = vec![];
         for height in (block_height_begin+1)..(block_height_end+1) {
-            info!("Looking for winners at height = {}", height);
+            debug!("Looking for winners at height = {}", height);
             let snapshot = SortitionDB::get_ancestor_snapshot(self, height as u64, &self.context.chain_tip)?
                 .ok_or_else(|| BurnchainError::MissingParentBlock)?;
             if snapshot.sortition {
@@ -1066,12 +1083,6 @@ impl <'a> SortitionHandleConn <'a> {
             } else {
                 candidate_anchors.insert(highest_ancestor, 1u32);
             }
-        }
-
-        for (candidate, confirmed_by) in candidate_anchors.iter() {
-            let sn = SortitionDB::get_ancestor_snapshot(self, *candidate, &self.context.chain_tip)?
-                .expect("BUG: cannot find chosen PoX candidate's sortition");
-            info!("Candidate {} at height {}, received {} confirmations", &sn.burn_header_hash, *candidate, *confirmed_by)
         }
 
         // did any candidate receive >= F*w?
@@ -1518,7 +1529,7 @@ impl SortitionDB {
 
         while let Some(header) = queue.pop() {
             db_tx.execute("UPDATE snapshots SET pox_valid = 0 WHERE parent_burn_header_hash = ?", &[&header])?;
-            let mut stmt = db_tx.prepare("SELECT burn_header_hash WHERE parent_burn_header_hash = ?")?;
+            let mut stmt = db_tx.prepare("SELECT DISTINCT burn_header_hash FROM snapshots WHERE parent_burn_header_hash = ?")?;
             for next_header in stmt.query_map(&[&header], |row| row.get(0))? {
                 queue.push(next_header?);
             }
@@ -1882,15 +1893,15 @@ impl SortitionDB {
 
     /// Get a block commit by its committed block
     pub fn get_block_commit_for_stacks_block(conn: &Connection, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let burn_header_hash = match SortitionDB::get_block_snapshot_consensus(conn, consensus_hash)? {
-            Some(sn) => sn.burn_header_hash,
+        let sortition_id = match SortitionDB::get_block_snapshot_consensus(conn, consensus_hash)? {
+            Some(sn) => sn.sortition_id,
             None => {
                 return Ok(None);
             }
         };
 
-        let qry = "SELECT * FROM block_commits WHERE burn_header_hash = ?1 AND block_header_hash = ?2";
-        let args: [&dyn ToSql; 2] = [&burn_header_hash, &block_hash];
+        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2";
+        let args: [&dyn ToSql; 2] = [&sortition_id, &block_hash];
         query_row_panic(conn, qry, &args,
                         || format!("FATAL: multiple block commits for {}", &block_hash))
     }
@@ -2232,6 +2243,12 @@ impl <'a> SortitionHandleTx <'a> {
                 if let Some(ref anchor_block) = reward_info.anchor_block {
                     keys.push(db_keys::pox_anchor_to_prepare_end(anchor_block));
                     values.push(parent_snapshot.sortition_id.to_hex());
+
+                    keys.push(db_keys::pox_last_anchor().to_string());
+                    values.push(anchor_block.to_hex());
+                } else {
+                    keys.push(db_keys::pox_last_anchor().to_string());
+                    values.push("".to_string());
                 }
                 keys.push(db_keys::pox_identifier().to_string());
                 values.push(pox_id.to_string());

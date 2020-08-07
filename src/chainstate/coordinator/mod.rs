@@ -133,7 +133,7 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
                     debug!("Received new stacks block notice");
-                    if let Err(e) = inst.process_ready_blocks() {
+                    if let Err(e) = inst.handle_new_stacks_block() {
                         warn!("Error processing new stacks block: {:?}", e);
                     }
                 },
@@ -180,6 +180,14 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ()> {
 }
 
 impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a, T, N> {
+    pub fn handle_new_stacks_block(&mut self) -> Result<(), Error> {
+        if let Some(pox_anchor) = self.process_ready_blocks()? {
+            self.process_new_pox_anchor(pox_anchor)
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn handle_new_burnchain_block(&mut self) -> Result<(), Error> {
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
@@ -234,7 +242,7 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
             }
 
             if let Some(pox_anchor) = self.process_ready_blocks()? {
-                return self.process_new_pox_anchor(&pox_anchor)
+                return self.process_new_pox_anchor(pox_anchor)
             }
         }
 
@@ -250,10 +258,13 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
         if self.burnchain.is_reward_cycle_start(burn_header.block_height) {
             info!("Beginning reward cycle. block_height={}", burn_header.block_height);
             let reward_cycle_info = {
-                let ic = self.sortition_db.index_handle_at_tip();
+                let ic = self.sortition_db.index_handle(
+                    self.canonical_sortition_tip.as_ref()
+                        .expect("FATAL: Processing anchor block, but no known sortition tip"));
                 ic.get_reward_cycle_info(&burn_header.parent_block_hash, &self.burnchain.pox_constants)
             }?;
             if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
+                info!("Anchor block selected: {}", stacks_block_hash);
                 let anchor_block_known = StacksChainState::is_stacks_block_processed(
                     &self.chain_state_db.headers_db, &consensus_hash, &stacks_block_hash)?;
                 Ok(Some(RewardCycleInfo {
@@ -319,7 +330,11 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
                         dispatcher.announce_block(block, block_receipt.header, block_receipt.tx_receipts, &parent);
                     }
 
+                    // if, just after processing the block, we _know_ that this block is a pox anchor, that means
+                    //   that sortitions have already begun processing that didn't know about this pox anchor.
+                    //   we need to trigger an unwind 
                     if let Some(pox_anchor) = self.sortition_db.is_stacks_block_pox_anchor(&block_hash, canonical_sortition_tip)? {
+                        info!("Discovered an old anchor block: {}", &pox_anchor);
                         return Ok(Some(pox_anchor));
                     }
                 }
@@ -333,7 +348,7 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
         Ok(None)
     }
 
-    fn process_new_pox_anchor(&mut self, block_id: &BlockHeaderHash) -> Result<(), Error> {
+    fn process_new_pox_anchor(&mut self, block_id: BlockHeaderHash) -> Result<(), Error> {
         // get the last sortition in the prepare phase that chose this anchor block
         //   that sortition is now the current canonical sortition,
         //   and now that we have process the anchor block for the corresponding reward phase,
@@ -341,8 +356,10 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
         let sortition_id = self.canonical_sortition_tip.as_ref()
             .expect("FAIL: processing a new anchor block, but don't have a canonical sortition tip");
 
-        let prep_end = self.sortition_db.get_prepare_end_for(sortition_id, block_id)?
-            .expect(&format!("FAIL: expected to get a sortition for a chosen anchor block {}, but not found.", block_id));
+        let prep_end = self.sortition_db.get_prepare_end_for(sortition_id, &block_id)?
+            .expect(&format!("FAIL: expected to get a sortition for a chosen anchor block {}, but not found.", &block_id));
+
+        info!("Reprocessing with anchor block information, starting at block height: {}", prep_end.block_height);
         let mut pox_id = self.sortition_db.get_pox_id(sortition_id)?;
         pox_id.extend_with_present_block();
 
