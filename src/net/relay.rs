@@ -39,7 +39,7 @@ use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, StacksEpochRece
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::coordinator::CoordinatorCommunication;
+use chainstate::coordinator::comm::CoordinatorChannels;
 
 use core::mempool::*;
 
@@ -758,7 +758,7 @@ impl Relayer {
     /// * list of confirmed microblock consensus hashes for newly-discovered microblock streams, so we can turn them into MicroblocksAvailable messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
-    pub fn process_new_blocks(network_result: &mut NetworkResult, sortdb: &mut SortitionDB, chainstate: &mut StacksChainState)
+    pub fn process_new_blocks(network_result: &mut NetworkResult, sortdb: &mut SortitionDB, chainstate: &mut StacksChainState, coord_comms: Option<&CoordinatorChannels>)
                               -> Result<(Vec<ConsensusHash>,
                                          Vec<ConsensusHash>, 
                                          Vec<(Vec<RelayData>, MicroblocksData)>,
@@ -793,7 +793,11 @@ impl Relayer {
 
         if new_blocks.len() > 0 {
             info!("Processing newly received blocks: {}", new_blocks.len());
-            CoordinatorCommunication::announce_new_stacks_block();
+            if let Some(coord_comms) = coord_comms {
+                if !coord_comms.announce_new_stacks_block() {
+                    return Err(net_error::CoordinatorClosed);
+                }
+            }
         }
 
         if network_result.uploaded_microblocks.len() > 0 {
@@ -906,8 +910,9 @@ impl Relayer {
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
     pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult,
-                                  sortdb: &mut SortitionDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<ProcessedNetReceipts, net_error> {
-        match Relayer::process_new_blocks(network_result, sortdb, chainstate) {
+                                  sortdb: &mut SortitionDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
+                                  coord_comms: Option<&CoordinatorChannels>) -> Result<ProcessedNetReceipts, net_error> {
+        match Relayer::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
             Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers

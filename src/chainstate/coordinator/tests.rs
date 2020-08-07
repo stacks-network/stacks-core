@@ -6,7 +6,6 @@ use chainstate::burn::operations::*;
 
 use std::sync::{ Arc, RwLock, atomic::{Ordering, AtomicU64, AtomicBool}};
 
-use crossbeam_channel::{select, bounded, Sender, Receiver, Select, TrySendError};
 use util::vrf::*;
 use core;
 use burnchains::{*, db::*};

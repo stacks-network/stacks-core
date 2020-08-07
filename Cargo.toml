@@ -57,7 +57,6 @@ url = "2.1.0"
 percent-encoding = "2.1.0"
 sha2 = "0.8.0"
 prometheus = { version = "0.9", optional = true }
-crossbeam-channel = "0.4.3"
 
 [dependencies.serde_json]
 version = "1.0"

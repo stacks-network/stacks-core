@@ -1715,7 +1715,7 @@ pub mod test {
 
                 let lp = peer.network.local_peer.clone();
                 peer.with_db_state(|sortdb, chainstate, relayer, mempool| {
-                    relayer.process_network_result(&lp, &mut result, sortdb, chainstate, mempool)
+                    relayer.process_network_result(&lp, &mut result, sortdb, chainstate, mempool, None)
                 }).unwrap();
 
                 test_debug!("Peer {} processes {} blocks and {} microblock streams", i, result.blocks.len(), result.confirmed_microblocks.len());

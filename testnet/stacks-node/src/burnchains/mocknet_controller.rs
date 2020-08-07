@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use super::super::{Config};
-use super::{BurnchainController, BurnchainTip};
 use super::super::operations::BurnchainOpSigner;
 
+use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use stacks::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransitionOps};
 use stacks::burnchains::bitcoin::BitcoinBlock;
 use stacks::chainstate::burn::db::sortdb::{
@@ -89,7 +89,7 @@ impl BurnchainController for MocknetController {
         }
     }
    
-    fn start(&mut self) -> BurnchainTip {
+    fn start(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
         let db = match SortitionDB::connect(&self.config.get_burn_db_file_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
@@ -106,7 +106,7 @@ impl BurnchainController for MocknetController {
         };
         self.chain_tip = Some(genesis_state.clone());
 
-        genesis_state
+        Ok(genesis_state)
     }
 
     fn submit_operation(&mut self, operation: BlockstackOperationType, _op_signer: &mut BurnchainOpSigner) -> bool {
@@ -114,7 +114,7 @@ impl BurnchainController for MocknetController {
         true
     }
 
-    fn sync(&mut self) -> BurnchainTip {
+    fn sync(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
         let chain_tip = self.get_chain_tip();
 
         // Simulating mining
@@ -204,7 +204,7 @@ impl BurnchainController for MocknetController {
         };
         self.chain_tip = Some(new_state.clone());
 
-        new_state
+        Ok(new_state)
     }
 
     #[cfg(test)]

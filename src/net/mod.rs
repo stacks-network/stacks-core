@@ -212,6 +212,8 @@ pub enum Error {
     ChainstateError(String),
     /// Catch-all for errors that a client should receive more information about
     ClientError(ClientError),
+    /// Coordinator hung up
+    CoordinatorClosed,
 }
 
 /// Enum for passing data for ClientErrors
@@ -287,6 +289,7 @@ impl fmt::Display for Error {
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::ClientError(ref e) => write!(f, "ClientError: {}", e),
+            Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
         }
     }
 }
@@ -340,6 +343,7 @@ impl error::Error for Error {
             Error::ClientError(ref e) => Some(e),
             Error::ClarityError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
+            Error::CoordinatorClosed => None,
         }
     }
 }

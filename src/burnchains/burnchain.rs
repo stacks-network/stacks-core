@@ -76,7 +76,7 @@ use chainstate::burn::db::sortdb::{
     PoxId
 };
 
-use chainstate::coordinator::CoordinatorCommunication;
+use chainstate::coordinator::comm::CoordinatorChannels;
 
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
@@ -622,8 +622,6 @@ impl Burnchain {
 
         let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
 
-        CoordinatorCommunication::announce_new_burn_block();
-
         let header = block.header();
 
         Ok(header)
@@ -677,9 +675,9 @@ impl Burnchain {
 
     /// Top-level burnchain sync.
     /// Returns new latest block height.
-    pub fn sync<I: BurnchainIndexer + 'static>(&mut self) -> Result<u64, burnchain_error> {
+    pub fn sync<I: BurnchainIndexer + 'static>(&mut self, comms: &CoordinatorChannels) -> Result<u64, burnchain_error> {
         let mut indexer: I = self.make_indexer()?;
-        let chain_tip = self.sync_with_indexer(&mut indexer)?;
+        let chain_tip = self.sync_with_indexer(&mut indexer, comms.clone())?;
         Ok(chain_tip.block_height)
     }
 
@@ -848,7 +846,7 @@ impl Burnchain {
     /// Top-level burnchain sync.
     /// Returns the burnchain block header for the new burnchain tip
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
-    pub fn sync_with_indexer<I>(&mut self, indexer: &mut I) -> Result<BurnchainBlockHeader, burnchain_error> 
+    pub fn sync_with_indexer<I>(&mut self, indexer: &mut I, coord_comm: CoordinatorChannels) -> Result<BurnchainBlockHeader, burnchain_error>
     where I: BurnchainIndexer + 'static {
 
         self.setup_chainstate(indexer)?;
@@ -947,6 +945,9 @@ impl Burnchain {
                 
                 let insert_start = get_epoch_time_ms();
                 last_processed = Burnchain::process_block(&mut burnchain_db, &burnchain_block)?;
+                if !coord_comm.announce_new_burn_block() {
+                    return Err(burnchain_error::CoordinatorClosed);
+                }
                 let insert_end = get_epoch_time_ms();
 
                 debug!("Inserted block {} in {}ms", burnchain_block.block_height(), insert_end.saturating_sub(insert_start));
@@ -980,7 +981,11 @@ impl Burnchain {
             Ok(x) => x,
             Err(e) => {
                 warn!("Failed to join burnchain download thread: {:?}", &e);
-                return Err(burnchain_error::TrySyncAgain);
+                if let burnchain_error::CoordinatorClosed = e {
+                    return Err(burnchain_error::CoordinatorClosed)
+                } else {
+                    return Err(burnchain_error::TrySyncAgain)
+                }
             }
         };
 

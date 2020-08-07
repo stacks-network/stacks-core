@@ -102,7 +102,7 @@ fn bump_processed_counter(blocks_processed: &BlocksProcessedCounter) {
 fn bump_processed_counter(_blocks_processed: &BlocksProcessedCounter) {
 }
 
-use stacks::chainstate::coordinator::CoordinatorCommunication;
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 
 /// Process artifacts from the tenure.
 /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
@@ -111,9 +111,10 @@ fn inner_process_tenure(
     consensus_hash: &ConsensusHash,
     parent_consensus_hash: &ConsensusHash,
     burn_db: &mut SortitionDB,
-    chain_state: &mut StacksChainState) -> Result<(), ChainstateError> {
+    chain_state: &mut StacksChainState,
+    coord_comms: &CoordinatorChannels) -> Result<bool, ChainstateError> {
 
-    let stacks_blocks_processed = CoordinatorCommunication::get_stacks_blocks_processed();
+    let stacks_blocks_processed = coord_comms.get_stacks_blocks_processed();
 
     {
         let ic = burn_db.index_conn();
@@ -126,8 +127,10 @@ fn inner_process_tenure(
             &parent_consensus_hash)?;
     }
 
-    CoordinatorCommunication::announce_new_stacks_block();
-    if !CoordinatorCommunication::wait_for_stacks_blocks_processed(stacks_blocks_processed, 15000) {
+    if !coord_comms.announce_new_stacks_block() {
+        return Ok(false)
+    }
+    if !coord_comms.wait_for_stacks_blocks_processed(stacks_blocks_processed, 15000) {
         warn!("ChainsCoordinator timed out while waiting for new stacks block to be processed");
     }
 
@@ -138,7 +141,7 @@ fn inner_process_tenure(
     debug!("Reload unconfirmed state");
     chain_state.reload_unconfirmed_state(canonical_tip)?;
 
-    Ok(())
+    Ok(true)
 }
 
 fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64) -> StacksTransaction {
@@ -309,7 +312,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                        burn_db_path: String, stacks_chainstate_path: String, 
                        relay_channel: Receiver<RelayerDirective>,
                        event_dispatcher: EventDispatcher,
-                       blocks_processed: BlocksProcessedCounter) -> Result<(), NetError> {
+                       blocks_processed: BlocksProcessedCounter,
+                       coord_comms: CoordinatorChannels) -> Result<(), NetError> {
     // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
     //   no other codepaths should be writing once this is spawned.
     //
@@ -339,7 +343,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
                     debug!("Relayer: Handle network result");
                     let net_receipts = relayer.process_network_result(&local_peer, net_result,
-                                                                        &mut sortdb, &mut chainstate, &mut mem_pool)
+                                                                      &mut sortdb, &mut chainstate, &mut mem_pool,
+                                                                      Some(&coord_comms))
                         .expect("BUG: failure processing network results");
 
                     let mempool_txs_added = net_receipts.mempool_txs_added.len();
@@ -365,8 +370,11 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             increment_stx_blocks_mined_counter();
 
                             match inner_process_tenure(&mined_block, &consensus_hash, &parent_consensus_hash,
-                                                       &mut sortdb, &mut chainstate) {
-                                Ok(x) => x,
+                                                       &mut sortdb, &mut chainstate, &coord_comms) {
+                                Ok(coordinator_running) => if !coordinator_running {
+                                    warn!("Coordinator stopped, stopping relayer thread...");
+                                    return;
+                                },
                                 Err(e) => {
                                     warn!("Error processing my tenure, bad block produced: {}", e);
                                     warn!("Bad block stacks_header={}, data={}",
@@ -460,7 +468,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
 impl InitializedNeonNode {
     fn new(config: Config, keychain: Keychain, event_dispatcher: EventDispatcher,
            last_burn_block: Option<BurnchainTip>,
-           miner: bool, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
+           miner: bool, blocks_processed: BlocksProcessedCounter, coord_comms: CoordinatorChannels) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
@@ -539,7 +547,8 @@ impl InitializedNeonNode {
                             config.get_burn_db_file_path(),
                             config.get_chainstate_path(),
                             relay_recv, event_dispatcher,
-                            blocks_processed.clone())
+                            blocks_processed.clone(),
+                            coord_comms)
             .expect("Failed to initialize mine/relay thread");
 
         spawn_peer(p2p_net, &p2p_sock, &rpc_sock,
@@ -849,21 +858,21 @@ impl NeonGenesisNode {
         }
     }
 
-    pub fn into_initialized_leader_node(self, burnchain_tip: BurnchainTip, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
+    pub fn into_initialized_leader_node(self, burnchain_tip: BurnchainTip, blocks_processed: BlocksProcessedCounter, coord_comms: CoordinatorChannels) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
 
         InitializedNeonNode::new(config, keychain, event_dispatcher, Some(burnchain_tip),
-                                 true, blocks_processed)
+                                 true, blocks_processed, coord_comms)
     }
 
-    pub fn into_initialized_node(self, burnchain_tip: BurnchainTip, blocks_processed: BlocksProcessedCounter) -> InitializedNeonNode {
+    pub fn into_initialized_node(self, burnchain_tip: BurnchainTip, blocks_processed: BlocksProcessedCounter, coord_comms: CoordinatorChannels) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
 
         InitializedNeonNode::new(config, keychain, event_dispatcher, Some(burnchain_tip),
-                                 false, blocks_processed)
+                                 false, blocks_processed, coord_comms)
     }
 }

@@ -608,7 +608,7 @@ fn integration_test_get_info() {
         }
     });
 
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }
 
 const FAUCET_CONTRACT: &'static str = "
@@ -774,7 +774,7 @@ fn contract_stx_transfer() {
         }
     });
 
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }
 
 /// Test mining a smart contract twice (in non-sequential blocks)
@@ -821,7 +821,7 @@ fn mine_contract_twice() {
         }
     });
 
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }
 
 #[test]
@@ -919,7 +919,7 @@ fn bad_contract_tx_rollback() {
         }
     });
 
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }
 
 lazy_static! {
@@ -1009,7 +1009,7 @@ fn block_limit_runtime_test() {
         }
     });
 
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }
 
 
@@ -1134,5 +1134,5 @@ fn mempool_errors() {
         }
     });
 
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }

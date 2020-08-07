@@ -20,7 +20,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, Duration};
 use stacks::util::hash::bytes_to_hex;
 use stacks::util::hash::Hash160;
-use stacks::chainstate::coordinator::CoordinatorCommunication;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -170,7 +169,7 @@ fn bitcoind_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller.start_bitcoind().map_err(|_e| ()).expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone());
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -180,6 +179,8 @@ fn bitcoind_integration_test() {
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || {
         run_loop.start(0)
@@ -209,7 +210,7 @@ fn bitcoind_integration_test() {
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
     assert_eq!(res.nonce, 1);
 
-    CoordinatorCommunication::stop_chains_coordinator();
+    channel.stop_chains_coordinator();
 }
 
 #[test]
@@ -242,7 +243,7 @@ fn microblock_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller.start_bitcoind().map_err(|_e| ()).expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone());
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -252,6 +253,8 @@ fn microblock_integration_test() {
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || {
         run_loop.start(0)
@@ -398,7 +401,7 @@ fn microblock_integration_test() {
     assert_eq!(res.nonce, 2);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
 
-    CoordinatorCommunication::stop_chains_coordinator();
+    channel.stop_chains_coordinator();
 }
 
 #[test]
@@ -446,7 +449,7 @@ fn size_check_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller.start_bitcoind().map_err(|_e| ()).expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone());
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -456,6 +459,7 @@ fn size_check_integration_test() {
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || {
         run_loop.start(0)
@@ -550,5 +554,5 @@ fn size_check_integration_test() {
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 1);
 
-    CoordinatorCommunication::stop_chains_coordinator();
+    channel.stop_chains_coordinator();
 }
