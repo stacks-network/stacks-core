@@ -1095,16 +1095,9 @@ impl StacksChainState {
 
     /// stacks_block _must_ have been committed, or this will return an error
     pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
-        let mut marf = self.headers_state_index.reopen_readonly()?;
-        marf.open_block(stacks_block)?;
-        let block_height = marf.get_block_height_of(stacks_block, stacks_block)?
-            .expect("CORRUPTION: no block height written for current block");
-        if block_height == 0 {
-            return Ok(StacksBlockId::sentinel());
-        }
-        let parent = marf.get_bhh_at_height(stacks_block, block_height - 1)?
-            .expect("CORRUPTION: No parent found for block");
-        Ok(parent)
+        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?";
+        self.headers_db.query_row(sql, &[stacks_block], |row| row.get(0))
+            .map_err(|e| Error::from(db_error::from(e)))
     }
 
     pub fn get_parent_consensus_hash(sort_ic: &SortitionDBConn, parent_block_hash: &BlockHeaderHash, my_consensus_hash: &ConsensusHash) -> Result<Option<ConsensusHash>, Error> {
