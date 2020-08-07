@@ -31,7 +31,7 @@ use util::db::{
     Error as DBError
 };
 
-mod comm;
+pub mod comm;
 
 #[cfg(test)]
 mod tests;
@@ -161,7 +161,8 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
                     }
                 },
                 i if i == event_stop => {
-                    CoordinatorCommunication::cleanup_singleton();
+                    debug!("Received stop notice");
+                    ready_oper.recv(&stop_channel).unwrap();
                     return
                 },
                 _ => {

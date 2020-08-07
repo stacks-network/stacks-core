@@ -42,6 +42,7 @@ use stacks::net::StacksMessageCodec;
 use stacks::util::hash::{Hash160, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 
 use stacks::monitoring::{
     increment_btc_blocks_received_counter, 
@@ -54,19 +55,13 @@ pub struct BitcoinRegtestController {
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
-    use_coordinator: bool,
+    use_coordinator: Option<CoordinatorChannels>,
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
 
 impl BitcoinRegtestController {
-
-    pub fn generic(config: Config) -> Box<dyn BurnchainController> {
-        Box::new(Self::new(config))
-    }
-
-    pub fn new(config: Config) -> Self {
-        
+    pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
     
@@ -93,7 +88,7 @@ impl BitcoinRegtestController {
         };
                 
         Self {
-            use_coordinator: config.burnchain.mode != "helium",
+            use_coordinator: coordinator_channel,
             config: config,
             indexer_config,
             db: None,
@@ -122,7 +117,7 @@ impl BitcoinRegtestController {
         };
                 
         Self {
-            use_coordinator: true,
+            use_coordinator: None,
             config: config,
             indexer_config,
             db: None,
@@ -210,13 +205,14 @@ impl BitcoinRegtestController {
     }
 
     fn receive_blocks(&mut self, sync: bool) -> BurnchainTip {
-        if !self.use_coordinator {
-            return self.receive_blocks_helium();
-        }
+        let coordinator_comms = match self.use_coordinator.as_ref() {
+            Some(x) => x.clone(),
+            None => return self.receive_blocks_helium()
+        };
 
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
         let (block_snapshot, state_transition) = loop {
-            match burnchain.sync_with_indexer(&mut burnchain_indexer) {
+            match burnchain.sync_with_indexer(&mut burnchain_indexer, coordinator_comms.clone()) {
                 Ok(x) => {
                     increment_btc_blocks_received_counter();
                     // initialize the dbs...

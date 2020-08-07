@@ -67,53 +67,36 @@ pub struct CoordinatorReceivers {
     pub sortitions_processed: Arc<AtomicU64>,
 }
 
-// Singletons for ChainsCoordinator communication
-//
-//  these channels allow any thread to notify the ChainsCoordinator
-//   instance that a new staging block is ready or a new bitcoin
-//   block has arrived
-//
-//  using a singleton for this pretty dramatically simplifies state
-//   management in the stacks-node, bitcoin indexer, and relayer, because they
-//   don't need to pass around instances of the channels. however,
-//   this _does_ step on the cargo test framework in silly ways, so any
-//   tests which instantiate a coordinator need to call
-//   CoordinatorCommunication::stop_chains_coordinator()
-//   when they are done.
-lazy_static! {
-    static ref COORDINATOR_CHANNELS: RwLock<Option<CoordinatorChannels>> = RwLock::new(None);
-}
-
 /// Static struct used to hold all the static methods
-///   for communication with the singleton
+///   for setting up the coordinator channels
 pub struct CoordinatorCommunication;
 
 impl CoordinatorChannels {
-    fn handle_result(r: Result<(), TrySendError<()>>) {
+    fn handle_result(r: Result<(), TrySendError<()>>) -> bool {
         match r {
             // don't need to do anything if the channel is full -- the coordinator
             //  will check for the new block when it processes the next block anyways
-            Ok(_) | Err(TrySendError::Full(_)) => {},
+            Ok(_) | Err(TrySendError::Full(_)) => true,
             Err(TrySendError::Disconnected(_)) => {
-                warn!("ChainsCoordinator hung up, exiting...");
-                process::exit(-1);
+                warn!("ChainsCoordinator hung up...");
+                false
             },
         }
     }
 
-    pub fn announce_new_stacks_block(&self) {
+    pub fn announce_new_stacks_block(&self) -> bool {
         CoordinatorChannels::handle_result(
-            self.new_stacks_block_channel.try_send(()));
+            self.new_stacks_block_channel.try_send(()))
     }
 
-    pub fn announce_new_burn_block(&self) {
+    pub fn announce_new_burn_block(&self) -> bool {
         CoordinatorChannels::handle_result(
-            self.new_burn_block_channel.try_send(()));
+            self.new_burn_block_channel.try_send(()))
     }
 
-    pub fn stop_chains_coordinator(&self) {
+    pub fn stop_chains_coordinator(&self) -> bool {
         CoordinatorChannels::handle_result(
-            self.stop.try_send(()));
+            self.stop.try_send(()))
     }
 
     pub fn get_stacks_blocks_processed(&self) -> u64 {
@@ -147,97 +130,33 @@ impl CoordinatorChannels {
         }
         return true
     }
-
 }
 
 impl CoordinatorCommunication {
-    pub fn cleanup_singleton() {
-        info!("Dropping coordinator channel instance");
-        COORDINATOR_CHANNELS.write().unwrap().take()
-            .expect("FAIL: ChainsCoordinator cleaning up channels, but send channels non-existant");
-    }
-
-    pub fn shared() -> CoordinatorChannels {
-        COORDINATOR_CHANNELS.read().unwrap()
-            .as_ref().cloned()
-            .expect("FAIL: attempted to obtain chains coordinator channels, but instance not constructed.")
-    }
-
-    pub fn announce_new_stacks_block() {
-        COORDINATOR_CHANNELS.read().unwrap()
-            .as_ref().expect("FAIL: attempted to obtain chains coordinator channels, but instance not constructed.")
-            .announce_new_stacks_block()
-    }
-
-    pub fn announce_new_burn_block() {
-        COORDINATOR_CHANNELS.read().unwrap()
-            .as_ref().expect("FAIL: attempted to obtain chains coordinator channels, but instance not constructed.")
-            .announce_new_burn_block()
-    }
-
-    pub fn stop_chains_coordinator() {
-        COORDINATOR_CHANNELS.read().unwrap()
-            .as_ref().expect("FAIL: attempted to obtain chains coordinator channels, but instance not constructed.")
-            .stop_chains_coordinator()
-    }
-
-    pub fn get_stacks_blocks_processed() -> u64 {
-        COORDINATOR_CHANNELS.read().unwrap()
-            .as_ref().expect("FAIL: attempted to obtain chains coordinator channels, but instance not constructed.")
-            .get_stacks_blocks_processed()
-    }
-
-    pub fn get_sortitions_processed() -> u64 {
-        COORDINATOR_CHANNELS.read().unwrap()
-            .as_ref().expect("FAIL: attempted to obtain chains coordinator channels, but instance not constructed.")
-            .get_sortitions_processed()
-    }
-
-    /// wait for `current` to be surpassed, or timeout
-    ///   returns `false` if timeout is reached
-    ///   returns `true` if sortitions processed is passed
-    pub fn wait_for_sortitions_processed(current: u64, timeout_millis: u64) -> bool {
-        COORDINATOR_CHANNELS.read().unwrap()
-            .as_ref().expect("FAIL: attempted to obtain chains coordinator channels, but instance not constructed.")
-            .wait_for_sortitions_processed(current, timeout_millis)
-    }
-
-    /// wait for `current` to be surpassed, or timeout
-    ///   returns `false` if timeout is reached
-    ///   returns `true` if sortitions processed is passed
-    pub fn wait_for_stacks_blocks_processed(current: u64, timeout_millis: u64) -> bool {
-        COORDINATOR_CHANNELS.read().unwrap()
-            .as_ref().expect("FAIL: attempted to obtain chains coordinator channels, but instance not constructed.")
-            .wait_for_stacks_blocks_processed(current, timeout_millis)
-    }
-
-
-    pub fn instantiate_singleton() -> CoordinatorReceivers {
-        let mut channel_storage = COORDINATOR_CHANNELS.write().unwrap();
-        if channel_storage.is_some() {
-            panic!("FAIL: attempted to start chains coordinator, but instance already constructed.");
-        }
-
+    pub fn instantiate() -> (CoordinatorReceivers, CoordinatorChannels) {
         let (stacks_block_sender, stacks_block_receiver) = bounded(1);
         let (burn_block_sender, burn_block_receiver) = bounded(1);
         let (stop_sender, stop_receiver) = bounded(1);
         let stacks_blocks_processed = Arc::new(AtomicU64::new(0));
         let sortitions_processed = Arc::new(AtomicU64::new(0));
 
-        channel_storage.replace(CoordinatorChannels {
+        let senders = CoordinatorChannels {
             new_stacks_block_channel: stacks_block_sender,
             new_burn_block_channel: burn_block_sender,
             stacks_blocks_processed: stacks_blocks_processed.clone(),
             sortitions_processed: sortitions_processed.clone(),
             stop: stop_sender,
-        });
+        };
 
-        CoordinatorReceivers {
+        let rcvrs = CoordinatorReceivers {
             event_stacks_block: stacks_block_receiver,
             event_burn_block: burn_block_receiver,
             stop: stop_receiver,
             stacks_blocks_processed,
             sortitions_processed
-        }
+        };
+
+        (rcvrs, senders)
     }
+
 }

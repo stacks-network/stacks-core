@@ -42,7 +42,7 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.mode[..] {
             "helium" => {
-                BitcoinRegtestController::generic(self.config.clone())
+                Box::new(BitcoinRegtestController::new(self.config.clone(), None))
             },
             "mocknet" => {
                 MocknetController::generic(self.config.clone())
