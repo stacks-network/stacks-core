@@ -89,17 +89,12 @@ impl SignalBools {
     fn receive_signal(&mut self) -> CoordinatorEvents {
         if self.stop {
             return CoordinatorEvents::STOP
-        } else if self.new_stacks_block || self.new_burn_block {
-            // randomly choose if both are activated
-            let process_stacks_block = self.new_stacks_block &&
-                (!self.new_burn_block || rand::random::<bool>());
-            if process_stacks_block {
-                self.new_stacks_block = false;
-                return CoordinatorEvents::NEW_STACKS_BLOCK;
-            } else {
-                self.new_burn_block = false;
-                return CoordinatorEvents::NEW_BURN_BLOCK;
-            }
+        } else if self.new_burn_block {
+            self.new_burn_block = false;
+            return CoordinatorEvents::NEW_BURN_BLOCK;
+        } else if self.new_stacks_block {
+            self.new_stacks_block = false;
+            return CoordinatorEvents::NEW_STACKS_BLOCK;
         } else {
             return CoordinatorEvents::TIMEOUT;
         }
