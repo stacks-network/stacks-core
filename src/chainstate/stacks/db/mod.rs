@@ -407,7 +407,7 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         burn_header_hash TEXT NOT NULL,              -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can have 2+ blocks per burn block if there's a PoX fork)
         burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
-        parent_block_id TEXT UNIQUE NOT NULL,        -- NOTE: this is the parent index_block_hash
+        parent_block_id TEXT NOT NULL,        -- NOTE: this is the parent index_block_hash
 
         cost TEXT NOT NULL,
 
