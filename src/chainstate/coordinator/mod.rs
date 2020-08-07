@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 use std::time::{
     Duration
 };
-use crossbeam_channel::{Select};
 
 use burnchains::{
     Error as BurnchainError,
@@ -39,7 +38,7 @@ mod tests;
 pub use self::comm::CoordinatorCommunication;
 
 use chainstate::coordinator::comm::{
-    CoordinatorNotices, CoordinatorReceivers, ArcCounterCoordinatorNotices
+    CoordinatorNotices, CoordinatorReceivers, ArcCounterCoordinatorNotices, CoordinatorEvents
 };
 
 #[derive(Debug, PartialEq)]
@@ -103,16 +102,8 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
                   boot_block_exec: F)
         where F: FnOnce(&mut ClarityTx), T: BlockEventDispatcher {
 
-        let CoordinatorReceivers {
-            event_stacks_block: stacks_block_channel,
-            event_burn_block: burn_block_channel,
-            stop: stop_channel,
-            stacks_blocks_processed, sortitions_processed } = comms;
-
-        let mut event_receiver = Select::new();
-        let event_stacks_block = event_receiver.recv(&stacks_block_channel);
-        let event_burn_block = event_receiver.recv(&burn_block_channel);
-        let event_stop = event_receiver.recv(&stop_channel);
+        let stacks_blocks_processed = comms.stacks_blocks_processed.clone();
+        let sortitions_processed = comms.sortitions_processed.clone();
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
@@ -138,35 +129,24 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
 
         loop {
             // timeout so that we handle Ctrl-C a little gracefully
-            let ready_oper = match event_receiver.select_timeout(Duration::from_millis(500)) {
-                Ok(op) => op,
-                Err(_) => continue
-            };
-
-            match ready_oper.index() {
-                i if i == event_stacks_block => {
+            match comms.wait_on() {
+                CoordinatorEvents::NEW_STACKS_BLOCK => {
                     debug!("Received new stacks block notice");
-                    // pop operation off of receiver
-                    ready_oper.recv(&stacks_block_channel).unwrap();
                     if let Err(e) = inst.process_ready_blocks() {
                         warn!("Error processing new stacks block: {:?}", e);
                     }
                 },
-                i if i == event_burn_block => {
-                    // pop operation off of receiver
+                CoordinatorEvents::NEW_BURN_BLOCK => {
                     debug!("Received new burn block notice");
-                    ready_oper.recv(&burn_block_channel).unwrap();
                     if let Err(e) = inst.handle_new_burnchain_block() {
                         warn!("Error processing new burn block: {:?}", e);
                     }
                 },
-                i if i == event_stop => {
+                CoordinatorEvents::STOP => {
                     debug!("Received stop notice");
-                    ready_oper.recv(&stop_channel).unwrap();
                     return
                 },
-                _ => {
-                    unreachable!("Ready channel for non-registered channel");
+                CoordinatorEvents::TIMEOUT => {
                 },
             }
         }

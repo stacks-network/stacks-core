@@ -6,11 +6,9 @@ use std::time::{
 };
 use std::sync::{
     Arc, RwLock,
+    Condvar, Mutex,
     atomic::{Ordering, AtomicU64}
 };
-
-use crossbeam_channel::{bounded, Sender, Receiver, TrySendError};
-
 
 /// Trait for use by the ChainsCoordinator
 /// 
@@ -48,21 +46,25 @@ pub struct CoordinatorChannels {
     //    handles _all_ new blocks whenever it processes an event
     //    because of this, we can avoid trying to set large bounds on these
     //    event channels by using a coalescing thread.
-    new_stacks_block_channel: Sender<()>,
-    new_burn_block_channel: Sender<()>,
+    signal_bools: Arc<Mutex<SignalBools>>,
+    signal_wakeup: Arc<Condvar>,
     /// how many stacks blocks have been processed by this Coordinator thread since startup?
     stacks_blocks_processed: Arc<AtomicU64>,
     /// how many sortitions have been processed by this Coordinator thread since startup?
     sortitions_processed: Arc<AtomicU64>,
-    stop: Sender<()>
+}
+
+struct SignalBools {
+    new_stacks_block: bool,
+    new_burn_block: bool,
+    stop: bool,
 }
 
 /// Structure used by the Coordinator's run-loop
 ///   to receive signals
 pub struct CoordinatorReceivers {
-    pub event_stacks_block: Receiver<()>,
-    pub event_burn_block: Receiver<()>,
-    pub stop: Receiver<()>,
+    signal_bools: Arc<Mutex<SignalBools>>,
+    signal_wakeup: Arc<Condvar>,
     pub stacks_blocks_processed: Arc<AtomicU64>,
     pub sortitions_processed: Arc<AtomicU64>,
 }
@@ -71,32 +73,64 @@ pub struct CoordinatorReceivers {
 ///   for setting up the coordinator channels
 pub struct CoordinatorCommunication;
 
-impl CoordinatorChannels {
-    fn handle_result(r: Result<(), TrySendError<()>>) -> bool {
-        match r {
-            // don't need to do anything if the channel is full -- the coordinator
-            //  will check for the new block when it processes the next block anyways
-            Ok(_) | Err(TrySendError::Full(_)) => true,
-            Err(TrySendError::Disconnected(_)) => {
-                warn!("ChainsCoordinator hung up...");
-                false
-            },
+pub enum CoordinatorEvents {
+    NEW_STACKS_BLOCK, NEW_BURN_BLOCK, STOP, TIMEOUT
+}
+
+impl SignalBools {
+    fn activated_signal(&self) -> bool {
+        self.stop || self.new_stacks_block || self.new_burn_block
+    }
+    fn receive_signal(&mut self) -> CoordinatorEvents {
+        if self.stop {
+            return CoordinatorEvents::STOP
+        } else if self.new_stacks_block || self.new_burn_block {
+            // randomly choose if both are activated
+            let process_stacks_block = self.new_stacks_block &&
+                (!self.new_burn_block || rand::random::<bool>());
+            if process_stacks_block {
+                self.new_stacks_block = false;
+                return CoordinatorEvents::NEW_STACKS_BLOCK;
+            } else {
+                self.new_burn_block = false;
+                return CoordinatorEvents::NEW_BURN_BLOCK;
+            }
+        } else {
+            return CoordinatorEvents::TIMEOUT;
         }
     }
+}
 
+impl CoordinatorReceivers {
+    pub fn wait_on(&self) -> CoordinatorEvents {
+        let mut signal_bools = self.signal_bools.lock().unwrap();
+        if !signal_bools.activated_signal() {
+            signal_bools = self.signal_wakeup.wait(signal_bools).unwrap();
+        }
+        signal_bools.receive_signal()
+    }
+}
+
+impl CoordinatorChannels {
     pub fn announce_new_stacks_block(&self) -> bool {
-        CoordinatorChannels::handle_result(
-            self.new_stacks_block_channel.try_send(()))
+        let mut bools = self.signal_bools.lock().unwrap();
+        bools.new_stacks_block = true;
+        self.signal_wakeup.notify_all();
+        !bools.stop
     }
 
     pub fn announce_new_burn_block(&self) -> bool {
-        CoordinatorChannels::handle_result(
-            self.new_burn_block_channel.try_send(()))
+        let mut bools = self.signal_bools.lock().unwrap();
+        bools.new_burn_block = true;
+        self.signal_wakeup.notify_all();
+        !bools.stop
     }
 
     pub fn stop_chains_coordinator(&self) -> bool {
-        CoordinatorChannels::handle_result(
-            self.stop.try_send(()))
+        let mut bools = self.signal_bools.lock().unwrap();
+        bools.stop = true;
+        self.signal_wakeup.notify_all();
+        false
     }
 
     pub fn get_stacks_blocks_processed(&self) -> u64 {
@@ -134,24 +168,28 @@ impl CoordinatorChannels {
 
 impl CoordinatorCommunication {
     pub fn instantiate() -> (CoordinatorReceivers, CoordinatorChannels) {
-        let (stacks_block_sender, stacks_block_receiver) = bounded(1);
-        let (burn_block_sender, burn_block_receiver) = bounded(1);
-        let (stop_sender, stop_receiver) = bounded(1);
+        let signal_bools = Arc::new(Mutex::new(SignalBools {
+            new_stacks_block: false,
+            new_burn_block: false,
+            stop: false,
+        }));
+
+        let signal_wakeup = Arc::new(Condvar::new());
+
         let stacks_blocks_processed = Arc::new(AtomicU64::new(0));
         let sortitions_processed = Arc::new(AtomicU64::new(0));
 
         let senders = CoordinatorChannels {
-            new_stacks_block_channel: stacks_block_sender,
-            new_burn_block_channel: burn_block_sender,
+            signal_bools: signal_bools.clone(),
+            signal_wakeup: signal_wakeup.clone(),
             stacks_blocks_processed: stacks_blocks_processed.clone(),
+
             sortitions_processed: sortitions_processed.clone(),
-            stop: stop_sender,
         };
 
         let rcvrs = CoordinatorReceivers {
-            event_stacks_block: stacks_block_receiver,
-            event_burn_block: burn_block_receiver,
-            stop: stop_receiver,
+            signal_bools: signal_bools,
+            signal_wakeup: signal_wakeup,
             stacks_blocks_processed,
             sortitions_processed
         };
