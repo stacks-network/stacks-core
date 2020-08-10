@@ -435,7 +435,7 @@ impl Relayer {
     }
 
     pub fn from_p2p(network: &mut PeerNetwork) -> Relayer {
-        let handle = network.new_handle(1024, 1024);
+        let handle = network.new_handle(1024);
         Relayer::new(handle)
     }
 
@@ -952,13 +952,6 @@ impl Relayer {
                     }
                 }
 
-                // drain and log errors from the p2p thread's attempt to handle our request
-                while let Some(relay_result) = self.p2p.next_result() {
-                    if let Err(relay_error) = relay_result {
-                        warn!("Message relay error: {:?}", &relay_error);
-                    }
-                }
-
                 receipts
             },
             Err(e) => {
@@ -1147,11 +1140,11 @@ impl PeerNetwork {
     pub fn advertize_blocks(&mut self, availability_data: BlocksAvailableMap) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) = self.find_block_recipients(&availability_data)?;
         for recipient in outbound_recipients.drain(..) {
-            test_debug!("{:?}: Advertize {} blocks to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
+            debug!("{:?}: Advertize {} blocks to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
             self.advertize_to_outbound_peer(&recipient, &availability_data, false)?;
         }
         for recipient in inbound_recipients.drain(..) {
-            test_debug!("{:?}: Advertize {} blocks to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
+            debug!("{:?}: Advertize {} blocks to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
             self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| StacksMessageType::BlocksAvailable(payload))?;
         }
         Ok(())
@@ -1165,11 +1158,11 @@ impl PeerNetwork {
     pub fn advertize_microblocks(&mut self, availability_data: BlocksAvailableMap) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) = self.find_block_recipients(&availability_data)?;
         for recipient in outbound_recipients.drain(..) {
-            test_debug!("{:?}: Advertize {} confirmed microblock streams to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
+            debug!("{:?}: Advertize {} confirmed microblock streams to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
             self.advertize_to_outbound_peer(&recipient, &availability_data, true)?;
         }
         for recipient in inbound_recipients.drain(..) {
-            test_debug!("{:?}: Advertize {} confirmed microblock streams to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
+            debug!("{:?}: Advertize {} confirmed microblock streams to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
             self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| StacksMessageType::MicroblocksAvailable(payload))?;
         }
         Ok(())
