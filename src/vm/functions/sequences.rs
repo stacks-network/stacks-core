@@ -64,9 +64,9 @@ pub fn special_fold(args: &[SymbolicExpression], env: &mut Environment, context:
     match sequence {
         Value::Sequence(ref mut sequence_data) => {
             sequence_data.atom_values()
-                .iter()
+                .into_iter()
                 .try_fold(initial, |acc, x| {
-                    apply(&function, &[x.clone(), SymbolicExpression::atom_value(acc)], env, context)
+                    apply(&function, &[x, SymbolicExpression::atom_value(acc)], env, context)
                 })
         },
         _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
