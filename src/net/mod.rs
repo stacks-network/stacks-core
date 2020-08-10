@@ -170,6 +170,8 @@ pub enum Error {
     InvalidMessage,
     /// Invalid network handle
     InvalidHandle,
+    /// Network handle is full
+    FullHandle,
     /// Invalid handshake 
     InvalidHandshake,
     /// Stale neighbor
@@ -266,6 +268,7 @@ impl fmt::Display for Error {
             Error::RecvError(ref s) => fmt::Display::fmt(s, f),
             Error::InvalidMessage => write!(f, "invalid message (malformed or bad signature)"),
             Error::InvalidHandle => write!(f, "invalid network handle"),
+            Error::FullHandle => write!(f, "network handle is full and needs to be drained"),
             Error::InvalidHandshake => write!(f, "invalid handshake from remote peer"),
             Error::StaleNeighbor => write!(f, "neighbor is too far behind the chain tip"),
             Error::NoSuchNeighbor => write!(f, "no such neighbor"),
@@ -319,6 +322,7 @@ impl error::Error for Error {
             Error::RecvError(ref _s) => None,
             Error::InvalidMessage => None,
             Error::InvalidHandle => None,
+            Error::FullHandle => None,
             Error::InvalidHandshake => None,
             Error::StaleNeighbor => None,
             Error::NoSuchNeighbor => None,
