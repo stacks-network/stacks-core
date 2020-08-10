@@ -100,9 +100,8 @@ use net::relay::*;
 use net::rpc::RPCHandlerArgs;
 
 /// inter-thread request to send a p2p message from another thread in this program.
+#[derive(Debug)]
 pub enum NetworkRequest {
-    Connect(NeighborKey),
-    Disconnect(NeighborKey),
     Ban(Vec<NeighborKey>),
     AdvertizeBlocks(BlocksAvailableMap),            // announce to all wanting neighbors that we have these blocks
     AdvertizeMicroblocks(BlocksAvailableMap),       // announce to all wanting neighbors that we have these confirmed microblock streams
@@ -116,54 +115,35 @@ pub enum NetworkRequest {
 /// a way to issue commands and hear back replies from them.
 pub struct NetworkHandle {
     chan_in: SyncSender<NetworkRequest>,
-    chan_out: Receiver<Result<(), net_error>>,
 }
 
 /// Internal handle for receiving requests from a NetworkHandle.
 /// This is the 'other end' of a NetworkHandle inside the peer network struct.
 struct NetworkHandleServer {
     chan_in: Receiver<NetworkRequest>,
-    chan_out: SyncSender<Result<(), net_error>>
 }
 
 impl NetworkHandle {
-    pub fn new(chan_in: SyncSender<NetworkRequest>, chan_out: Receiver<Result<(), net_error>>) -> NetworkHandle {
+    pub fn new(chan_in: SyncSender<NetworkRequest>) -> NetworkHandle {
         NetworkHandle {
             chan_in: chan_in,
-            chan_out: chan_out,
         }
     }
 
-    /// Send out a request to the p2p thread, and synchronously wait for a response
+    /// Send out a command to the p2p thread.  Do not bother waiting for the response.
+    /// Error out if the channel buffer is out of space
     fn send_request(&mut self, req: NetworkRequest) -> Result<(), net_error> {
         match self.chan_in.try_send(req) {
-            Ok(_) => {},
+            Ok(_) => Ok(()),
             Err(TrySendError::Full(_)) => {
                 warn!("P2P handle channel is full");
-                return Err(net_error::FullHandle);
+                Err(net_error::FullHandle)
             }
             Err(TrySendError::Disconnected(_)) => {
                 warn!("P2P handle channel is disconnected");
-                return Err(net_error::InvalidHandle);
+                Err(net_error::InvalidHandle)
             }
         }
-
-        match self.chan_out.recv().map_err(|_e| net_error::InvalidHandle)? {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e)
-        }
-    }
-
-    /// Connect to a remote peer 
-    pub fn connect_peer(&mut self, neighbor_key: NeighborKey) -> Result<(), net_error> {
-        let req = NetworkRequest::Connect(neighbor_key);
-        self.send_request(req)
-    }
-
-    /// Disconnect a remote peer 
-    pub fn disconnect_peer(&mut self, neighbor_key: NeighborKey) -> Result<(), net_error> {
-        let req = NetworkRequest::Disconnect(neighbor_key);
-        self.send_request(req)
     }
 
     /// Ban a peer
@@ -200,18 +180,16 @@ impl NetworkHandle {
 }
 
 impl NetworkHandleServer {
-    pub fn new(chan_in: Receiver<NetworkRequest>, chan_out: SyncSender<Result<(), net_error>>) -> NetworkHandleServer {
+    pub fn new(chan_in: Receiver<NetworkRequest>) -> NetworkHandleServer {
         NetworkHandleServer {
             chan_in: chan_in,
-            chan_out: chan_out
         }
     }
 
     pub fn pair(bufsz: usize) -> (NetworkHandleServer, NetworkHandle) {
         let (msg_send, msg_recv) = sync_channel(bufsz);
-        let (handle_send, handle_recv) = sync_channel(bufsz);
-        let server = NetworkHandleServer::new(msg_recv, handle_send);
-        let client = NetworkHandle::new(msg_send, handle_recv);
+        let server = NetworkHandleServer::new(msg_recv);
+        let client = NetworkHandle::new(msg_send);
         (server, client)
     }
 }
@@ -697,14 +675,6 @@ impl PeerNetwork {
     /// Dispatch a single request from another thread.
     fn dispatch_request(&mut self, request: NetworkRequest) -> Result<(), net_error> {
         match request {
-            NetworkRequest::Connect(neighbor_key) => {
-                self.connect_peer(&neighbor_key)
-                    .and_then(|_event_id| Ok(()))
-            },
-            NetworkRequest::Disconnect(neighbor_key) => {
-                self.deregister_neighbor(&neighbor_key);
-                Ok(())
-            },
             NetworkRequest::Ban(neighbor_keys) => {
                 for neighbor_key in neighbor_keys.iter() {
                     test_debug!("Request to ban {:?}", neighbor_key);
@@ -774,11 +744,10 @@ impl PeerNetwork {
     /// Process any handle requests from other threads.
     /// Returns the number of requests dispatched.
     /// This method does not block.
-    fn dispatch_requests(&mut self) -> usize {
+    fn dispatch_requests(&mut self) {
         let mut to_remove = vec![];
         let mut messages = vec![];
         let mut responses = vec![];
-        let mut num_dispatched = 0;
 
         // receive all in-bound requests
         for i in 0..self.handles.len() {
@@ -809,29 +778,14 @@ impl PeerNetwork {
 
         // dispatch all in-bound requests from waiting threads
         for (i, inbound_request) in messages {
+            let inbound_str = format!("{:?}", &inbound_request);
             let dispatch_res = self.dispatch_request(inbound_request);
-            responses.push((i, dispatch_res));
+            responses.push((i, inbound_str, dispatch_res));
         }
 
-        // send back all out-bound reply handles to waiting threads, causing them to wake up
-        for (i, dispatch_res) in responses {
-            match self.handles.get(i) {
-                Some(handle) => {
-                    let send_res = handle.chan_out.try_send(dispatch_res);
-                    match send_res {
-                        Ok(_) => {
-                            num_dispatched += 1;
-                        }
-                        Err(TrySendError::Full(dropped)) => {
-                            warn!("P2P client channel {} is full; dropping '{:?}'", i, &dropped);
-                        }
-                        Err(TrySendError::Disconnected(_)) => {
-                            // channel disconnected; remove
-                            to_remove.push(i);
-                        }
-                    }
-                },
-                None => {}
+        for (i, inbound_str, dispatch_res) in responses {
+            if let Err(e) = dispatch_res {
+                warn!("P2P client channel {}: request '{:?}' failed: '{:?}'", i, &inbound_str, &e);
             }
         }
 
@@ -840,8 +794,6 @@ impl PeerNetwork {
         for i in to_remove {
             self.handles.remove(i);
         }
-
-        num_dispatched
     }
 
     /// Process ban requests.  Update the deny in the peer database.  Return the vec of event IDs to disconnect from.
@@ -2841,7 +2793,7 @@ mod test {
         p2p
     }
 
-    // tests connect_peer() and relay_signed_message()
+    // tests relay_signed_message()
     #[test]
     #[ignore]
     fn test_dispatch_requests_connect_and_message_relay() {
@@ -2869,17 +2821,14 @@ mod test {
         });
         
         p2p.bind(&"127.0.0.1:2000".parse().unwrap(), &"127.0.0.1:2001".parse().unwrap()).unwrap();
+        p2p.connect_peer(&neighbor.addr).unwrap();
 
         // start dispatcher
         let p2p_thread = thread::spawn(move || {
             for i in 0..5 {
                 test_debug!("dispatch batch {}", i);
 
-                let dispatch_count = p2p.dispatch_requests();
-                if dispatch_count >= 1 {
-                    test_debug!("Dispatched {} requests", dispatch_count);
-                }
-
+                p2p.dispatch_requests();
                 let mut poll_states = match p2p.network {
                     None => {
                         panic!("network not connected");
@@ -2897,8 +2846,6 @@ mod test {
                 thread::sleep(time::Duration::from_millis(1000));
             }
         });
-
-        h.connect_peer(neighbor.addr.clone()).unwrap();
 
         // will eventually accept
         let mut sent = false;
@@ -2969,6 +2916,7 @@ mod test {
         });
         
         p2p.bind(&"127.0.0.1:2010".parse().unwrap(), &"127.0.0.1:2011".parse().unwrap()).unwrap();
+        p2p.connect_peer(&neighbor.addr).unwrap();
 
         let (sx, rx) = sync_channel(1);
 
@@ -2978,11 +2926,7 @@ mod test {
             for i in 0..5 {
                 test_debug!("dispatch batch {}", i);
 
-                let dispatch_count = p2p.dispatch_requests();
-                if dispatch_count >= 1 {
-                    test_debug!("Dispatched {} requests", dispatch_count);
-                }
-
+                p2p.dispatch_requests();
                 let mut poll_state = match p2p.network {
                     None => {
                         panic!("network not connected");
@@ -3009,8 +2953,6 @@ mod test {
 
             let _ = sx.send(banned_peers);
         });
-
-        h.connect_peer(neighbor.addr.clone()).unwrap();
 
         // will eventually accept and ban
         let mut sent = false;
