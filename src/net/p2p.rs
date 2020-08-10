@@ -2855,7 +2855,7 @@ mod test {
                     sent = true;
                     break;
                 },
-                Err(net_error::NoSuchNeighbor) => {
+                Err(net_error::NoSuchNeighbor) | Err(net_error::FullHandle) => {
                     test_debug!("Failed to relay; try again in {} ms", (i + 1) * 1000);
                     sleep_ms((i + 1) * 1000);
                 },
@@ -2870,17 +2870,6 @@ mod test {
             error!("Failed to relay to neighbor");
             assert!(false);
         }
-
-        // should be unable to relay to a nonexistent neighbor
-        let nonexistent_neighbor = NeighborKey {
-            peer_version: 0x12345678,
-            network_id: 0x9abcdef0,
-            addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
-            port: 12346,
-        };
-
-        let res = h.relay_signed_message(nonexistent_neighbor, ping.clone());
-        assert_eq!(res, Err(net_error::NoSuchNeighbor));
 
         p2p_thread.join().unwrap();
         test_debug!("dispatcher thread joined");
@@ -2948,19 +2937,21 @@ mod test {
 
                 banned_peers.append(&mut banned);
 
-                thread::sleep(time::Duration::from_millis(1000));
+                thread::sleep(time::Duration::from_millis(5000));
             }
 
             let _ = sx.send(banned_peers);
         });
 
         // will eventually accept and ban
-        let mut sent = false;
-        for i in 0..10 {
+        for i in 0..5 {
             match h.ban_peers(vec![neighbor.addr.clone()]) {
                 Ok(_) => {
-                    sent = true;
-                    break;
+                    continue;
+                },
+                Err(net_error::FullHandle) => {
+                    test_debug!("Failed to relay; try again in {} ms", 1000 * (i + 1));
+                    sleep_ms(1000 * (i + 1));
                 },
                 Err(e) => {
                     eprintln!("{:?}", &e);
@@ -2968,14 +2959,9 @@ mod test {
                 }
             }
         }
-
-        if !sent {
-            error!("Failed to relay to neighbor");
-            assert!(false);
-        }
-
+        
         let banned = rx.recv().unwrap();
-        assert_eq!(banned.len(), 1);
+        assert!(banned.len() >= 1);
 
         p2p_thread.join().unwrap();
         test_debug!("dispatcher thread joined");
@@ -2983,28 +2969,4 @@ mod test {
         endpoint_thread.join().unwrap();
         test_debug!("fake endpoint thread joined");
     }
-
-    /*
-    #[test]
-    fn test_neighbors_connect() {
-        let mut burnchain_view = BurnchainView {
-            burn_block_height: 12345,
-            burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
-            burn_stable_block_height: 12339,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
-            last_consensus_hashes: HashMap::new()
-        };
-        burnchain_view.make_test_data();
-
-        let mut peers = vec![];
-        for i in 0..10 {
-            let config = TestPeerConfig::from_port(33000 + i);
-            let peer = TestPeer::new(config);
-            peers.push(peer);
-        }
-            
-        let mut p2p = make_test_p2p_network(&vec![]);
-        let thread_local_peer = PeerDB::get_local_peer(&p2p.peerdb.conn()).unwrap();
-    */
-
 }
