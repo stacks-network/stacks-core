@@ -1111,21 +1111,6 @@ impl PoxId {
         self.0.push(false);
     }
 
-    /// does the given pox identifier describe a child fork of the current pox identifier? this returns true if they
-    ///   are equal or child is a descendant.
-    pub fn is_pox_id_descendant(&self, child: &PoxId) -> bool {
-        if child.0.len() < self.0.len() {
-            false
-        } else {
-            for (a, b) in self.0.iter().zip(child.0.iter()) {
-                if a != b {
-                    return false;
-                }
-            }
-            true
-        }
-    }
-
     pub fn stubbed() -> PoxId {
         PoxId(vec![])
     }

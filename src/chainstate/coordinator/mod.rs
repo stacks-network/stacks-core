@@ -356,8 +356,13 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
         let sortition_id = self.canonical_sortition_tip.as_ref()
             .expect("FAIL: processing a new anchor block, but don't have a canonical sortition tip");
 
-        let prep_end = self.sortition_db.get_prepare_end_for(sortition_id, &block_id)?
+        let mut prep_end = self.sortition_db.get_prepare_end_for(sortition_id, &block_id)?
             .expect(&format!("FAIL: expected to get a sortition for a chosen anchor block {}, but not found.", &block_id));
+
+        // was this block a pox anchor for an even earlier reward cycle?
+        while let Some(older_prep_end) = self.sortition_db.get_prepare_end_for(&prep_end.sortition_id, &block_id)? {
+            prep_end = older_prep_end;
+        }
 
         info!("Reprocessing with anchor block information, starting at block height: {}", prep_end.block_height);
         let mut pox_id = self.sortition_db.get_pox_id(sortition_id)?;
