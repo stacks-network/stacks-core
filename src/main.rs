@@ -27,6 +27,7 @@
 extern crate blockstack_lib;
 extern crate rusqlite;
 
+use blockstack_lib::burnchains::db::BurnchainBlockData;
 use blockstack_lib::*;
 
 use std::fs;
@@ -308,7 +309,8 @@ fn main() {
         let sort_path = &argv[3];
         let mut chainstate = StacksChainState::open(false, 0x80000000, path).unwrap();
         let mut sortition_db = SortitionDB::open(sort_path, true).unwrap();
-        let mut tx = sortition_db.tx_begin().unwrap();
+        let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap().sortition_id;
+        let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
         chainstate.process_next_staging_block(&mut tx).unwrap();
         return
     }
@@ -318,7 +320,7 @@ fn main() {
         use chainstate::stacks::db::StacksChainState;
         use chainstate::stacks::db::blocks::StagingBlock;
         use chainstate::stacks::StacksBlockHeader;
-        use chainstate::burn::db::sortdb::{SortitionDB, PoxId, PoxDB};
+        use chainstate::burn::db::sortdb::{SortitionDB, PoxId};
         use chainstate::stacks::StacksAddress;
         use burnchains::Address;
         use burnchains::Burnchain;
@@ -413,7 +415,7 @@ fn main() {
             loop {
                 // simulate the p2p refreshing itself
                 // update p2p's read-only view of the unconfirmed state
-                let (canonical_burn_tip, canonical_block_tip) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(p2p_new_sortition_db.conn())
+                let (canonical_burn_tip, canonical_block_tip) = SortitionDB::get_canonical_stacks_chain_tip_hash(p2p_new_sortition_db.conn())
                     .expect("Failed to read canonical stacks chain tip");
                 let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_burn_tip, &canonical_block_tip);
                 p2p_chainstate.refresh_unconfirmed_state_readonly(canonical_tip)
@@ -425,16 +427,16 @@ fn main() {
 
         for old_snapshot in all_snapshots.into_iter() {
             // replay this burnchain block
-            let (burn_block_header, blockstack_txs) = old_burnchaindb.get_burnchain_block(&old_snapshot.burn_header_hash).unwrap();
+            let BurnchainBlockData { header: burn_block_header, ops: blockstack_txs } = old_burnchaindb
+                .get_burnchain_block(&old_snapshot.burn_header_hash).unwrap();
             if old_snapshot.parent_burn_header_hash == BurnchainHeaderHash::sentinel() {
                 // skip initial snapshot -- it's a placeholder
                 continue;
             }
             
             let (new_snapshot, _) = {
-                let pox_id = PoxId::stubbed();
-                let pox_db = PoxDB::stubbed();
-                new_sortition_db.evaluate_sortition(&burn_block_header, blockstack_txs, &burnchain, &pox_id, &pox_db).unwrap()
+                let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
+                new_sortition_db.evaluate_sortition(&burn_block_header, blockstack_txs, &burnchain, &sortition_tip.sortition_id, None).unwrap()
             };
 
             // importantly, the burnchain linkage must all match
@@ -491,7 +493,9 @@ fn main() {
             // process all new blocks
             let mut epoch_receipts = vec![];
             loop {
-                let receipts = new_chainstate.process_blocks(&mut new_sortition_db, 1).unwrap();
+                let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap().sortition_id;
+                let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
+                let receipts = new_chainstate.process_blocks(sortition_tx, 1).unwrap();
                 if receipts.len() == 0 {
                     break;
                 }
@@ -502,7 +506,7 @@ fn main() {
                 }
             }
            
-            Relayer::setup_unconfirmed_state(&mut new_chainstate, &mut new_sortition_db, &epoch_receipts).unwrap();
+            Relayer::setup_unconfirmed_state(&mut new_chainstate, &mut new_sortition_db).unwrap();
         }
 
         eprintln!("Final arrival index is {} out of {}", next_arrival, stacks_blocks_arrival_order.len());

@@ -22,7 +22,11 @@ use chainstate::burn::{
 };
 
 use chainstate::burn::db::sortdb::{
-    SortitionId, SortitionHandleTx
+    SortitionId, SortitionHandleTx, PoxId
+};
+
+use chainstate::coordinator::{
+    RewardCycleInfo
 };
 
 use chainstate::burn::operations::{
@@ -100,7 +104,9 @@ impl <'a> SortitionHandleTx <'a> {
     /// * insert the ones that went into the burn distribution
     /// * snapshot the block and run the sortition
     /// * return the snapshot (and sortition results)
-    fn process_checked_block_ops(&mut self, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, this_block_ops: &Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+    fn process_checked_block_ops(&mut self, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot,
+                                 block_header: &BurnchainBlockHeader, this_block_ops: &Vec<BlockstackOperationType>,
+                                 next_pox_info: Option<RewardCycleInfo>, parent_pox: PoxId) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let this_block_height = block_header.block_height;
         let this_block_hash = block_header.block_hash.clone();
 
@@ -113,11 +119,21 @@ impl <'a> SortitionHandleTx <'a> {
 
         let txids = state_transition.accepted_ops.iter().map(|ref op| op.txid()).collect();
 
-        let next_pox_id = &parent_snapshot.pox_id;
-        let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox_id);
+        let mut next_pox = parent_pox;
+        if let Some(ref next_pox_info) = next_pox_info {
+            if next_pox_info.anchor_block_known {
+                info!("Begin reward-cycle sortition with present anchor block={:?}", &next_pox_info.anchor_block);
+                next_pox.extend_with_present_block();
+            } else {
+                info!("Begin reward-cycle sortition with absent anchor block={:?}", &next_pox_info.anchor_block);
+                next_pox.extend_with_not_present_block();
+            }
+        };
+
+        let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox);
 
         // do the cryptographic sortition and pick the next winning block.
-        let mut snapshot = BlockSnapshot::make_snapshot(&self.as_conn(), burnchain, &next_sortition_id, next_pox_id,
+        let mut snapshot = BlockSnapshot::make_snapshot(&self.as_conn(), burnchain, &next_sortition_id,
                                                         parent_snapshot, block_header, &state_transition.burn_dist, &txids)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash, e);
@@ -126,7 +142,7 @@ impl <'a> SortitionHandleTx <'a> {
         
         // store the snapshot
         let index_root = self.append_chain_tip_snapshot(
-            parent_snapshot, &snapshot, &state_transition.accepted_ops, &state_transition.consumed_leader_keys)?;
+            parent_snapshot, &snapshot, &state_transition.accepted_ops, &state_transition.consumed_leader_keys, next_pox_info)?;
 
         snapshot.index_root = index_root;
 
@@ -144,7 +160,8 @@ impl <'a> SortitionHandleTx <'a> {
     /// * commit all valid transactions
     /// * commit the results of the sortition
     /// Returns the BlockSnapshot created from this block.
-    pub fn process_block_ops(&mut self, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, mut blockstack_txs: Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+    pub fn process_block_ops(&mut self, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader,
+                             mut blockstack_txs: Vec<BlockstackOperationType>, next_pox_info: Option<RewardCycleInfo>, parent_pox: PoxId) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         debug!("BEGIN({}) block ({},{}) with sortition_id: {}", block_header.block_height, block_header.block_hash,
                block_header.parent_block_hash, &self.context.chain_tip);
         debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
@@ -159,7 +176,7 @@ impl <'a> SortitionHandleTx <'a> {
             })?;
 
         // process them 
-        let res = self.process_checked_block_ops(burnchain, parent_snapshot, block_header, &block_ops)
+        let res = self.process_checked_block_ops(burnchain, parent_snapshot, block_header, &block_ops, next_pox_info, parent_pox)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when snapshotting block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
                 e
@@ -171,11 +188,13 @@ impl <'a> SortitionHandleTx <'a> {
     /// Given the extracted txs, and a block header, go process them into the next
     /// snapshot.  Unlike process_block_ops, this method applies safety checks against the given
     /// list of blockstack transactions.
-    pub fn process_block_txs(&mut self, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader, burnchain: &Burnchain, blockstack_txs: Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+    pub fn process_block_txs(&mut self, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader,
+                             burnchain: &Burnchain, blockstack_txs: Vec<BlockstackOperationType>,
+                             next_pox_info: Option<RewardCycleInfo>, parent_pox: PoxId) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         assert_eq!(parent_snapshot.block_height + 1, this_block_header.block_height);
         assert_eq!(parent_snapshot.burn_header_hash, this_block_header.parent_block_hash);
 
-        let new_snapshot = self.process_block_ops(burnchain, &parent_snapshot, &this_block_header, blockstack_txs)?;
+        let new_snapshot = self.process_block_ops(burnchain, &parent_snapshot, &this_block_header, blockstack_txs, next_pox_info, parent_pox)?;
         Ok(new_snapshot)
     }
 }

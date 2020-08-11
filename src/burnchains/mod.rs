@@ -268,7 +268,8 @@ pub struct Burnchain {
     pub consensus_hash_lifetime: u32,
     pub stable_confirmations: u32,
     pub first_block_height: u64,
-    pub first_block_hash: BurnchainHeaderHash
+    pub first_block_hash: BurnchainHeaderHash,
+    pub reward_cycle_period: u64,
 }
 
 /// Structure for encoding our view of the network 
@@ -288,6 +289,16 @@ pub struct BurnchainView {
 #[derive(Debug, Clone)]
 pub struct BurnchainStateTransition {
     pub burn_dist: Vec<BurnSamplePoint>,
+    pub accepted_ops: Vec<BlockstackOperationType>,
+    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
+}
+
+/// The burnchain block's state transition's ops:
+/// -- the new burn distribution
+/// -- the sequence of valid blockstack operations that went into it
+/// -- the set of previously-accepted leader VRF keys consumed
+#[derive(Debug, Clone)]
+pub struct BurnchainStateTransitionOps {
     pub accepted_ops: Vec<BlockstackOperationType>,
     pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
 }
@@ -320,11 +331,12 @@ pub enum Error {
     TrySyncAgain,
     UnknownBlock(BurnchainHeaderHash),
     NonCanonicalPoxId(PoxId, PoxId),
+    CoordinatorClosed,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Error::UnsupportedBurnchain => write!(f, "Unsupported burnchain"),
             Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
@@ -340,6 +352,7 @@ impl fmt::Display for Error {
             Error::UnknownBlock(block) => write!(f, "Unknown burnchain block {}", block),
             Error::NonCanonicalPoxId(parent, child) => write!(f, "{} is not a descendant of the canonical parent PoXId: {}",
                                                               parent, child),
+            Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
         }
     }
 }
@@ -361,6 +374,7 @@ impl error::Error for Error {
             Error::TrySyncAgain => None,
             Error::UnknownBlock(_) => None,
             Error::NonCanonicalPoxId(_, _) => None,
+            Error::CoordinatorClosed => None,
         }
     }
 }
@@ -756,7 +770,7 @@ pub mod test {
             
             let last_snapshot = match fork_snapshot {
                 Some(sn) => sn.clone(),
-                None => SortitionDB::get_canonical_burn_chain_tip_stubbed(ic).unwrap()
+                None => SortitionDB::get_canonical_burn_chain_tip(ic).unwrap()
             };
 
             let last_snapshot_with_sortition = match parent_block_snapshot {
@@ -837,7 +851,7 @@ pub mod test {
 
             let blockstack_txs = self.txs.clone();
 
-            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)
+            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs, None, PoxId::stubbed())
                 .unwrap();
             sortition_db_handle.commit().unwrap();
 
