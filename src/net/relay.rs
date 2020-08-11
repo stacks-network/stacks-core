@@ -435,7 +435,7 @@ impl Relayer {
     }
 
     pub fn from_p2p(network: &mut PeerNetwork) -> Relayer {
-        let handle = network.new_handle(1024, 1024);
+        let handle = network.new_handle(1024);
         Relayer::new(handle)
     }
 
@@ -923,42 +923,42 @@ impl Relayer {
             Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors, receipts)) => {
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
-                test_debug!("{:?}: Ban {} peers", &_local_peer, bad_block_neighbors.len());
-                if let Err(e) = self.p2p.ban_peers(bad_block_neighbors) {
-                    warn!("Failed to ban bad-block peers: {:?}", &e);
+                if bad_block_neighbors.len() > 0 {
+                    debug!("{:?}: Ban {} peers", &_local_peer, bad_block_neighbors.len());
+                    if let Err(e) = self.p2p.ban_peers(bad_block_neighbors) {
+                        warn!("Failed to ban bad-block peers: {:?}", &e);
+                    }
                 }
 
                 // have the p2p thread tell our neighbors about newly-discovered blocks
                 let available = Relayer::load_blocks_available_data(sortdb, new_blocks)?;
-                test_debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
-                if let Err(e) = self.p2p.advertize_blocks(available) {
-                    warn!("Failed to advertize new blocks: {:?}", &e);
+                if available.len() > 0 {
+                    debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
+                    if let Err(e) = self.p2p.advertize_blocks(available) {
+                        warn!("Failed to advertize new blocks: {:?}", &e);
+                    }
                 }
                 
                 // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
                 let mblocks_available = Relayer::load_blocks_available_data(sortdb, new_confirmed_microblocks)?;
-                test_debug!("{:?}: Confirmed microblock streams available: {}", &_local_peer, mblocks_available.len());
-                if let Err(e) = self.p2p.advertize_microblocks(mblocks_available) {
-                    warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
+                if mblocks_available.len() > 0 {
+                    debug!("{:?}: Confirmed microblock streams available: {}", &_local_peer, mblocks_available.len());
+                    if let Err(e) = self.p2p.advertize_microblocks(mblocks_available) {
+                        warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
+                    }
                 }
 
                 // have the p2p thread forward all new unconfirmed microblocks
-                test_debug!("{:?}: Unconfirmed microblocks: {}", &_local_peer, new_microblocks.len());
-                for (relayers, mblocks_msg) in new_microblocks.into_iter() {
-                    test_debug!("{:?}: Send {} microblocks for {}", &_local_peer, mblocks_msg.microblocks.len(), &mblocks_msg.index_anchor_block);
-                    let msg = StacksMessageType::Microblocks(mblocks_msg);
-                    if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
-                        warn!("Failed to broadcast microblock: {:?}", &e);
+                if new_microblocks.len() > 0 {
+                    debug!("{:?}: Unconfirmed microblocks: {}", &_local_peer, new_microblocks.len());
+                    for (relayers, mblocks_msg) in new_microblocks.into_iter() {
+                        debug!("{:?}: Send {} microblocks for {}", &_local_peer, mblocks_msg.microblocks.len(), &mblocks_msg.index_anchor_block);
+                        let msg = StacksMessageType::Microblocks(mblocks_msg);
+                        if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
+                            warn!("Failed to broadcast microblock: {:?}", &e);
+                        }
                     }
                 }
-
-                // drain and log errors from the p2p thread's attempt to handle our request
-                while let Some(relay_result) = self.p2p.next_result() {
-                    if let Err(relay_error) = relay_result {
-                        warn!("Message relay error: {:?}", &relay_error);
-                    }
-                }
-
                 receipts
             },
             Err(e) => {
@@ -1147,11 +1147,11 @@ impl PeerNetwork {
     pub fn advertize_blocks(&mut self, availability_data: BlocksAvailableMap) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) = self.find_block_recipients(&availability_data)?;
         for recipient in outbound_recipients.drain(..) {
-            test_debug!("{:?}: Advertize {} blocks to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
+            debug!("{:?}: Advertize {} blocks to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
             self.advertize_to_outbound_peer(&recipient, &availability_data, false)?;
         }
         for recipient in inbound_recipients.drain(..) {
-            test_debug!("{:?}: Advertize {} blocks to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
+            debug!("{:?}: Advertize {} blocks to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
             self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| StacksMessageType::BlocksAvailable(payload))?;
         }
         Ok(())
@@ -1165,11 +1165,11 @@ impl PeerNetwork {
     pub fn advertize_microblocks(&mut self, availability_data: BlocksAvailableMap) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) = self.find_block_recipients(&availability_data)?;
         for recipient in outbound_recipients.drain(..) {
-            test_debug!("{:?}: Advertize {} confirmed microblock streams to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
+            debug!("{:?}: Advertize {} confirmed microblock streams to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
             self.advertize_to_outbound_peer(&recipient, &availability_data, true)?;
         }
         for recipient in inbound_recipients.drain(..) {
-            test_debug!("{:?}: Advertize {} confirmed microblock streams to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
+            debug!("{:?}: Advertize {} confirmed microblock streams to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
             self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| StacksMessageType::MicroblocksAvailable(payload))?;
         }
         Ok(())
