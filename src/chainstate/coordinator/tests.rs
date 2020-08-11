@@ -440,7 +440,7 @@ fn test_simple_setup() {
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
                    "10000000000",
-                   "PoX ID should reflect the 1 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+                   "PoX ID should reflect the initial 'known' reward cycle at genesis");
     }
 
     let mut pox_id_string = "1".to_string();
@@ -465,6 +465,189 @@ fn test_simple_setup() {
                    // right-pad pox_id_string to 11 characters
                    format!("{:0<11}", pox_id_string));
     }
+}
+
+// make it so that we can process the same block in two different pox forks
+#[test]
+fn test_pox_processable_block_in_different_pox_forks() {
+    let path = "/tmp/stacks-blockchain.test.pox_processable_block_in_different_pox_forks";
+    // setup a second set of states that won't see the broadcasted blocks
+    let path_blinded = "/tmp/stacks-blockchain.test.pox_processable_block_in_different_pox_forks.blinded";
+    let _r = std::fs::remove_dir_all(path);
+    let _r = std::fs::remove_dir_all(path_blinded);
+
+    let vrf_keys: Vec<_> = (0..12).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..12).map(|_| StacksPrivateKey::new()).collect();
+
+    setup_states(&[path, path_blinded], &vrf_keys, &committers);
+
+    let mut coord = make_coordinator(path);
+    let mut coord_blind = make_coordinator(path_blinded);
+
+    coord.handle_new_burnchain_block().unwrap();
+    coord_blind.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path);
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db.get_sortition_result(&tip.sortition_id).unwrap().unwrap();
+
+    let sort_db_blind = get_sortition_db(path_blinded);
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db_blind.get_sortition_result(&tip.sortition_id).unwrap().unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // at first, sortition_ids shouldn't have diverged
+    //  but once the first reward cycle begins, they should diverge.
+    let mut sortition_ids_diverged = false;
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+    let mut anchor_blocks = vec![];
+
+    // setup:
+    //   0 - 1 - 2 - 3 - 4 - 5 - 6 - 7 - 8 - 9
+    //    \_ 10 _ 11 
+    //  blocks `10` and `11` can be processed either
+    //    in PoX fork 111 or in 110
+    for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
+        let mut burnchain = get_burnchain_db(path);
+        let mut chainstate = get_chainstate(path);
+        eprintln!("Making block {}", ix);
+        let (op, block) =
+            if ix == 0 {
+                make_genesis_block(&sort_db, &mut chainstate, &BlockHeaderHash([0; 32]), miner, 10000, vrf_key, ix as u32)
+            } else {
+                let parent = if ix == 10 {
+                    stacks_blocks[0].1.header.block_hash()
+                } else {
+                    stacks_blocks[ix-1].1.header.block_hash()
+                };
+                make_stacks_block(&sort_db, &mut chainstate, &parent, miner, 10000, vrf_key, ix as u32)
+            };
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let burnchain_blinded = get_burnchain_db(path_blinded);
+        produce_burn_block(&mut burnchain, &burnchain_tip.block_hash, vec![op], [burnchain_blinded].iter_mut());
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+        coord_blind.handle_new_burnchain_block().unwrap();
+
+        let b = get_burnchain(path);
+        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
+            eprintln!("Reward cycle start at height={}", new_burnchain_tip.block_height);
+            // the "blinded" sortition db and the one that's processed all the blocks
+            //   should have diverged in sortition_ids now...
+            sortition_ids_diverged = true;
+            // store the anchor block for this sortition for later checking
+            let ic = sort_db.index_handle_at_tip();
+            let bhh = ic.get_last_anchor_block_hash()
+                .unwrap().unwrap();
+            eprintln!("Anchor block={}, selected at height={}", &bhh,
+                      SortitionDB::get_block_snapshot_for_winning_stacks_block(&sort_db.index_conn(),
+                                                                               &ic.context.chain_tip,
+                                                                               &bhh).unwrap().unwrap().block_height);
+            anchor_blocks.push(bhh);
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        let blinded_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
+        if sortition_ids_diverged {
+            assert_ne!(tip.sortition_id, blinded_tip.sortition_id,
+                       "Sortitions should have diverged by block height = {}", blinded_tip.block_height);
+        } else {
+            assert_eq!(tip.sortition_id, blinded_tip.sortition_id,
+                       "Sortitions should not have diverged at block height = {}", blinded_tip.block_height);
+        }
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+        eprintln!("Block hash={}, ix={}", &block_hash, ix);
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+    }
+
+
+    let block_height = eval_at_chain_tip(path, &sort_db, "block-height");
+    assert_eq!(block_height, Value::UInt(10));
+
+    let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
+    assert_eq!(block_height, Value::UInt(0));
+
+    {
+        let ic = sort_db.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "111");
+    }
+
+    {
+        let ic = sort_db_blind.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "100");
+    }
+
+
+    // now, we reveal `0` to the blinded coordinator
+
+    reveal_block(path_blinded, &sort_db_blind, &mut coord_blind,
+                 &stacks_blocks[0].0, &stacks_blocks[0].1);
+
+    // after revealing ``0``, we should now have the anchor block for
+    //   the first reward cycle after the initial one
+
+    {
+        let ic = sort_db_blind.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "110");
+    }
+
+    // now, the blinded node should be able to process blocks 10 and 11
+    //   10 will process fine, because its parent has consensus hash =
+    //       INITIAL_CONSENSUS_HASH
+    //   11 will NOT process fine, even though it _should_, because its parents
+    //     consensus hash is different than the consensus hash of the parent when it was mined
+
+    let sort_id = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+        &sort_db_blind.index_conn(),
+        &SortitionDB::get_canonical_sortition_tip(sort_db_blind.conn()).unwrap(),
+        &stacks_blocks[10].1.block_hash()).unwrap().unwrap().sortition_id;
+
+    reveal_block(path_blinded, &sort_db_blind, &mut coord_blind,
+                 &sort_id, &stacks_blocks[10].1);
+
+    let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
+    assert_eq!(block_height, Value::UInt(2));
+    eprintln!("Processed block 10 okay!");
+
+    // won't successfully process the block
+    let sort_id = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+        &sort_db_blind.index_conn(),
+        &SortitionDB::get_canonical_sortition_tip(sort_db_blind.conn()).unwrap(),
+        &stacks_blocks[11].1.block_hash()).unwrap().unwrap().sortition_id;
+
+    reveal_block(path_blinded, &sort_db_blind, &mut coord_blind,
+                 &sort_id, &stacks_blocks[11].1);
+
+    let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
+    assert_eq!(block_height, Value::UInt(3));
+    eprintln!("Processed block 11 okay!");
+    
 }
 
 #[test]
