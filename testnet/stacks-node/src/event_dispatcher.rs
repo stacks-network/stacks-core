@@ -1,3 +1,7 @@
+use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks::chainstate::stacks::db::StacksHeaderInfo;
+use stacks::chainstate::stacks::StacksBlock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -104,7 +108,7 @@ impl EventObserver {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
-    fn send(&mut self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip,
+    fn send(&self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip,
             parent_index_hash: &StacksBlockId) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(committed, txid, event)|
@@ -189,6 +193,14 @@ pub struct EventDispatcher {
     any_event_observers_lookup: HashSet<u16>,
 }
 
+impl BlockEventDispatcher for EventDispatcher {
+    fn announce_block(&self, block: StacksBlock, metadata: StacksHeaderInfo,
+                      receipts: Vec<StacksTransactionReceipt>, parent: &StacksBlockId) {
+        let chain_tip = ChainTip { metadata, block, receipts };
+        self.process_chain_tip(&chain_tip, parent)
+    }
+}
+
 impl EventDispatcher {
 
     pub fn new() -> EventDispatcher {
@@ -202,7 +214,7 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_chain_tip(&mut self, chain_tip: &ChainTip, parent_index_hash: &StacksBlockId) {
+    pub fn process_chain_tip(&self, chain_tip: &ChainTip, parent_index_hash: &StacksBlockId) {
 
         let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
         let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];

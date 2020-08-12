@@ -2359,7 +2359,11 @@ mod test {
 
     #[test]
     fn test_marf_unconfirmed() {
-        let f = TrieFileStorage::<StacksBlockId>::open_unconfirmed("/tmp/test_marf_unconfirmed").unwrap();
+        let marf_path = "/tmp/test_marf_unconfirmed";
+        if let Ok(_) = std::fs::metadata(marf_path) {
+            std::fs::remove_file(marf_path).unwrap();
+        }
+        let f = TrieFileStorage::<StacksBlockId>::open_unconfirmed(marf_path).unwrap();
         let mut marf = MARF::<StacksBlockId>::from_storage(f);
         
         let path_1 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
@@ -2374,7 +2378,7 @@ mod test {
 
         // set up a confirmed MARF
         {
-            let cf = TrieFileStorage::<StacksBlockId>::open("/tmp/test_marf_unconfirmed").unwrap();
+            let cf = TrieFileStorage::<StacksBlockId>::open(marf_path).unwrap();
             let mut confirmed_marf = MARF::<StacksBlockId>::from_storage(cf);
             confirmed_marf.begin(&TrieFileStorage::block_sentinel(), &StacksBlockId([0x11; 32])).unwrap();
             confirmed_marf.commit_to(&block_header).unwrap();

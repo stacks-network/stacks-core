@@ -36,6 +36,11 @@ struct BurnchainDBTransaction<'a> {
     sql_tx: Transaction<'a>
 }
 
+pub struct BurnchainBlockData {
+    pub header: BurnchainBlockHeader,
+    pub ops: Vec<BlockstackOperationType>
+}
+
 
 /// Apply safety checks on extracted blockstack transactions
 /// - put them in order by vtxindex
@@ -215,7 +220,7 @@ impl BurnchainDB {
         Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
-    pub fn get_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<(BurnchainBlockHeader, Vec<BlockstackOperationType>), BurnchainError> {
+    pub fn get_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<BurnchainBlockData, BurnchainError> {
         let block_header_qry = "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
         let block_ops_qry = "SELECT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
@@ -223,7 +228,9 @@ impl BurnchainDB {
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
         let block_ops = query_rows(&self.conn, block_ops_qry, &[block])?;
 
-        Ok((block_header, block_ops))
+        Ok(BurnchainBlockData {
+            header: block_header,
+            ops: block_ops })
     }
 
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
@@ -246,6 +253,20 @@ impl BurnchainDB {
         db_tx.commit()?;
 
         Ok(blockstack_ops)
+    }
+
+    #[cfg(test)]
+    pub fn raw_store_burnchain_block(&mut self, header: BurnchainBlockHeader, mut blockstack_ops: Vec<BlockstackOperationType>) -> Result<(), BurnchainError> {
+        apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
+
+        let db_tx = self.tx_begin()?;
+
+        db_tx.store_burnchain_db_entry(&header)?;
+        db_tx.store_blockstack_ops(&header.block_hash, &blockstack_ops)?;
+
+        db_tx.commit()?;
+
+        Ok(())
     }
 }
 
@@ -327,7 +348,7 @@ mod tests {
             }
         }
 
-        let (header, ops) = burnchain_db.get_burnchain_block(&non_canon_hash).unwrap();
+        let BurnchainBlockData { header, ops } = burnchain_db.get_burnchain_block(&non_canon_hash).unwrap();
         assert_eq!(ops.len(), expected_ops.len());
         for op in ops.iter() {
             let expected_op = expected_ops.iter().find(|candidate| {
@@ -344,7 +365,7 @@ mod tests {
         let looked_up_canon = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&looked_up_canon, &canonical_block.header());
 
-        let (header, ops) = burnchain_db.get_burnchain_block(&canon_hash).unwrap();
+        let BurnchainBlockData { header, ops } = burnchain_db.get_burnchain_block(&canon_hash).unwrap();
         assert_eq!(ops.len(), 0);
         assert_eq!(&header, &looked_up_canon);
     }

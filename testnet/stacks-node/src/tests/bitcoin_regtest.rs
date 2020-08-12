@@ -420,7 +420,7 @@ fn bitcoind_integration_test() {
             _ => {}
         }
     });
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 
     controller.kill_bitcoind();
 }

@@ -22,6 +22,9 @@ use burnchains::{Burnchain, BurnchainHeaderHash};
 use burnchains::Error as burnchain_error;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use util::log;
+use chainstate::coordinator::comm::{
+    CoordinatorCommunication
+};
 
 pub mod mempool;
 pub use self::mempool::MemPoolDB;
@@ -66,6 +69,7 @@ pub const POX_REWARD_CYCLE_LENGTH: u32 = POX_REGISTRATION_WINDOW_LENGTH + POX_RE
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Result<u64, burnchain_error> {
     use burnchains::bitcoin::indexer::BitcoinIndexer;
+    let channels = CoordinatorCommunication::instantiate();
 
     let mut burnchain = Burnchain::new(working_dir, &"bitcoin".to_string(), network_name)
         .map_err(|e| {
@@ -73,7 +77,7 @@ pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Re
             e
         })?;
 
-    let new_height_res = burnchain.sync::<BitcoinIndexer>();
+    let new_height_res = burnchain.sync::<BitcoinIndexer>(&channels.1);
     let new_height = new_height_res
         .map_err(|e| {
             error!("Failed to synchronize Bitcoin chain state for {} in {}", network_name, working_dir);

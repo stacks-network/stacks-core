@@ -287,7 +287,7 @@ impl NeighborBlockStats {
 
         let mut ret = vec![];
         let ic = sortdb.index_conn();
-        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)?;
+        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
         for height in sortition_height_start..sortition_height_end {
             if !self.inv.has_ith_block(height) {
                 // of the edge of the bitmap
@@ -865,7 +865,7 @@ impl PeerNetwork {
         assert!(num_blocks <= BLOCKS_INV_DATA_MAX_BITLEN as u64);
 
         let ic = sortdb.index_conn();
-        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)?;
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
         match SortitionDB::get_ancestor_snapshot(&ic, highest_block_height, &tip.sortition_id)? {
             Some(sn) => {
                 let ch = sn.consensus_hash;
@@ -1537,7 +1537,7 @@ mod test {
 
         let num_blocks = 5;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1550,7 +1550,7 @@ mod test {
         }
 
         let (tip, num_burn_blocks) = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             let num_burn_blocks = sn.block_height - peer_1.config.burnchain.first_block_height;
             (sn, num_burn_blocks)
         };
@@ -1675,7 +1675,7 @@ mod test {
 
         let num_blocks = (BLOCKS_INV_DATA_MAX_BITLEN * 2) as u64;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1689,7 +1689,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1797,7 +1797,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1810,7 +1810,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1896,7 +1896,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1920,7 +1920,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         

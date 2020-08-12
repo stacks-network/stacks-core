@@ -39,6 +39,7 @@ use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use chainstate::stacks::index::MarfTrieId;
 
 use chainstate::burn::BlockSnapshot;
 
@@ -1093,6 +1094,13 @@ impl StacksChainState {
         Ok(Some(microblocks))
     }
 
+    /// stacks_block _must_ have been committed, or this will return an error
+    pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
+        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?";
+        self.headers_db.query_row(sql, &[stacks_block], |row| row.get(0))
+            .map_err(|e| Error::from(db_error::from(e)))
+    }
+
     pub fn get_parent_consensus_hash(sort_ic: &SortitionDBConn, parent_block_hash: &BlockHeaderHash, my_consensus_hash: &ConsensusHash) -> Result<Option<ConsensusHash>, Error> {
         let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, my_consensus_hash)?;
 
@@ -1554,7 +1562,7 @@ impl StacksChainState {
     /// Clear out a staging block -- mark it as processed.
     /// Mark its children as attachable.
     /// Idempotent.
-    fn set_block_processed<'a, 'b>(tx: &mut BlocksDBTx<'a>, mut sort_tx_opt: Option<&mut SortitionDBTx<'b>>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
+    fn set_block_processed<'a, 'b>(tx: &mut BlocksDBTx<'a>, mut sort_tx_opt: Option<&mut SortitionHandleTx<'b>>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
         let sql = "SELECT * FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 0".to_string();
         let args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash];
       
@@ -1620,7 +1628,7 @@ impl StacksChainState {
             // mark this block as processed in the burn db too
             match sort_tx_opt {
                 Some(ref mut sort_tx) => {
-                    sort_tx.set_stacks_block_accepted_stubbed(consensus_hash, &block.parent_anchored_block_hash, &block.anchored_block_hash, block.height)?;
+                    sort_tx.set_stacks_block_accepted(consensus_hash, &block.parent_anchored_block_hash, &block.anchored_block_hash, block.height)?;
                 }
                 None => {
                     if !cfg!(test) {
@@ -2878,7 +2886,8 @@ impl StacksChainState {
                                                     microblock_tail_opt,
                                                     &scheduled_miner_reward,
                                                     user_burns,
-                                                    total_liquid_ustx)
+                                                    total_liquid_ustx,
+                                                    &block_execution_cost)
             .expect("FATAL: failed to advance chain tip");
 
         let epoch_receipt = StacksEpochReceipt {
@@ -2915,7 +2924,7 @@ impl StacksChainState {
     ///
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
-    pub fn process_next_staging_block(&mut self, sort_tx: &mut SortitionDBTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
+    pub fn process_next_staging_block(&mut self, sort_tx: &mut SortitionHandleTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
@@ -3067,7 +3076,7 @@ impl StacksChainState {
         let epoch_receipt = 
             match StacksChainState::append_block(&mut chainstate_tx, 
                                                  clarity_instance, 
-                                                 &sort_tx.as_conn(),
+                                                 &sort_tx.as_conn().as_tipless_conn(),
                                                  &parent_block_header_info, 
                                                  &next_staging_block.consensus_hash, 
                                                  &burn_header_hash,
@@ -3129,11 +3138,22 @@ impl StacksChainState {
         Ok((Some(epoch_receipt), None))
     }
 
+    /// Process staging blocks at the canonical chain tip,
+    ///  this only needs to be used in contexts that aren't
+    ///  PoX aware (i.e., unit tests, and old stacks-node loops),
+    /// Elsewhere, block processing is invoked by the ChainsCoordinator,
+    ///  which handles tracking the chain tip itself
+    #[cfg(test)]
+    pub fn process_blocks_at_tip(&mut self, sort_db: &mut SortitionDB, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+        let tx = sort_db.tx_begin_at_tip();
+        self.process_blocks(tx, max_blocks)
+    }
+
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.  For each chain tip produced, return the header info, receipts, parent microblock
     /// stream execution cost, and block execution cost
-    pub fn process_blocks(&mut self, sortdb: &mut SortitionDB, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+    pub fn process_blocks(&mut self, mut sort_tx: SortitionHandleTx, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         debug!("Process up to {} blocks", max_blocks);
 
         let mut ret = vec![];
@@ -3142,12 +3162,10 @@ impl StacksChainState {
             // nothing to do
             return Ok(vec![]);
         }
-        
-        let mut tx = sortdb.tx_begin()?;
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            match self.process_next_staging_block(&mut tx) {
+            match self.process_next_staging_block(&mut sort_tx) {
                 Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
                     Some(next_tip) => {
                         ret.push((Some(next_tip), next_microblock_poison_opt));
@@ -3184,7 +3202,7 @@ impl StacksChainState {
             }
         }
 
-        tx.commit().map_err(Error::DBError)?;
+        sort_tx.commit()?;
 
         let mut block_tx = self.blocks_tx_begin()?;
         for _ in 0..max_blocks {
@@ -3214,7 +3232,7 @@ impl StacksChainState {
     /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
     /// in.
     pub fn get_stacks_chain_tip(&self, sortdb: &SortitionDB) -> Result<Option<StagingBlock>, Error> {
-        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(&sortdb.conn)?;
+        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(&sortdb.conn)?;
         let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
         let args : &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
         query_row(&self.blocks_db, sql, args).map_err(Error::DBError)

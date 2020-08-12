@@ -81,12 +81,16 @@ impl <'a> StacksMicroblockBuilder <'a> {
     pub fn new(anchor_block: BlockHeaderHash, anchor_block_consensus_hash: ConsensusHash,
                chainstate: &'a mut StacksChainState, pox_dbconn: &'a dyn PoxStateDB, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let header_reader = chainstate.reopen()?;
-        let mut clarity_tx = chainstate.block_begin(pox_dbconn, &anchor_block_consensus_hash, &anchor_block,
-                                                    &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
         let anchor_block_height = 
             StacksChainState::get_anchored_block_header_info(&header_reader.headers_db, &anchor_block_consensus_hash, &anchor_block)?
             .ok_or(Error::NoSuchBlockError)?
             .block_height;
+
+        // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
+        //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
+        //  could take over.
+        let mut clarity_tx = chainstate.block_begin(pox_dbconn, &anchor_block_consensus_hash, &anchor_block,
+                                                    &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
         clarity_tx.reset_cost(initial_cost);
         Ok(StacksMicroblockBuilder {
@@ -272,7 +276,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
 
 impl <'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
-        test_debug!("Drop StacksMicroblockBuilder");
+        debug!("Drop StacksMicroblockBuilder");
         self.clarity_tx.take().expect("Attempted to reclose closed microblock builder")
             .rollback_block()
     }
@@ -1483,7 +1487,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash(), microblocks.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 1).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 1).unwrap();
 
             let expect_success = check_oracle(&stacks_block, &microblocks);
             if expect_success {
@@ -1581,7 +1585,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash(), microblocks.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 1).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 1).unwrap();
 
             // processed _this_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1684,7 +1688,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash);
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed exactly one block, but got back two tip-infos
             assert_eq!(tip_info_list.len(), 1);
@@ -1849,7 +1853,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1995,8 +1999,8 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash);
-            let mut tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
-            let mut tip_info_list_2 = node_2.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let mut tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
+            let mut tip_info_list_2 = node_2.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             tip_info_list.append(&mut tip_info_list_2);
 
@@ -2038,8 +2042,8 @@ pub mod test {
             // block data.
             preprocess_stacks_block_data(&mut node, &mut burn_node, &fork_snapshot, &stacks_block_2, &microblocks_2, &block_commit_op_2);
             preprocess_stacks_block_data(&mut node_2, &mut burn_node, &fork_snapshot, &stacks_block_1, &microblocks_1, &block_commit_op_1);
-            let _ = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
-            let _ = node_2.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let _ = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
+            let _ = node_2.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
         }
         
         TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
@@ -2155,7 +2159,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -2285,7 +2289,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process all Stacks blocks: {}, {}", &stacks_block_1.block_hash(), &stacks_block_2.block_hash());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed all stacks blocks -- one on each burn chain fork
             assert_eq!(tip_info_list.len(), 2);
@@ -2442,7 +2446,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -2574,7 +2578,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process all Stacks blocks: {}, {}", &stacks_block_1.block_hash(), &stacks_block_2.block_hash());
-            let tip_info_list = node.chainstate.process_blocks(&mut burn_node.sortdb, 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks_at_tip(&mut burn_node.sortdb, 2).unwrap();
 
             // processed all stacks blocks -- one on each burn chain fork
             assert_eq!(tip_info_list.len(), 2);
@@ -2784,7 +2788,7 @@ pub mod test {
                                 
                                     // process all the blocks we can 
                                     test_debug!("Process Stacks block {} and microblock {} {}", &stacks_block.block_hash(), mblock.block_hash(), mblock.header.sequence);
-                                    let tip_info_list = node.chainstate.process_blocks(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
+                                    let tip_info_list = node.chainstate.process_blocks_at_tip(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
 
                                     num_processed += tip_info_list.len();
                                 }
@@ -2792,7 +2796,7 @@ pub mod test {
                             else {
                                 // process all the blocks we can 
                                 test_debug!("Process Stacks block {} and {} microblocks in {}", &stacks_block.block_hash(), microblocks.len(), &node_name);
-                                let tip_info_list = node.chainstate.process_blocks(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
+                                let tip_info_list = node.chainstate.process_blocks_at_tip(&mut miner_trace.burn_node.sortdb, expected_num_blocks).unwrap();
 
                                 num_processed += tip_info_list.len();
                             }
@@ -3466,14 +3470,14 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block : Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
             if let Some(block) = last_block {
@@ -3523,7 +3527,7 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3534,7 +3538,7 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3608,7 +3612,7 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3619,7 +3623,7 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3715,7 +3719,7 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -3726,7 +3730,7 @@ pub mod test {
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3832,14 +3836,14 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -3926,14 +3930,14 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -4009,14 +4013,14 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
@@ -4089,7 +4093,7 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -4113,7 +4117,7 @@ pub mod test {
 
         for tenure_id in 0..num_blocks {
             // send transactions to the mempool
-            let mut tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let mut tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             
             if tenure_id == bad_block_ancestor_tenure {
                 bad_block_tip = Some(tip.clone());
@@ -4293,7 +4297,7 @@ pub mod test {
         let chainstate_path = peer.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -4301,7 +4305,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             eprintln!("Start tenure {:?}", tenure_id);
             // send transactions to the mempool
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {

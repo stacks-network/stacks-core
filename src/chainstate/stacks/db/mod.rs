@@ -50,7 +50,8 @@ use chainstate::stacks::db::accounts::*;
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::index::{
     TrieHash,
-    MARFValue
+    MARFValue,
+    MarfTrieId
 };
 use chainstate::stacks::index::marf::{
     MARF,
@@ -418,6 +419,9 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         burn_header_height INT NOT NULL,             -- height of the burnchain block header that generated this consensus hash
         burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header that generated this consensus hash
         total_liquid_ustx TEXT NOT NULL,             -- string representation of the u128 that encodes the total number of liquid uSTX (i.e. that exist and aren't locked in the .lockup contract)
+        parent_block_id TEXT NOT NULL,        -- NOTE: this is the parent index_block_hash
+
+        cost TEXT NOT NULL,
 
         PRIMARY KEY(consensus_hash,block_hash)
     );
@@ -648,23 +652,19 @@ impl StacksChainState {
         {
             // add a block header entry for the boot code
             let mut headers_tx = chainstate.headers_tx_begin()?;
-            let parent_hash = TrieFileStorage::block_sentinel();
+            let parent_hash = StacksBlockId::sentinel();
             let first_index_hash = StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
             
             test_debug!("Boot code headers index_put_begin {}-{}", &parent_hash, &first_index_hash);
-            headers_tx.put_indexed_begin(&parent_hash, &first_index_hash)
-                .map_err(Error::DBError)?;
-            let first_root_hash = headers_tx.put_indexed_all(&vec![], &vec![])
-                .map_err(Error::DBError)?;
-            headers_tx.indexed_commit()
-                .map_err(Error::DBError)?;
+            headers_tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
+            let first_root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
+            headers_tx.indexed_commit()?;
             test_debug!("Boot code headers index_commit {}-{}", &parent_hash, &first_index_hash);
 
             let first_tip_info = StacksHeaderInfo::genesis_block_header_info(first_root_hash, initial_liquid_ustx);
 
-            StacksChainState::insert_stacks_block_header(&mut headers_tx, &first_tip_info)?;
-            headers_tx.commit()
-                .map_err(Error::DBError)?;
+            StacksChainState::insert_stacks_block_header(&mut headers_tx, &parent_hash, &first_tip_info, &ExecutionCost::zero())?;
+            headers_tx.commit()?;
         }
 
         debug!("Finish install boot code");
@@ -1025,7 +1025,8 @@ impl StacksChainState {
                            microblock_tail_opt: Option<StacksMicroblockHeader>,
                            block_reward: &MinerPaymentSchedule,
                            user_burns: &Vec<StagingUserBurnSupport>,
-                           total_liquid_ustx: u128) -> Result<StacksHeaderInfo, Error>
+                           total_liquid_ustx: u128,
+                           anchor_block_cost: &ExecutionCost) -> Result<StacksHeaderInfo, Error>
     {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -1046,14 +1047,11 @@ impl StacksChainState {
 
         // store each indexed field
         test_debug!("Headers index_put_begin {}-{}", &parent_hash, &new_tip.index_block_hash(new_consensus_hash));
-        headers_tx.put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))
-            .map_err(Error::DBError)?;
-        let root_hash = headers_tx.put_indexed_all(&indexed_keys, &indexed_values)
-            .map_err(Error::DBError)?;
-        headers_tx.indexed_commit()
-            .map_err(Error::DBError)?;
+        headers_tx.put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))?;
+        let root_hash = headers_tx.put_indexed_all(&indexed_keys, &indexed_values)?;
+        headers_tx.indexed_commit()?;
         test_debug!("Headers index_commit {}-{}", &parent_hash, &new_tip.index_block_hash(new_consensus_hash));
-        
+
         let new_tip_info = StacksHeaderInfo {
             anchored_header: new_tip.clone(),
             microblock_tail: microblock_tail_opt,
@@ -1066,7 +1064,7 @@ impl StacksChainState {
             total_liquid_ustx
         };
 
-        StacksChainState::insert_stacks_block_header(headers_tx, &new_tip_info)?;
+        StacksChainState::insert_stacks_block_header(headers_tx, &parent_hash, &new_tip_info, anchor_block_cost)?;
         StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
 
         debug!("Advanced to new tip! {}/{}", new_consensus_hash, new_tip.block_hash());

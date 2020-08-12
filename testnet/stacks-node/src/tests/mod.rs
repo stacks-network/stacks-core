@@ -426,7 +426,7 @@ fn should_succeed_mining_valid_txs() {
             _ => {}
         }
     });
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }
 
 #[test]
@@ -576,7 +576,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             _ => {}
         }
     });
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }
 
 #[test]

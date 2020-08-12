@@ -534,6 +534,7 @@ mod test {
     use chainstate::stacks::db::test::*;
     use util::hash::*;
     use chainstate::stacks::index::*;
+    use vm::costs::ExecutionCost;
 
     fn make_dummy_miner_payment_schedule(addr: &StacksAddress, coinbase: u128, tx_fees_anchored: u128, tx_fees_streamed: u128, commit_burn: u64, sortition_burn: u64) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
@@ -609,7 +610,8 @@ mod test {
                                                 new_tip.microblock_tail.clone(), 
                                                 &block_reward, 
                                                 &user_burns,
-                                                new_tip.total_liquid_ustx).unwrap();
+                                                new_tip.total_liquid_ustx,
+                                                &ExecutionCost::zero()).unwrap();
         tx.commit().unwrap();
         tip
     }

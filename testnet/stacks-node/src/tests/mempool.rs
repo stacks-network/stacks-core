@@ -330,5 +330,5 @@ fn mempool_setup_chainstate() {
         }
     });
 
-    run_loop.start(num_rounds);
+    run_loop.start(num_rounds).unwrap();
 }
