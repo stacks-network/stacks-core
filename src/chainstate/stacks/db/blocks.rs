@@ -5093,14 +5093,14 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
-        let mut last_block_bhh : Option<BurnchainHeaderHash> = None;
+        let mut last_block_ch : Option<ConsensusHash> = None;
         let mut last_parent_opt : Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
 
@@ -5113,7 +5113,7 @@ pub mod test {
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
@@ -5124,25 +5124,25 @@ pub mod test {
                 (anchored_block.0, vec![])
             });
 
-            let (_, burn_header_hash) = peer.next_burnchain_block(burn_ops.clone());
+            let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let blocks_path = peer.chainstate().blocks_path.clone();
 
             if tenure_id == 0 {
-                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &burn_header_hash, &stacks_block.block_hash());
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &consensus_hash, &stacks_block.block_hash());
                 assert!(parent_header_opt.is_err());
             }
             else {
-                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &burn_header_hash, &stacks_block.block_hash()).unwrap();
-                let (parent_header, parent_bhh) = parent_header_opt.unwrap();
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &consensus_hash, &stacks_block.block_hash()).unwrap();
+                let (parent_header, parent_ch) = parent_header_opt.unwrap();
                 
                 assert_eq!(last_parent_opt.as_ref().unwrap().header, parent_header);
-                assert_eq!(parent_bhh, last_block_bhh.clone().unwrap());
+                assert_eq!(parent_ch, last_block_ch.clone().unwrap());
             }
             
-            last_block_bhh = Some(burn_header_hash.clone());
+            last_block_ch = Some(consensus_hash.clone());
         }
     }
 
