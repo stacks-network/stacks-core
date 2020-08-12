@@ -467,8 +467,15 @@ fn test_simple_setup() {
     }
 }
 
-// make it so that we can process the same block in two different pox forks
 #[test]
+// This test should panic until the MARF stability issue
+// https://github.com/blockstack/stacks-blockchain/issues/1805
+// is resolved:
+#[should_panic]
+/// Test a block that is processable in 2 PoX forks:
+///   block "11" should be processable in both `111` and `110`
+///   (because its parent is block `0`, and nobody stacks in
+///    this test, all block commits must burn)
 fn test_pox_processable_block_in_different_pox_forks() {
     let path = "/tmp/stacks-blockchain.test.pox_processable_block_in_different_pox_forks";
     // setup a second set of states that won't see the broadcasted blocks
