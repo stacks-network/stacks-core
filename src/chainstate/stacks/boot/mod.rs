@@ -139,7 +139,7 @@ impl Value {
 
 impl StacksChainState {
     fn eval_boot_code_read_only_at_chain_tip(&mut self, sortdb: &SortitionDB, boot_contract_name: &str, code: &str) -> Result<Value, Error> {
-        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(sortdb.conn()).unwrap();
+        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
         let iconn = sortdb.index_conn();
         self.clarity_eval_read_only_checked(&iconn, &stacks_block_id, &boot_code_id(boot_contract_name), code)
@@ -275,7 +275,7 @@ pub mod test {
 
     fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
         let sortdb = peer.sortdb.take().unwrap();
-        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(sortdb.conn()).unwrap();
+        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
         let iconn = sortdb.index_conn();
         let value = peer.chainstate().clarity_eval_read_only(&iconn, &stacks_block_id, &boot_code_id(boot_contract), expr);
@@ -289,7 +289,7 @@ pub mod test {
 
     fn eval_contract_at_tip(peer: &mut TestPeer, addr: &StacksAddress, name: &str, expr: &str) -> Value {
         let sortdb = peer.sortdb.take().unwrap();
-        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(sortdb.conn()).unwrap();
+        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
         let iconn = sortdb.index_conn();
         let value = peer.chainstate().clarity_eval_read_only(&iconn, &stacks_block_id, &contract_id(addr, name), expr);
@@ -513,7 +513,7 @@ pub mod test {
     }
 
     fn get_parent_tip(parent_opt: &Option<&StacksBlock>, chainstate: &StacksChainState, sortdb: &SortitionDB) -> StacksHeaderInfo {
-        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
             None => {
                 StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
@@ -537,7 +537,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -581,7 +581,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -687,7 +687,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -809,7 +809,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -951,7 +951,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -1136,7 +1136,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             if tenure_id == 2 {
                 min_ustx_before_stacking = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb)).unwrap();
@@ -1331,7 +1331,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -1522,7 +1522,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -1752,7 +1752,7 @@ pub mod test {
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
             let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);

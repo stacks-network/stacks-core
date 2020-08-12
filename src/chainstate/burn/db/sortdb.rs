@@ -729,6 +729,17 @@ impl <'a> SortitionHandleConn <'a> {
         })
     }
 
+    /// Represent the inner tipless database connection
+    pub fn as_tipless_conn(&self) -> SortitionDBConn<'a> {
+        SortitionDBConn {
+            conn: &self.conn,
+            context: SortitionDBTxContext {
+                first_block_height: self.context.first_block_height
+            },
+            index: &self.index
+        }
+    }
+
     fn get_tip_indexed(&self, key: &str) -> Result<Option<String>, db_error> {
         self.get_indexed(&self.context.chain_tip, key)
     }

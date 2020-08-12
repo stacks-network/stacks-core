@@ -186,14 +186,15 @@ fn make_genesis_block(sort_db: &SortitionDB, state: &mut StacksChainState,
 
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
 
-    let parent_stacks_header = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+    let parent_stacks_header = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
 
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
     let mut builder = StacksBlockBuilder::make_block_builder(
         &parent_stacks_header, proof.clone(), 0, next_hash160()).unwrap();
 
-    let mut epoch_tx = builder.epoch_begin(state).unwrap();
+    let iconn = sort_db.index_conn();
+    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap();
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -258,10 +259,12 @@ fn make_stacks_block(sort_db: &SortitionDB, state: &mut StacksChainState,
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
     let total_burn = parents_sortition.total_burn;
+    
+    let iconn = sort_db.index_conn();
 
     let mut builder = StacksBlockBuilder::make_block_builder(
         &parent_stacks_header, proof.clone(), total_burn, next_hash160()).unwrap();
-    let mut epoch_tx = builder.epoch_begin(state).unwrap();
+    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap();
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -350,6 +353,7 @@ fn test_simple_setup() {
     let mut chainstate = get_chainstate(path);
     assert_eq!(
         chainstate.with_read_only_clarity_tx(
+            &sort_db.index_conn(),
             &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
             |conn| conn.with_readonly_clarity_env(
                 PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),

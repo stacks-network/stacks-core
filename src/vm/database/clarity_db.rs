@@ -73,11 +73,6 @@ pub trait PoxStateDB {
     fn get_tip_consensus_hash(&self) -> ConsensusHash;
     fn get_ancestor_consensus_hash(&self, tip: &ConsensusHash, height: u32) -> Option<ConsensusHash>;
     fn get_winning_stacks_block(&self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId>;
-    
-    /// This method uses the burn block height to identify the reward cycle in the canonical PoX
-    /// fork, and returns the StacksBlockId of the anchor block for that reward cycle (if it
-    /// exists).
-    fn get_pox_anchor_block(&self, burn_block_height: u32) -> Option<StacksBlockId>;
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
@@ -160,7 +155,7 @@ impl HeadersDB for &dyn HeadersDB {
 
 impl PoxStateDB for SortitionDBConn<'_> {
     fn get_tip_consensus_hash(&self) -> ConsensusHash {
-        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&self.conn)
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&self.conn)
             .expect("FATAL: failed to query burn block snapshot for canonical burn chain tip");
         tip.consensus_hash
     }
@@ -188,22 +183,6 @@ impl PoxStateDB for SortitionDBConn<'_> {
             None => None
         }
     }
-
-    fn get_pox_anchor_block(&self, burn_block_height: u32) -> Option<StacksBlockId> {
-        // TODO (PoX): this will need to be filled in by the chains coordinator.
-        // For now, for testing purposes, just assume that the anchor block is the Stacks block
-        // selected at the very start of the reward window (if there's no Stacks block there,
-        // then assume that there's no anchor block).
-        let sortition_height = burn_block_height - (FIRST_BURNCHAIN_BLOCK_HEIGHT as u32);
-        let reward_cycle = sortition_height / (POX_REWARD_CYCLE_LENGTH as u32);      // TODO: make sure the optimizer doesn't cancel this out -- we want integer division!
-        let anchor_block_burn_height = reward_cycle * (POX_REWARD_CYCLE_LENGTH as u32);
-
-        let tip_consensus_hash = self.get_tip_consensus_hash();
-        match self.get_ancestor_consensus_hash(&tip_consensus_hash, anchor_block_burn_height) {
-            Some(ancestor_consensus_hash) => self.get_winning_stacks_block(&ancestor_consensus_hash),
-            None => None
-        }
-    }
 }
 
 impl PoxStateDB for &dyn PoxStateDB {
@@ -217,10 +196,6 @@ impl PoxStateDB for &dyn PoxStateDB {
 
     fn get_winning_stacks_block(&self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
         (*self).get_winning_stacks_block(consensus_hash)
-    }
-
-    fn get_pox_anchor_block(&self, burn_block_height: u32) -> Option<StacksBlockId> {
-        (*self).get_pox_anchor_block(burn_block_height)
     }
 }
 
@@ -264,10 +239,6 @@ impl PoxStateDB for NullPoxStateDB {
     }
 
     fn get_winning_stacks_block(&self, _consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
-        None
-    }
-
-    fn get_pox_anchor_block(&self, _burn_block_height: u32) -> Option<StacksBlockId> {
         None
     }
 }
@@ -798,9 +769,5 @@ impl <'a> ClarityDatabase<'a> {
 
     pub fn get_winning_stacks_block(&mut self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
         self.pox_state_db.get_winning_stacks_block(consensus_hash)
-    }
-
-    pub fn get_pox_anchor_block(&self, burn_height: u32) -> Option<StacksBlockId> {
-        self.pox_state_db.get_pox_anchor_block(burn_height)
     }
 }

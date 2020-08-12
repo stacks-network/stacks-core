@@ -1548,10 +1548,6 @@ mod test {
         fn get_winning_stacks_block(&self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
             Some(StacksBlockId::from_hex("e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8").unwrap())
         }
-        
-        fn get_pox_anchor_block(&self, burn_block_height: u32) -> Option<StacksBlockId> {
-            Some(StacksBlockId::from_hex("eb3ca5386acbac4e69e61452277530b1b37d8f25ef43e7798edb7169fec73fe2").unwrap())
-        }
     }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
