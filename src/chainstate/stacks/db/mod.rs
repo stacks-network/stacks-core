@@ -674,9 +674,10 @@ impl StacksChainState {
             let first_index_hash = StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
             
             test_debug!("Boot code headers index_put_begin {}-{}", &parent_hash, &first_index_hash);
+            
             headers_tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
             let first_root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
-            headers_tx.indexed_commit()?;
+            
             test_debug!("Boot code headers index_commit {}-{}", &parent_hash, &first_index_hash);
 
             let first_tip_info = StacksHeaderInfo::genesis_block_header_info(first_root_hash);
@@ -1057,9 +1058,8 @@ impl StacksChainState {
         test_debug!("Headers index_put_begin {}-{}", &parent_hash, &new_tip.index_block_hash(new_consensus_hash));
         headers_tx.put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))?;
         let root_hash = headers_tx.put_indexed_all(&indexed_keys, &indexed_values)?;
-        headers_tx.indexed_commit()?;
-        test_debug!("Headers index_commit {}-{}", &parent_hash, &new_tip.index_block_hash(new_consensus_hash));
-
+        test_debug!("Headers index_indexed_all finished {}-{}", &parent_hash, &new_tip.index_block_hash(new_consensus_hash));
+        
         let new_tip_info = StacksHeaderInfo {
             anchored_header: new_tip.clone(),
             microblock_tail: microblock_tail_opt,
