@@ -626,6 +626,10 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Get a value from the fork index
+    /// NOTE: until the TrieFileStorage implementation of reopen_readonly() is made zero-copy --
+    /// namely, made so it doesn't just naively clone the underlying TrieRAM when reopening
+    /// read-only, the caller should make sure to only use the get_indexed() _before_ writing any
+    /// MARF key/value pairs.  Doing so afterwards will clone all uncommitted trie state.
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.tx(), &self.index, header_hash, key)
     }
@@ -660,20 +664,13 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(root_hash)
     }
 
-    /// Commit the indexed data
-    pub fn indexed_commit(&mut self) -> Result<(), Error> {
-        if self.block_linkage.is_some() {
-            self.index.commit().map_err(Error::IndexError)?;
-            self.block_linkage = None;
-        }
-        Ok(())
-    }
-
     /// Commit the tx
     pub fn commit(mut self) -> Result<(), Error> {
         let tx = self._tx.take();
+        test_debug!("Indexed-commit: storage");
         tx.unwrap().commit().map_err(Error::SqliteError)?;
         if self.block_linkage.is_some() {
+            test_debug!("Indexed-commit: MARF index");
             self.index.commit().map_err(Error::IndexError)?;
             self.block_linkage = None;
         }

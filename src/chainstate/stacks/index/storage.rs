@@ -705,21 +705,17 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     }
 
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
-        if let Some((ref block_bhh, _)) = self.last_extended {
-            error!("MARF storage already opened to in-progress block {}", block_bhh);
-            return Err(Error::InProgressError);
-        }
-
         let db = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         db.busy_handler(Some(tx_busy_handler))?;
 
         trace!("Make read-only view of TrieFileStorage: {}", &self.db_path);
-        
+       
+        // TODO: borrow self.last_extended and self.block_hash_cache; don't copy them
         let ret = TrieFileStorage {
             db_path: self.db_path.clone(),
             db: db,
 
-            last_extended: None,
+            last_extended: self.last_extended.clone(),
             cur_block: self.cur_block.clone(),
             cur_block_id: self.cur_block_id.clone(),
             
