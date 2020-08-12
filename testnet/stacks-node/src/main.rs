@@ -85,6 +85,11 @@ fn main() {
     };
 
     let conf = Config::from_config_file(config_file);
+    debug!("node configuration {:?}", &conf.node);
+    debug!("burnchain configuration {:?}", &conf.burnchain);
+    debug!("connection configuration {:?}", &conf.connection_options);
+    debug!("block_limit {:?}", &conf.block_limit);
+
 
     let num_round: u64 = 0; // Infinite number of rounds
 

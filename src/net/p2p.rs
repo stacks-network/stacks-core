@@ -1798,7 +1798,7 @@ impl PeerNetwork {
         if self.public_ip_retries > self.connection_opts.public_ip_max_retries {
             if self.public_ip_requested_at + throttle_timeout >= get_epoch_time_secs() {
                 // throttle
-                debug!("{:?}: throttle public IP request (max retires {} exceeded) until {}", &self.local_peer, self.public_ip_retries, self.public_ip_requested_at + throttle_timeout);
+                debug!("{:?}: throttle public IP request (max retries {} exceeded) until {}", &self.local_peer, self.public_ip_retries, self.public_ip_requested_at + throttle_timeout);
                 return false;
             }
             else {
