@@ -2263,8 +2263,10 @@ impl StacksChainState {
     /// 
     /// If we find the same Stacks block in two or more burnchain forks, insert it there too
     ///
+    /// sort_ic: an indexed connection to a sortition DB
     /// consensus_hash: this is the consensus hash of the sortition that chose this block
-    /// parent_consensus_hash: this the consensus hash of the parent sortition of the sortition that chose this block
+    /// block: the actual block data for this anchored Stacks block
+    /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
     ///
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
