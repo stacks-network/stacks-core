@@ -10,7 +10,7 @@ RUN cargo build
 
 RUN mkdir /out
 
-RUN /src/target/debug/blockstack-core docgen > /out/clarityRef.json
+RUN /src/target/debug/blockstack-core docgen > /out/clarity-reference.json
 
 FROM scratch AS export-stage
-COPY --from=build /out/clarityRef.json /
+COPY --from=build /out/clarity-reference.json /
