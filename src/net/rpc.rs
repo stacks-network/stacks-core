@@ -78,6 +78,7 @@ use util::db::DBConn;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::hash::Hash160;
+use util::secp256k1::Secp256k1PublicKey;
 
 use crate::{version_string};
 
@@ -171,6 +172,7 @@ impl RPCPeerInfoData {
             Some(ref unconfirmed) => unconfirmed.unconfirmed_chain_tip.clone(),
             None => StacksBlockId([0x00; 32])
         };
+        let public_key_hash = Hash160::from_data(&Secp256k1PublicKey::from_private(&local_peer.private_key).to_bytes());
 
         Ok(RPCPeerInfoData {
             peer_version: burnchain.peer_version,
@@ -185,7 +187,8 @@ impl RPCPeerInfoData {
             stacks_tip,
             stacks_tip_burn_block: stacks_tip_burn_block.to_hex(),
             unanchored_tip: unconfirmed_tip,
-            exit_at_block_height: exit_at_block_height.cloned()
+            exit_at_block_height: exit_at_block_height.cloned(),
+            public_key_hash: public_key_hash
         })
     }
 }
