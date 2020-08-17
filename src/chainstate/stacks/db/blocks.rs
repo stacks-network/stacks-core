@@ -98,7 +98,7 @@ use vm::clarity::{
 pub use vm::analysis::errors::{CheckErrors, CheckError};
 
 use vm::database::ClarityDatabase;
-use vm::database::PoxStateDB;
+use vm::database::BurnStateDB;
 
 use vm::contracts::Contract;
 
@@ -2729,7 +2729,7 @@ impl StacksChainState {
     /// Returns None if we're out of blocks to process.
     fn append_block<'a>(chainstate_tx: &mut ChainstateTx<'a>,
                         clarity_instance: &'a mut ClarityInstance,
-                        pox_dbconn: &dyn PoxStateDB,
+                        burn_dbconn: &dyn BurnStateDB,
                         parent_chain_tip: &StacksHeaderInfo,
                         chain_tip_consensus_hash: &ConsensusHash,
                         chain_tip_burn_header_hash: &BurnchainHeaderHash,
@@ -2782,7 +2782,7 @@ impl StacksChainState {
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
             
-            let mut clarity_tx = StacksChainState::chainstate_block_begin(chainstate_tx, clarity_instance, pox_dbconn, &parent_consensus_hash, &parent_block_hash, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
+            let mut clarity_tx = StacksChainState::chainstate_block_begin(chainstate_tx, clarity_instance, burn_dbconn, &parent_consensus_hash, &parent_block_hash, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
             // process microblock stream
             let (microblock_fees, microblock_burns, mut microblock_txs_receipts) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
@@ -3278,7 +3278,7 @@ impl StacksChainState {
         };
         
         let current_tip = StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
-        self.with_read_only_clarity_tx(&NULL_POX_STATE_DB, &current_tip, |conn| {
+        self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
             StacksChainState::can_include_tx(mempool_conn, conn, &conf, has_microblock_pubk, tx, tx_size)
         })
     }
