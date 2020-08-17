@@ -16,17 +16,17 @@
 (define-constant ERR-STACKING-INVALID-POX-ADDRESS 13)
 (define-constant ERR-STACKING-ALREADY-DELEGATED 14)
 (define-constant ERR-STACKING-DELEGATE-ALREADY-REGISTERED 15)
-(define-constant ERR-STACKING-ALREADY-WITHDRAWN 16)
-(define-constant ERR-STACKING-DELEGATE-EXPIRED 17)
+(define-constant ERR-STACKING-DELEGATE-EXPIRED 16)
 
 ;; Min/max number of reward cycles uSTX can be locked for
 (define-constant MIN-POX-REWARD-CYCLES u1)
 (define-constant MAX-POX-REWARD-CYCLES u12)
 
-;; Length of a reward cycle, in burnchain blocks.
-;; This is registration window (250) + reward window (1000)
+;; Default length of the PoX registration window, in burnchain blocks.
 (define-constant REGISTRATION-WINDOW-LENGTH u250)
-(define-constant REWARD-CYCLE-LENGTH u1250)
+
+;; Default length of the PoX reward cycle, in burnchain blocks.
+(define-constant REWARD-CYCLE-LENGTH u1000)
 
 ;; Valid values for burnchain address versions.
 ;; These correspond to address hash modes in Stacks 2.0.
@@ -39,22 +39,25 @@
 (define-constant STACKING-THRESHOLD-25 u20000)
 (define-constant STACKING-THRESHOLD-100 u5000)
 
-;; Data vars that store the registration window length 
-;; and reward cycle length.  Implemented as data vars
-;; in order to test more efficiently -- i.e. the test
-;; framework can override with smaller values.
-;; (TODO: at some point, this should be a function that the
-;; test harness can call to set its own window sizes)
-(define-data-var registration-window-length uint REGISTRATION-WINDOW-LENGTH)
-(define-data-var reward-cycle-length uint REWARD-CYCLE-LENGTH)
-(begin
-    (if is-in-regtest
+;; Data vars that store a copy of the burnchain configuration.
+;; Implemented as data-vars, so that different configurations can be
+;; used in e.g. test harnesses.
+(define-data-var pox-registration-window-length uint REGISTRATION-WINDOW-LENGTH)
+(define-data-var pox-reward-cycle-length uint REWARD-CYCLE-LENGTH)
+(define-data-var first-burnchain-block-height uint u0)
+(define-data-var configured bool false)
+
+;; This function can only be called once, when it boots up
+(define-public (set-burnchain-parameters (first-burn-height uint) (pox-reg-window-len uint) (pox-reward-cycle-len uint))
+    (if (and is-in-regtest (not (var-get configured)))
         (begin
-            (var-set registration-window-length u2)
-            (var-set reward-cycle-length u5)
-            true
+            (var-set first-burnchain-block-height first-burn-height)
+            (var-set pox-registration-window-length pox-reg-window-len)
+            (var-set pox-reward-cycle-length pox-reward-cycle-len)
+            (var-set configured true)
+            (ok true)
         )
-        false
+        (ok false)
     )
 )
 
@@ -80,7 +83,9 @@
         (lock-period uint)
         ;; reward cycle when rewards begin
         (first-reward-cycle uint)
-        ;; who, if anyone, is the delegate for this account?
+        ;; Who, if anyone, is the delegate for this account?
+        ;; The delegate may begin Stacking on behalf of the
+        ;; locked-up STX tokens.
         (delegate (optional principal))
     )
 )
@@ -128,10 +133,6 @@
     (
         ;; The address of the delegate, who stacks them.
         (delegate principal)
-        ;; Start and end times for the delegate's tenure, in burnchain blocks.
-        ;; The range is start-inclusive, end-exclusive.
-        (burn-block-height-start uint)
-        (burn-block-height-end uint)
         ;; Number of uSTX this delegate may stack on this stacker's behalf.
         (amount-ustx uint)
     )
@@ -146,50 +147,43 @@
         (total-ustx uint)
         ;; PoX address the delegate must use.
         (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+        ;; Earliest time at which the delegate can Stack the delegated STX.
+        (burn-block-height-start uint)
         ;; Beginning of this delegate's tenure
         (first-reward-cycle uint)
-        ;; How long the uSTX will be locked for
-        (tenure uint)
-        ;; Address to send the uSTX when they unlock, if the clients wants that,
-        ;; and burn block height at which the delegate may withdraw.  This should
-        ;; be set far enough in the future that the client has ample time to 
-        ;; withdraw their uSTX on their own.
-        (withdrawal (optional (tuple (recipient principal) (deadline uint))))
-        ;; Whether or not the delegate has withdrawn the funds
-        (withdrawn bool)
+        ;; How long the uSTX will be locked for, in reward cycles
+        (tenure-cycles uint)
     )
 )
 
-;; What's the reward cycle number, given the burnchain block height?
-;; NOTE: the first-ever reward cycle number isn't 0.  This is deliberate.
-(define-private (burn-height-to-reward-cycle (height uint)) (/ height (var-get reward-cycle-length)))
-(define-private (reward-cycle-to-burn-height (cycle uint)) (* (var-get reward-cycle-length)))
+;; What's the reward cycle number of the burnchain block height?
+;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
+(define-private (burn-height-to-reward-cycle (height uint)) 
+    (/ (- height (var-get first-burnchain-block-height)) (var-get pox-reward-cycle-length)))
 
-;; What's the current reward cycle?
-(define-read-only (get-current-reward-cycle) (burn-height-to-reward-cycle burn-block-height))
+;; What's the block height at the start of a given reward cycle?
+(define-private (reward-cycle-to-burn-height (cycle uint))
+    (+ (var-get first-burnchain-block-height) (* cycle (var-get pox-reward-cycle-length))))
 
-;; Is the given burn block height in a PoX registration window?
-;; (Not used in this contract; meant as an API endpoint)
-(define-read-only (is-burn-height-in-pox-registration-window (burn-height uint))
-    (let (
-        (reward-cycle-start-height (* (var-get reward-cycle-length) (/ burn-height (var-get reward-cycle-length))))
-    )
-    (and (>= burn-height reward-cycle-start-height)
-         (< burn-height (+ reward-cycle-start-height (var-get registration-window-length))))
+;; What's the current PoX reward cycle?
+(define-private (current-pox-reward-cycle)
+    (burn-height-to-reward-cycle burn-block-height))
+
+;; Get the _current_ PoX stacking principal information.  If the information
+;; is expired, or if there's never been such a stacker, then returns none.
+(define-read-only (get-stacker-info (stacker principal))
+    (match (map-get? stacking-state { stacker: stacker })
+        stacking-info
+            (if (<= (+ (get first-reward-cycle stacking-info) (get lock-period stacking-info)) (current-pox-reward-cycle))
+                ;; present, but lock has expired
+                none
+                ;; present, and lock has not expired
+                (some stacking-info)
+            )
+        ;; no state at all
+        none
     )
 )
-
-;; Is the node _currently_ in a PoX registration window?
-;; (Not used in this contract; meant as an API endpoint)
-(define-read-only (is-pox-registration-window)
-    (is-burn-height-in-pox-registration-window burn-block-height))
-
-;; Get the _current_ PoX stacking principal information, with all the latest 
-;; changes applied.  Do note that these changes may not be in effect for the
-;; ongoing reward cycle.  To see the state of a principal in a given reward cycle,
-;; Returns (optional stacking-state)
-(define-read-only (get-current-stacker-info (stacker principal))
-    (map-get? stacking-state { stacker: stacker }))
 
 ;; Get the size of the reward set for a reward cycle.
 ;; Note that this does _not_ return duplicate PoX addresses.
@@ -244,6 +238,13 @@
     ))
 )
 
+;; How many uSTX are stacked?
+(define-read-only (get-total-ustx-stacked (reward-cycle uint))
+    (default-to
+        u0
+        (get total-ustx (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
+)
+
 ;; Called internally by the node to iterate through the list of PoX addresses in this reward cycle.
 ;; Returns (optional (tuple (pox-addr <pox-address>) (total-ustx <uint>)))
 (define-read-only (get-reward-set-pox-address (reward-cycle uint) (index uint))
@@ -266,10 +267,7 @@
     )
     (if (< (get i args) (get num-cycles args))
         (let (
-            (total-ustx
-                (default-to
-                    u0
-                    (get total-ustx (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle }))))
+            (total-ustx (get-total-ustx-stacked reward-cycle))
         )
         (begin
             ;; record how many uSTX this pox-addr will stack for in the given reward cycle
@@ -333,10 +331,7 @@
 ;; Used internally by the Stacks node, and visible publicly.
 (define-read-only (get-stacking-minimum)
     (let (
-        (ustx-stacked-so-far
-            (default-to
-                u0
-                (get total-ustx (map-get? reward-cycle-total-stacked { reward-cycle: (get-current-reward-cycle) }))))
+        (ustx-stacked-so-far (get-total-ustx-stacked (current-pox-reward-cycle)))
     )
     (begin
         (if (< ustx-stacked-so-far (/ total-liquid-ustx u4))
@@ -393,44 +388,6 @@
     ))
 )
 
-;; Is the given principal stacking in a given reward cycle?
-(define-read-only (is-in-reward-set (stacker principal) (reward-cycle uint))
-    (let (
-        (reward-cycle-data
-            (match (get-current-stacker-info stacker)
-                data
-                    { present: true, start: (get first-reward-cycle data), num-cycles: (get lock-period data) }
-                { present: false, start: u0, num-cycles: u0 }))
-    )
-    (begin 
-        (if (not (get present reward-cycle-data))
-            false
-            (and (>= reward-cycle (get start reward-cycle-data))
-                 (< reward-cycle (+ (get start reward-cycle-data) (get num-cycles reward-cycle-data)))))
-    ))
-)
-
-;; Is the given principal stacking in the current reward cycle?
-(define-read-only (is-currently-stacking (stacker principal))
-    (is-in-reward-set stacker (get-current-reward-cycle)))
-
-;; Get the current PoX stacking principal information, but only if:
-;; * the stacker exists,
-;; * the stacker is stacking in the current reward cycle.
-(define-read-only (get-current-stacker-info-checked (stacker principal))
-    (begin 
-        ;; must be in this reward set
-        (asserts! (is-currently-stacking stacker)
-            (err ERR-STACKING-EXPIRED))
-
-        ;; must exist
-        (match (get-current-stacker-info stacker)
-            stacker-info
-                (ok stacker-info)
-            (err ERR-STACKING-NO-SUCH-PRINCIPAL))
-    )
-)
-
 ;; Get the a client stacker's delegate information.
 ;; Returns (optional principal) -- will be (some ..) if a delegate is registered for the
 ;; given stacker at the given burn block height, or none if not.
@@ -449,11 +406,11 @@
 ;; tx-sender is the delegate.
 (define-public (register-delegate (pox-addr (tuple (version uint) (hashbytes (buff 20))))
                                   (tenure-burn-block-begin uint)
-                                  (tenure-reward-cycles uint)
-                                  (withdrawal (optional (tuple (recipient principal) (deadline uint)))))
+                                  (tenure-reward-num-cycles uint))
     (let (
         ;; tenure begins in the first full reward cycle after when the tenure burn block passes
-        (first-reward-cycle (+ u1 (burn-height-to-reward-cycle tenure-burn-block-begin)))
+        (first-allowed-reward-cycle 
+            (+ u1 (burn-height-to-reward-cycle tenure-burn-block-begin)))
     )
     (begin
         ;; must not be a registered delegate already
@@ -461,16 +418,16 @@
             (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
 
         ;; lock period must be in acceptable range.
-        (asserts! (check-pox-lock-period tenure-reward-cycles)
+        (asserts! (check-pox-lock-period tenure-reward-num-cycles)
             (err ERR-STACKING-INVALID-DELEGATE-TENURE))
 
         ;; PoX address version must be valid
         (asserts! (check-pox-addr-version (get version pox-addr))
             (err ERR-STACKING-INVALID-POX-ADDRESS))
 
-        ;; tenure start height must be in the next reward cycle or later
-        (asserts! (< (get-current-reward-cycle) first-reward-cycle)
-            (err ERR-STACKING-INVALID-LOCK-PERIOD))
+        ;; tenure must start strictly before the first-allowed reward cycle
+        (asserts! (< tenure-burn-block-begin (reward-cycle-to-burn-height first-allowed-reward-cycle))
+            (err ERR-STACKING-INVALID-DELEGATE-TENURE))
 
         ;; register!
         (map-set delegate-control
@@ -478,17 +435,16 @@
             {
                 total-ustx: u0,
                 pox-addr: pox-addr,
-                first-reward-cycle: first-reward-cycle,
-                tenure: tenure-reward-cycles,
-                withdrawal: withdrawal,
-                withdrawn: false
+                burn-block-height-start: tenure-burn-block-begin,
+                first-reward-cycle: first-allowed-reward-cycle,
+                tenure-cycles: tenure-reward-num-cycles
             }
         )
 
         ;; claim PoX address up-front
         (map-set pox-addr-reward-cycles
             { pox-addr: pox-addr }
-            { first-reward-cycle: first-reward-cycle, num-cycles: tenure-reward-cycles }
+            { first-reward-cycle: first-allowed-reward-cycle, num-cycles: tenure-reward-num-cycles }
         )
         (ok true)
     ))
@@ -497,22 +453,23 @@
 ;; Delegated uSTX lock-up.
 ;; The Stacker (the caller) locks up their uSTX, and specifies a delegate
 ;; configuration to use.  The delegate will then carry out the PoX address
-;; registration and withdrawal on their behalf.
+;; registration.
 ;; Some checks are performed:
-;; * the Stacker must not currently be Stacking.  Withdraw your tokens before calling this.
+;; * the Stacker must not currently be Stacking.
 ;; * The Stacker must have the given amount-ustx funds available.
 ;; * The Stacker cannot be a delegate
 ;; * The stacker cannot have a delegate
 ;; * The delegate's tenure must not have started
 ;; * The delegate must have not have begun.
-;; The Stacker can withdraw their uSTX once the Stacking period stops.
+;; The tokens will unlock and be returned to the Stacker (tx-sender) automatically once the
+;; lockup period ends.
 (define-public (delegate-stx (delegate principal)
                              (amount-ustx uint))
     (let (
         (this-contract (as-contract tx-sender))
         
         ;; this stacker's first reward cycle is the _next_ reward cycle
-        (first-reward-cycle (+ u1 (get-current-reward-cycle)))
+        (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
 
         ;; existing delegate control record -- the delegate must
         ;; have registered itself.
@@ -523,9 +480,7 @@
     )
     (begin 
         ;; tx-sender principal (the Stacker) must not be Stacking.
-        ;; If you get this error, and your uSTX are expired, you'll need to withdraw
-        ;; them first.
-        (asserts! (is-none (get-current-stacker-info tx-sender))
+        (asserts! (is-none (get-stacker-info tx-sender))
             (err ERR-STACKING-ALREADY-STACKED))
         
         ;; the Stacker must have no delegate/client relationships
@@ -537,16 +492,15 @@
             (err ERR-STACKING-BAD-DELEGATE))
 
         ;; the delegate must not have begun stacking yet
-        (asserts! (is-none (get-current-stacker-info delegate))
+        (asserts! (is-none (get-stacker-info delegate))
             (err ERR-STACKING-ALREADY-DELEGATED))
 
-        ;; the delegate's tenure must not have started yet
-        (asserts! (< (get-current-reward-cycle) (get first-reward-cycle delegate-control-info))
+        ;; the delegate's first reward cycle must not have started yet
+        (asserts! (< (current-pox-reward-cycle) (get first-reward-cycle delegate-control-info))
             (err ERR-STACKING-DELEGATE-EXPIRED))
 
-        ;; lock up the uSTX in this contract
-        (unwrap!
-            (stx-transfer? amount-ustx tx-sender this-contract)
+        ;; the Stacker must have sufficient unlocked funds
+        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
             (err ERR-STACKING-INSUFFICIENT-FUNDS))
 
         ;; encode the delegate/client relationship
@@ -554,9 +508,7 @@
             { stacker: tx-sender }
             {
                 delegate: delegate,
-                amount-ustx: amount-ustx,
-                burn-block-height-start: (reward-cycle-to-burn-height first-reward-cycle),
-                burn-block-height-end: (reward-cycle-to-burn-height (+ first-reward-cycle (get tenure delegate-control-info))),
+                amount-ustx: amount-ustx
             }
         )
 
@@ -566,10 +518,9 @@
             {
                 total-ustx: (+ amount-ustx (get total-ustx delegate-control-info)),
                 pox-addr: (get pox-addr delegate-control-info),
+                burn-block-height-start: (get burn-block-height-start delegate-control-info),
                 first-reward-cycle: (get first-reward-cycle delegate-control-info),
-                tenure: (get tenure delegate-control-info),
-                withdrawal: (get withdrawal delegate-control-info),
-                withdrawn: (get withdrawn delegate-control-info)
+                tenure-cycles: (get tenure-cycles delegate-control-info)
             }
         )
 
@@ -580,13 +531,14 @@
                 amount-ustx: amount-ustx,
                 pox-addr: (get pox-addr delegate-control-info),
                 first-reward-cycle: first-reward-cycle,
-                lock-period: (get tenure delegate-control-info),
+                lock-period: (get tenure-cycles delegate-control-info),
                 delegate: (some delegate)
             }
         )
 
-        ;; we're done! let the delgate do its thing
-        (ok true)
+        ;; we're done! let the delgate do its thing.
+        ;; Give back the information the node needs to actually carry out the lock.
+        (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle (get tenure-cycles delegate-control-info))) })
     ))
 )
 
@@ -594,12 +546,13 @@
 ;; The STX will be locked for the given number of reward cycles (lock-period).
 ;; This is the self-service interface.  tx-sender will be the Stacker.
 ;;
-;; * The given stacker cannot currently be stacking, or have been stacking in the past without
-;; first withdrawing.
+;; * The given stacker cannot currently be stacking.
 ;; * You will need the minimum uSTX threshold.  This will be determined by (get-stacking-minimum)
 ;; at the time this method is called.
 ;; * You may need to increase the amount of uSTX locked up later, since the minimum uSTX threshold
 ;; may increase between reward cycles.
+;;
+;; The tokens will unlock and be returned to the Stacker (tx-sender) automatically.
 (define-public (stack-stx (amount-ustx uint)
                           (pox-addr (tuple (version uint) (hashbytes (buff 20))))
                           (lock-period uint))
@@ -607,16 +560,14 @@
         (this-contract (as-contract tx-sender))
         
         ;; this stacker's first reward cycle is the _next_ reward cycle
-        (first-reward-cycle (+ u1 (get-current-reward-cycle)))
+        (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
     )
     (begin
-        ;; tx-sender principal must not be registered -- not now, and not in the past.
-        ;; If you get this error, and your uSTX are expired, you'll need to withdraw
-        ;; them first.
-        (asserts! (is-none (get-current-stacker-info tx-sender))
+        ;; tx-sender principal must not be stacking
+        (asserts! (is-none (get-stacker-info tx-sender))
             (err ERR-STACKING-ALREADY-STACKED))
 
-        ;; tx-sender must not have a delegate/client relationsion
+        ;; tx-sender must not have a delegate/client relationship
         (asserts! (is-none (get-client-delegate-info tx-sender))
             (err ERR-STACKING-ALREADY-DELEGATED))
 
@@ -624,9 +575,8 @@
         (asserts! (is-none (get-delegate-control-info tx-sender))
             (err ERR-STACKING-BAD-DELEGATE))
 
-        ;; lock up the uSTX in this contract
-        (unwrap!
-            (stx-transfer? amount-ustx tx-sender this-contract)
+        ;; the Stacker must have sufficient unlocked funds
+        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
             (err ERR-STACKING-INSUFFICIENT-FUNDS))
         
         ;; register the PoX address with the amount stacked
@@ -644,8 +594,9 @@
                 delegate: none
             }
         )
-
-        (ok true)
+     
+        ;; return the lock-up information, so the node can actually carry out the lock. 
+        (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) })
     ))
 )
 
@@ -662,13 +613,17 @@
                 (err ERR-STACKING-NO-SUCH-DELEGATE)))
     )
     (begin
-        ;; tx-sender principal is the delegate, and it must not yet be stacking
-        (asserts! (is-none (get-current-stacker-info tx-sender))
+        ;; tx-sender principal is the delegate, and it must not be stacking
+        (asserts! (is-none (get-stacker-info tx-sender))
             (err ERR-STACKING-ALREADY-STACKED))
 
-        ;; delegate's tenure must not have begun yet
-        (asserts! (< (get-current-reward-cycle) (get first-reward-cycle delegate-control-info))
+        ;; delegate's first reward cycle must not have begun yet
+        (asserts! (< (current-pox-reward-cycle) (get first-reward-cycle delegate-control-info))
             (err ERR-STACKING-DELEGATE-EXPIRED))
+
+        ;; delegate can't call this until the start of its tenure (by burn block height)
+        (asserts! (<= (get burn-block-height-start delegate-control-info) burn-block-height)
+            (err ERR-STACKING-PERMISSION-DENIED))
 
         ;; lock it in!
         ;; register the PoX address with the amount stacked
@@ -677,7 +632,7 @@
                 (get pox-addr delegate-control-info)
                 (get total-ustx delegate-control-info)
                 (get first-reward-cycle delegate-control-info)
-                (get tenure delegate-control-info)
+                (get tenure-cycles delegate-control-info)
                 true))
 
         ;; add stacker record for the delegate
@@ -687,205 +642,12 @@
                 amount-ustx: (get total-ustx delegate-control-info),
                 pox-addr: (get pox-addr delegate-control-info),
                 first-reward-cycle: (get first-reward-cycle delegate-control-info),
-                lock-period: (get tenure delegate-control-info),
+                lock-period: (get tenure-cycles delegate-control-info),
                 delegate: none
             }
         )
-
-        (ok true)
-    ))
-)
-
-;; Update the delegate control record to indicate that a client
-;; who delegated their funds to a delegate has withdrawn them.
-;; The client is tx-sender.
-;; 
-;; * If the client (tx-sender) has no delegate, then do nothing.
-;; * If the client has a delegate, and the delegate has not withdrawn the funds already, then deduct
-;; the delegate's total-ustx and clear the delegate/client relationship.
-;; * If the client's delegate has already withdrawn the funds, then error out.
-;; 
-;; Returns (ok ..) if the withdrawal can proceed
-;; Returns (err ..) if the withdrawal cannot proceed, and indicates why in the error code.
-(define-private (update-total-ustx-delegated)
-    (let (
-        (stacker-info
-            (unwrap!
-                (get-current-stacker-info tx-sender)
-                (err ERR-STACKING-NO-SUCH-PRINCIPAL)))
-    )
-    ;; If tx-sender has a delegate, then deduct the uSTX it controls from its total amount.
-    ;; Otherwise, do nothing.
-    (match (get delegate stacker-info)
-        delegate
-            ;; have delegate!  Deduct total uSTX controlled by the delegate.
-            (begin
-                ;; Must have delegate-control-info for this delegate, so go get it.
-                (try!
-                    (match (get-delegate-control-info delegate)
-                        ;; Have delegate control info for delegate!
-                        delegate-control-info
-                            (if (not (get withdrawn delegate-control-info))
-                                ;; Delegate has not withdrawn tokens yet (if ever).
-                                ;; So, we can proceed to do it ourselves.  Update the records.
-                                (begin
-                                    ;; Delegate control info should indicate that we have enough uSTX locked to process the withdrawal.
-                                    (asserts! (>= (get total-ustx delegate-control-info) (get amount-ustx stacker-info))
-                                        (err ERR-STACKING-UNREACHABLE))
-
-                                    ;; Deduct from deletate's control record's total.
-                                    (map-set delegate-control
-                                        { delegate: delegate }
-                                        {
-                                            total-ustx: (- (get total-ustx delegate-control-info) (get amount-ustx stacker-info)),
-                                            pox-addr: (get pox-addr delegate-control-info),
-                                            first-reward-cycle: (get first-reward-cycle delegate-control-info),
-                                            tenure: (get tenure delegate-control-info),
-                                            withdrawal: (get withdrawal delegate-control-info),
-                                            withdrawn: (get withdrawn delegate-control-info)
-                                        }
-                                    )
-
-                                    (ok true)
-                                )
-                                ;; Otherwise, the withdrawal can't happen -- the delegate already did this.
-                                (err ERR-STACKING-ALREADY-WITHDRAWN)
-                            )
-                        ;; have delegate but no delegate-control-info. should never happen!
-                        (err ERR-STACKING-UNREACHABLE)
-                    )
-                )
-                ;; Clear the delegate/client relationship for this client.
-                (map-delete delegates { stacker: tx-sender })
-                (ok true)
-            )
-        ;; No delegate, so nothing to do.
-        (ok true)
-    ))
-)
-
-;; Withdraw uSTX that are no longer locked up.
-;; Send them to the given recipient.
-;; This is a self-service interface -- STX owners call this directly.
-;; Returns (ok true) if the withdrawal went through.
-;; Returns (ok false) if the stacker had a delegate that already withdrew the funds.
-;; Returns (err ..) in other irrecoverable cases
-(define-public (withdraw-stx (recipient principal))
-    (let (
-        ;; tx-sender must have been stacking
-        (stacker-info
-            (unwrap!
-                (get-current-stacker-info tx-sender)
-                (err ERR-STACKING-NO-SUCH-PRINCIPAL)))
-    )
-    (begin
-        ;; lock period must have passed
-        (asserts! (>= (get-current-reward-cycle) (+ (get first-reward-cycle stacker-info) (get lock-period stacker-info)))
-            (err ERR-STACKING-STX-LOCKED))
-
-        ;; tx-sender cannot be a delegate
-        (asserts! (is-none (get-delegate-control-info tx-sender))
-            (err ERR-STACKING-BAD-DELEGATE))
-
-        ;; if tx-sender has a delegate, then deduct the uSTX it controls from its delegate's total amount.
-        (match (update-total-ustx-delegated)
-            ok-case
-                (begin
-                    ;; clear stacking state
-                    (map-delete stacking-state { stacker: tx-sender })
-
-                    ;; withdraw funds from contract
-                    (unwrap!
-                        (as-contract
-                            (stx-transfer? (get amount-ustx stacker-info) tx-sender recipient))
-                        (err ERR-STACKING-UNREACHABLE))
-
-                    (ok ok-case)
-                )
-            err-case
-                (if (is-eq err-case ERR-STACKING-ALREADY-WITHDRAWN)
-                    ;; Stacker had a delegate that already withdrew the tokens.
-                    ;; Just clear out the state.  No withdrawal will happen.
-                    ;; You should go talk to your delegate to get your STX back.
-                    (begin
-                        (map-delete delegates { stacker: tx-sender })
-                        (map-delete stacking-state { stacker: tx-sender })
-                        (ok false)
-                    )
-                    ;; Some other error
-                    (err err-case)
-                )
-        )
-    ))
-)
-
-;; Delegated-withdraw uSTX that are no longer locked up.
-;; Send them to the recipient in the delegator's control record.
-;; This is called by the delegate, and only works if there
-;; is a withdraw recipient set.
-;; It cannot be called more than once.
-(define-public (delegate-withdraw-stx)
-    (let (
-        ;; tx-sender (the delegate) must have a stacking record
-        (stacker-info
-            (unwrap!
-                (get-current-stacker-info tx-sender)
-                (err ERR-STACKING-NO-SUCH-PRINCIPAL)))
-
-        ;; tx-sender (the delegate) must be a registered delegate
-        (delegate-control-info
-            (unwrap!
-                (get-delegate-control-info tx-sender)
-                (err ERR-STACKING-NO-SUCH-DELEGATE)))
-    )
-    (begin
-        ;; lock period must have passed
-        (asserts! (> (get-current-reward-cycle) (+ (get first-reward-cycle stacker-info) (get lock-period stacker-info)))
-            (err ERR-STACKING-STX-LOCKED))
         
-        ;; tx-sender (the delegate) cannot have set a delegate (should never happen)
-        (asserts! (is-none (get delegate stacker-info))
-            (err ERR-STACKING-UNREACHABLE))
-
-        ;; tokens must not have been withdrawn by the delegate yet
-        (asserts! (not (get withdrawn delegate-control-info))
-            (err ERR-STACKING-ALREADY-WITHDRAWN))
-
-        ;; tx-sender (the delegate) must have permission to withdraw
-        (let (
-            (withdrawal
-                (unwrap!
-                    (get withdrawal delegate-control-info)
-                    (err ERR-STACKING-PERMISSION-DENIED)))
-        )
-        (begin
-            ;; withdrawl burn block deadline must have passed
-            (asserts! (< (get deadline withdrawal) burn-block-height)
-                (err ERR-STACKING-PERMISSION-DENIED))
-
-            ;; withdraw all remaining uSTX from the contract to the given recipient
-            (unwrap!
-                (as-contract
-                    (stx-transfer? (get total-ustx delegate-control-info) tx-sender (get recipient withdrawal)))
-                (err ERR-STACKING-UNREACHABLE))
-
-            ;; clear total-ustx and mark withdrawn
-            (map-set delegate-control
-                { delegate: tx-sender }
-                {
-                    total-ustx: u0,
-                    pox-addr: (get pox-addr delegate-control-info),
-                    first-reward-cycle: (get first-reward-cycle delegate-control-info),
-                    tenure: (get tenure delegate-control-info),
-                    withdrawal: (get withdrawal delegate-control-info),
-                    withdrawn: true
-                }
-            )
-
-            ;; clear stacking state for the delegate
-            (map-delete stacking-state { stacker: tx-sender })
-        ))
-
         (ok true)
     ))
 )
+
