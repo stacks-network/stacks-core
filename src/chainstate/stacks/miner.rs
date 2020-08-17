@@ -55,7 +55,7 @@ use util::vrf::*;
 use core::*;
 use core::mempool::*;
 
-use vm::database::PoxStateDB;
+use vm::database::BurnStateDB;
 
 ///
 ///    Independent structure for building microblocks:
@@ -79,7 +79,7 @@ pub struct StacksMicroblockBuilder<'a> {
 
 impl <'a> StacksMicroblockBuilder <'a> {
     pub fn new(anchor_block: BlockHeaderHash, anchor_block_consensus_hash: ConsensusHash,
-               chainstate: &'a mut StacksChainState, pox_dbconn: &'a dyn PoxStateDB, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
+               chainstate: &'a mut StacksChainState, burn_dbconn: &'a dyn BurnStateDB, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let header_reader = chainstate.reopen()?;
         let anchor_block_height = 
             StacksChainState::get_anchored_block_header_info(&header_reader.headers_db, &anchor_block_consensus_hash, &anchor_block)?
@@ -89,7 +89,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
         //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
         //  could take over.
-        let mut clarity_tx = chainstate.block_begin(pox_dbconn, &anchor_block_consensus_hash, &anchor_block,
+        let mut clarity_tx = chainstate.block_begin(burn_dbconn, &anchor_block_consensus_hash, &anchor_block,
                                                     &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
         clarity_tx.reset_cost(initial_cost);
@@ -551,7 +551,7 @@ impl StacksBlockBuilder {
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
     /// yet known).
-    pub fn epoch_begin<'a>(&mut self, chainstate: &'a mut StacksChainState, pox_dbconn: &'a dyn PoxStateDB) -> Result<ClarityTx<'a>, Error> {
+    pub fn epoch_begin<'a>(&mut self, chainstate: &'a mut StacksChainState, burn_dbconn: &'a dyn BurnStateDB) -> Result<ClarityTx<'a>, Error> {
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
             let mut tx = chainstate.headers_tx_begin()?;
@@ -580,7 +580,7 @@ impl StacksBlockBuilder {
             None => vec![]
         };
 
-        let mut tx = chainstate.block_begin(pox_dbconn, &parent_consensus_hash, &parent_header_hash, &new_consensus_hash, &new_block_hash);
+        let mut tx = chainstate.block_begin(burn_dbconn, &parent_consensus_hash, &parent_header_hash, &new_consensus_hash, &new_block_hash);
 
         test_debug!("Miner {}: Apply {} parent microblocks", self.miner_id, parent_microblocks.len());
 
@@ -630,10 +630,10 @@ impl StacksBlockBuilder {
     
     /// Unconditionally build an anchored block from a list of transactions.
     /// Used when we are re-building a valid block after we exceed budget
-    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate_handle: &StacksChainState, pox_dbconn: &dyn PoxStateDB, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
+    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate_handle: &StacksChainState, burn_dbconn: &dyn BurnStateDB, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let mut chainstate = chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?;  // used for processing a block up to the given limit
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate, pox_dbconn)?;
+        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {},
@@ -684,7 +684,7 @@ impl StacksBlockBuilder {
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(chainstate_handle: &StacksChainState,       // not directly used; used as a handle to open other chainstates
-                                pox_dbconn: &dyn PoxStateDB,
+                                burn_dbconn: &dyn BurnStateDB,
                                 mempool: &MemPoolDB,
                                 parent_stacks_header: &StacksHeaderInfo,    // Stacks header we're building off of
                                 total_burn: u64,                            // the burn so far on the burnchain (i.e. from the last burnchain block)
@@ -706,7 +706,7 @@ impl StacksBlockBuilder {
 
         let mut builder = StacksBlockBuilder::make_block_builder(parent_stacks_header, proof, total_burn, pubkey_hash)?;
 
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate, pox_dbconn)?;
+        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         let mut considered = HashSet::new();        // txids of all transactions we looked at
