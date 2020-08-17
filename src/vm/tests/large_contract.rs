@@ -10,7 +10,7 @@ use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
-use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, NULL_POX_STATE_DB, ClarityDatabase};
+use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, NULL_BURN_STATE_DB, ClarityDatabase};
 use vm::clarity::{ClarityInstance, Error as ClarityError};
 use vm::ast;
 use vm::costs::ExecutionCost;
@@ -35,7 +35,7 @@ pub fn rollback_log_memory_test() {
         let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB,
-                                                    &NULL_POX_STATE_DB);
+                                                    &NULL_BURN_STATE_DB);
 
         let define_data_var = "(define-data-var XZ (buff 1048576) \"a\")";
 
@@ -78,7 +78,7 @@ pub fn let_memory_test() {
         let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB,
-                                                    &NULL_POX_STATE_DB);
+                                                    &NULL_BURN_STATE_DB);
 
         let define_data_var = "(define-constant buff-0 \"a\")";
 
@@ -122,7 +122,7 @@ pub fn argument_memory_test() {
         let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB,
-                                                    &NULL_POX_STATE_DB);
+                                                    &NULL_BURN_STATE_DB);
 
         let define_data_var = "(define-constant buff-0 \"a\")";
 
@@ -167,7 +167,7 @@ pub fn fcall_memory_test() {
         let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB,
-                                                    &NULL_POX_STATE_DB);
+                                                    &NULL_BURN_STATE_DB);
 
         let define_data_var = "(define-constant buff-0 \"a\")";
 
@@ -240,7 +240,7 @@ pub fn ccall_memory_test() {
         let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB,
-                                                    &NULL_POX_STATE_DB);
+                                                    &NULL_BURN_STATE_DB);
 
         let define_data_var = "(define-constant buff-0 \"a\")\n";
 
