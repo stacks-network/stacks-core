@@ -8,7 +8,7 @@ define_named_enum!(NativeVariables {
     ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),
     BurnBlockHeight("burn-block-height"), NativeNone("none"),
     NativeTrue("true"), NativeFalse("false"),
-    ConsensusHash("consensus-hash"), TotalLiquidMicroSTX("total-liquid-ustx"),
+    TotalLiquidMicroSTX("total-liquid-ustx"),
     Regtest("is-in-regtest"),
 });
 
@@ -45,10 +45,6 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &mut E
             },
             NativeVariables::NativeFalse => {
                 Ok(Some(Value::Bool(false)))
-            },
-            NativeVariables::ConsensusHash => {
-                let ch = env.global_context.database.get_tip_consensus_hash();
-                Ok(Some(Value::Buffer(BuffData { data: ch.as_bytes().to_vec() })))
             },
             NativeVariables::TotalLiquidMicroSTX => {
                 let liq = env.global_context.database.get_total_liquid_ustx();
