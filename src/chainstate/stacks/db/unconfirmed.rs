@@ -34,9 +34,9 @@ use net::Error as net_error;
 
 use vm::database::marf::MarfedKV;
 use vm::database::NULL_HEADER_DB;
-use vm::database::NULL_POX_STATE_DB;
+use vm::database::NULL_BURN_STATE_DB;
 use vm::database::HeadersDB;
-use vm::database::PoxStateDB;
+use vm::database::BurnStateDB;
 use vm::clarity::{
     ClarityInstance,
     Error as clarity_error
@@ -96,7 +96,7 @@ impl UnconfirmedState {
     /// Produce the total fees, total burns, and total list of transaction receipts.
     /// Updates internal cost_so_far count.
     /// Idempotent.
-    fn append_microblocks(&mut self, chainstate: &StacksChainState, pox_dbconn: &dyn PoxStateDB, mblocks: Vec<StacksMicroblock>) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
+    fn append_microblocks(&mut self, chainstate: &StacksChainState, burn_dbconn: &dyn BurnStateDB, mblocks: Vec<StacksMicroblock>) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         if self.last_mblock_seq == u16::max_value() {
             // drop them
             return Ok((0, 0, vec![]));
@@ -113,7 +113,7 @@ impl UnconfirmedState {
         let mut all_receipts = vec![];
    
         {
-            let mut clarity_tx = StacksChainState::begin_unconfirmed(db_config, &chainstate.headers_db, &mut self.clarity_inst, pox_dbconn, &self.confirmed_chain_tip);
+            let mut clarity_tx = StacksChainState::begin_unconfirmed(db_config, &chainstate.headers_db, &mut self.clarity_inst, burn_dbconn, &self.confirmed_chain_tip);
 
             for mblock in mblocks.into_iter() {
                 if (last_mblock.is_some() && mblock.header.sequence <= last_mblock_seq) || (last_mblock.is_none() && mblock.header.sequence != 0) {
@@ -164,7 +164,7 @@ impl UnconfirmedState {
     }
 
     /// Update the view of the current confiremd chain tip's unconfirmed microblock state
-    pub fn refresh(&mut self, chainstate: &StacksChainState, pox_dbconn: &dyn PoxStateDB) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
+    pub fn refresh(&mut self, chainstate: &StacksChainState, burn_dbconn: &dyn BurnStateDB) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         if self.last_mblock_seq == u16::max_value() {
             // no-op
             return Ok((0, 0, vec![]));
@@ -172,7 +172,7 @@ impl UnconfirmedState {
 
         match self.load_child_microblocks(chainstate)? {
             Some(microblocks) => {
-                self.append_microblocks(chainstate, pox_dbconn, microblocks)
+                self.append_microblocks(chainstate, burn_dbconn, microblocks)
             }
             None => {
                 Ok((0, 0, vec![]))
@@ -185,15 +185,15 @@ impl StacksChainState {
     /// Clear the current unconfirmed state
     fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState) {
         debug!("Drop unconfirmed state off of {}", &unconfirmed.confirmed_chain_tip);
-        let clarity_tx = StacksChainState::begin_unconfirmed(self.config(), &NULL_HEADER_DB, &mut unconfirmed.clarity_inst, &NULL_POX_STATE_DB, &unconfirmed.confirmed_chain_tip);
+        let clarity_tx = StacksChainState::begin_unconfirmed(self.config(), &NULL_HEADER_DB, &mut unconfirmed.clarity_inst, &NULL_BURN_STATE_DB, &unconfirmed.confirmed_chain_tip);
         clarity_tx.rollback_unconfirmed();
     }
 
     /// Instantiate the unconfirmed state of a given chain tip.
     /// Pre-populate it with any microblock state we have.
-    fn make_unconfirmed_state(&self, pox_dbconn: &dyn PoxStateDB, anchored_block_id: StacksBlockId, anchored_block_cost: ExecutionCost) -> Result<(UnconfirmedState, u128, u128, Vec<StacksTransactionReceipt>), Error> {
+    fn make_unconfirmed_state(&self, burn_dbconn: &dyn BurnStateDB, anchored_block_id: StacksBlockId, anchored_block_cost: ExecutionCost) -> Result<(UnconfirmedState, u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id, anchored_block_cost)?;
-        let (fees, burns, receipts) = unconfirmed_state.refresh(self, pox_dbconn)?;
+        let (fees, burns, receipts) = unconfirmed_state.refresh(self, burn_dbconn)?;
         Ok((unconfirmed_state, fees, burns, receipts))
     }
 
@@ -202,7 +202,7 @@ impl StacksChainState {
     /// -- if the canonical chain tip has changed, then drop the current view, make a new view, and
     /// process that new view's unconfirmed microblocks.
     /// Call after storing all microblocks from the network.
-    pub fn reload_unconfirmed_state(&mut self, pox_dbconn: &dyn PoxStateDB, canonical_tip: StacksBlockId) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
+    pub fn reload_unconfirmed_state(&mut self, burn_dbconn: &dyn BurnStateDB, canonical_tip: StacksBlockId) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         debug!("Reload unconfirmed state off of {}", &canonical_tip);
 
         let unconfirmed_state = self.unconfirmed_state.take();
@@ -210,7 +210,7 @@ impl StacksChainState {
         if let Some(mut unconfirmed_state) = unconfirmed_state {
             if canonical_tip == unconfirmed_state.confirmed_chain_tip {
                 // refresh with latest microblocks
-                let res = unconfirmed_state.refresh(self, pox_dbconn);
+                let res = unconfirmed_state.refresh(self, burn_dbconn);
                 self.unconfirmed_state = Some(unconfirmed_state);
                 return res;
             }
@@ -223,7 +223,7 @@ impl StacksChainState {
             .ok_or_else(|| Error::NoSuchBlockError)?;
 
         // tip changed, or we don't have unconfirmed state yet
-        let (new_unconfirmed_state, fees, burns, receipts) = self.make_unconfirmed_state(pox_dbconn, canonical_tip, block_cost)?;
+        let (new_unconfirmed_state, fees, burns, receipts) = self.make_unconfirmed_state(burn_dbconn, canonical_tip, block_cost)?;
         if let Some(unconfirmed_state) = self.unconfirmed_state.take() {
             self.drop_unconfirmed_state(unconfirmed_state);
         }
@@ -232,12 +232,12 @@ impl StacksChainState {
     }
 
     /// Refresh the current unconfirmed chain state
-    pub fn refresh_unconfirmed_state(&mut self, pox_dbconn: &dyn PoxStateDB) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
+    pub fn refresh_unconfirmed_state(&mut self, burn_dbconn: &dyn BurnStateDB) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut unconfirmed_state = self.unconfirmed_state.take();
         let res = 
             if let Some(ref mut unconfirmed_state) = unconfirmed_state {
                 debug!("Refresh unconfirmed state off of {}", &unconfirmed_state.confirmed_chain_tip);
-                unconfirmed_state.refresh(self, pox_dbconn)
+                unconfirmed_state.refresh(self, burn_dbconn)
             }
             else {
                 warn!("No unconfirmed state instantiated");
