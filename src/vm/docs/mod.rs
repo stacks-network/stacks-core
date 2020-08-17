@@ -84,14 +84,6 @@ contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
 };
 
-const CONSENSUS_HASH_KEYWORD: KeywordAPI = KeywordAPI {
-    name: "consensus-hash",
-    output_type: "(buff 20)",
-    description: "Returns the consensus hash of the current burnchain block.  This opaque value uniquely identifies the PoX fork in which this Stacks block
-was mined, and is guaranteed to be globally unique.",
-    example: "(print consensus-hash) ;; Will print out a consensus hash"
-};
-
 const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
     name: "total-liquid-ustx",
     output_type: "uint",
@@ -1422,7 +1414,6 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
         NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
-        NativeVariables::ConsensusHash => Some(CONSENSUS_HASH_KEYWORD.clone()),
         NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
         NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
     }
@@ -1499,11 +1490,11 @@ mod test {
     use super::make_json_api_reference;
     use super::make_all_api_reference;
     use chainstate::stacks::{StacksAddress, StacksBlockId, index::MarfTrieId};
-    use chainstate::burn::{BlockHeaderHash, VRFSeed, ConsensusHash};
+    use chainstate::burn::{BlockHeaderHash, VRFSeed};
     use burnchains::BurnchainHeaderHash;
 
     use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext,
-              database::{ MarfedKV, HeadersDB, PoxStateDB },
+              database::{ MarfedKV, HeadersDB, BurnStateDB },
               LimitedCostTracker, GlobalContext, Error, contexts::OwnedEnvironment };
 
     struct DocHeadersDB {}
@@ -1533,20 +1524,15 @@ mod test {
         }
     }
 
-    struct DocPoxStateDB {}
-    const DOC_POX_STATE_DB: DocPoxStateDB = DocPoxStateDB {};
+    struct DocBurnStateDB {}
+    const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
 
-    impl PoxStateDB for DocPoxStateDB {
-        fn get_tip_consensus_hash(&self) -> ConsensusHash {
-            ConsensusHash::from_hex("f0170762e9aff0164e949be1e0832e05fa8188c4").unwrap()
+    impl BurnStateDB for DocBurnStateDB {
+        fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
+            Some(5678)
         }
-
-        fn get_ancestor_consensus_hash(&self, tip: &ConsensusHash, height: u32) -> Option<ConsensusHash> {
-            Some(ConsensusHash::from_hex("75c73040c91f3951091116e2e8c8122511f4b8d2").unwrap())
-        }
-
-        fn get_winning_stacks_block(&self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
-            Some(StacksBlockId::from_hex("e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8").unwrap())
+        fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
+            Some(BurnchainHeaderHash::from_hex("e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8").unwrap())
         }
     }
 
