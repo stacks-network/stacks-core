@@ -250,4 +250,12 @@ impl StacksChainState {
         let row_opt = query_row(conn, sql, args)?;
         Ok(row_opt.expect("BUG: no genesis header info"))
     }
+
+    /// Get the parent block ID for this block
+    pub fn get_parent_block_id(conn: &Connection, block_id: &StacksBlockId) -> Result<Option<StacksBlockId>, Error> {
+        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?1 LIMIT 1".to_string();
+        let args : &[&dyn ToSql] = &[block_id];
+        let mut rows = query_row_columns::<StacksBlockId, _>(conn, &sql, args, "parent_block_id")?;
+        Ok(rows.pop())
+    }
 }
