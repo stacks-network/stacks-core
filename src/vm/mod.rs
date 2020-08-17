@@ -38,6 +38,7 @@ use vm::costs::{cost_functions, CostOverflowingMath, LimitedCostTracker, MemoryC
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
+pub use vm::functions::{stx_balance_with_unlock, stx_balance_consolidated, stx_transfer_consolidated};
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
 use std::convert::TryInto;
 
