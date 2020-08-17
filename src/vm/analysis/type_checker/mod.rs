@@ -190,7 +190,6 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             NativeNone => TypeSignature::new_option(no_type()).unwrap(),
             NativeTrue => TypeSignature::BoolType,
             NativeFalse => TypeSignature::BoolType,
-            ConsensusHash => BUFF_20,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
             Regtest => TypeSignature::BoolType,
         };
