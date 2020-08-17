@@ -56,9 +56,9 @@ fn test_simple_let() {
 #[test]
 fn test_sha256() {
     let sha256_evals = [
-        "(sha256 \"\")",
+        "(sha256 0x)",
         "(sha256 0)",
-        "(sha256 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn to_buffer(hex: &str) -> Value {
@@ -78,9 +78,9 @@ fn test_sha256() {
 #[test]
 fn test_sha512() {
     let sha512_evals = [
-        "(sha512 \"\")",
+        "(sha512 0x)",
         "(sha512 0)",
-        "(sha512 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha512 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn p_to_hex(val: Value) -> String {
@@ -103,9 +103,9 @@ fn test_sha512() {
 #[test]
 fn test_sha512trunc256() {
     let sha512_evals = [
-        "(sha512/256 \"\")",
+        "(sha512/256 0x)",
         "(sha512/256 0)",
-        "(sha512/256 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha512/256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn p_to_hex(val: Value) -> String {
@@ -128,9 +128,9 @@ fn test_sha512trunc256() {
 #[test]
 fn test_keccak256() {
     let keccak256_evals = [
-        "(keccak256 \"\")",
+        "(keccak256 0x)",
         "(keccak256 0)",
-        "(keccak256 \"The quick brown fox jumps over the lazy dog\")",
+        "(keccak256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn to_buffer(hex: &str) -> Value {
