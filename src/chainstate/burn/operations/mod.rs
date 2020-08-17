@@ -150,6 +150,9 @@ pub struct LeaderBlockCommitOp {
     pub burn_fee: u64,                      // how many burn tokens (e.g. satoshis) were destroyed to produce this block
     pub input: BurnchainSigner,             // burn chain keys that must match the key registration
 
+    /// PoX/Burn outputs
+    pub commit_outs: Vec<StacksAddress>,
+
     // common to all transactions
     pub txid: Txid,                         // transaction ID
     pub vtxindex: u32,                      // index in the block where this tx occurs

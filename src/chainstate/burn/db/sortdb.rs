@@ -241,7 +241,10 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let memo_hex : String = row.get("memo");
         let burn_fee_str : String = row.get("burn_fee");
         let input_json : String = row.get("input");
-        
+
+        let commit_outs = serde_json::from_value(row.get("commit_outs"))
+            .expect("Unparseable value stored to database");
+
         let memo_bytes = hex_bytes(&memo_hex)
             .map_err(|_e| db_error::ParseError)?;
 
@@ -254,21 +257,21 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             .map_err(|_e| db_error::ParseError)?;
 
         let block_commit = LeaderBlockCommitOp {
-            block_header_hash: block_header_hash,
-            new_seed: new_seed,
-            parent_block_ptr: parent_block_ptr,
-            parent_vtxindex: parent_vtxindex,
-            key_block_ptr: key_block_ptr,
-            key_vtxindex: key_vtxindex,
-            memo: memo,
+            block_header_hash,
+            new_seed,
+            parent_block_ptr,
+            parent_vtxindex,
+            key_block_ptr,
+            key_vtxindex,
+            memo,
 
-            burn_fee: burn_fee,
-            input: input,
-
-            txid: txid,
-            vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: burn_header_hash,
+            burn_fee,
+            input,
+            commit_outs,
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash
         };
         Ok(block_commit)
     }
@@ -416,7 +419,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         key_block_ptr INTEGER NOT NULL,
         key_vtxindex INTEGER NOT NULL,
         memo TEXT,
-        
+        commit_outs TEXT,
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
         input TEXT NOT NULL,        -- must match `address` in leader_keys
 
@@ -552,6 +555,14 @@ impl db_keys {
 
     pub fn pox_last_anchor() -> &'static str {
         "sortition_db::last_anchor_block"
+    }
+
+    pub fn pox_reward_set_size() -> &'static str {
+        "sortition_db::reward_set::size"
+    }
+
+    pub fn pox_reward_set_entry(ix: u16) -> String {
+        format!("sortition_db::reward_set::entry::{}", ix)
     }
 
     /// store an entry for retrieving the PoX identifier (i.e., the PoX bitvector) for this PoX fork
@@ -2089,11 +2100,13 @@ impl <'a> SortitionHandleTx <'a> {
             &to_hex(&block_commit.memo[..]),
             &burn_fee_str,
             &tx_input_str,
-            sort_id
+            sort_id,
+            &serde_json::to_value(&block_commit.commit_outs)
+                .unwrap()
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", args)?;
 
         Ok(())
     }
@@ -2180,6 +2193,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// * sortdb::sortition_block_hash::${STACKS_BLOCK_HASH} --> $BURN_BLOCK_HASH for each winning block sortition
     /// * sortdb::stacks::block::${STACKS_BLOCK_HASH} --> ${STACKS_BLOCK_HEIGHT} for each block that has been accepted so far
     /// * sortdb::stacks::block::max_arrival_index --> ${ARRIVAL_INDEX} to set the maximum arrival index processed in this fork
+    /// * sortdb::pox_reward_set::${n} --> recipient Bitcoin address, to track the reward set as the permutation progresses
     /// NOTE: the resulting index root must be globally unique.  This is guaranteed because each
     /// burn block hash is unique, no matter what fork it's on (and this index uses burn block
     /// hashes as its index's block hash data).
@@ -2226,12 +2240,16 @@ impl <'a> SortitionHandleTx <'a> {
         if !snapshot.is_initial() {
             if let Some(reward_info) = next_pox_info {
                 let mut pox_id = self.get_pox_id()?;
-                if reward_info.anchor_block_known {
+                // update the PoX bit vector with whether or not
+                //  this reward cycle is aware of its anchor (if one wasn't selected,
+                //   mark this as "known")
+                if reward_info.is_reward_info_known() {
                     pox_id.extend_with_present_block();
                 } else {
                     pox_id.extend_with_not_present_block();
                 }
-                if let Some(ref anchor_block) = reward_info.anchor_block {
+                // if we have selected an anchor block, write that info
+                if let Some(ref anchor_block) = reward_info.selected_anchor_block() {
                     keys.push(db_keys::pox_anchor_to_prepare_end(anchor_block));
                     values.push(parent_snapshot.sortition_id.to_hex());
 
@@ -2241,6 +2259,21 @@ impl <'a> SortitionHandleTx <'a> {
                     keys.push(db_keys::pox_last_anchor().to_string());
                     values.push("".to_string());
                 }
+                // if we've selected an anchor _and_ know of the anchor,
+                //  write the reward set information
+                if let Some(reward_set) = reward_info.known_selected_anchor_block() {
+                    keys.push(db_keys::pox_reward_set_size().to_string());
+                    values.push(to_hex(&(reward_set.len() as u16).to_le_bytes()));
+                    for (ix, address) in reward_set.iter().enumerate() {
+                        keys.push(db_keys::pox_reward_set_entry(ix as u16));
+                        values.push(address.to_string());
+                    }
+                } else {
+                    keys.push(db_keys::pox_reward_set_size().to_string());
+                    values.push(to_hex(&(0 as u16).to_le_bytes()));
+                }
+
+                // in all cases, write the new PoX bit vector
                 keys.push(db_keys::pox_identifier().to_string());
                 values.push(pox_id.to_string());
             }
@@ -2479,6 +2512,7 @@ mod tests {
             key_vtxindex: vtxindex as u16,
             memo: vec![0x80],
 
+            commit_outs: vec![],
             burn_fee: 12345,
             input: BurnchainSigner {
                 public_keys: vec![
@@ -2870,6 +2904,7 @@ mod tests {
             key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
             memo: vec![0x80],
+            commit_outs: vec![],
 
             burn_fee: 12345,
             input: BurnchainSigner {

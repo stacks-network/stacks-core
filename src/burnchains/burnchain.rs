@@ -1209,6 +1209,7 @@ pub mod tests {
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
+            commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
             parent_block_ptr: 0,
@@ -1233,6 +1234,7 @@ pub mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333334").unwrap()).unwrap(),
             parent_block_ptr: 0,
@@ -1257,6 +1259,7 @@ pub mod tests {
         };        
         
         let block_commit_3 = LeaderBlockCommitOp {
+            commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222224").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333335").unwrap()).unwrap(),
             parent_block_ptr: 0,
@@ -1584,6 +1587,7 @@ pub mod tests {
 
         for i in 0..10 {
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                commit_outs: vec![],
                 block_header_hash: BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                 new_seed: VRFSeed::from_bytes(&vec![i,i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                 parent_block_ptr: 3,
@@ -1610,6 +1614,7 @@ pub mod tests {
         }
 
         let noncolliding_op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            commit_outs: vec![],
             block_header_hash: BlockHeaderHash([0xbb; 32]),
             new_seed: VRFSeed([0xcc; 32]),
             parent_block_ptr: 3,
@@ -1756,6 +1761,7 @@ pub mod tests {
             // insert block commit paired to previous round's leader key, as well as a user burn
             if i > 0 {
                 let next_block_commit = LeaderBlockCommitOp {
+                    commit_outs: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     new_seed: VRFSeed::from_bytes(&vec![i,i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     parent_block_ptr: (if i == 1 { 0 } else { first_block_height + (i as u64) }) as u32,

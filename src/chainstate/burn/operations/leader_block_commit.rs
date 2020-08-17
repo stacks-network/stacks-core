@@ -75,7 +75,10 @@ struct ParsedData {
     memo: Vec<u8>
 }
 
+pub static OUTPUTS_PER_COMMIT: usize = 5;
+
 impl LeaderBlockCommitOp {
+    #[cfg(test)]
     pub fn initial(block_header_hash: &BlockHeaderHash, block_height: u64, new_seed: &VRFSeed, paired_key: &LeaderKeyRegisterOp, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             block_height: block_height,
@@ -88,6 +91,7 @@ impl LeaderBlockCommitOp {
             burn_fee: burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
+            commit_outs: vec![],
 
             // to be filled in 
             txid: Txid([0u8; 32]),
@@ -108,6 +112,7 @@ impl LeaderBlockCommitOp {
             burn_fee: burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
+            commit_outs: vec![],
 
             // to be filled in
             txid: Txid([0u8; 32]),
@@ -177,27 +182,10 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         }
 
-        // outputs[0] should be the burn output
-        if !outputs[0].address.is_burn() {
-            // wrong burn output
-            warn!("Invalid tx: burn output missing (got {:?})", outputs[0]);
-            return Err(op_error::ParseError);
-        }
-
-        let burn_fee = outputs[0].amount;
-        if burn_fee == 0 {
-            // didn't burn
-            warn!("Invalid tx: no burn quantity");
-            return Err(op_error::ParseError);
-        }
-
-        let data = match LeaderBlockCommitOp::parse_data(&tx.data()) {
-            None => {
-                warn!("Invalid tx data");
-                return Err(op_error::ParseError);
-            },
-            Some(d) => d
-        };
+        let data = LeaderBlockCommitOp::parse_data(&tx.data()).ok_or_else(|| {
+            warn!("Invalid tx data");
+            op_error::ParseError
+        })?;
 
         // basic sanity checks 
         if data.parent_block_ptr == 0 {
@@ -224,6 +212,83 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
+
+        // outputs[0] should be the burn output
+        if !outputs[0].address.is_burn() {
+            // wrong burn output
+            warn!("Invalid tx: burn output missing (got {:?})", outputs[0]);
+            return Err(op_error::ParseError);
+        }
+
+        let burn_fee = outputs[0].amount;
+        if burn_fee == 0 {
+            // didn't burn
+            warn!("Invalid tx: no burn quantity");
+            return Err(op_error::ParseError);
+        }
+
+        let mut commit_outs = vec![];
+        let mut pox_fee = None;
+        let mut burn_fee = None;
+
+        for (ix, output) in outputs.into_iter().enumerate() {
+            // only look at the first OUTPUTS_PER_COMMIT outputs
+            //   or until first _burn_ output
+            if ix >= OUTPUTS_PER_COMMIT {
+                break;
+            }
+            if output.address.is_burn() {
+                if burn_fee.is_some() {
+                    warn!("Invalid commit tx: multiple burn address outputs");
+                    return Err(op_error::ParseError);
+                }
+                burn_fee.replace(output.amount);
+                break;
+            } else {
+                // all pox outputs must have the same fee
+                if let Some(pox_fee) = pox_fee {
+                    if output.amount != pox_fee {
+                        warn!("Invalid commit tx: different output amounts for different PoX reward addresses");
+                        return Err(op_error::ParseError);
+                    }
+                } else {
+                    pox_fee.replace(output.amount);
+                }
+                commit_outs.push(output.address);
+            }
+        }
+
+        // compute the total amount transfered/burned, and check that the burn amount
+        //   is expected given the amount transfered.
+        let burn_fee = 
+            match (burn_fee, pox_fee) {
+                (Some(burned_amount), Some(pox_amount)) => {
+                    // burned amount must be equal to the "missing"
+                    //   PoX slots
+                    let expected_burn_amount = pox_amount.checked_mul((OUTPUTS_PER_COMMIT - commit_outs.len()) as u64)
+                        .ok_or_else(|| op_error::ParseError)?;
+                    if expected_burn_amount != burned_amount {
+                        warn!("Invalid commit tx: burned output different from PoX reward output");
+                    }
+                    pox_amount.checked_mul(OUTPUTS_PER_COMMIT as u64)
+                        .ok_or_else(|| op_error::ParseError)?
+                },
+                (Some(burned_amount), None) => {
+                    burned_amount
+                },
+                (None, Some(pox_amount)) => {
+                    pox_amount
+                },
+                (None, None) => {
+                    unreachable!("A 0-len output should have already errored");
+                },
+            };
+
+        if burn_fee <= 0 {
+            warn!("Invalid commit tx: burn/transfer amount is 0");
+            return Err(op_error::ParseError)
+        }
+
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
             new_seed: data.new_seed,
@@ -233,7 +298,8 @@ impl LeaderBlockCommitOp {
             key_vtxindex: data.key_vtxindex,
             memo: data.memo,
 
-            burn_fee: burn_fee,
+            commit_outs,
+            burn_fee,
             input: inputs[0].clone(),
 
             txid: tx.txid(),
@@ -462,6 +528,8 @@ mod tests {
                     key_vtxindex: 0x7071,
                     memo: vec![0x80],
 
+                    commit_outs: vec![],
+
                     burn_fee: 12345,
                     input: BurnchainSigner {
                         public_keys: vec![
@@ -616,6 +684,7 @@ mod tests {
             key_block_ptr: 124,
             key_vtxindex: 456,
             memo: vec![0x80],
+            commit_outs: vec![],
 
             burn_fee: 12345,
             input: BurnchainSigner {
@@ -717,6 +786,7 @@ mod tests {
                     key_block_ptr: 1,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -744,6 +814,7 @@ mod tests {
                     key_block_ptr: 2,
                     key_vtxindex: 400,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -771,6 +842,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 456,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -797,6 +869,7 @@ mod tests {
                     parent_vtxindex: 445,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
+                    commit_outs: vec![],
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -825,6 +898,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -852,6 +926,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -879,6 +954,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 0,
                     input: BurnchainSigner {
@@ -906,6 +982,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -933,6 +1010,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {

@@ -1,6 +1,6 @@
 use util::hash::Hash160;
 use std::collections::VecDeque;
-use chainstate::coordinator::*;
+use chainstate::coordinator::{*, Error as CoordError};
 use chainstate::stacks::*;
 use chainstate::burn::operations::*;
 
@@ -163,8 +163,21 @@ impl BlockEventDispatcher for NullEventDispatcher {
     }
 }
 
-pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, ()> {
-    ChainsCoordinator::test_new(&get_burnchain(path), path)
+pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, (), PlaceholderRewardSetProvider> {
+    ChainsCoordinator::test_new(&get_burnchain(path), path, PlaceholderRewardSetProvider())
+}
+
+struct StubbedRewardSetProvider(Vec<StacksAddress>);
+
+impl RewardSetProvider for StubbedRewardSetProvider {
+    fn get_reward_set(&self, chainstate: &StacksChainState,
+                      pox_anchor_hash: &BlockHeaderHash, pox_anchor_consensus: &ConsensusHash) -> Result<Vec<StacksAddress>, CoordError> {
+        Ok(self.0.clone())
+    }
+}
+
+fn make_reward_set_coordinator<'a>(path: &str, addrs: Vec<StacksAddress>) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider> {
+    ChainsCoordinator::test_new(&get_burnchain(path), path, StubbedRewardSetProvider(addrs))
 }
 
 fn get_burnchain(path: &str) -> Burnchain {
@@ -237,6 +250,7 @@ fn make_genesis_block(sort_db: &SortitionDB, state: &mut StacksChainState,
         key_vtxindex: (1+key_index) as u16,
         memo: vec![],
         new_seed: VRFSeed::from_proof(&proof),
+        commit_outs: vec![],
 
         parent_block_ptr: 0,
         parent_vtxindex: 0,
@@ -305,6 +319,7 @@ fn make_stacks_block(sort_db: &SortitionDB, state: &mut StacksChainState,
         key_vtxindex: (1+key_index) as u16,
         memo: vec![],
         new_seed: VRFSeed::from_proof(&proof),
+        commit_outs: vec![],
 
         parent_block_ptr: parents_sortition.block_height as u32,
         parent_vtxindex,
@@ -1066,8 +1081,8 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
             |env| env.eval_raw(eval)).unwrap())
 }
 
-fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices>
-    (chainstate_path: &str, sort_db: &SortitionDB, coord: &mut ChainsCoordinator<T,N>,
+fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
+    (chainstate_path: &str, sort_db: &SortitionDB, coord: &mut ChainsCoordinator<T,N,U>,
      my_sortition: &SortitionId, block: &StacksBlock) {
     let mut chainstate = get_chainstate(chainstate_path);
     let sortition = SortitionDB::get_block_snapshot(sort_db.conn(), &my_sortition)

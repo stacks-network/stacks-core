@@ -121,11 +121,11 @@ impl <'a> SortitionHandleTx <'a> {
 
         let mut next_pox = parent_pox;
         if let Some(ref next_pox_info) = next_pox_info {
-            if next_pox_info.anchor_block_known {
-                info!("Begin reward-cycle sortition with present anchor block={:?}", &next_pox_info.anchor_block);
+            if next_pox_info.is_reward_info_known() {
+                info!("Begin reward-cycle sortition with present anchor block={:?}", &next_pox_info.selected_anchor_block());
                 next_pox.extend_with_present_block();
             } else {
-                info!("Begin reward-cycle sortition with absent anchor block={:?}", &next_pox_info.anchor_block);
+                info!("Begin reward-cycle sortition with absent anchor block={:?}", &next_pox_info.selected_anchor_block());
                 next_pox.extend_with_not_present_block();
             }
         };

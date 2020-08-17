@@ -1794,6 +1794,7 @@ dependencies = [
  "byteorder",
  "libsqlite3-sys",
  "lru-cache",
+ "serde_json",
  "time 0.1.43",
 ]
 
