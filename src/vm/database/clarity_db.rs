@@ -50,13 +50,15 @@ pub enum StoreType {
     SimmedBlock = 0x10,
     SimmedBlockHeight = 0x11,
     Nonce = 0x12,
-    STXBalance = 0x13
+    STXBalance = 0x13,
+    PoxSTXLockup = 0x14,
+    PoxUnlockHeight = 0x15
 }
 
 pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
-    pox_state_db: &'a dyn PoxStateDB,
+    burn_state_db: &'a dyn BurnStateDB,
 }
 
 pub trait HeadersDB {
@@ -69,10 +71,9 @@ pub trait HeadersDB {
     fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128;
 }
 
-pub trait PoxStateDB {
-    fn get_tip_consensus_hash(&self) -> ConsensusHash;
-    fn get_ancestor_consensus_hash(&self, tip: &ConsensusHash, height: u32) -> Option<ConsensusHash>;
-    fn get_winning_stacks_block(&self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId>;
+pub trait BurnStateDB {
+    fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32>;
+    fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash>;
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
@@ -153,57 +154,34 @@ impl HeadersDB for &dyn HeadersDB {
     }
 }
 
-impl PoxStateDB for SortitionDBConn<'_> {
-    fn get_tip_consensus_hash(&self) -> ConsensusHash {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&self.conn)
-            .expect("FATAL: failed to query burn block snapshot for canonical burn chain tip");
-        tip.consensus_hash
-    }
-    
-    fn get_ancestor_consensus_hash(&self, tip: &ConsensusHash, height: u32) -> Option<ConsensusHash> {
-        // TODO (PoX): this method will need to be rewritten once multiple PoX forks can exist.
-        let handle = SortitionHandleConn::open_reader_consensus(self, tip)
-            .expect("FATAL: unable to open handle from consensus hash tip");
-        handle.get_block_snapshot_by_height(height.into())
-            .expect("FATAL: unable to query ancestor snapshot")
-            .map(|sn| sn.consensus_hash)
+impl BurnStateDB for SortitionDBConn<'_> {
+    fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
+        SortitionDB::inner_get_burn_block_height(&self.conn, bhh)
+            .expect("FATAL: Sqlite error when loading burn block height")
+            .map(|h| h as u32)
     }
 
-    fn get_winning_stacks_block(&self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
-        match SortitionDB::get_block_snapshot_consensus(&self.conn, consensus_hash).expect("FATAL: failed to query burn block snapshot for canonical burn chain tip") {
-            Some(sn) => {
-                if sn.sortition { 
-                    let id_bhh = StacksBlockHeader::make_index_block_hash(&sn.consensus_hash, &sn.winning_stacks_block_hash);
-                    Some(id_bhh)
-                }
-                else {
-                    None
-                }
-            },
-            None => None
-        }
+    fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
+        SortitionDB::inner_get_burn_header_hash(&self.conn, height)
+            .expect("FATAL: Sqlite error when loading burn block hash")
     }
-}
+} 
 
-impl PoxStateDB for &dyn PoxStateDB {
-    fn get_tip_consensus_hash(&self) -> ConsensusHash {
-        (*self).get_tip_consensus_hash()
-    }
-    
-    fn get_ancestor_consensus_hash(&self, tip: &ConsensusHash, height: u32) -> Option<ConsensusHash> {
-        (*self).get_ancestor_consensus_hash(tip, height)
+impl BurnStateDB for &dyn BurnStateDB {
+    fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
+        (*self).get_burn_block_height(bhh)
     }
 
-    fn get_winning_stacks_block(&self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
-        (*self).get_winning_stacks_block(consensus_hash)
+    fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
+        (*self).get_burn_header_hash(height)
     }
 }
 
 pub struct NullHeadersDB {}
-pub struct NullPoxStateDB {}
+pub struct NullBurnStateDB {}
 
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
-pub const NULL_POX_STATE_DB: NullPoxStateDB = NullPoxStateDB {};
+pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {};
 
 impl HeadersDB for NullHeadersDB {
     fn get_burn_header_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
@@ -229,31 +207,27 @@ impl HeadersDB for NullHeadersDB {
     }
 }
 
-impl PoxStateDB for NullPoxStateDB {
-    fn get_tip_consensus_hash(&self) -> ConsensusHash {
-        ConsensusHash::empty()
-    }
-
-    fn get_ancestor_consensus_hash(&self, _tip: &ConsensusHash, _height: u32) -> Option<ConsensusHash> {
+impl BurnStateDB for NullBurnStateDB {
+    fn get_burn_block_height(&self, _bhh: &BurnchainHeaderHash) -> Option<u32> {
         None
     }
-
-    fn get_winning_stacks_block(&self, _consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
+    
+    fn get_burn_header_hash(&self, _height: u32) -> Option<BurnchainHeaderHash> {
         None
     }
 }
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn new(store: &'a mut dyn ClarityBackingStore, headers_db: &'a dyn HeadersDB, pox_state_db: &'a dyn PoxStateDB) -> ClarityDatabase<'a> {
+    pub fn new(store: &'a mut dyn ClarityBackingStore, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store: RollbackWrapper::new(store),
             headers_db,
-            pox_state_db
+            burn_state_db
         }
     }
 
-    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB, pox_state_db: &'a dyn PoxStateDB) -> ClarityDatabase<'a> {
-        ClarityDatabase { store, headers_db, pox_state_db }
+    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
+        ClarityDatabase { store, headers_db, burn_state_db }
     }
 
     pub fn initialize(&mut self) {
@@ -728,6 +702,28 @@ impl<'a> ClarityDatabase<'a> {
         ClarityDatabase::make_key_for_account(principal, StoreType::Nonce)
     }
 
+    pub fn make_key_for_account_stx_locked(principal: &PrincipalData) -> String {
+        ClarityDatabase::make_key_for_account(principal, StoreType::PoxSTXLockup)
+    }
+
+    pub fn make_key_for_account_unlock_height(principal: &PrincipalData) -> String {
+        ClarityDatabase::make_key_for_account(principal, StoreType::PoxUnlockHeight)
+    }
+
+    pub fn get_account_stx_consolidated_balance(&mut self, principal: &PrincipalData) -> u128 {
+        let bal = self.get_account_stx_balance(principal);
+        let unlock_height = self.get_account_unlock_height(principal);
+        let cur_burn_block_height = self.get_current_burnchain_block_height();
+        if unlock_height != 0 && unlock_height <= (cur_burn_block_height as u64) {
+            // spendible balance now includes the locked STX
+            let locked_bal = self.get_account_stx_locked(principal);
+            bal + locked_bal
+        }
+        else {
+            bal
+        }
+    }
+
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         let result = self.get(&key);
@@ -755,19 +751,43 @@ impl<'a> ClarityDatabase<'a> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
         self.put(&key, &nonce);
     }
+
+    pub fn get_account_stx_locked(&mut self, principal: &PrincipalData) -> u128 {
+        let key = ClarityDatabase::make_key_for_account_stx_locked(principal);
+        let result = self.get(&key);
+        match result {
+            None => 0,
+            Some(locked) => locked
+        }
+    }
+
+    pub fn set_account_stx_locked(&mut self, principal: &PrincipalData, amount: u128) {
+        let key = ClarityDatabase::make_key_for_account_stx_locked(principal);
+        self.put(&key, &amount);
+    }
+
+    pub fn get_account_unlock_height(&mut self, principal: &PrincipalData) -> u64 {
+        let key = ClarityDatabase::make_key_for_account_unlock_height(principal);
+        let result = self.get(&key);
+        match result {
+            None => 0,
+            Some(unlock_height) => unlock_height
+        }
+    }
+
+    pub fn set_account_unlock_height(&mut self, principal: &PrincipalData, unlock_height: u64) {
+        let key = ClarityDatabase::make_key_for_account_unlock_height(principal);
+        self.put(&key, &(unlock_height as u128));
+    }
 }
 
-// access burnchain and PoX state
+// access burnchain state
 impl <'a> ClarityDatabase<'a> {
-    pub fn get_tip_consensus_hash(&mut self) -> ConsensusHash {
-        self.pox_state_db.get_tip_consensus_hash()
+    pub fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
+        self.burn_state_db.get_burn_block_height(bhh)
     }
 
-    pub fn get_ancestor_consensus_hash(&mut self, tip: &ConsensusHash, height: u32) -> Option<ConsensusHash> {
-        self.pox_state_db.get_ancestor_consensus_hash(tip, height)
-    }
-
-    pub fn get_winning_stacks_block(&mut self, consensus_hash: &ConsensusHash) -> Option<StacksBlockId> {
-        self.pox_state_db.get_winning_stacks_block(consensus_hash)
+    pub fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
+        self.burn_state_db.get_burn_header_hash(height)
     }
 }

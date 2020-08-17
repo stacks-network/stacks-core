@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use vm::types::{QualifiedContractIdentifier};
 use vm::errors::{InterpreterError, CheckErrors, InterpreterResult as Result, IncomparableError, RuntimeErrorType};
-use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, PoxStateDB, NULL_HEADER_DB, NULL_POX_STATE_DB,
+use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, BurnStateDB, NULL_HEADER_DB, NULL_BURN_STATE_DB,
                    ClaritySerializable, ClarityDeserializable};
 use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::StacksBlockId;
@@ -192,8 +192,8 @@ impl MarfedKV {
         MarfedKV { marf, chain_tip, side_store }
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self, headers_db: &'a dyn HeadersDB, pox_state_db: &'a dyn PoxStateDB) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, headers_db, pox_state_db)
+    pub fn as_clarity_db<'a>(&'a mut self, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
@@ -422,7 +422,7 @@ impl MemoryBackingStore {
     }
 
     pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_POX_STATE_DB)
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
