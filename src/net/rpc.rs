@@ -464,6 +464,7 @@ impl ConversationHttp {
 
         let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                // TODO: consolidate PoX unlock!
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
                 let (balance, balance_proof) = clarity_db.get_with_proof::<u128>(&key)
                     .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
