@@ -342,15 +342,27 @@ impl Burnchain {
             first_block_height: params.first_block_height,
             first_block_hash: params.first_block_hash.clone(),
             reward_cycle_period: 1000,
+            registration_period: 250,
         })
     }
 
     pub fn is_reward_cycle_start(&self, block_height: u64) -> bool {
         if block_height < self.first_block_height {
             false
-        } else {
+        }
+        else {
             let effective_height = block_height - self.first_block_height;
             (effective_height % self.reward_cycle_period) == 0
+        }
+    }
+
+    pub fn is_reward_cycle_registration(&self, block_height: u64) -> bool {
+        if block_height < self.first_block_height {
+            false
+        }
+        else {
+            let effective_height = block_height - self.first_block_height;
+            effective_height % self.reward_cycle_period >= self.reward_cycle_period - self.registration_period
         }
     }
 
@@ -1069,6 +1081,7 @@ pub mod tests {
         
         let burnchain = Burnchain {
             reward_cycle_period: 10,
+            registration_period: 5,
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1704,6 +1717,7 @@ pub mod tests {
         
         let burnchain = Burnchain {
             reward_cycle_period: 10,
+            registration_period: 5,
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
