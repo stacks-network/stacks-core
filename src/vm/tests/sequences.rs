@@ -175,15 +175,12 @@ fn test_string_ascii_max_len() {
         "(as-max-len? \"ABC\" u3)",
         "(as-max-len? \"ABC\" u2)",
         "(as-max-len? \"ABC\" u4)",
-        "(as-max-len? \"ABC\\u{1F3FC}\" u4)",
-        "(as-max-len? \"ABC\\u{1F3FC}\" u12)"];
+    ];
 
     let expected = [
         Value::some(Value::string_ascii_from_bytes("ABC".into()).unwrap()).unwrap(),
         Value::none(),
         Value::some(Value::string_ascii_from_bytes("ABC".into()).unwrap()).unwrap(),
-        Value::none(),
-        Value::some(Value::string_ascii_from_bytes("ABC\\u{1F3FC}".into()).unwrap()).unwrap(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
