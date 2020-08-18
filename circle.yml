@@ -50,7 +50,7 @@ jobs:
       - run:
           no_output_timeout: 200m
           command: |
-            cargo test --workspace
+            cargo test -j 1 --workspace
   all_tests:
     docker:
       - image: rust:1.40-stretch
@@ -60,7 +60,7 @@ jobs:
       - run:
           no_output_timeout: 200m
           command: |
-            cargo test --workspace && cargo test -- --ignored --test-threads 1
+            cargo test -j 1 -- --ignored --test-threads 1
   build-docker:
     executor: docker-publisher
     steps:

@@ -496,15 +496,15 @@ impl StacksMessageCodec for BlocksData {
         }?;
 
         // only valid if there are no dups
+        // TODO(PoX): replace burn_header_hash with consensus_hash
         let mut present = HashSet::new();
-        for (burn_header_hash, block) in blocks.iter() {
-            let idx_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &block.block_hash());
-            if present.contains(&idx_hash) {
+        for (burn_header_hash, _block) in blocks.iter() {
+            if present.contains(burn_header_hash) {
                 // no dups allowed
                 return Err(net_error::DeserializeError("Invalid BlocksData: duplicate block".to_string()));
             }
 
-            present.insert(idx_hash);
+            present.insert((*burn_header_hash).clone());
         }
 
         Ok(BlocksData {

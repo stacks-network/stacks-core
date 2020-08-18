@@ -287,7 +287,7 @@ impl NeighborBlockStats {
 
         let mut ret = vec![];
         let ic = sortdb.index_conn();
-        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)?;
+        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
         for height in sortition_height_start..sortition_height_end {
             if !self.inv.has_ith_block(height) {
                 // of the edge of the bitmap
@@ -540,13 +540,12 @@ impl InvState {
     /// Used when processing a BlocksAvailable or MicroblocksAvailable message.
     /// Returns the optional block sortition height at which the block or confirmed microblock stream resides in the blockchain (returns
     /// None if its bit was already set).
-    fn set_data_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, microblocks: bool) -> Result<Option<u64>, net_error> {
-        let sortid = SortitionId::stubbed(burn_header_hash);
-        let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid)? {
+    fn set_data_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, microblocks: bool) -> Result<Option<u64>, net_error> {
+        let sn = match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &consensus_hash)? {
             Some(sn) => sn,
             None => {
                 // we don't know about this block
-                test_debug!("Unknown burn header {}", burn_header_hash);
+                test_debug!("Unknown consensus hash {}", consensus_hash);
                 return Ok(None);
             }
         };
@@ -564,7 +563,7 @@ impl InvState {
             // No block is available here anyway, even though the peer agrees with us on the
             // consensus hash.
             // This is bad behavior on the peer's part.
-            test_debug!("No sortition at {}", burn_header_hash);
+            test_debug!("No sortition for consensus hash {}", consensus_hash);
             return Err(net_error::InvalidMessage);
         }
 
@@ -574,11 +573,11 @@ impl InvState {
                 // genesis snapshot and doesn't correspond to anything (the 1st snapshot is block 0)
                 let set = 
                     if microblocks {
-                        debug!("Neighbor {:?} now has confirmed microblock stream at {} ({})", neighbor_key, sn.block_height - 1, burn_header_hash);
+                        debug!("Neighbor {:?} now has confirmed microblock stream at {} ({})", neighbor_key, sn.block_height - 1, consensus_hash);
                         stats.inv.set_microblocks_bit(sn.block_height - 1)
                     }
                     else {
-                        debug!("Neighbor {:?} now has block at {} ({})", neighbor_key, sn.block_height - 1, burn_header_hash);
+                        debug!("Neighbor {:?} now has block at {} ({})", neighbor_key, sn.block_height - 1, consensus_hash);
                         stats.inv.set_block_bit(sn.block_height - 1)
                     };
 
@@ -598,12 +597,12 @@ impl InvState {
         }
     }
     
-    pub fn set_block_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, net_error> {
-        self.set_data_available(neighbor_key, sortdb, consensus_hash, burn_header_hash, false)
+    pub fn set_block_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash) -> Result<Option<u64>, net_error> {
+        self.set_data_available(neighbor_key, sortdb, consensus_hash, false)
     }
 
-    pub fn set_microblocks_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, net_error> {
-        self.set_data_available(neighbor_key, sortdb, consensus_hash, burn_header_hash, true)
+    pub fn set_microblocks_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash) -> Result<Option<u64>, net_error> {
+        self.set_data_available(neighbor_key, sortdb, consensus_hash, true)
     }
 
     pub fn getblocksinv_begin(&mut self, requests: HashMap<NeighborKey, ReplyHandleP2P>, target_heights: HashMap<NeighborKey, u64>) -> () {
@@ -866,7 +865,7 @@ impl PeerNetwork {
         assert!(num_blocks <= BLOCKS_INV_DATA_MAX_BITLEN as u64);
 
         let ic = sortdb.index_conn();
-        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)?;
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
         match SortitionDB::get_ancestor_snapshot(&ic, highest_block_height, &tip.sortition_id)? {
             Some(sn) => {
                 let ch = sn.consensus_hash;
@@ -1538,7 +1537,7 @@ mod test {
 
         let num_blocks = 5;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1551,7 +1550,7 @@ mod test {
         }
 
         let (tip, num_burn_blocks) = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             let num_burn_blocks = sn.block_height - peer_1.config.burnchain.first_block_height;
             (sn, num_burn_blocks)
         };
@@ -1574,8 +1573,7 @@ mod test {
             let sortdb = peer_1.sortdb.take().unwrap();
             let sn = {
                 let ic = sortdb.index_conn();
-                let sn = SortitionDB::get_ancestor_snapshot(
-                    &ic, i + 1 + first_stacks_block_height, &tip.sortition_id).unwrap().unwrap();
+                let sn = SortitionDB::get_ancestor_snapshot(&ic, i + 1 + first_stacks_block_height, &tip.sortition_id).unwrap().unwrap();
                 eprintln!("{:?}", &sn);
                 sn
             };
@@ -1591,34 +1589,31 @@ mod test {
 
                     let sn = {
                         let ic = sortdb.index_conn();
-                        let sn = SortitionDB::get_ancestor_snapshot(
-                            &ic, i + first_stacks_block_height + 1, &tip.sortition_id).unwrap().unwrap();
+                        let sn = SortitionDB::get_ancestor_snapshot(&ic, i + first_stacks_block_height + 1, &tip.sortition_id).unwrap().unwrap();
                         eprintln!("{:?}", &sn);
                         sn
                     };
-                    
-                    let sh = inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &BurnchainHeaderHash([0xfe; 32])).unwrap();
-                    assert_eq!(None, sh);
-                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
-                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
-
-                    let sh = inv.set_block_available(&nk, &sortdb, &ConsensusHash([0xfe; 20]), &sn.burn_header_hash).unwrap();
+                   
+                    // non-existent consensus hash
+                    let sh = inv.set_block_available(&nk, &sortdb, &ConsensusHash([0xfe; 20])).unwrap();
                     assert_eq!(None, sh);
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
                     
-                    let sh = inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
+                    // existing consensus hash
+                    let sh = inv.set_block_available(&nk, &sortdb, &sn.consensus_hash).unwrap();
 
                     assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
                     assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     
-                    let sh = inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap();
+                    // idempotent
+                    let sh = inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash).unwrap();
 
                     assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
                     assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
-                    assert!(inv.set_block_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
-                    assert!(inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash, &sn.burn_header_hash).unwrap().is_none());
+                    assert!(inv.set_block_available(&nk, &sortdb, &sn.consensus_hash).unwrap().is_none());
+                    assert!(inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash).unwrap().is_none());
                 },
                 None => {
                     panic!("No inv state");
@@ -1680,7 +1675,7 @@ mod test {
 
         let num_blocks = (BLOCKS_INV_DATA_MAX_BITLEN * 2) as u64;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1694,7 +1689,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1802,7 +1797,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1815,7 +1810,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         
@@ -1901,7 +1896,7 @@ mod test {
         assert!(num_blocks > peer_1.config.burnchain.consensus_hash_lifetime as u64);      // required to test that this peer will be considered stale
 
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
@@ -1925,7 +1920,7 @@ mod test {
         }
 
         let num_burn_blocks = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height - 1
         };
         

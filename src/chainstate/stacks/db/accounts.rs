@@ -53,9 +53,9 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
     fn from_row<'a>(row: &'a Row) -> Result<MinerPaymentSchedule, db_error> {
         let address = StacksAddress::from_column(row, "address")?;
         let block_hash = BlockHeaderHash::from_column(row, "block_hash")?;
-        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let parent_block_hash = BlockHeaderHash::from_column(row, "parent_block_hash")?;
-        let parent_burn_header_hash = BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
+        let parent_consensus_hash = ConsensusHash::from_column(row, "parent_consensus_hash")?;
         
         let coinbase_text : String = row.get("coinbase");
         let tx_fees_anchored_text : String = row.get("tx_fees_anchored");
@@ -77,9 +77,9 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
         let payment_data = MinerPaymentSchedule {
             address,
             block_hash,
-            burn_header_hash,
+            consensus_hash,
             parent_block_hash,
-            parent_burn_header_hash,
+            parent_consensus_hash,
             coinbase,
             tx_fees_anchored,
             tx_fees_streamed,
@@ -201,14 +201,14 @@ impl StacksChainState {
         assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
         assert!(block_reward.stacks_block_height < i64::max_value() as u64);
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(&block_reward.burn_header_hash, &block_reward.block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&block_reward.consensus_hash, &block_reward.block_hash);
 
         let args: &[&dyn ToSql] = &[
             &block_reward.address.to_string(), 
             &block_reward.block_hash, 
-            &block_reward.burn_header_hash, 
+            &block_reward.consensus_hash,
             &block_reward.parent_block_hash, 
-            &block_reward.parent_burn_header_hash, 
+            &block_reward.parent_consensus_hash,
             &format!("{}", block_reward.coinbase),
             &format!("{}", block_reward.tx_fees_anchored),
             &format!("{}", block_reward.tx_fees_streamed),
@@ -224,9 +224,9 @@ impl StacksChainState {
         tx.execute("INSERT INTO payments (
                         address,
                         block_hash,
-                        burn_header_hash,
+                        consensus_hash,
                         parent_block_hash,
-                        parent_burn_header_hash,
+                        parent_consensus_hash,
                         coinbase,
                         tx_fees_anchored,
                         tx_fees_streamed,
@@ -247,9 +247,9 @@ impl StacksChainState {
             let args: &[&dyn ToSql] = &[
                 &user_support.address.to_string(),
                 &block_reward.block_hash,
-                &block_reward.burn_header_hash,
+                &block_reward.consensus_hash,
                 &block_reward.parent_block_hash,
-                &block_reward.parent_burn_header_hash,
+                &block_reward.parent_consensus_hash,
                 &format!("{}", block_reward.coinbase),
                 &"0".to_string(),
                 &"0".to_string(),
@@ -265,9 +265,9 @@ impl StacksChainState {
             tx.execute("INSERT INTO payments (
                             address,
                             block_hash,
-                            burn_header_hash,
+                            consensus_hash,
                             parent_block_hash,
-                            parent_burn_header_hash,
+                            parent_consensus_hash,
                             coinbase,
                             tx_fees_anchored,
                             tx_fees_streamed,
@@ -297,10 +297,10 @@ impl StacksChainState {
             }
         };
 
-        let qry = "SELECT * FROM payments WHERE block_hash = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC".to_string();
-        let args: &[&dyn ToSql] = &[&ancestor_info.anchored_header.block_hash(), &ancestor_info.burn_header_hash];
+        let qry = "SELECT * FROM payments WHERE block_hash = ?1 AND consensus_hash = ?2 ORDER BY vtxindex ASC".to_string();
+        let args: &[&dyn ToSql] = &[&ancestor_info.anchored_header.block_hash(), &ancestor_info.consensus_hash];
         let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, args).map_err(Error::DBError)?;
-        test_debug!("{} rewards in {}/{}", rows.len(), &ancestor_info.burn_header_hash, &ancestor_info.anchored_header.block_hash());
+        test_debug!("{} rewards in {}/{}", rows.len(), &ancestor_info.consensus_hash, &ancestor_info.anchored_header.block_hash());
         Ok(rows)
     }
 
@@ -313,21 +313,21 @@ impl StacksChainState {
     }
 
     /// Get the miner info at a particular burn/stacks block
-    pub fn get_miner_info(conn: &DBConn, burn_block_hash: &BurnchainHeaderHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<MinerPaymentSchedule>, Error> {
-        let qry = "SELECT * FROM payments WHERE burn_header_hash = ?1 AND block_hash = ?2 AND miner = 1".to_string();
-        let args = [burn_block_hash as &dyn ToSql, stacks_block_hash as &dyn ToSql];
+    pub fn get_miner_info(conn: &DBConn, consensus_hash: &ConsensusHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<MinerPaymentSchedule>, Error> {
+        let qry = "SELECT * FROM payments WHERE consensus_hash = ?1 AND block_hash = ?2 AND miner = 1".to_string();
+        let args = [consensus_hash as &dyn ToSql, stacks_block_hash as &dyn ToSql];
         let mut rows = query_rows::<MinerPaymentSchedule, _>(conn, &qry, &args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
             0 => {
-                test_debug!("No miner information for {}/{}", burn_block_hash, stacks_block_hash);
+                test_debug!("No miner information for {}/{}", consensus_hash, stacks_block_hash);
                 Ok(None)
             },
             1 => {
                 Ok(rows.pop())
             },
             _ => {
-                panic!("Multiple miners for {}/{}", burn_block_hash, stacks_block_hash);
+                panic!("Multiple miners for {}/{}", consensus_hash, stacks_block_hash);
             }
         }
     }
@@ -445,7 +445,7 @@ impl StacksChainState {
         assert!(latest_matured_miners[0].vtxindex == 0);
         assert!(latest_matured_miners[0].miner);
 
-        let mut index_block_hash = StacksBlockHeader::make_index_block_hash(&latest_matured_miners[0].parent_burn_header_hash, &latest_matured_miners[0].parent_block_hash);
+        let mut index_block_hash = StacksBlockHeader::make_index_block_hash(&latest_matured_miners[0].parent_consensus_hash, &latest_matured_miners[0].parent_block_hash);
         let mut scheduled_payments = vec![(latest_matured_miners[0].clone(), latest_matured_miners[1..].to_vec())];
 
         // load all miner rewards from tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW
@@ -490,8 +490,8 @@ impl StacksChainState {
             assert_eq!(user_burns.len(), scheduled_rewards.len() - 1);
             scheduled_payments.push((miner_reward, user_burns));
             
-            index_block_hash = StacksChainState::get_parent_index_block(&scheduled_rewards[0].parent_burn_header_hash, &scheduled_rewards[0].parent_block_hash);
-            test_debug!("Reward index hash: {} = {} + {}", &index_block_hash, &scheduled_rewards[0].parent_burn_header_hash, &scheduled_rewards[0].parent_block_hash);
+            index_block_hash = StacksChainState::get_parent_index_block(&scheduled_rewards[0].parent_consensus_hash, &scheduled_rewards[0].parent_block_hash);
+            test_debug!("Reward index hash: {} = {} + {}", &index_block_hash, &scheduled_rewards[0].parent_consensus_hash, &scheduled_rewards[0].parent_block_hash);
         }
 
         // scheduled_payments[0] should be the oldest rewards
@@ -534,14 +534,15 @@ mod test {
     use chainstate::stacks::db::test::*;
     use util::hash::*;
     use chainstate::stacks::index::*;
+    use vm::costs::ExecutionCost;
 
     fn make_dummy_miner_payment_schedule(addr: &StacksAddress, coinbase: u128, tx_fees_anchored: u128, tx_fees_streamed: u128, commit_burn: u64, sortition_burn: u64) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
             address: addr.clone(),
             block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            parent_burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             coinbase,
             tx_fees_anchored,
             tx_fees_streamed, 
@@ -565,7 +566,7 @@ mod test {
     impl StagingUserBurnSupport {
         pub fn from_miner_payment_schedule(user: &MinerPaymentSchedule) -> StagingUserBurnSupport {
             StagingUserBurnSupport {
-                burn_header_hash: user.burn_header_hash.clone(),
+                consensus_hash: user.consensus_hash.clone(),
                 anchored_block_hash: user.block_hash.clone(),
                 address: user.address.clone(),
                 burn_amount: user.burnchain_commit_burn,
@@ -582,28 +583,33 @@ mod test {
         new_tip.anchored_header.total_work.work = parent_header_info.anchored_header.total_work.work + 1;
         new_tip.microblock_tail = None;
         new_tip.block_height = parent_header_info.block_height + 1;
-        new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.burn_header_hash.0).0);
+        new_tip.consensus_hash = ConsensusHash(Hash160::from_data(&Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0).0);
+        new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0);
+        new_tip.burn_header_height = parent_header_info.burn_header_height + 1;
 
-        block_reward.parent_burn_header_hash = parent_header_info.burn_header_hash.clone();
+        block_reward.parent_consensus_hash = parent_header_info.consensus_hash.clone();
         block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
         block_reward.block_hash = new_tip.anchored_header.block_hash();
-        block_reward.burn_header_hash = new_tip.burn_header_hash.clone();
+        block_reward.consensus_hash = new_tip.consensus_hash.clone();
 
         for ref mut user_burn in user_burns.iter_mut() {
             user_burn.anchored_block_hash = new_tip.anchored_header.block_hash();
-            user_burn.burn_header_hash = new_tip.burn_header_hash.clone();
+            user_burn.consensus_hash = new_tip.consensus_hash.clone();
         }
         
         let mut tx = chainstate.headers_tx_begin().unwrap();
         let tip = StacksChainState::advance_tip(&mut tx, 
                                                 &parent_header_info.anchored_header, 
-                                                &parent_header_info.burn_header_hash, 
+                                                &parent_header_info.consensus_hash, 
                                                 &new_tip.anchored_header, 
-                                                &new_tip.burn_header_hash, 
+                                                &new_tip.consensus_hash, 
+                                                &new_tip.burn_header_hash,
+                                                new_tip.burn_header_height,
                                                 new_tip.burn_header_timestamp, 
                                                 new_tip.microblock_tail.clone(), 
                                                 &block_reward, 
-                                                &user_burns).unwrap();
+                                                &user_burns,
+                                                &ExecutionCost::zero()).unwrap();
         tx.commit().unwrap();
         tip
     }
@@ -685,8 +691,8 @@ mod test {
             let payments_2 = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 2).unwrap();
 
             let mut expected_user_support = user_reward.clone();
-            expected_user_support.burn_header_hash = miner_reward.burn_header_hash.clone();
-            expected_user_support.parent_burn_header_hash = miner_reward.parent_burn_header_hash.clone();
+            expected_user_support.consensus_hash = miner_reward.consensus_hash.clone();
+            expected_user_support.parent_consensus_hash = miner_reward.parent_consensus_hash.clone();
             expected_user_support.block_hash = miner_reward.block_hash.clone();
             expected_user_support.parent_block_hash = miner_reward.parent_block_hash.clone();
 

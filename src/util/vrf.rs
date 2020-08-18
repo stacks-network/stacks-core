@@ -408,7 +408,7 @@ pub struct VRF {}
 impl VRF {
     /// Hash-to-curve, Try-and-increment approach (described in 
     /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html)
-    fn hash_to_curve(y: &VRFPublicKey, alpha: &Vec<u8>) -> EdwardsPoint {
+    fn hash_to_curve(y: &VRFPublicKey, alpha: &[u8]) -> EdwardsPoint {
         let mut ctr : u64 = 0;
 
         let h: EdwardsPoint = loop {
@@ -517,7 +517,7 @@ impl VRF {
 
     /// ECVRF proof routine
     /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html#rfc.section.5.1
-    pub fn prove(secret: &VRFPrivateKey, alpha: &Vec<u8>) -> VRFProof {
+    pub fn prove(secret: &VRFPrivateKey, alpha: &[u8]) -> VRFProof {
         let (Y_point, x_scalar, trunc_hash) = VRF::expand_privkey(secret);
         let H_point = VRF::hash_to_curve(&Y_point, alpha);
 

@@ -34,10 +34,12 @@ use net::rpc::*;
 use net::http::*;
 use net::p2p::*;
 
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, StacksEpochReceipt};
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksBlockId;
 use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::coordinator::comm::CoordinatorChannels;
 
 use core::mempool::*;
 
@@ -57,6 +59,8 @@ use rand::thread_rng;
 
 use vm::costs::ExecutionCost;
 
+// TODO(PoX): update this to HashMap<ConsensusHash, u64> once BlocksAvailableData doesn't need a
+// burn header hash
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
 pub const MAX_RELAYER_STATS : usize = 4096;
@@ -86,7 +90,6 @@ pub struct RelayerStats {
 }
 
 pub struct ProcessedNetReceipts {
-    pub blocks_processed: Vec<StacksEpochReceipt>,
     pub mempool_txs_added: Vec<StacksTransaction>
 }
 
@@ -470,27 +473,18 @@ impl Relayer {
     }
 
     /// Insert a staging block
-    pub fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
-        let db_handle = SortitionHandleConn::open_reader_stubbed(sort_ic, burn_header_hash)?;
-
-        let sn = match db_handle.get_block_snapshot(burn_header_hash)? {
-            Some(sn) => sn,
-            None => {
-                debug!("Received unknown block {}/{}", burn_header_hash, block.block_hash());
-                return Ok(false);
-            }
-        };
-
+    pub fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
         // find the snapshot of the parent of this block
-        let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(burn_header_hash, &block.block_hash())? {
+        let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
+        let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block.block_hash())? {
             Some((_, sn)) => sn,
             None => {
-                debug!("Received block with unknown parent snapshot: {}/{}", burn_header_hash, &block.block_hash());
+                debug!("Received block with unknown parent snapshot: {}/{}", consensus_hash, &block.block_hash());
                 return Ok(false);
             }
         };
         
-        chainstate.preprocess_anchored_block(sort_ic, burn_header_hash, sn.burn_header_timestamp, block, &parent_block_snapshot.burn_header_hash)
+        chainstate.preprocess_anchored_block(sort_ic, consensus_hash, block, &parent_block_snapshot.consensus_hash)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -568,14 +562,15 @@ impl Relayer {
     /// Preprocess all our downloaded blocks.
     /// Return burn block hashes for the blocks that we got.
     /// Does not fail on invalid blocks; just logs a warning.
-    fn preprocess_downloaded_blocks(sort_ic: &SortitionDBConn, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<BurnchainHeaderHash> {
+    /// Returns the set of consensus hashes for the sortitions that selected these blocks
+    fn preprocess_downloaded_blocks(sort_ic: &SortitionDBConn, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<ConsensusHash> {
         let mut new_blocks = HashSet::new();
 
-        for (burn_header_hash, block) in network_result.blocks.iter() {
-            match Relayer::process_new_anchored_block(sort_ic, chainstate, burn_header_hash, block) {
+        for (consensus_hash, block) in network_result.blocks.iter() {
+            match Relayer::process_new_anchored_block(sort_ic, chainstate, consensus_hash, block) {
                 Ok(accepted) => {
                     if accepted {
-                        new_blocks.insert((*burn_header_hash).clone());
+                        new_blocks.insert((*consensus_hash).clone());
                     }
                 },
                 Err(chainstate_error::InvalidStacksBlock(msg)) => {
@@ -585,7 +580,7 @@ impl Relayer {
                     continue;
                 }
                 Err(e) => {
-                    warn!("Could not process downloaded Stacks block {}/{}: {:?}", burn_header_hash, block.block_hash(), &e);
+                    warn!("Could not process downloaded Stacks block {}/{}: {:?}", consensus_hash, block.block_hash(), &e);
                 }
             };
         }
@@ -594,10 +589,10 @@ impl Relayer {
     }
 
     /// Preprocess all pushed blocks
-    /// Return burn block hashes for blocks we got, as well as the list of peers that served us
-    /// invalid data.
+    /// Return consensus hashes for the sortitions that elected the blocks we got, as well as the
+    /// list of peers that served us invalid data.
     /// Does not fail; just logs warnings.
-    fn preprocess_pushed_blocks(sort_ic: &SortitionDBConn, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> (HashSet<BurnchainHeaderHash>, Vec<NeighborKey>) {
+    fn preprocess_pushed_blocks(sort_ic: &SortitionDBConn, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> Result<(HashSet<ConsensusHash>, Vec<NeighborKey>), net_error> {
         let mut new_blocks = HashSet::new();
         let mut bad_neighbors = vec![];
 
@@ -615,49 +610,60 @@ impl Relayer {
                 }
 
                 for (burn_header_hash, block) in blocks_data.blocks.iter() {
-                    debug!("Received pushed block {}/{} from {}", burn_header_hash, block.block_hash(), neighbor_key);
-                    match Relayer::process_new_anchored_block(sort_ic, chainstate, burn_header_hash, block) {
+                    // TODO(PoX): blocks_data will contain consensus hashes instead of burn header
+                    // hashes in the near future, so this translation step can be removed then.
+                    let sort_id = SortitionId::stubbed(burn_header_hash);
+                    let consensus_hash = match SortitionDB::get_block_snapshot(sort_ic.conn, &sort_id)? {
+                        Some(sn) => sn.consensus_hash,
+                        None => {
+                            warn!("Burnchain block {} not known to this node", burn_header_hash);
+                            continue;
+                        }
+                    };
+
+                    debug!("Received pushed block {}/{} from {}", &consensus_hash, block.block_hash(), neighbor_key);
+                    match Relayer::process_new_anchored_block(sort_ic, chainstate, &consensus_hash, block) {
                         Ok(accepted) => {
                             if accepted {
-                                new_blocks.insert((*burn_header_hash).clone());
+                                new_blocks.insert(consensus_hash.clone());
                             }
                         },
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
-                            warn!("Invalid pushed Stacks block {}/{}: {}", burn_header_hash, block.block_hash(), msg);
+                            warn!("Invalid pushed Stacks block {}/{}: {}", &consensus_hash, block.block_hash(), msg);
                             bad_neighbors.push((*neighbor_key).clone());
                         },
                         Err(e) => {
-                            warn!("Could not process pushed Stacks block {}/{}: {:?}", burn_header_hash, block.block_hash(), &e);
+                            warn!("Could not process pushed Stacks block {}/{}: {:?}", &consensus_hash, block.block_hash(), &e);
                         }
                     }
                 }
             }
         }
 
-        (new_blocks, bad_neighbors)
+        Ok((new_blocks, bad_neighbors))
     }
 
     /// Prerocess all downloaded, confirmed microblock streams.
     /// Does not fail on invalid blocks; just logs a warning.
-    /// Returns the burnchain header hashes for the stacks anchored blocks that produced these streams.
-    fn preprocess_downloaded_microblocks(network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<BurnchainHeaderHash> {
+    /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks that produced these streams.
+    fn preprocess_downloaded_microblocks(network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<ConsensusHash> {
         let mut ret = HashSet::new();
-        for (burn_header_hash, microblock_stream) in network_result.confirmed_microblocks.iter() {
+        for (consensus_hash, microblock_stream) in network_result.confirmed_microblocks.iter() {
             if microblock_stream.len() == 0 {
                 continue;
             }
             let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
 
             for mblock in microblock_stream.iter() {
-                match chainstate.preprocess_streamed_microblock(burn_header_hash, &anchored_block_hash, mblock) {
+                match chainstate.preprocess_streamed_microblock(consensus_hash, &anchored_block_hash, mblock) {
                     Ok(_) => {},
                     Err(e) => {
-                        warn!("Invalid downloaded microblock {}/{}-{}: {:?}", burn_header_hash, &anchored_block_hash, mblock.block_hash(), &e);
+                        warn!("Invalid downloaded microblock {}/{}-{}: {:?}", consensus_hash, &anchored_block_hash, mblock.block_hash(), &e);
                     }
                 }
             }
 
-            ret.insert((*burn_header_hash).clone());
+            ret.insert((*consensus_hash).clone());
         }
         ret
     }
@@ -674,7 +680,7 @@ impl Relayer {
         // Remember which ones we _don't_ have, and remember the prior relay hints.
         for (neighbor_key, mblock_datas) in network_result.pushed_microblocks.iter() {
             for (mblock_relayers, mblock_data) in mblock_datas.iter() {
-                let (burn_header_hash, anchored_block_hash) = match chainstate.get_block_header_hashes(&mblock_data.index_anchor_block)? {
+                let (consensus_hash, anchored_block_hash) = match chainstate.get_block_header_hashes(&mblock_data.index_anchor_block)? {
                     Some((bhh, bh)) => (bhh, bh),
                     None => {
                         warn!("Missing anchored block whose index hash is {}", &mblock_data.index_anchor_block);
@@ -682,17 +688,17 @@ impl Relayer {
                     }
                 };
                 for mblock in mblock_data.microblocks.iter() {
-                    let need_relay = !StacksChainState::has_staging_microblock(&chainstate.blocks_db, &burn_header_hash, &anchored_block_hash, &mblock.block_hash())? &&
-                                     !StacksChainState::has_confirmed_microblock(&chainstate.blocks_db, &burn_header_hash, &anchored_block_hash, &mblock.block_hash())?;
+                    let need_relay = !StacksChainState::has_staging_microblock(&chainstate.blocks_db, &consensus_hash, &anchored_block_hash, &mblock.block_hash())? &&
+                                     !StacksChainState::has_confirmed_microblock(&chainstate.blocks_db, &consensus_hash, &anchored_block_hash, &mblock.block_hash())?;
 
-                    match chainstate.preprocess_streamed_microblock(&burn_header_hash, &anchored_block_hash, mblock) {
+                    match chainstate.preprocess_streamed_microblock(&consensus_hash, &anchored_block_hash, mblock) {
                         Ok(_) => {
                             if need_relay {
                                 // we didn't have this block before, so relay it.
                                 // Group by index block hash, so we can convert them into
                                 // MicroblocksData messages later.  Group microblocks by block
                                 // hash, so we don't send dups.
-                                let index_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &anchored_block_hash);
+                                let index_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
                                 if let Some((_, mblocks_map)) = new_microblocks.get_mut(&index_hash) {
                                     mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
                                 }
@@ -704,12 +710,12 @@ impl Relayer {
                             }
                         }
                         Err(chainstate_error::InvalidStacksMicroblock(msg, hash)) => {
-                            warn!("Invalid pushed microblock {}/{}-{}: {:?}", &burn_header_hash, &anchored_block_hash, hash, msg);
+                            warn!("Invalid pushed microblock {}/{}-{}: {:?}", &consensus_hash, &anchored_block_hash, hash, msg);
                             bad_neighbors.push((*neighbor_key).clone());
                             continue;
                         }
                         Err(e) => {
-                            warn!("Could not process pushed microblock {}/{}-{}: {:?}", &burn_header_hash, &anchored_block_hash, &mblock.block_hash(), &e);
+                            warn!("Could not process pushed microblock {}/{}-{}: {:?}", &consensus_hash, &anchored_block_hash, &mblock.block_hash(), &e);
                             continue;
                         }
                     }
@@ -737,37 +743,26 @@ impl Relayer {
     }
 
     /// Set up the unconfirmed chain state off of the canonical chain tip
-    pub fn setup_unconfirmed_state(chainstate: &mut StacksChainState, sortdb: &SortitionDB, block_receipts: &Vec<StacksEpochReceipt>) -> Result<(), Error> {
-        let (canonical_burn_hash, canonical_block_hash) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(sortdb.conn())?;
-        let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_burn_hash, &canonical_block_hash);
-        for receipt in block_receipts.iter() {
-            if receipt.header.anchored_header.block_hash() == canonical_block_hash && receipt.header.burn_header_hash == canonical_burn_hash {
-                // setup unconfirmed state off of this tip
-                debug!("Reload unconfirmed state");
-                chainstate.reload_unconfirmed_state(canonical_tip, receipt.anchored_block_cost.clone())?;
-                return Ok(());
-            }
-        }
-
-        // canonical chain was not updated, so just refresh
-        debug!("Refresh unconfirmed state");
-        chainstate.refresh_unconfirmed_state()?;
+    pub fn setup_unconfirmed_state(chainstate: &mut StacksChainState, sortdb: &SortitionDB) -> Result<(), Error> {
+        let (canonical_consensus_hash, canonical_block_hash) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_consensus_hash, &canonical_block_hash);
+        // setup unconfirmed state off of this tip
+        debug!("Reload unconfirmed state");
+        chainstate.reload_unconfirmed_state(canonical_tip)?;
         Ok(())
     }
 
     /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
     /// (unconfirmed). Returns:
-    /// * list of burn header hashes for newly-discovered blocks, so we can turn them into BlocksAvailable messages
-    /// * list of confirmed microblock burn header hashes for newly-discovered microblock streams, so we can turn them into MicroblocksAvailable messages
+    /// * list of consensus hashes that elected the newly-discovered blocks, so we can turn them into BlocksAvailable messages
+    /// * list of confirmed microblock consensus hashes for newly-discovered microblock streams, so we can turn them into MicroblocksAvailable messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
-    /// * list of transaction receipts for the processed blocks (a tuple of block header info and associated receipts)
-    pub fn process_new_blocks(network_result: &mut NetworkResult, sortdb: &mut SortitionDB, chainstate: &mut StacksChainState)
-                              -> Result<(Vec<BurnchainHeaderHash>,
-                                         Vec<BurnchainHeaderHash>, 
+    pub fn process_new_blocks(network_result: &mut NetworkResult, sortdb: &mut SortitionDB, chainstate: &mut StacksChainState, coord_comms: Option<&CoordinatorChannels>)
+                              -> Result<(Vec<ConsensusHash>,
+                                         Vec<ConsensusHash>, 
                                          Vec<(Vec<RelayData>, MicroblocksData)>,
-                                         Vec<NeighborKey>,
-                                         Vec<StacksEpochReceipt>), net_error> {
+                                         Vec<NeighborKey>), net_error> {
         let mut new_blocks = HashSet::new();
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
@@ -781,7 +776,7 @@ impl Relayer {
             }
 
             // process blocks pushed to us
-            let (mut new_pushed_blocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_blocks(&sort_ic, network_result, chainstate);
+            let (mut new_pushed_blocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_blocks(&sort_ic, network_result, chainstate)?;
             for new_pushed_block in new_pushed_blocks.drain() {
                 new_blocks.insert(new_pushed_block);
             }
@@ -798,46 +793,45 @@ impl Relayer {
 
         if new_blocks.len() > 0 {
             info!("Processing newly received blocks: {}", new_blocks.len());
-        }
-        
-        // process as many epochs as we can.
-        let max_epochs = if new_blocks.len() < 1024 { 1024 } else { new_blocks.len() };
-        let receipts: Vec<_> = chainstate.process_blocks(sortdb, max_epochs)?.into_iter()
-            .filter_map(|block_result| block_result.0).collect();
-
-        if receipts.len() > 0 || network_result.uploaded_microblocks.len() > 0 {
-            Relayer::setup_unconfirmed_state(chainstate, sortdb, &receipts)?;
+            if let Some(coord_comms) = coord_comms {
+                if !coord_comms.announce_new_stacks_block() {
+                    return Err(net_error::CoordinatorClosed);
+                }
+            }
         }
 
-        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, receipts))
+        if network_result.uploaded_microblocks.len() > 0 {
+            Relayer::setup_unconfirmed_state(chainstate, sortdb)?;
+        }
+
+        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors))
     }
     
     /// Produce blocks-available messages from blocks we just got.
-    pub fn load_blocks_available_data(sortdb: &SortitionDB, burn_header_hashes: Vec<BurnchainHeaderHash>) -> Result<BlocksAvailableMap, net_error> {
+    pub fn load_blocks_available_data(sortdb: &SortitionDB, consensus_hashes: Vec<ConsensusHash>) -> Result<BlocksAvailableMap, net_error> {
         let mut ret = BlocksAvailableMap::new();
-        for bhh in burn_header_hashes.into_iter() {
-            let sortid = SortitionId::stubbed(&bhh);
-            let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid)? {
+        for ch in consensus_hashes.into_iter() {
+            let sn = match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &ch)? {
                 Some(sn) => sn,
                 None => {
                     continue;
                 }
             };
 
-            ret.insert(bhh, (sn.block_height, sn.consensus_hash));
+            ret.insert(sn.burn_header_hash, (sn.block_height, sn.consensus_hash));
         }
         Ok(ret)
     }
 
     /// Store a single transaction
     /// Return true if stored; false if it was a dup
-    fn store_transaction(mempool: &mut MemPoolDB, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, tx: StacksTransaction) -> bool {
+    fn store_transaction(mempool: &mut MemPoolDB, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash, tx: StacksTransaction) -> bool {
         let txid = tx.txid();
         if mempool.has_tx(&txid) {
             return true;
         }
         
-        if let Err(e) = mempool.submit(burn_header_hash, block_hash, tx) {
+        if let Err(e) = mempool.submit(consensus_hash, block_hash, tx) {
             info!("Reject transaction {}: {:?}", txid, &e);
             return false;
         }
@@ -849,8 +843,8 @@ impl Relayer {
     /// Store all new transactions we received, and return the list of transactions that we need to
     /// forward (as well as their relay hints).  Also, garbage-collect the mempool.
     fn process_transactions(network_result: &mut NetworkResult, sortdb: &SortitionDB, chainstate: &StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
-        let (burn_header_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip(sortdb)? {
-            Some(tip) => (tip.burn_header_hash, tip.anchored_block_hash, tip.height),
+        let (consensus_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip(sortdb)? {
+            Some(tip) => (tip.consensus_hash, tip.anchored_block_hash, tip.height),
             None => {
                 debug!("No Stacks chain tip; dropping {} transaction(s)", network_result.pushed_transactions.len());
                 return Ok(vec![]);
@@ -862,7 +856,7 @@ impl Relayer {
         // messages pushed via the p2p network
         for (_nk, tx_data) in network_result.pushed_transactions.iter() {
             for (relayers, tx) in tx_data.iter() {
-                if Relayer::store_transaction(mempool, &burn_header_hash, &block_hash, tx.clone()) {
+                if Relayer::store_transaction(mempool, &consensus_hash, &block_hash, tx.clone()) {
                     ret.push((relayers.clone(), tx.clone()));
                 }
             }
@@ -891,6 +885,7 @@ impl Relayer {
         self.p2p.advertize_blocks(available)
     }
 
+    // TODO(PoX): use the ConsensusHash once BlocksData has been updated
     pub fn broadcast_block(&mut self, burn_header_hash: BurnchainHeaderHash, block: StacksBlock) -> Result<(), net_error> {
         let blocks_data = BlocksData {
             blocks: vec![(burn_header_hash, block)]
@@ -898,13 +893,10 @@ impl Relayer {
         self.p2p.broadcast_message(vec![], StacksMessageType::Blocks(blocks_data))
     }
 
-    pub fn broadcast_microblock(&mut self,
-                                block_header_hash: &BlockHeaderHash,
-                                block_burn_header_hash: &BurnchainHeaderHash,
-                                microblock: StacksMicroblock) -> Result<(), net_error> {
+    pub fn broadcast_microblock(&mut self, block_consensus_hash: &ConsensusHash, block_header_hash: &BlockHeaderHash, microblock: StacksMicroblock) -> Result<(), net_error> {
         self.p2p.broadcast_message(vec![], StacksMessageType::Microblocks(
             MicroblocksData { index_anchor_block:
-                              StacksBlockHeader::make_index_block_hash(block_burn_header_hash, block_header_hash),
+                              StacksBlockHeader::make_index_block_hash(block_consensus_hash, block_header_hash),
                               microblocks: vec![ microblock ] }))
     }
 
@@ -918,9 +910,10 @@ impl Relayer {
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
     pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult,
-                                  sortdb: &mut SortitionDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<ProcessedNetReceipts, net_error> {
-        let blocks_processed = match Relayer::process_new_blocks(network_result, sortdb, chainstate) {
-            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors, receipts)) => {
+                                  sortdb: &mut SortitionDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB,
+                                  coord_comms: Option<&CoordinatorChannels>) -> Result<ProcessedNetReceipts, net_error> {
+        match Relayer::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
+            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
                 if bad_block_neighbors.len() > 0 {
@@ -959,12 +952,9 @@ impl Relayer {
                         }
                     }
                 }
-                receipts
             },
             Err(e) => {
                 warn!("Failed to process new blocks: {:?}", &e);
-
-                Vec::new()
             }
         };
 
@@ -987,7 +977,6 @@ impl Relayer {
         }
 
         let receipts = ProcessedNetReceipts {
-            blocks_processed,
             mempool_txs_added
         };
 
@@ -1055,6 +1044,8 @@ impl PeerNetwork {
 
     /// Announce the availability of a set of blocks or microblocks to a peer.
     /// Break the availability into (Micro)BlocksAvailable messages and queue them for transmission.
+    // TODO(PoX): update wanted so it's only a list of consensus hashes (requires
+    // BlocksAvailableData to be updated)
     fn advertize_to_peer<S>(&mut self, recipient: &NeighborKey, wanted: &Vec<(ConsensusHash, BurnchainHeaderHash)>, mut msg_builder: S) -> () 
     where 
         S: FnMut(BlocksAvailableData) -> StacksMessageType
@@ -1091,6 +1082,8 @@ impl PeerNetwork {
     /// Only advertize blocks and microblocks we have that the outbound peer doesn't.
     fn advertize_to_outbound_peer(&mut self, recipient: &NeighborKey, available: &BlocksAvailableMap, microblocks: bool) -> Result<(), net_error> {
         let wanted = PeerNetwork::with_inv_state(self, |ref mut _network, ref mut inv_state| {
+            // TODO(PoX): update wanted so it's only a list of consensus hashes (requires
+            // BlocksAvailableData to be updated)
             let mut wanted : Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
@@ -1130,6 +1123,8 @@ impl PeerNetwork {
     where
         S: FnMut(BlocksAvailableData) -> StacksMessageType
     {
+        // TODO(PoX): update wanted so it's only a list of consensus hashes (requires
+        // BlocksAvailableData to be updated)
         let mut wanted : Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
         for (burn_header_hash, (_, consensus_hash)) in available.iter() {
             wanted.push(((*consensus_hash).clone(), (*burn_header_hash).clone()));
@@ -1582,8 +1577,8 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
-                                               block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
                                            block_data
                                        },
@@ -1675,15 +1670,20 @@ mod test {
         }
     }
 
-    fn push_block(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, burn_header_hash: BurnchainHeaderHash, block: StacksBlock) -> bool {
-        test_debug!("{:?}: Push block {}/{} to {:?}", peer.to_neighbor().addr, &burn_header_hash, block.block_hash(), dest);
+    fn push_block(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, consensus_hash: ConsensusHash, block: StacksBlock) -> bool {
+        test_debug!("{:?}: Push block {}/{} to {:?}", peer.to_neighbor().addr, &consensus_hash, block.block_hash(), dest);
+        
+        // TODO(PoX): replace burn_header_hash with ConsensusHash once BlocksData supports it
+        let sn = SortitionDB::get_block_snapshot_consensus(peer.sortdb.as_ref().unwrap().conn(), &consensus_hash).unwrap().unwrap();
+        let burn_header_hash = sn.burn_header_hash;
+
         let msg = StacksMessageType::Blocks(BlocksData { blocks: vec![(burn_header_hash, block)] });
         push_message(peer, dest, relay_hints, msg)
     }
     
-    fn push_microblocks(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, burn_header_hash: BurnchainHeaderHash, block_hash: BlockHeaderHash, microblocks: Vec<StacksMicroblock>) -> bool {
-        test_debug!("{:?}: Push {} microblocksblock {}/{} to {:?}", peer.to_neighbor().addr, microblocks.len(), &burn_header_hash, &block_hash, dest);
-        let msg = StacksMessageType::Microblocks(MicroblocksData { index_anchor_block: StacksBlockHeader::make_index_block_hash(&burn_header_hash, &block_hash), microblocks: microblocks });
+    fn push_microblocks(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, consensus_hash: ConsensusHash, block_hash: BlockHeaderHash, microblocks: Vec<StacksMicroblock>) -> bool {
+        test_debug!("{:?}: Push {} microblocksblock {}/{} to {:?}", peer.to_neighbor().addr, microblocks.len(), &consensus_hash, &block_hash, dest);
+        let msg = StacksMessageType::Microblocks(MicroblocksData { index_anchor_block: StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash), microblocks: microblocks });
         push_message(peer, dest, relay_hints, msg)
     }
 
@@ -1732,10 +1732,10 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
-                                               block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
-                                           let saved_copy : Vec<(BurnchainHeaderHash, StacksBlock, Vec<StacksMicroblock>)> = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
+                                           let saved_copy : Vec<(ConsensusHash, StacksBlock, Vec<StacksMicroblock>)> = block_data.clone().drain(..).map(|(ch, blk_opt, mblocks_opt)| (ch, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
                                            *blocks_and_microblocks.borrow_mut() = saved_copy.clone();
                                            *original_blocks_and_microblocks.borrow_mut() = saved_copy;
                                            block_data
@@ -1767,8 +1767,8 @@ mod test {
                                                let mut next_idx = idx.borrow_mut();
                                                let data_to_push = {
                                                     if block_data.len() > 0 {
-                                                        let (burn_header_hash, block, microblocks) = block_data[*next_idx].clone();
-                                                        Some((burn_header_hash, block, microblocks))
+                                                        let (consensus_hash, block, microblocks) = block_data[*next_idx].clone();
+                                                        Some((consensus_hash, block, microblocks))
                                                     }
                                                     else {
                                                         // start over (can happen if a message gets
@@ -1776,13 +1776,13 @@ mod test {
                                                         test_debug!("Reset block transmission (possible timeout)");
                                                         *block_data = (*original_block_data).clone();
                                                         *next_idx = thread_rng().gen::<usize>() % block_data.len();
-                                                        let (burn_header_hash, block, microblocks) = block_data[*next_idx].clone();
-                                                        Some((burn_header_hash, block, microblocks))
+                                                        let (consensus_hash, block, microblocks) = block_data[*next_idx].clone();
+                                                        Some((consensus_hash, block, microblocks))
                                                     }
                                                };
 
-                                               if let Some((burn_header_hash, block, microblocks)) = data_to_push {
-                                                   test_debug!("Push block {}/{} and microblocks", &burn_header_hash, block.block_hash());
+                                               if let Some((consensus_hash, block, microblocks)) = data_to_push {
+                                                   test_debug!("Push block {}/{} and microblocks", &consensus_hash, block.block_hash());
                                                    
                                                    let block_hash = block.block_hash();
                                                    let mut sent_blocks = sent_blocks.borrow_mut();
@@ -1790,7 +1790,7 @@ mod test {
 
                                                    let pushed_block = 
                                                        if !*sent_blocks {
-                                                           push_block(&mut peers[0], &peer_1_nk, vec![], burn_header_hash.clone(), block)
+                                                           push_block(&mut peers[0], &peer_1_nk, vec![], consensus_hash.clone(), block)
                                                        }
                                                        else {
                                                            true
@@ -1801,7 +1801,7 @@ mod test {
                                                    if pushed_block {
                                                       let pushed_microblock = 
                                                           if !*sent_microblocks {
-                                                              push_microblocks(&mut peers[0], &peer_1_nk, vec![], burn_header_hash, block_hash, microblocks)
+                                                              push_microblocks(&mut peers[0], &peer_1_nk, vec![], consensus_hash, block_hash, microblocks)
                                                           } 
                                                           else {
                                                               true
@@ -1840,7 +1840,7 @@ mod test {
                                        |_| true);
     }
 
-    fn make_test_smart_contract_transaction(peer: &mut TestPeer, name: &str, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> StacksTransaction {
+    fn make_test_smart_contract_transaction(peer: &mut TestPeer, name: &str, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> StacksTransaction {
         // make a smart contract
         let contract = "
         (define-data-var bar int 0)
@@ -1855,7 +1855,7 @@ mod test {
                                                          spending_account.as_transaction_auth().unwrap().into(),
                                                          TransactionPayload::new_smart_contract(&name.to_string(), &contract.to_string()).unwrap());
 
-            let chain_tip = StacksBlockHeader::make_index_block_hash(burn_header_hash, block_hash);
+            let chain_tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
             let cur_nonce = stacks_node.chainstate.with_read_only_clarity_tx(&chain_tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     clarity_db.get_account_nonce(&spending_account.origin_address().unwrap().into())
@@ -1873,7 +1873,7 @@ mod test {
         
             let tx_contract_signed = tx_signer.get_tx().unwrap();
 
-            test_debug!("make transaction {:?} off of {:?}/{:?}: {:?}", &tx_contract_signed.txid(), burn_header_hash, block_hash, &tx_contract_signed);
+            test_debug!("make transaction {:?} off of {:?}/{:?}: {:?}", &tx_contract_signed.txid(), consensus_hash, block_hash, &tx_contract_signed);
 
             Ok(tx_contract_signed)
         }).unwrap();
@@ -1932,10 +1932,10 @@ mod test {
 
                                                peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
-                                               block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
-                                           *blocks_and_microblocks.borrow_mut() = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
+                                           *blocks_and_microblocks.borrow_mut() = block_data.clone().drain(..).map(|(ch, blk_opt, mblocks_opt)| (ch, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
                                            block_data
                                        },
                                        |ref mut peers| {
@@ -1995,7 +1995,7 @@ mod test {
                                                    // push blocks and microblocks in order, and push a
                                                    // transaction that can only be validated once the
                                                    // block and microblocks are processed.
-                                                   let ((burn_header_hash, block, microblocks), idx) = {
+                                                   let ((consensus_hash, block, microblocks), idx) = {
                                                         let block_data = blocks_and_microblocks.borrow();
                                                         let mut idx = blocks_idx.borrow_mut();
                                                         
@@ -2008,15 +2008,15 @@ mod test {
                                                    };
 
                                                    if !done_flag {
-                                                       test_debug!("Push block {}/{} and microblocks (idx = {})", &burn_header_hash, block.block_hash(), idx);
+                                                       test_debug!("Push block {}/{} and microblocks (idx = {})", &consensus_hash, block.block_hash(), idx);
                                                        
                                                        let block_hash = block.block_hash();
-                                                       push_block(&mut peers[0], &peer_1_nk, vec![], burn_header_hash.clone(), block);
-                                                       push_microblocks(&mut peers[0], &peer_1_nk, vec![], burn_header_hash, block_hash, microblocks);
+                                                       push_block(&mut peers[0], &peer_1_nk, vec![], consensus_hash.clone(), block);
+                                                       push_microblocks(&mut peers[0], &peer_1_nk, vec![], consensus_hash, block_hash, microblocks);
 
                                                        // create a transaction against the resulting
                                                        // (anchored) chain tip
-                                                       let tx = make_test_smart_contract_transaction(&mut peers[0], &format!("test-contract-{}", &block_hash.to_hex()[0..10]), &burn_header_hash, &block_hash);
+                                                       let tx = make_test_smart_contract_transaction(&mut peers[0], &format!("test-contract-{}", &block_hash.to_hex()[0..10]), &consensus_hash, &block_hash);
 
                                                        // push or post 
                                                        push_transaction(&mut peers[0], &peer_1_nk, vec![], tx.clone());
@@ -2051,9 +2051,6 @@ mod test {
                                            let mut done_flag = done.borrow_mut();
                                            *done_flag = true;
 
-                                           let blocks_and_microblocks_list = blocks_and_microblocks.borrow();
-                                           let (last_burn_header, last_stacks_block, _) = blocks_and_microblocks_list.last().unwrap();
-
                                            let txs = MemPoolDB::get_all_txs(peers[1].mempool.as_ref().unwrap().conn()).unwrap();
                                            txs.len() == 10
                                        });
@@ -2077,9 +2074,9 @@ mod test {
         }
 
         // peer 1 should have 1 tx per chain tip
-        for ((burn_header, block, _), sent_tx) in blocks_and_microblocks.iter().zip(expected_txs.iter()) {
+        for ((consensus_hash, block, _), sent_tx) in blocks_and_microblocks.iter().zip(expected_txs.iter()) {
             let block_hash = block.block_hash();
-            let tx_infos = MemPoolDB::get_txs_after(peers[1].mempool.as_ref().unwrap().conn(), burn_header, &block_hash, 0, 1000).unwrap();
+            let tx_infos = MemPoolDB::get_txs_after(peers[1].mempool.as_ref().unwrap().conn(), consensus_hash, &block_hash, 0, 1000).unwrap();
             assert_eq!(tx_infos.len(), 1);
             assert_eq!(tx_infos[0].tx.txid(), sent_tx.txid());
         }

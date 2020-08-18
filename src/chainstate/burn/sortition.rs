@@ -50,6 +50,7 @@ use chainstate::burn::operations::{
 };
 
 use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::StacksBlockId;
 
 use burnchains::Address;
 use burnchains::PublicKey;
@@ -88,14 +89,21 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            canonical_stacks_tip_burn_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            // Initial snapshot sets sortition_id = burn_header_hash,
+            //  we shouldn't need to update this to use PoxId::initial(),
+            //  but if we do, we need to update a lot of test cases.
             sortition_id: SortitionId::stubbed(first_burn_header_hash),
-            pox_id: PoxId([0; 32]),
+            pox_valid: true
         }
     }
 
     pub fn is_initial(&self) -> bool {
         self.sortition_hash == SortitionHash::initial()
+    }
+
+    pub fn get_canonical_stacks_block_id(&self) -> StacksBlockId {
+        StacksBlockId::new(&self.consensus_hash, &self.canonical_stacks_tip_hash)
     }
 
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
@@ -186,7 +194,6 @@ impl BlockSnapshot {
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: ch,
-            pox_id: parent_snapshot.pox_id,
             ops_hash: ops_hash,
             total_burn: burn_total,
             sortition: false,
@@ -200,8 +207,9 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
             canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
-            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
-            sortition_id: sortition_id.clone()
+            canonical_stacks_tip_consensus_hash: parent_snapshot.canonical_stacks_tip_consensus_hash.clone(),
+            sortition_id: sortition_id.clone(),
+            pox_valid: true
         })
     }
     
@@ -217,7 +225,7 @@ impl BlockSnapshot {
     /// 
     /// Call this *after* you store all of the block's transactions to the burn db.
     pub fn make_snapshot(ic: &SortitionHandleConn, burnchain: &Burnchain,
-                         my_sortition_id: &SortitionId, my_pox_id: &PoxId,
+                         my_sortition_id: &SortitionId,
                          parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader,
                          burn_dist: &Vec<BurnSamplePoint>, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         assert_eq!(parent_snapshot.burn_header_hash, block_header.parent_block_hash);
@@ -292,7 +300,6 @@ impl BlockSnapshot {
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
-            pox_id: my_pox_id.clone(),
             consensus_hash: next_ch,
             ops_hash: next_ops_hash,
             total_burn: next_burn_total,
@@ -307,8 +314,9 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
             canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
-            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
-            sortition_id: my_sortition_id.clone()
+            canonical_stacks_tip_consensus_hash: parent_snapshot.canonical_stacks_tip_consensus_hash.clone(),
+            sortition_id: my_sortition_id.clone(),
+            pox_valid: true
         })
     }
 }
@@ -337,8 +345,9 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
         let first_block_height = 120;
-        
+
         let burnchain = Burnchain {
+            reward_cycle_period: 10,
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -366,7 +375,7 @@ mod test {
             let pox_id = PoxId::stubbed();
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let ic = db.index_handle(&sort_id);
-            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &pox_id, &initial_snapshot,
+            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &initial_snapshot,
                                                   &empty_block_header, &vec![], &vec![]).unwrap();
             sn
         };
@@ -389,7 +398,7 @@ mod test {
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let pox_id = PoxId::stubbed();
             let ic = db.index_handle(&sort_id);
-            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &pox_id, &initial_snapshot, &empty_block_header,
+            let sn = BlockSnapshot::make_snapshot(&ic, &burnchain, &sort_id, &initial_snapshot, &empty_block_header,
                                                   &vec![empty_burn_point.clone()], &vec![key.txid.clone()]).unwrap();
             sn
         };
