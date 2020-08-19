@@ -382,7 +382,7 @@ impl LeaderBlockCommitOp {
                     op_error::BlockCommitAnchorCheck})?;
             if descended_from_anchor {
                 if self.commit_outs.len() != reward_set_info.recipients.len() {
-                    warn!("Invalid block commit: expected {} PoX transfers, but commit only has {}",
+                    warn!("Invalid block commit: expected {} PoX transfers, but commit has {}",
                           reward_set_info.recipients.len(), self.commit_outs.len());
                     return Err(op_error::BlockCommitBadOutputs)
                 }
@@ -808,7 +808,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i], None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i], None, None).unwrap();
                 
                 snapshot_row.index_root = next_index_root;
                 tx.commit().unwrap();
@@ -1085,7 +1085,7 @@ mod tests {
                 timestamp: get_epoch_time_secs()
             };
             let ic = db.index_handle(&SortitionId::stubbed(&fixture.op.burn_header_hash));
-            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic)));
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic, None)));
         }
     }
 }

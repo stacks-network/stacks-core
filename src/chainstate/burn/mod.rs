@@ -397,7 +397,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], &vec![], None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], &vec![], None, None).unwrap();
                 burn_block_hashes.push(snapshot_row.sortition_id.clone());
                 tx.commit().unwrap();
                 prev_snapshot = snapshot_row;

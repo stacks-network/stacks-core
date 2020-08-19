@@ -1431,7 +1431,7 @@ pub mod tests {
             let header = block121.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &initial_snapshot.sortition_id).unwrap();
 
-            let (sn121, _) = tx.process_block_ops(&burnchain, &initial_snapshot, &header, block_ops_121, None, PoxId::stubbed()).unwrap();
+            let (sn121, _) = tx.process_block_ops(&burnchain, &initial_snapshot, &header, block_ops_121, None, PoxId::stubbed(), None).unwrap();
             tx.commit().unwrap();
            
             block_121_snapshot.index_root = sn121.index_root.clone();
@@ -1441,7 +1441,7 @@ pub mod tests {
             let header = block122.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &block_121_snapshot.sortition_id).unwrap();
 
-            let (sn122, _) = tx.process_block_ops(&burnchain, &block_121_snapshot, &header, block_ops_122, None, PoxId::stubbed()).unwrap();
+            let (sn122, _) = tx.process_block_ops(&burnchain, &block_121_snapshot, &header, block_ops_122, None, PoxId::stubbed(), None).unwrap();
             tx.commit().unwrap();
             
             block_122_snapshot.index_root = sn122.index_root.clone();
@@ -1450,7 +1450,7 @@ pub mod tests {
         {
             let header = block123.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &block_122_snapshot.sortition_id).unwrap();
-            let (sn123, _) = tx.process_block_ops(&burnchain, &block_122_snapshot, &header, block_ops_123, None, PoxId::stubbed()).unwrap();
+            let (sn123, _) = tx.process_block_ops(&burnchain, &block_122_snapshot, &header, block_ops_123, None, PoxId::stubbed(), None).unwrap();
             tx.commit().unwrap();
             
             block_123_snapshot.index_root = sn123.index_root.clone();
@@ -1548,7 +1548,7 @@ pub mod tests {
             let sn124 = {
                 let header = block124.header();
                 let mut tx = SortitionHandleTx::begin(&mut db, &block_123_snapshot.sortition_id).unwrap();
-                let (sn124, _) = tx.process_block_ops(&burnchain, &block_123_snapshot, &header, block_ops_124, None, PoxId::stubbed()).unwrap();
+                let (sn124, _) = tx.process_block_ops(&burnchain, &block_123_snapshot, &header, block_ops_124, None, PoxId::stubbed(), None).unwrap();
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
@@ -1814,7 +1814,7 @@ pub mod tests {
             let snapshot = {
                 let header = block.header();
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let (sn, _) = tx.process_block_ops(&burnchain, &prev_snapshot, &header, block_ops, None, PoxId::stubbed()).unwrap();
+                let (sn, _) = tx.process_block_ops(&burnchain, &prev_snapshot, &header, block_ops, None, PoxId::stubbed(), None).unwrap();
                 tx.commit().unwrap();
                 sn
             };

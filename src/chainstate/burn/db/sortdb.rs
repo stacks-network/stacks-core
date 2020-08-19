@@ -1718,7 +1718,7 @@ impl SortitionDB {
 
         let parent_pox = sortition_db_handle.get_pox_id()?;
 
-        let reward_set_vrf_hash = parent_snapshot.sortition_hash.mix_burn_header(&burn_header.block_hash);
+        let reward_set_vrf_hash = parent_snapshot.sortition_hash.mix_burn_header(&parent_snapshot.burn_header_hash);
 
         let reward_set_info = sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?;
 
@@ -1730,6 +1730,15 @@ impl SortitionDB {
         // commit everything!
         sortition_db_handle.commit()?;
         Ok(new_snapshot)
+    }
+
+    #[cfg(test)]
+    pub fn get_next_block_recipients(&mut self, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
+        let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(&self.conn)?;
+        let reward_set_vrf_hash = parent_snapshot.sortition_hash.mix_burn_header(&parent_snapshot.burn_header_hash);
+
+        let sortition_db_handle = SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
+        sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info)
     }
 
     pub fn is_stacks_block_in_sortition_set(&self, sortition_id: &SortitionId, block_to_check: &BlockHeaderHash) -> Result<bool, BurnchainError> {
@@ -2311,7 +2320,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// hashes as its index's block hash data).
     fn index_add_fork_info(&mut self, parent_snapshot: &mut BlockSnapshot, snapshot: &BlockSnapshot,
                            block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>,
-                           next_pox_info: Option<RewardCycleInfo>, reward_info: Option<&RewardSetInfo>) -> Result<TrieHash, db_error> {
+                           next_pox_info: Option<RewardCycleInfo>, recipient_info: Option<&RewardSetInfo>) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {
             assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
             assert_eq!(&parent_snapshot.sortition_id, &self.context.chain_tip);
@@ -2373,7 +2382,20 @@ impl <'a> SortitionHandleTx <'a> {
                 }
                 // if we've selected an anchor _and_ know of the anchor,
                 //  write the reward set information
-                if let Some(reward_set) = reward_info.known_selected_anchor_block() {
+                if let Some(mut reward_set) = reward_info.known_selected_anchor_block_owned() {
+                    if reward_set.len() > 0 {
+                        // if we have a reward set, then we must also have produced a recipient
+                        //   info for this block
+                        let mut recipients_to_remove: Vec<_> = recipient_info.unwrap().recipients.iter().map(
+                            |(addr, ix)| (addr.clone(), *ix)).collect();
+                        recipients_to_remove.sort_unstable_by(|(_, a), (_, b)| b.cmp(a));
+                        // remove from the reward set any consumed addresses in this first reward block
+                        for (addr, ix) in recipients_to_remove.iter() {
+                            assert_eq!(&reward_set.remove(*ix as usize), addr,
+                                       "BUG: Attempted to remove used address from reward set, but failed to do so safely");
+                        }
+                    }
+
                     keys.push(db_keys::pox_reward_set_size().to_string());
                     values.push(db_keys::reward_set_size_to_string(reward_set.len()));
                     for (ix, address) in reward_set.iter().enumerate() {
@@ -2392,7 +2414,7 @@ impl <'a> SortitionHandleTx <'a> {
                 // if this snapshot consumed some reward set entries AND
                 //  this isn't the start of a new reward cycle,
                 //   update the reward set
-                if let Some(reward_info) = reward_info {
+                if let Some(reward_info) = recipient_info {
                     let mut current_len = self.get_reward_set_size()?;
                     let mut recipient_indexes: Vec<_> = reward_info.recipients.iter().map(|(_, x)| *x).collect();
                     let mut remapped_entries = HashMap::new();
@@ -2589,7 +2611,7 @@ mod tests {
         sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
-        let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, block_ops, consumed_leader_keys, None).unwrap();
+        let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, block_ops, consumed_leader_keys, None, None).unwrap();
         sn.index_root = index_root;
 
         tx.commit().unwrap();
@@ -2783,7 +2805,7 @@ mod tests {
             sn.num_sortitions += 1;
             sn.consensus_hash = ConsensusHash([0x23; 20]);
 
-            let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, &vec![], &vec![], None).unwrap();
+            let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, &vec![], &vec![], None, None).unwrap();
             sn.index_root = index_root;
             
             tx.commit().unwrap();
@@ -2940,7 +2962,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20])
                 };
                 let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row,
-                                                              &vec![], &vec![], None).unwrap();
+                                                              &vec![], &vec![], None, None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 tx.commit().unwrap();
@@ -3012,7 +3034,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row,
-                                                              &vec![], &vec![], None).unwrap();
+                                                              &vec![], &vec![], None, None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 // should succeed within the tx
@@ -3205,7 +3227,7 @@ mod tests {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
-            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_without_sortition, &vec![], &vec![], None).unwrap();
+            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_without_sortition, &vec![], &vec![], None, None).unwrap();
             tx.commit().unwrap();
         }
         
@@ -3224,7 +3246,7 @@ mod tests {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
-            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], &vec![], None).unwrap();
+            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], &vec![], None, None).unwrap();
             tx.commit().unwrap();
         }
         
@@ -3308,7 +3330,7 @@ mod tests {
             next_snapshot.consensus_hash = ConsensusHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             
             let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None, None).unwrap();
             tx.commit().unwrap();
 
             last_snapshot = next_snapshot.clone();
@@ -3351,7 +3373,7 @@ mod tests {
                 next_snapshot.consensus_hash = ConsensusHash([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None, None).unwrap();
                 tx.commit().unwrap();
 
                 next_snapshot.index_root = next_index_root;
@@ -3396,7 +3418,7 @@ mod tests {
 
                 let next_index_root = {
                     let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                    let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+                    let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None, None).unwrap();
                     tx.commit().unwrap();
                     next_index_root
                 };
@@ -3421,7 +3443,7 @@ mod tests {
 
             let next_index_root = {
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None, None).unwrap();
                 tx.commit().unwrap();
                 next_index_root
             };
@@ -3510,7 +3532,7 @@ mod tests {
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
 
-                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], &vec![], None).unwrap();
+                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], &vec![], None, None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
 
@@ -3687,7 +3709,7 @@ mod tests {
             };
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
-                let _index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![], None).unwrap();
+                let _index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![], None, None).unwrap();
                 tx.commit().unwrap();
             }
             last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id).unwrap().unwrap();

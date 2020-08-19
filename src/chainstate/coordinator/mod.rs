@@ -82,6 +82,14 @@ impl RewardCycleInfo {
             NOT_SELECTED => None
         }
     }
+    pub fn known_selected_anchor_block_owned(self) -> Option<Vec<StacksAddress>> {
+        use self::PoxAnchorBlockStatus::*;
+        match self.anchor_status {
+            SELECTED_AND_UNKNOWN(_) => None,
+            SELECTED_AND_KNOWN(_, reward_set) => Some(reward_set),
+            NOT_SELECTED => None
+        }
+    }
 }
 
 pub trait BlockEventDispatcher {
@@ -305,7 +313,7 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider> 
     ///                     in our current sortition view:
     ///           * PoX anchor block
     ///           * Was PoX anchor block known?
-    fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Result<Option<RewardCycleInfo>, Error> {
+    pub fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Result<Option<RewardCycleInfo>, Error> {
         if self.burnchain.is_reward_cycle_start(burn_header.block_height) {
             info!("Beginning reward cycle. block_height={}", burn_header.block_height);
             let reward_cycle_info = {

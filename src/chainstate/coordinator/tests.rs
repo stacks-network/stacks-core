@@ -3,9 +3,10 @@ use std::collections::VecDeque;
 use chainstate::coordinator::{*, Error as CoordError};
 use chainstate::stacks::*;
 use chainstate::burn::operations::*;
+use chainstate::burn::operations::leader_block_commit::*;
 
 use std::sync::{ Arc, RwLock, atomic::{Ordering, AtomicU64, AtomicBool}};
-
+use std::collections::HashSet;
 use util::vrf::*;
 use core;
 use burnchains::{*, db::*};
@@ -195,6 +196,11 @@ fn get_sortition_db(path: &str) -> SortitionDB {
     SortitionDB::open(&burnchain.get_db_path(), false).unwrap()
 }
 
+fn get_rw_sortdb(path: &str) -> SortitionDB {
+    let burnchain = get_burnchain(path);
+    SortitionDB::open(&burnchain.get_db_path(), true).unwrap()
+}
+
 fn get_burnchain_db(path: &str) -> BurnchainDB {
     let burnchain = get_burnchain(path);
     BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap()
@@ -204,12 +210,20 @@ fn get_chainstate(path: &str) -> StacksChainState {
     StacksChainState::open(false, 0xdeadbeef, &format!("{}/chainstate/", path)).unwrap()
 }
 
-/// build a stacks block with just the coinbase off of
-///  parent_block, in the canonical sortition fork.
 fn make_genesis_block(sort_db: &SortitionDB, state: &mut StacksChainState,
                      parent_block: &BlockHeaderHash,
                      miner: &StacksPrivateKey, my_burn: u64,
                      vrf_key: &VRFPrivateKey, key_index: u32) -> (BlockstackOperationType, StacksBlock) {
+    make_genesis_block_with_recipients(sort_db, state, parent_block, miner, my_burn, vrf_key, key_index, None)
+}
+
+/// build a stacks block with just the coinbase off of
+///  parent_block, in the canonical sortition fork.
+fn make_genesis_block_with_recipients(sort_db: &SortitionDB, state: &mut StacksChainState,
+                                      parent_block: &BlockHeaderHash,
+                                      miner: &StacksPrivateKey, my_burn: u64,
+                                      vrf_key: &VRFPrivateKey, key_index: u32,
+                                      recipients: Option<&RewardSetInfo>) -> (BlockstackOperationType, StacksBlock) {
     let tx_auth = TransactionAuth::from_p2pkh(miner).unwrap();
 
     let mut tx = StacksTransaction::new(
@@ -238,6 +252,12 @@ fn make_genesis_block(sort_db: &SortitionDB, state: &mut StacksChainState,
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
 
+    let commit_outs = if let Some(recipients) = recipients {
+        recipients.recipients.iter().map(|(a, _)| a.clone()).collect()
+    } else {
+        vec![]
+    };
+
     let commit_op = LeaderBlockCommitOp {
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
@@ -250,7 +270,7 @@ fn make_genesis_block(sort_db: &SortitionDB, state: &mut StacksChainState,
         key_vtxindex: (1+key_index) as u16,
         memo: vec![],
         new_seed: VRFSeed::from_proof(&proof),
-        commit_outs: vec![],
+        commit_outs,
 
         parent_block_ptr: 0,
         parent_vtxindex: 0,
@@ -264,13 +284,20 @@ fn make_genesis_block(sort_db: &SortitionDB, state: &mut StacksChainState,
     (BlockstackOperationType::LeaderBlockCommit(commit_op), block)
 }
 
-/// build a stacks block with just the coinbase off of
-///  parent_block, in the canonical sortition fork of SortitionDB.
-/// parent_block _must_ be included in the StacksChainState
 fn make_stacks_block(sort_db: &SortitionDB, state: &mut StacksChainState,
                      parent_block: &BlockHeaderHash,
                      miner: &StacksPrivateKey, my_burn: u64,
                      vrf_key: &VRFPrivateKey, key_index: u32) -> (BlockstackOperationType, StacksBlock) {
+    make_stacks_block_with_recipients(sort_db, state, parent_block, miner, my_burn, vrf_key, key_index, None)
+}
+/// build a stacks block with just the coinbase off of
+///  parent_block, in the canonical sortition fork of SortitionDB.
+/// parent_block _must_ be included in the StacksChainState
+fn make_stacks_block_with_recipients(sort_db: &SortitionDB, state: &mut StacksChainState,
+                                     parent_block: &BlockHeaderHash,
+                                     miner: &StacksPrivateKey, my_burn: u64,
+                                     vrf_key: &VRFPrivateKey, key_index: u32,
+                                     recipients: Option<&RewardSetInfo>) -> (BlockstackOperationType, StacksBlock) {
     let tx_auth = TransactionAuth::from_p2pkh(miner).unwrap();
 
     let mut tx = StacksTransaction::new(
@@ -307,6 +334,12 @@ fn make_stacks_block(sort_db: &SortitionDB, state: &mut StacksChainState,
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
 
+    let commit_outs = if let Some(recipients) = recipients {
+        recipients.recipients.iter().map(|(a, _)| a.clone()).collect()
+    } else {
+        vec![]
+    };
+
     let commit_op = LeaderBlockCommitOp {
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
@@ -319,7 +352,7 @@ fn make_stacks_block(sort_db: &SortitionDB, state: &mut StacksChainState,
         key_vtxindex: (1+key_index) as u16,
         memo: vec![],
         new_seed: VRFSeed::from_proof(&proof),
-        commit_outs: vec![],
+        commit_outs,
 
         parent_block_ptr: parents_sortition.block_height as u32,
         parent_vtxindex,
@@ -480,6 +513,142 @@ fn test_simple_setup() {
                    // right-pad pox_id_string to 11 characters
                    format!("{:0<11}", pox_id_string));
     }
+}
+
+#[test]
+fn test_simple_reward_set() {
+    let path = "/tmp/stacks-blockchain-simple-reward-set";
+    let _r = std::fs::remove_dir_all(path);
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let reward_set_size = 15;
+    let reward_set: Vec<_> = (0..reward_set_size).map(|_| p2pkh_from(&StacksPrivateKey::new())).collect();
+
+    setup_states(&[path], &vrf_keys, &committers);
+
+    let mut coord = make_reward_set_coordinator(path, reward_set);
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path);
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db.get_sortition_result(&tip.sortition_id).unwrap().unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // at first, sortition_ids shouldn't have diverged
+    //  but once the first reward cycle begins, they should diverge.
+    let mut sortition_ids_diverged = false;
+    let mut parent = BlockHeaderHash([0; 32]);
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks = vec![];
+    let mut anchor_blocks = vec![];
+
+    // track the reward set consumption
+    let mut reward_recipients = HashSet::new();
+    for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
+        let mut burnchain = get_burnchain_db(path);
+        let mut chainstate = get_chainstate(path);
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+        if reward_cycle_info.is_some() {
+            // did we process a reward set last cycle? check if the
+            //  recipient set size matches our expectation
+            if sortition_ids_diverged {
+                assert_eq!(reward_recipients.len(), reward_set_size);
+            }
+            // clear the reward recipients tracker, since those
+            //  recipients are now eligible again in the new reward cycle
+            reward_recipients.clear();
+        }
+        let next_block_recipients = get_rw_sortdb(path).get_next_block_recipients(reward_cycle_info.as_ref()).unwrap();
+        if let Some(ref next_block_recipients) = next_block_recipients {
+            for (addr, _) in next_block_recipients.recipients.iter() {
+                assert!(!reward_recipients.contains(addr), "Reward set should not already contain address {}", addr);
+                eprintln!("Inserting address ... {}", addr);
+                reward_recipients.insert(addr.clone());
+            }
+        }
+
+        let (op, block) =
+            if ix == 0 {
+                make_genesis_block_with_recipients(&sort_db, &mut chainstate, &parent, miner, 10000, vrf_key, ix as u32,
+                                                   next_block_recipients.as_ref())
+            } else {
+                make_stacks_block_with_recipients(&sort_db, &mut chainstate, &parent, miner, 10000, vrf_key, ix as u32,
+                                                  next_block_recipients.as_ref())
+            };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(&mut burnchain, &burnchain_tip.block_hash, vec![op], vec![].iter_mut());
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let b = get_burnchain(path);
+        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
+            // the "blinded" sortition db and the one that's processed all the blocks
+            //   should have diverged in sortition_ids now...
+            sortition_ids_diverged = true;
+            // store the anchor block for this sortition for later checking
+            let ic = sort_db.index_handle_at_tip();
+            let bhh = ic.get_last_anchor_block_hash()
+                .unwrap().unwrap();
+            anchor_blocks.push(bhh);
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+
+        parent = block_hash;
+    }
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn())
+        .unwrap();
+    let mut chainstate = get_chainstate(path);
+    assert_eq!(
+        chainstate.with_read_only_clarity_tx(
+            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+            |conn| conn.with_readonly_clarity_env(
+                PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                LimitedCostTracker::new_max_limit(),
+                |env| env.eval_raw("block-height")).unwrap()),
+        Value::UInt(50));
+
+    {
+        let ic = sort_db.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "11111111111",
+                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+    }
+
 }
 
 #[test]
