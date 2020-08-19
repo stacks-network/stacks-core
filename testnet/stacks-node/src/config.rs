@@ -575,7 +575,7 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "neon" | "argon" | "krypton" => ("regtest".to_string(), BitcoinNetworkType::Regtest),
+            "helium" | "neon" | "argon" | "krypton" => ("regtest".to_string(), BitcoinNetworkType::Regtest),
             _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest")
         }
     }
