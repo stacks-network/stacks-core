@@ -1049,3 +1049,81 @@ fn test_contract_of_wrong_type() {
         }
     }
 }
+
+#[test]
+fn test_return_trait_with_contract_of() {
+    let dispatching_contract_src =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (begin
+                (contract-call? contract get-1 u0)
+                (ok (contract-of contract))))";
+    let target_contract_src =
+        "(define-public (get-1 (x uint)) (ok u1))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+    let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut target_contract = parse(&target_contract_id, target_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)?;
+        type_check(&target_contract_id, &mut target_contract, db, true)
+    }).unwrap();
+}
+
+#[test]
+fn test_return_trait_with_contract_of_wrapped_in_begin() {
+    let dispatching_contract_src =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (begin
+                (contract-call? contract get-1 u0)
+                (ok (contract-of contract))))";
+    let target_contract_src =
+        "(define-public (get-1 (x uint)) (ok u1))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+    let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut target_contract = parse(&target_contract_id, target_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)?;
+        type_check(&target_contract_id, &mut target_contract, db, true)
+    }).unwrap();
+}
+
+#[test]
+fn test_return_trait_with_contract_of_wrapped_in_let() {
+    let dispatching_contract_src =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (let ((val u0))
+                (contract-call? contract get-1 val)
+                (ok (contract-of contract))))";
+    let target_contract_src =
+        "(define-public (get-1 (x uint)) (ok u1))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+    let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut target_contract = parse(&target_contract_id, target_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)?;
+        type_check(&target_contract_id, &mut target_contract, db, true)
+    }).unwrap();
+}
