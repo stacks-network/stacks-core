@@ -56,7 +56,7 @@ pub enum PoxAnchorBlockStatus {
 
 #[derive(Debug, PartialEq)]
 pub struct RewardCycleInfo {
-    anchor_status: PoxAnchorBlockStatus,
+    pub anchor_status: PoxAnchorBlockStatus,
 }
 
 impl RewardCycleInfo {

@@ -28,12 +28,12 @@ use rand::RngCore;
 
 use std::{str::FromStr, fmt, fs, cmp};
 use std::io::{ Write, ErrorKind };
-use std::convert::From;
+use std::convert::{From, TryInto, TryFrom};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
 use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_row, query_row_columns, query_count, IndexDBTx,
-               IndexDBConn, db_mkdirs, query_row_panic};
+               IndexDBConn, db_mkdirs, query_row_panic, IndexDBGetter};
 use util::db::Error as db_error;
 use util::db::tx_begin_immediate;
 use util::get_epoch_time_secs;
@@ -46,7 +46,7 @@ use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, BlockSn
 use core::CHAINSTATE_VERSION;
 use chainstate::coordinator::{
     Error as CoordinatorError,
-    RewardCycleInfo
+    RewardCycleInfo, PoxAnchorBlockStatus
 };
 
 use chainstate::burn::operations::{
@@ -54,7 +54,9 @@ use chainstate::burn::operations::{
     LeaderKeyRegisterOp,
     UserBurnSupportOp,
     BlockstackOperation,
-    BlockstackOperationType
+    BlockstackOperationType,
+    leader_block_commit::{
+        RewardSetInfo, OUTPUTS_PER_COMMIT }
 };
 
 use burnchains::{Txid, BurnchainHeaderHash, PublicKey, Address};
@@ -488,7 +490,7 @@ pub type SortitionDBTx<'a> = IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
 ///
 /// These structs are used to keep an open "handle" to the
 ///   sortition db -- this is just the db/marf connection
-///   + a chain tip. This mostly just makes the job of callers 
+///   and a chain tip. This mostly just makes the job of callers 
 ///   much simpler, because they don't have to worry about passing
 ///   around the open chain tip everywhere.
 ///
@@ -592,6 +594,19 @@ impl db_keys {
     pub fn stacks_block_max_arrival_index() -> String {
         "sortdb::stacks::block::max_arrival_index".to_string()
     }
+
+    pub fn reward_set_size_to_string(size: usize) -> String {
+        to_hex(&u16::try_from(size)
+               .expect("BUG: maximum reward set size should be u16").to_le_bytes())
+    }
+
+    pub fn reward_set_size_from_string(size: &str) -> u16 {
+        let bytes = hex_bytes(size)
+            .expect("CORRUPTION: bad format written for reward set size");
+        let mut byte_buff = [0; 2];
+        byte_buff.copy_from_slice(&bytes[0..2]);
+        u16::from_le_bytes(byte_buff)
+    }
 }
 
 impl <'a> SortitionHandleTx <'a> {
@@ -628,6 +643,67 @@ impl <'a> SortitionHandleTx <'a> {
         let chain_tip = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
             .expect("FAIL: Setting stacks block accepted in canonical chain tip which cannot be found");
         self.set_stacks_block_accepted_at_tip(&chain_tip, consensus_hash, parent_stacks_block_hash, stacks_block_hash, stacks_block_height)
+    }
+
+    fn pick_recipients(&self, reward_set_vrf_seed: &SortitionHash, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
+        if let Some(next_pox_info) = next_pox_info {
+            if let PoxAnchorBlockStatus::SELECTED_AND_KNOWN(ref anchor_block, ref reward_set) = next_pox_info.anchor_status {
+                if reward_set.len() == 0 {
+                    return Ok(None)
+                }
+
+                let chosen_recipients = reward_set_vrf_seed.choose(OUTPUTS_PER_COMMIT.try_into().unwrap(),
+                                                                   reward_set.len().try_into().unwrap());
+                Ok(Some(RewardSetInfo {
+                    anchor_block: anchor_block.clone(),
+                    recipients: chosen_recipients.into_iter().map(|ix| {
+                        let recipient = reward_set[ix as usize].clone();
+                        (recipient, u16::try_from(ix).unwrap())
+                    }).collect()
+                }))
+            } else {
+                Ok(None)
+            }
+        } else {
+            let last_anchor = SortitionDB::get_last_anchor_block_hash(self, &self.context.chain_tip)?;
+            if let Some(anchor_block) = last_anchor {
+                // known 
+                // get the reward set size
+                let reward_set_size = self.get_reward_set_size()?;
+                if reward_set_size == 0 {
+                    Ok(None)
+                } else {
+                    let chosen_recipients = reward_set_vrf_seed.choose(OUTPUTS_PER_COMMIT.try_into().unwrap(),
+                                                                       reward_set_size as u32);
+                    let mut recipients = vec![];
+                    for ix in chosen_recipients.into_iter() {
+                        let ix = u16::try_from(ix).unwrap();
+                        let recipient = self.get_reward_set_entry(ix)?;
+                        recipients.push((recipient, ix));
+                    }
+                    Ok(Some(RewardSetInfo {
+                        anchor_block,
+                        recipients }))
+                }
+            } else {
+                // no anchor block selected
+                Ok(None)
+            }
+        }
+    }
+
+    fn get_reward_set_entry(&self, entry_ix: u16) -> Result<StacksAddress, db_error> {
+        let entry_str = self.get_indexed(&self.context.chain_tip, &db_keys::pox_reward_set_entry(entry_ix))?
+            .expect(&format!("CORRUPTION: expected reward set entry at index={}, but not found", entry_ix));
+        Ok(StacksAddress::from_string(&entry_str)
+            .expect(&format!("CORRUPTION: bad address formatting in database: {}", &entry_str)))
+    }
+
+    fn get_reward_set_size(&self) -> Result<u16, db_error> {
+        self.get_indexed(&self.context.chain_tip, db_keys::pox_reward_set_size())
+            .map(|x|
+                 db_keys::reward_set_size_from_string(
+                     &x.expect("CORRUPTION: no current reward set size written")))
     }
 
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
@@ -731,18 +807,36 @@ impl <'a> SortitionHandleConn <'a> {
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
     }
 
+    /// is the given block a descendant of `potential_ancestor`?
+    ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
+    ///  * potential_ancestor: the stacks block hash of the potential ancestor
+    pub fn descended_from(&self, block_at_burn_height: u64, potential_ancestor: &BlockHeaderHash) -> Result<bool, db_error> {
+        let earliest_block_height = self.conn.query_row(
+            "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
+            &[potential_ancestor],
+            |row| u64::from_row(row))??;
+
+        let mut sn = self.get_block_snapshot_by_height(block_at_burn_height)?
+            .ok_or_else(|| db_error::NotFoundError)?;
+        while sn.block_height >= earliest_block_height {
+            if !sn.sortition {
+                return Ok(false)
+            }
+            if &sn.winning_stacks_block_hash == potential_ancestor {
+                return Ok(true)
+            }
+
+            // step back to the parent
+            let block_commit = self.get_block_commit_by_txid(&sn.winning_block_txid)?
+                .expect("CORRUPTION: winning block commit for snapshot not found");
+            sn = self.get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
+                .ok_or_else(|| db_error::NotFoundError)?;
+        }
+        return Ok(false)
+    }
+
     pub fn get_last_anchor_block_hash(&self) -> Result<Option<BlockHeaderHash>, db_error> {
-        let anchor_block_hash = self.get_tip_indexed(db_keys::pox_last_anchor())?
-            .map(|s| {
-                if s == "" {
-                    None
-                } else {
-                    Some(BlockHeaderHash::from_hex(&s)
-                         .expect("BUG: Bad BlockHeaderHash stored in DB"))
-                }
-            })
-            .flatten();
-        Ok(anchor_block_hash)
+        SortitionDB::get_last_anchor_block_hash(self, &self.context.chain_tip)
     }
 
     pub fn get_pox_id(&self) -> Result<PoxId, db_error> {
@@ -1350,7 +1444,7 @@ impl SortitionDB {
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
         let index_root = db_tx.index_add_fork_info(
-            &mut first_sn, &first_snapshot, &vec![], &vec![], None)?;
+            &mut first_sn, &first_snapshot, &vec![], &vec![], None, None)?;
         first_snapshot.index_root = index_root;
 
         db_tx.insert_block_snapshot(&first_snapshot)?;
@@ -1525,6 +1619,20 @@ impl SortitionDB {
         return Ok(expects_block_as_anchor)
     }
 
+    fn get_last_anchor_block_hash<I: IndexDBGetter<SortitionId>>(ic: &I, at_tip: &SortitionId) -> Result<Option<BlockHeaderHash>, db_error> {
+        let anchor_block_hash = ic.get_from_trie(at_tip, &db_keys::pox_last_anchor())?
+            .map(|s| {
+                if s == "" {
+                    None
+                } else {
+                    Some(BlockHeaderHash::from_hex(&s)
+                         .expect("BUG: Bad BlockHeaderHash stored in DB"))
+                }
+            })
+            .flatten();
+        Ok(anchor_block_hash)
+    }
+
     pub fn invalidate_descendants_of(&mut self, burn_block: &BurnchainHeaderHash) -> Result<(), BurnchainError> {
         let db_tx = self.conn.transaction()?;
         let mut queue = vec![burn_block.clone()];
@@ -1610,8 +1718,12 @@ impl SortitionDB {
 
         let parent_pox = sortition_db_handle.get_pox_id()?;
 
+        let reward_set_vrf_hash = parent_snapshot.sortition_hash.mix_burn_header(&burn_header.block_hash);
+
+        let reward_set_info = sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?;
+
         let new_snapshot = sortition_db_handle.process_block_txs(
-            &parent_snapshot, burn_header, burnchain, ops, next_pox_info, parent_pox)?;
+            &parent_snapshot, burn_header, burnchain, ops, next_pox_info, parent_pox, reward_set_info.as_ref())?;
 
         sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
 
@@ -1984,7 +2096,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// Returns the new state root of this fork.
     pub fn append_chain_tip_snapshot(&mut self, parent_snapshot: &BlockSnapshot, snapshot: &BlockSnapshot,
                                      block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>,
-                                     next_pox_info: Option<RewardCycleInfo>) -> Result<TrieHash, db_error> {
+                                     next_pox_info: Option<RewardCycleInfo>, reward_info: Option<&RewardSetInfo>) -> Result<TrieHash, db_error> {
         assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
         assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
         if snapshot.sortition {
@@ -1995,7 +2107,7 @@ impl <'a> SortitionHandleTx <'a> {
         }
 
         let mut parent_sn = parent_snapshot.clone();
-        let root_hash = self.index_add_fork_info(&mut parent_sn, snapshot, block_ops, consumed_leader_keys, next_pox_info)?;
+        let root_hash = self.index_add_fork_info(&mut parent_sn, snapshot, block_ops, consumed_leader_keys, next_pox_info, reward_info)?;
 
         let mut sn = snapshot.clone();
         sn.index_root = root_hash.clone();
@@ -2199,7 +2311,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// hashes as its index's block hash data).
     fn index_add_fork_info(&mut self, parent_snapshot: &mut BlockSnapshot, snapshot: &BlockSnapshot,
                            block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>,
-                           next_pox_info: Option<RewardCycleInfo>) -> Result<TrieHash, db_error> {
+                           next_pox_info: Option<RewardCycleInfo>, reward_info: Option<&RewardSetInfo>) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {
             assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
             assert_eq!(&parent_snapshot.sortition_id, &self.context.chain_tip);
@@ -2263,24 +2375,68 @@ impl <'a> SortitionHandleTx <'a> {
                 //  write the reward set information
                 if let Some(reward_set) = reward_info.known_selected_anchor_block() {
                     keys.push(db_keys::pox_reward_set_size().to_string());
-                    values.push(to_hex(&(reward_set.len() as u16).to_le_bytes()));
+                    values.push(db_keys::reward_set_size_to_string(reward_set.len()));
                     for (ix, address) in reward_set.iter().enumerate() {
                         keys.push(db_keys::pox_reward_set_entry(ix as u16));
                         values.push(address.to_string());
                     }
                 } else {
                     keys.push(db_keys::pox_reward_set_size().to_string());
-                    values.push(to_hex(&(0 as u16).to_le_bytes()));
+                    values.push(db_keys::reward_set_size_to_string(0));
                 }
 
                 // in all cases, write the new PoX bit vector
                 keys.push(db_keys::pox_identifier().to_string());
                 values.push(pox_id.to_string());
+            } else {
+                // if this snapshot consumed some reward set entries AND
+                //  this isn't the start of a new reward cycle,
+                //   update the reward set
+                if let Some(reward_info) = reward_info {
+                    let mut current_len = self.get_reward_set_size()?;
+                    let mut recipient_indexes: Vec<_> = reward_info.recipients.iter().map(|(_, x)| *x).collect();
+                    let mut remapped_entries = HashMap::new();
+                    // sort in decrementing order
+                    recipient_indexes.sort_unstable_by(|a, b| b.cmp(a));
+                    for index in recipient_indexes.into_iter() {
+                        // sanity check
+                        if index >= current_len {
+                            unreachable!("Supplied index should never be greater than recipient set size");
+                        } else if index + 1 == current_len {
+                            // selected index is the last element: no need to swap, just decrement len
+                            current_len -= 1;
+                        } else {
+                            let replacement = current_len - 1; // if current_len were 0, we would already have panicked.
+                            let replace_with =
+                                if let Some((_prior_ix, replace_with)) = remapped_entries.remove_entry(&replacement) {
+                                    // the entry to swap in was itself swapped, so let's use the new value instead
+                                    replace_with
+                                } else {
+                                    self.get_reward_set_entry(replacement)?
+                                };
+
+                            // swap and decrement to remove from set
+                            remapped_entries.insert(index, replace_with);
+                            current_len -= 1;
+                        }
+                    }
+                    // store the changes in the new trie
+                    keys.push(db_keys::pox_reward_set_size().to_string());
+                    values.push(db_keys::reward_set_size_to_string(current_len as usize));
+                    for (index, new_address) in remapped_entries.into_iter() {
+                        keys.push(db_keys::pox_reward_set_entry(index));
+                        values.push(new_address.to_string())
+                    }
+                }
             }
         } else {
             assert_eq!(next_pox_info, None);
             keys.push(db_keys::pox_identifier().to_string());
             values.push(PoxId::initial().to_string());
+            keys.push(db_keys::pox_reward_set_size().to_string());
+            values.push(db_keys::reward_set_size_to_string(0));
+            keys.push(db_keys::pox_last_anchor().to_string());
+            values.push("".to_string());
         }
 
         // commit to all newly-arrived blocks

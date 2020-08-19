@@ -393,6 +393,22 @@ pub struct IndexDBConn<'a, C, T: MarfTrieId> {
     pub context: C
 }
 
+pub trait IndexDBGetter <T: MarfTrieId> {
+    fn get_from_trie(&self, trie_identifier: &T, key: &str) -> Result<Option<String>, Error>;
+}
+
+impl <'a, C: Clone, T: MarfTrieId> IndexDBGetter <T> for IndexDBConn <'a, C, T> {
+    fn get_from_trie(&self, trie_identifier: &T, key: &str) -> Result<Option<String>, Error> {
+        self.get_indexed(trie_identifier, key)
+    }
+}
+
+impl <'a, C: Clone, T: MarfTrieId> IndexDBGetter <T> for IndexDBTx <'a, C, T> {
+    fn get_from_trie(&self, trie_identifier: &T, key: &str) -> Result<Option<String>, Error> {
+        self.get_indexed(trie_identifier, key)
+    }
+}
+
 impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     pub fn new(conn: &'a Connection, index: &'a MARF<T>, context: C) -> IndexDBConn<'a, C, T> {
         IndexDBConn {

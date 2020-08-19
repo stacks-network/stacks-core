@@ -25,6 +25,7 @@
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
 extern crate rand;
+extern crate rand_chacha;
 extern crate tini;
 extern crate secp256k1;
 extern crate serde;

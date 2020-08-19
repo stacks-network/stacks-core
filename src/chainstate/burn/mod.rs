@@ -27,6 +27,7 @@ pub mod sortition;
 pub const CONSENSUS_HASH_LIFETIME : u32 = 24;
 
 use std::fmt;
+use std::convert::TryInto;
 use std::io::Write;
 
 use burnchains::Txid;
@@ -41,6 +42,9 @@ use sha2::Sha256;
 use ripemd160::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;
+use rand::SeedableRng;
+use rand::seq::index::sample;
+use rand_chacha::ChaCha20Rng;
 
 use chainstate::burn::db::sortdb::{
     SortitionId, SortitionHandleConn,
@@ -179,6 +183,18 @@ impl SortitionHash {
         let mut ret = [0u8; 32];
         ret.copy_from_slice(&sha2.result()[..]);
         SortitionHash(ret)
+    }
+
+    /// Choose n indices (without replacement) from the range [0, max).
+    pub fn choose(&self, n: u32, max: u32) -> Vec<u32> {
+        let mut rng = ChaCha20Rng::from_seed(self.0.clone());
+        if n > max {
+            return (0..max).collect();
+        }
+        sample(&mut rng, max as usize, n as usize)
+            // returned samples should always be u32, because max is u32.
+            .into_iter().map(|ix| ix.try_into().unwrap())
+            .collect()
     }
 
     /// Convert a SortitionHash into a (little-endian) uint256

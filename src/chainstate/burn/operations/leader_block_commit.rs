@@ -25,7 +25,9 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
 use chainstate::burn::db::sortdb::SortitionHandleConn;
-
+use chainstate::stacks::{
+    StacksAddress, StacksPublicKey, StacksPrivateKey
+};
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -37,9 +39,6 @@ use chainstate::burn::operations::{
     parse_u32_from_be,
     parse_u16_from_be
 };
-
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::StacksPrivateKey;
 
 use burnchains::{BurnchainTransaction, PublicKey};
 use burnchains::Txid;
@@ -58,9 +57,9 @@ use net::Error as net_error;
 
 use util::log;
 use util::hash::to_hex;
-use util::vrf::VRF;
-use util::vrf::VRFPublicKey;
-use util::vrf::VRFPrivateKey;
+use util::vrf::{
+    VRF, VRFPublicKey, VRFPrivateKey
+};
 
 use chainstate::stacks::index::storage::TrieFileStorage;
 
@@ -347,8 +346,15 @@ impl BlockstackOperation for LeaderBlockCommitOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
         LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
-        
-    fn check(&self, _burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
+}
+
+pub struct RewardSetInfo {
+    pub anchor_block: BlockHeaderHash,
+    pub recipients: Vec<(StacksAddress, u16)>
+}
+
+impl LeaderBlockCommitOp {
+    pub fn check(&self, _burnchain: &Burnchain, tx: &SortitionHandleConn, reward_set_info: Option<&RewardSetInfo>) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
         
@@ -360,7 +366,47 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             warn!("Invalid block commit: no burn amount");
             return Err(op_error::BlockCommitBadInput);
         }
-        
+
+        /////////////////////////////////////////////////////////////////////////////////////
+        // This tx must have the expected commit or burn outputs:
+        //    * if there is a known anchor block for the current reward cycle, and this
+        //       block commit descends from that block 
+        //       the commit outputs must = the expected set of commit outputs
+        //    * otherwise, there must be no block commits
+        /////////////////////////////////////////////////////////////////////////////////////
+        let commit_must_burn = if let Some(reward_set_info) = reward_set_info {
+            let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
+                .map_err(|e| {
+                    error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
+                           parent_block_height, &reward_set_info.anchor_block, e);
+                    op_error::BlockCommitAnchorCheck})?;
+            if descended_from_anchor {
+                if self.commit_outs.len() != reward_set_info.recipients.len() {
+                    warn!("Invalid block commit: expected {} PoX transfers, but commit only has {}",
+                          reward_set_info.recipients.len(), self.commit_outs.len());
+                    return Err(op_error::BlockCommitBadOutputs)
+                }
+                for (expected_commit, _) in reward_set_info.recipients.iter() {
+                    if !self.commit_outs.contains(expected_commit) {
+                        warn!("Invalid block commit: expected to send funds to {}, but that address is not in the committed output set",
+                              expected_commit);
+                        return Err(op_error::BlockCommitBadOutputs)
+                    }
+                }
+
+                false
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+
+        if commit_must_burn && self.commit_outs.len() != 0 {
+            warn!("Invalid block commit: this transaction should only have burn outputs.");
+            return Err(op_error::BlockCommitBadOutputs)
+        }
+
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must occur after the start of the network
         /////////////////////////////////////////////////////////////////////////////////////
