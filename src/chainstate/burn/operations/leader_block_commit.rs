@@ -161,7 +161,7 @@ impl LeaderBlockCommitOp {
         })
     }
 
-    fn parse_from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
+    pub fn parse_from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
         let inputs = tx.get_signers();
         let outputs = tx.get_recipients();
@@ -211,21 +211,6 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
-
-        // outputs[0] should be the burn output
-        if !outputs[0].address.is_burn() {
-            // wrong burn output
-            warn!("Invalid tx: burn output missing (got {:?})", outputs[0]);
-            return Err(op_error::ParseError);
-        }
-
-        let burn_fee = outputs[0].amount;
-        if burn_fee == 0 {
-            // didn't burn
-            warn!("Invalid tx: no burn quantity");
-            return Err(op_error::ParseError);
-        }
-
         let mut commit_outs = vec![];
         let mut pox_fee = None;
         let mut burn_fee = None;
@@ -237,10 +222,6 @@ impl LeaderBlockCommitOp {
                 break;
             }
             if output.address.is_burn() {
-                if burn_fee.is_some() {
-                    warn!("Invalid commit tx: multiple burn address outputs");
-                    return Err(op_error::ParseError);
-                }
                 burn_fee.replace(output.amount);
                 break;
             } else {
@@ -257,6 +238,12 @@ impl LeaderBlockCommitOp {
             }
         }
 
+        // EITHER there was an amount burned _or_ there were OUTPUTS_PER_COMMIT pox outputs
+        if burn_fee.is_none() && commit_outs.len() != OUTPUTS_PER_COMMIT {
+            warn!("Invalid commit tx: if fewer than {} PoX addresses are committed to, remainder must be burnt", OUTPUTS_PER_COMMIT);
+            return Err(op_error::ParseError);
+        }
+
         // compute the total amount transfered/burned, and check that the burn amount
         //   is expected given the amount transfered.
         let burn_fee = 
@@ -268,6 +255,7 @@ impl LeaderBlockCommitOp {
                         .ok_or_else(|| op_error::ParseError)?;
                     if expected_burn_amount != burned_amount {
                         warn!("Invalid commit tx: burned output different from PoX reward output");
+                        return Err(op_error::ParseError);
                     }
                     pox_amount.checked_mul(OUTPUTS_PER_COMMIT as u64)
                         .ok_or_else(|| op_error::ParseError)?
@@ -276,7 +264,8 @@ impl LeaderBlockCommitOp {
                     burned_amount
                 },
                 (None, Some(pox_amount)) => {
-                    pox_amount
+                    pox_amount.checked_mul(OUTPUTS_PER_COMMIT as u64)
+                        .ok_or_else(|| op_error::ParseError)?
                 },
                 (None, None) => {
                     unreachable!("A 0-len output should have already errored");
@@ -374,13 +363,15 @@ impl LeaderBlockCommitOp {
         //       the commit outputs must = the expected set of commit outputs
         //    * otherwise, there must be no block commits
         /////////////////////////////////////////////////////////////////////////////////////
-        let commit_must_burn = if let Some(reward_set_info) = reward_set_info {
-            let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
-                .map_err(|e| {
-                    error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
-                           parent_block_height, &reward_set_info.anchor_block, e);
-                    op_error::BlockCommitAnchorCheck})?;
-            if descended_from_anchor {
+        if let Some(reward_set_info) = reward_set_info {
+            // we do some check-inversion here so that we check the commit_outs _before_
+            //   we check whether or not the block is descended from the anchor.
+            // we do this because the descended_from check isn't particularly cheap, so
+            //   we want to make sure that any TX that forces us to perform the check
+            //   has either burned BTC or sent BTC to the PoX recipients
+            let expect_pox_descendant = if self.commit_outs.len() == 0 {
+                false
+            } else {
                 if self.commit_outs.len() != reward_set_info.recipients.len() {
                     warn!("Invalid block commit: expected {} PoX transfers, but commit has {}",
                           reward_set_info.recipients.len(), self.commit_outs.len());
@@ -393,19 +384,29 @@ impl LeaderBlockCommitOp {
                         return Err(op_error::BlockCommitBadOutputs)
                     }
                 }
-
-                false
-            } else {
                 true
+            };
+
+            let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
+                .map_err(|e| {
+                    error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
+                           parent_block_height, &reward_set_info.anchor_block, e);
+                    op_error::BlockCommitAnchorCheck})?;
+            if descended_from_anchor != expect_pox_descendant {
+                if descended_from_anchor {
+                    warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
+                } else {
+                    warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs");
+                }
+                return Err(op_error::BlockCommitBadOutputs)
             }
         } else {
-            true
+            // no recipient info for this sortition, so expect all burns
+            if self.commit_outs.len() != 0 {
+                warn!("Invalid block commit: this transaction should only have burn outputs.");
+                return Err(op_error::BlockCommitBadOutputs)
+            }
         };
-
-        if commit_must_burn && self.commit_outs.len() != 0 {
-            warn!("Invalid block commit: this transaction should only have burn outputs.");
-            return Err(op_error::BlockCommitBadOutputs)
-        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must occur after the start of the network
@@ -502,11 +503,10 @@ impl LeaderBlockCommitOp {
 mod tests {
     use super::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::*;
-
-    use burnchains::bitcoin::BitcoinNetworkType;
+    use burnchains::bitcoin::*;
+    use burnchains::bitcoin::address::*;
 
     use address::AddressHashMode;
 
@@ -515,17 +515,10 @@ mod tests {
     
     use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
     
-    use chainstate::burn::operations::{
-        LeaderBlockCommitOp,
-        LeaderKeyRegisterOp,
-        UserBurnSupportOp,
-        BlockstackOperation,
-        BlockstackOperationType
-    };
+    use chainstate::burn::operations::*;
 
     use util::vrf::VRFPublicKey;
-    use util::hash::{hex_bytes, to_hex};
-    use util::log;
+    use util::hash::*;
     use util::get_epoch_time_secs;
     
     use chainstate::stacks::StacksAddress;
@@ -552,6 +545,274 @@ mod tests {
         let tx = deserialize(&tx_bin.to_vec())
             .map_err(|_e| "failed to deserialize")?;
         Ok(tx)
+    }
+
+    #[test]
+    fn test_parse_pox_commits() {
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([0; 20]) }
+                },
+            ],
+        });
+
+        let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap();
+
+        // should have 2 commit outputs, and a burn
+        assert_eq!(op.commit_outs.len(), 2);
+        assert_eq!(op.burn_fee, 50);
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 29,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([0; 20]) }
+                },
+            ],
+        });
+
+        // burn amount should have been 30, not 29
+        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
+            op_error::ParseError => {},
+            _ => unreachable!(),
+        };
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+            ],
+        });
+
+        let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap();
+
+        // should have 5 commit outputs
+        assert_eq!(op.commit_outs.len(), 5);
+        assert_eq!(op.burn_fee, 65);
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+            ],
+        });
+
+        // not enough PoX outputs
+        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
+            op_error::ParseError => {},
+            _ => unreachable!(),
+        };
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+            ],
+        });
+
+        // unequal PoX outputs
+        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
+            op_error::ParseError => {},
+            _ => unreachable!(),
+        };
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+            ],
+        });
+
+        // 0 total burn
+        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
+            op_error::ParseError => {},
+            _ => unreachable!(),
+        };
+
     }
 
     #[test]
