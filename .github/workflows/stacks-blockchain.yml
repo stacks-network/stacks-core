@@ -2,7 +2,7 @@ name: stacks-blockchain
 
 # Only run when:
 #   - tags starting with "v" get pushed
-#   - PRs are opened
+#   - PRs are opened against the master branch
 #   - the workflow is started from the UI (an optional tag can be passed in via parameter)
 #     - If the optional tag paramater is passed in, a new tag will be generated based off the selected branch
 on:
@@ -10,6 +10,7 @@ on:
     tags:
       - 'v*'
   pull_request:
+    branches: [master]
   workflow_dispatch:
     inputs:
       tag:
