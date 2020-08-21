@@ -46,7 +46,7 @@ pub struct RewardCycleInfo {
     /// what was the elected PoX anchor, if any?
     pub anchor_block: Option<BlockHeaderHash>,
     /// was the elected PoX anchor known?
-    pub anchor_block_known: bool
+    pub anchor_block_known: bool,
 }
 
 pub trait BlockEventDispatcher {
@@ -261,7 +261,7 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
                 let ic = self.sortition_db.index_handle(
                     self.canonical_sortition_tip.as_ref()
                         .expect("FATAL: Processing anchor block, but no known sortition tip"));
-                ic.get_reward_cycle_info(&burn_header.parent_block_hash, &self.burnchain.pox_constants)
+                ic.get_chosen_pox_anchor(&burn_header.parent_block_hash, &self.burnchain.pox_constants)
             }?;
             if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
                 info!("Anchor block selected: {}", stacks_block_hash);

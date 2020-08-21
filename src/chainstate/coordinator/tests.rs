@@ -169,11 +169,7 @@ pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispat
 
 fn get_burnchain(path: &str) -> Burnchain {
     let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
-    b.pox_constants = PoxConstants {
-        reward_cycle_length: 5,
-        prepare_length: 3,
-        anchor_threshold: 3
-    };
+    b.pox_constants = PoxConstants::new(5, 3, 3);
     b
 }
 
