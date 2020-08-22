@@ -30,6 +30,7 @@ use std::io;
 use std::default::Default;
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 use self::bitcoin::Error as btc_error;
 
@@ -280,25 +281,28 @@ pub struct PoxConstants {
     pub prepare_length: u32,
     /// the number of confirmations a PoX anchor block must
     ///  receive in order to become the anchor. must be at least > prepare_length/2
-    pub anchor_threshold: u32
+    pub anchor_threshold: u32,
+    _shadow: PhantomData<()>,
 }
 
 impl PoxConstants {
+    pub fn new(reward_cycle_length: u32, prepare_length: u32, anchor_threshold: u32) -> PoxConstants {
+        assert!(anchor_threshold > (prepare_length / 2));
+
+        PoxConstants {
+            reward_cycle_length,
+            prepare_length,
+            anchor_threshold,
+            _shadow: PhantomData,
+        }
+    }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        PoxConstants {
-            reward_cycle_length: 10,
-            prepare_length: 5,
-            anchor_threshold: 3
-        }
+        PoxConstants::new(10, 5, 3)
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants {
-            reward_cycle_length: 1000,
-            prepare_length: 240,
-            anchor_threshold: 192
-        }
+        PoxConstants::new(1000, 240, 192)
     }
 }
 
@@ -816,7 +820,7 @@ pub mod test {
 
             let get_commit_res = ic.as_handle(&last_snapshot_with_sortition.sortition_id)
                 .get_block_commit(&last_snapshot_with_sortition.winning_block_txid,
-                                  &last_snapshot_with_sortition.burn_header_hash)
+                                  &last_snapshot_with_sortition.sortition_id)
                 .expect("FATAL: failed to read block commit");
             let mut txop = match get_commit_res {
                 Some(parent) => {

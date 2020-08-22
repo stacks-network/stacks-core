@@ -154,7 +154,7 @@ impl BlockSnapshot {
             }
             else {
                 // there may have been a prior winning block commit.  Use its VRF seed if possible
-                ic.get_block_commit(&last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.burn_header_hash)?
+                ic.get_block_commit(&last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.sortition_id)?
                     .expect("FATAL ERROR: no winning block commits in database (indicates corruption)")
                     .new_seed
             };

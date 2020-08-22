@@ -1081,10 +1081,18 @@ impl <'a> SortitionHandleConn <'a> {
         query_row(&self.conn, qry, &[&txid])
     }
 
+    /// Get a block commit by its content-addressed location in a specific sortition.
+    pub fn get_block_commit(&self, txid: &Txid, sortition_id: &SortitionId) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND sortition_id = ?2";
+        let args: [&dyn ToSql; 2] = [&txid, &sortition_id];
+        query_row(&self.conn, qry, &args)
+    }
+
     /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
     /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
     /// construction.
-    pub fn get_block_commit(&self, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    #[cfg(test)]
+    pub fn get_block_committ(&self, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND burn_header_hash = ?2";
         let args: [&dyn ToSql; 2] = [&txid, &burn_header_hash];
         // note: it's okay just grab the first result if there are multiple entries (because of PoX forks)
@@ -1137,14 +1145,17 @@ impl <'a> SortitionHandleConn <'a> {
         Ok(result)
     }
 
-    pub fn get_reward_cycle_info(&self, prepare_end: &BurnchainHeaderHash, pox_consts: &PoxConstants) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
-        let prepare_end_sortid = self.get_sortition_id_for_bhh(prepare_end)?
+    /// Return identifying information for a PoX anchor block for the reward cycle that
+    ///   begins the block after `prepare_end_bhh`.
+    /// If a PoX anchor block is chosen, this returns Some, if a PoX anchor block was not
+    ///   selected, return `None`
+    /// `prepare_end_bhh`: this is the burn block which is the last block in the prepare phase
+    ///                 for the corresponding reward cycle
+    pub fn get_chosen_pox_anchor(&self, prepare_end_bhh: &BurnchainHeaderHash, pox_consts: &PoxConstants) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+        let prepare_end_sortid = self.get_sortition_id_for_bhh(prepare_end_bhh)?
             .ok_or_else(|| BurnchainError::MissingParentBlock)?;
         let my_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
             .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
-
-        // there can be either 1 or 0 PoX anchors.
-        assert!(pox_consts.anchor_threshold > (pox_consts.prepare_length / 2));
 
         // if this block is the _end_ of a prepare phase,
         if ! (my_height % pox_consts.reward_cycle_length == 0) {
@@ -1197,16 +1208,18 @@ impl <'a> SortitionHandleConn <'a> {
         }
 
         // did any candidate receive >= F*w?
+        let mut result = None;
         for (candidate, confirmed_by) in candidate_anchors.into_iter() {
             if confirmed_by >= pox_consts.anchor_threshold {
                 // find the sortition at height
                 let sn = SortitionDB::get_ancestor_snapshot(self, candidate, &self.context.chain_tip)?
                     .expect("BUG: cannot find chosen PoX candidate's sortition");
-                return Ok(Some((sn.consensus_hash, sn.winning_stacks_block_hash)))
+                assert!(result.replace((sn.consensus_hash, sn.winning_stacks_block_hash)).is_none(),
+                        "BUG: multiple anchor blocks received more confirmations than anchor_threshold");
             }
         }
 
-        Ok(None)
+        Ok(result)
     }
 }
 
@@ -2762,12 +2775,12 @@ mod tests {
         // test get_block_commit()
         {
             let handle = db.index_handle(&empty_snapshot.sortition_id);
-            let commit = handle.get_block_commit(&block_commit.txid, &block_commit.burn_header_hash).unwrap();
+            let commit = handle.get_block_commit_by_txid(&block_commit.txid).unwrap();
             assert!(commit.is_some());
             assert_eq!(commit.unwrap(), block_commit);
 
             let bad_txid = Txid::from_bytes_be(&hex_bytes("4c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap();
-            let commit = handle.get_block_commit(&bad_txid, &block_commit.burn_header_hash).unwrap();
+            let commit = handle.get_block_commit_by_txid(&bad_txid).unwrap();
             assert!(commit.is_none());
         }
         

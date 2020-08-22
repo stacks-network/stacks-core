@@ -47,14 +47,14 @@ jobs:
           git config user.name "PR Robot"
           git fetch --unshallow
           git checkout -b $ROBOT_BRANCH
-          cp ../docs-output/clarityRef.json ./_data/clarityRef.json
+          cp ../docs-output/clarity-reference.json ./src/_data/clarity-reference.json
           if $(git diff --quiet --exit-code); then
-            echo "No clarityRef.json changes, stopping"
+            echo "No clarity-reference.json changes, stopping"
             echo "::set-output name=open_pr::0"
           else
             git remote add robot https://github.com/$ROBOT_OWNER/$ROBOT_REPO
-            git add _data/clarityRef.json
-            git commit -m "auto: update clarityRef.json from stacks-blockchain@${GITHUB_SHA}"
+            git add src/_data/clarity-reference.json
+            git commit -m "auto: update clarity-reference.json from stacks-blockchain@${GITHUB_SHA}"
             git push robot $ROBOT_BRANCH
             echo "::set-output name=open_pr::1"
           fi
