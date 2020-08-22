@@ -433,10 +433,6 @@ impl TypeSignature {
                     false
                 }
             },
-            TraitReferenceType(ref candidate) => {
-                debug!("admits trait ref {:?} / {:?}", candidate, other);
-                true
-            },
             NoType => panic!("NoType should never be asked to admit."),
             _ => other == self
         }
