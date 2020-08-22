@@ -168,6 +168,27 @@ impl FunctionType {
             },
         }
     }
+
+    pub fn check_args_by_allowing_trait_cast(&self, func_args: &[Value]) -> CheckResult<TypeSignature> {
+        let (expected_args, returns) = match self {
+            FunctionType::Fixed(FixedFunction{ args, returns }) => (args, returns),
+            _ => panic!("Unexpected function type")
+        };
+        check_argument_count(expected_args.len(), func_args)?;
+
+        for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
+            match (&expected_arg.signature, arg) {
+                (TypeSignature::TraitReferenceType(_), Value::Principal(PrincipalData::Contract(_))) => continue,
+                (expected_type, value) => {
+                    let actual_type = TypeSignature::type_of(&value);
+                    if !expected_type.admits_type(&actual_type) {
+                        return Err(CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into())
+                    }
+                }
+            }
+        }
+        Ok(returns.clone())
+    }
 }
 
 fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
