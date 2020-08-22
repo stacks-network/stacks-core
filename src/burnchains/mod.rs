@@ -30,6 +30,7 @@ use std::io;
 use std::default::Default;
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 use self::bitcoin::Error as btc_error;
 
@@ -269,7 +270,40 @@ pub struct Burnchain {
     pub stable_confirmations: u32,
     pub first_block_height: u64,
     pub first_block_hash: BurnchainHeaderHash,
-    pub reward_cycle_period: u64,
+    pub pox_constants: PoxConstants,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct PoxConstants {
+    /// the length (in burn blocks) of the reward cycle
+    pub reward_cycle_length: u32,
+    /// the length (in burn blocks) of the prepare phase
+    pub prepare_length: u32,
+    /// the number of confirmations a PoX anchor block must
+    ///  receive in order to become the anchor. must be at least > prepare_length/2
+    pub anchor_threshold: u32,
+    _shadow: PhantomData<()>,
+}
+
+impl PoxConstants {
+    pub fn new(reward_cycle_length: u32, prepare_length: u32, anchor_threshold: u32) -> PoxConstants {
+        assert!(anchor_threshold > (prepare_length / 2));
+
+        PoxConstants {
+            reward_cycle_length,
+            prepare_length,
+            anchor_threshold,
+            _shadow: PhantomData,
+        }
+    }
+    #[cfg(test)]
+    pub fn test_default() -> PoxConstants {
+        PoxConstants::new(10, 5, 3)
+    }
+
+    pub fn mainnet_default() -> PoxConstants {
+        PoxConstants::new(1000, 240, 192)
+    }
 }
 
 /// Structure for encoding our view of the network 
@@ -786,7 +820,7 @@ pub mod test {
 
             let get_commit_res = ic.as_handle(&last_snapshot_with_sortition.sortition_id)
                 .get_block_commit(&last_snapshot_with_sortition.winning_block_txid,
-                                  &last_snapshot_with_sortition.burn_header_hash)
+                                  &last_snapshot_with_sortition.sortition_id)
                 .expect("FATAL: failed to read block commit");
             let mut txop = match get_commit_res {
                 Some(parent) => {

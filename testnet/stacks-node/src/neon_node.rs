@@ -684,8 +684,10 @@ impl InitializedNeonNode {
                     }
                 };
 
-                // the stacks block I'm mining off of's burn header hash and vtx index:
+                // the consensus hash of my Stacks block parent
                 let parent_consensus_hash = stacks_tip.consensus_hash.clone();
+
+                // the stacks block I'm mining off of's burn header hash and vtx index:
                 let parent_snapshot = SortitionDB::get_block_snapshot_consensus(burn_db.conn(), &stacks_tip.consensus_hash)
                     .expect("Failed to look up block's parent snapshot")
                     .expect("Failed to look up block's parent snapshot");

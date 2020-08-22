@@ -419,6 +419,7 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
                                 consensus_hash TEXT NOT NULL,
+     -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
                                 parent_consensus_hash TEXT NOT NULL,
                                 parent_microblock_hash TEXT NOT NULL,
                                 parent_microblock_seq INT NOT NULL,
@@ -2261,7 +2262,12 @@ impl StacksChainState {
     /// elected the given Stacks block.
     /// 
     /// If we find the same Stacks block in two or more burnchain forks, insert it there too
-    /// 
+    ///
+    /// sort_ic: an indexed connection to a sortition DB
+    /// consensus_hash: this is the consensus hash of the sortition that chose this block
+    /// block: the actual block data for this anchored Stacks block
+    /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
+    ///
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block(&mut self, sort_ic: &SortitionDBConn, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash) -> Result<bool, Error> {
@@ -2788,7 +2794,6 @@ impl StacksChainState {
             };
 
             let microblock_cost = clarity_tx.cost_so_far();
-            
             debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
                    chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
                    block.header.total_work.work, block.header.total_work.burn,
