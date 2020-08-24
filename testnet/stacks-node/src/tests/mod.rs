@@ -25,14 +25,14 @@ use super::node::{TESTNET_CHAIN_ID};
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 
 // $ cat /tmp/out.clar 
-pub const STORE_CONTRACT: &str =  r#"(define-map store ((key (buff 32))) ((value (buff 32))))
- (define-public (get-value (key (buff 32)))
+pub const STORE_CONTRACT: &str =  r#"(define-map store ((key (string-ascii 32))) ((value (string-ascii 32))))
+ (define-public (get-value (key (string-ascii 32)))
     (begin
       (print (concat "Getting key " key))
       (match (map-get? store { key: key })
         entry (ok (get value entry))
         (err 0))))
- (define-public (set-value (key (buff 32)) (value (buff 32)))
+ (define-public (set-value (key (string-ascii 32)) (value (string-ascii 32)))
     (begin
         (print (concat "Setting key " key))
         (map-set store { key: key } { value: value })
@@ -215,19 +215,19 @@ fn should_succeed_mining_valid_txs() {
             2 => {
                 // On round 2, publish a "get:foo" transaction
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 1 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
-                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000001000000000000000001007f9308b891b1593029c520cae33c25f55c4e720f875c85f8845e0ee7204047a0223f3587c033e0ddb7b0618183c56bf27a1521adf433d71f17d86a7b90c72973030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
+                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 2 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\" 
-                let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe400000000000000020000000000000000010132033d83ad5051a52cef15cb88a93ac046e91a7ea2c6bf2110efdf8827ad8e0c6d0fbce1087637647ecf771c16613637742c08a4422cddfe7af03227257061ad030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020200000003666f6f0200000003626172";
+                let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe400000000000000020000000000000000010076df7ad6ddf5cf3d2eb5b96bed15c95bdb975470add5bedeee0b6f00e884c0213b6718ffd75fbb98783168bca19559798ac44647b330e481b19d3eba1b2248c6030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec()).unwrap();
             },
             4 => {
                 // On round 4, publish a "get:foo" transaction
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 3 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
-                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000300000000000000000100f1ffc472083f4fea947a6d1a83d0ddf0353dc0e9fac94d74da9d668b61676d1966474bc890f94c5fdb4d6ef816682f9073a2185e6ca8f8a6aa25a36ed851399d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
+                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000300000000000000000101fd27e1727f78c38620dc155ca9940a02e964d08fcd35ac4fc8fbc56d62caac585891f537751626dc87fc7f212b3e7586845d36800e742c3f2b0c0a05cf81435e030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             5 => {
@@ -343,7 +343,7 @@ fn should_succeed_mining_valid_txs() {
                     StacksTransactionEvent::SmartContractEvent(data) => {
                         format!("{}", data.key.0) == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store" &&
                         data.key.1 == "print" &&
-                        format!("{}", data.value) == "0x53657474696e67206b657920666f6f" // "Setting key foo" in hexa
+                        format!("{}", data.value) == "\"Setting key foo\"".to_string()
                     },
                     _ => false
                 });
@@ -379,7 +379,7 @@ fn should_succeed_mining_valid_txs() {
                     StacksTransactionEvent::SmartContractEvent(data) => {
                         format!("{}", data.key.0) == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store" &&
                         data.key.1 == "print" &&
-                        format!("{}", data.value) == "0x47657474696e67206b657920666f6f" // "Getting key foo" in hexa
+                        format!("{}", data.value) == "\"Getting key foo\"".to_string()
                     },
                     _ => false
                 });
@@ -451,20 +451,20 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                 // On round 2, publish a "get:foo" transaction (mainnet instead of testnet).
                 // Will not be mined
                 // ./blockstack-cli contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 1 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
-                let get_foo = "0000000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100cbb46766a2bc03261f6bd428fdd6ce63da8ed04713e6476426390ccc15d2b1c133d9ba30a47b51cd467a09a25f3d7fa2bb4b85379f7d0601df02268cb623e231030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
+                let get_foo = "0000000001040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000101f5c408658708fca3aa625525b0d2314519af487f53e9a552eab6aeb01577dc5d6786eff505b5b781ed7b512bcbde871ab4d438394220080ca01a2a8c46b11361030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction (chain-id not matching).
                 // Will not be mined
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 1 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\"
-                let set_foo_bar = "8000000001040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000101e57846af212a3e9536c86446d3f39210f6edd691f5c6db65feea3e188822dc2c09e8f82b2f7449d54b58e1a6666b003f65c104f3f9b41a34211560b8ce2c1095030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020200000003666f6f0200000003626172";
+                let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000001000000000000000001017112764d8a0c0a5476fc6ec37de6bc564259c6ccd4ef8ce06c1cd23f58c66a114485df6bbdf147ded8ae4fc6dda87686052bc9aa4734265c3ae4b64613b2ceb1030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec()).unwrap();
             },
             4 => {
                 // On round 4, publish a "get:foo" transaction
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 1 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
-                let get_foo = "8000000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100e11fa0938e579c868137cfdd95fc0d6107a32c7a8864bbff2852c792c1759a38314e42922702b709c7b17c93d406f9d8057fb7c14736e5d85ff24acf89e921d6030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
+                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             _ => {}

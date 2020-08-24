@@ -2,6 +2,7 @@ use vm::{eval, execute as vm_execute};
 use vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, ShortReturnType, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
+use vm::types::{SequenceData};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, BuffData, QualifiedContractIdentifier};
@@ -55,13 +56,13 @@ fn test_simple_let() {
 #[test]
 fn test_sha256() {
     let sha256_evals = [
-        "(sha256 \"\")",
+        "(sha256 0x)",
         "(sha256 0)",
-        "(sha256 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Buffer(BuffData { data: hex_bytes(hex).unwrap() });
+        return Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hex).unwrap() }));
     }
 
     let expectations = [
@@ -77,14 +78,14 @@ fn test_sha256() {
 #[test]
 fn test_sha512() {
     let sha512_evals = [
-        "(sha512 \"\")",
+        "(sha512 0x)",
         "(sha512 0)",
-        "(sha512 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha512 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn p_to_hex(val: Value) -> String {
         match val {
-            Value::Buffer(BuffData { data }) => to_hex(&data),
+            Value::Sequence(SequenceData::Buffer(BuffData { data })) => to_hex(&data),
             _ => panic!("Failed")
         }
     }
@@ -102,14 +103,14 @@ fn test_sha512() {
 #[test]
 fn test_sha512trunc256() {
     let sha512_evals = [
-        "(sha512/256 \"\")",
+        "(sha512/256 0x)",
         "(sha512/256 0)",
-        "(sha512/256 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha512/256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn p_to_hex(val: Value) -> String {
         match val {
-            Value::Buffer(BuffData { data }) => to_hex(&data),
+            Value::Sequence(SequenceData::Buffer(BuffData { data })) => to_hex(&data),
             _ => panic!("Failed")
         }
     }
@@ -127,13 +128,13 @@ fn test_sha512trunc256() {
 #[test]
 fn test_keccak256() {
     let keccak256_evals = [
-        "(keccak256 \"\")",
+        "(keccak256 0x)",
         "(keccak256 0)",
-        "(keccak256 \"The quick brown fox jumps over the lazy dog\")",
+        "(keccak256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Buffer(BuffData { data: hex_bytes(hex).unwrap() });
+        return Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hex).unwrap() }));
     }
 
     let expectations = [
@@ -265,7 +266,8 @@ fn test_concat_append_supertype() {
     ];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+        .for_each(|(program, expectation)| {
+        assert_eq!(expectation.clone(), execute(program))});
 }
 
 #[test]

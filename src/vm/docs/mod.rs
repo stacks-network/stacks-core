@@ -394,10 +394,8 @@ has to be a literal function name.",
 (fold * (list 2 2 2) 0) ;; Returns 0
 ;; calculates (- 11 (- 7 (- 3 2)))
 (fold - (list 3 7 11) 2) ;; Returns 5 
-(fold concat \"cdef\" \"ab\")   ;; Returns 0x666564636162
-                                ;; hex form of \"fedcab\"  
-(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns 0x656663646162
-                                            ;; hex form of \"efcdab\""
+(fold concat \"cdef\" \"ab\")   ;; Returns \"fedcab\"
+(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\""
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -406,8 +404,7 @@ const CONCAT_API: SpecialAPI = SpecialAPI {
     signature: "(concat buff-a buff-b)",
     description: "The `concat` function takes two buffers or two lists with the same entry type,
 and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
-    example: "(concat \"hello \" \"world\") ;; Returns 0x68656c6c6f20776f726c64
-                                            ;; hex form of \"hello world\""
+    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
@@ -426,8 +423,8 @@ const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
 or buffer of length M and outputs that same list or buffer, but typed with max length N.
 
-This function returns an optional type with the resulting iterable. If the input iterable is less than
-or equal to the supplied max-len, it returns `(some <iterable>)`, otherwise it returns `none`.",
+This function returns an optional type with the resulting sequence. If the input sequence is less than
+or equal to the supplied max-len, it returns `(some <sequence>)`, otherwise it returns `none`.",
     example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (2 2 2))
 (as-max-len? (list 1 2 3) u2) ;; Returns none"
 };
@@ -477,7 +474,7 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(define-map names-map ((name (buff 10))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (map-get? names-map (tuple (name \"blockstack\"))) ;; Returns (some (tuple (id 1337)))
 (map-get? names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
@@ -494,7 +491,7 @@ with the key, the function overwrites that existing association.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(define-map names-map ((name (buff 10))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
@@ -511,7 +508,7 @@ this key in the data map, the function returns `false`.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(define-map names-map ((name (buff 10))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns false
 (map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
@@ -525,7 +522,7 @@ const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-delete` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(define-map names-map ((name (buff 10))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-delete names-map { name: \"blockstack\" }) ;; Returns true
 (map-delete names-map { name: \"blockstack\" }) ;; Returns false
@@ -551,7 +548,7 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
 the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
-    example: "(define-map names-map ((name (buff 12))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
 (get id (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
@@ -686,9 +683,9 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
-(define-private (get-name-or-err (name (buff 12)))
+(define-private (get-name-or-err (name (string-ascii 12)))
   (let ((raw-name (unwrap! (map-get? names-map { name: name }) (err 1))))
        (ok raw-name)))
 
@@ -706,7 +703,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (try! (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
@@ -730,7 +727,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (unwrap-panic (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (unwrap-panic (map-get? names-map { name: \"non-existant\" })) ;; Throws a runtime exception
@@ -799,7 +796,7 @@ is untyped, you should use `unwrap-panic` or `unwrap-err-panic` instead of `matc
 (add-10 (some 5)) ;; returns 15
 (add-10 none) ;; returns 10
 
-(define-private (add-or-pass-err (x (response int (buff 10))) (to-add int))
+(define-private (add-or-pass-err (x (response int (string-ascii 10))) (to-add int))
   (match x
    value (+ to-add value)
    err-value (err err-value)))
@@ -815,7 +812,7 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
 a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
 `default-to` it returns the value of `default-value`.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
 (default-to 0 (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 0
@@ -868,7 +865,7 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     description: "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-none (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns false
 (is-none (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns true"
@@ -891,7 +888,7 @@ const IS_SOME_API: SpecialAPI = SpecialAPI {
     description: "`is-some` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-some (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns true
 (is-some (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns false"
@@ -1176,7 +1173,7 @@ If an asset identified by `asset-identifier` _already exists_, this function wil
 Otherwise, on successfuly mint, it returns `(ok true)`.
 ",
     example: "
-(define-non-fungible-token stackaroo (buff 40))
+(define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
 "
 };
@@ -1189,7 +1186,7 @@ const GET_OWNER: SpecialAPI = SpecialAPI {
 The asset type must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
 that definition.",
     example: "
-(define-non-fungible-token stackaroo (buff 40))
+(define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)
 (nft-get-owner? stackaroo \"Roo\") ;; Returns (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)
 (nft-get-owner? stackaroo \"Too\") ;; Returns none
@@ -1248,7 +1245,7 @@ one of the following error codes:
 `(err u3)` -- asset identified by asset-identifier does not exist
 ",
     example: "
-(define-non-fungible-token stackaroo (buff 40))
+(define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
 (nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
 (nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (err u1)
