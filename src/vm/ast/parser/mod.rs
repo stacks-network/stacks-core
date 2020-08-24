@@ -341,6 +341,7 @@ fn unescape_ascii_chars(escaped_str: String, allow_unicode_escape: bool) -> Pars
         if char == '\\' {
             if let Some(next) = chars.next() {
                 match next {
+                    // ASCII escapes based on Rust list (https://doc.rust-lang.org/reference/tokens.html#ascii-escapes)
                     '\\' => unescaped_str.push('\\'),
                     '\"' => unescaped_str.push('\"'),
                     'n' => unescaped_str.push('\n'),

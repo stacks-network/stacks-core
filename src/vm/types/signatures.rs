@@ -235,7 +235,9 @@ impl From<StringUTF8Length> for u32 {
 impl TryFrom<u32> for StringUTF8Length {
     type Error = CheckErrors;
     fn try_from(data: u32) -> Result<StringUTF8Length> {
-        if data * 4 > MAX_VALUE_SIZE {
+        let len = data.checked_mul(4)
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if len > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(StringUTF8Length(data))
@@ -246,7 +248,9 @@ impl TryFrom<u32> for StringUTF8Length {
 impl TryFrom<usize> for StringUTF8Length {
     type Error = CheckErrors;
     fn try_from(data: usize) -> Result<StringUTF8Length> {
-        if data * 4 > (MAX_VALUE_SIZE as usize) {
+        let len = data.checked_mul(4)
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if len > (MAX_VALUE_SIZE as usize) {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(StringUTF8Length(data as u32))
@@ -257,7 +261,9 @@ impl TryFrom<usize> for StringUTF8Length {
 impl TryFrom<i128> for StringUTF8Length {
     type Error = CheckErrors;
     fn try_from(data: i128) -> Result<StringUTF8Length> {
-        if data * 4 > (MAX_VALUE_SIZE as i128) {
+        let len = data.checked_mul(4)
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if len > (MAX_VALUE_SIZE as i128) {
             Err(CheckErrors::ValueTooLarge)
         } else if data < 0 {
             Err(CheckErrors::ValueOutOfBounds)

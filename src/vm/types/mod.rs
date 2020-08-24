@@ -297,8 +297,8 @@ pub struct ASCIIData {
 impl fmt::Display for ASCIIData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut escaped_str = String::new();
-        for char in self.data.iter() {
-            let escaped_char = format!("{}", std::ascii::escape_default(*char));
+        for c in self.data.iter() {
+            let escaped_char = format!("{}", std::ascii::escape_default(*c));
             escaped_str.push_str(&escaped_char);
         }
         write!(f, "{}", format!("\"{}\"", escaped_str))
@@ -313,13 +313,13 @@ pub struct UTF8Data {
 impl fmt::Display for UTF8Data {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut result = String::new();
-        for char in self.data.iter() {
-            if char.len() > 1 {
+        for c in self.data.iter() {
+            if c.len() > 1 {
                 // We escape extended charset
-                result.push_str(&format!("\\u{{{}}}", hash::to_hex(&char[..])));
+                result.push_str(&format!("\\u{{{}}}", hash::to_hex(&c[..])));
             } else {
                 // We render an ASCII char, escaped
-                let escaped_char = format!("{}", std::ascii::escape_default(char[0]));
+                let escaped_char = format!("{}", std::ascii::escape_default(c[0]));
                 result.push_str(&escaped_char);
             }
         }
