@@ -133,7 +133,7 @@ impl <'a> SortitionHandleTx <'a> {
         let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox);
 
         // do the cryptographic sortition and pick the next winning block.
-        let mut snapshot = BlockSnapshot::make_snapshot(&self.as_conn(), burnchain, &next_sortition_id,
+        let mut snapshot = BlockSnapshot::make_snapshot(&self.as_conn(), burnchain, &next_sortition_id, &next_pox,
                                                         parent_snapshot, block_header, &state_transition.burn_dist, &txids)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash, e);

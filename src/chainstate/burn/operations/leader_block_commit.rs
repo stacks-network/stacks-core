@@ -392,9 +392,7 @@ mod tests {
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::Txid;
-    use burnchains::BLOCKSTACK_MAGIC_MAINNET;
-    use burnchains::BurnchainBlockHeader;
+    use burnchains::*;
 
     use burnchains::bitcoin::BitcoinNetworkType;
 
@@ -573,7 +571,7 @@ mod tests {
         ];
         
         let burnchain = Burnchain {
-            reward_cycle_period: 10,
+            pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
