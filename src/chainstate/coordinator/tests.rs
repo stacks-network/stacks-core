@@ -599,7 +599,7 @@ fn test_sortition_with_reward_set() {
             //  recipients are now eligible again in the new reward cycle
             reward_recipients.clear();
         }
-        let next_block_recipients = get_rw_sortdb(path).get_next_block_recipients(reward_cycle_info.as_ref()).unwrap();
+        let next_block_recipients = get_rw_sortdb(path).test_get_next_block_recipients(reward_cycle_info.as_ref()).unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
             for (addr, _) in next_block_recipients.recipients.iter() {
                 assert!(!reward_recipients.contains(addr), "Reward set should not already contain address {}", addr);

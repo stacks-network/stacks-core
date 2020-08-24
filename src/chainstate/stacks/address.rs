@@ -41,10 +41,19 @@ use burnchains::Address;
 
 use address::c32::c32_address_decode;
 
-use burnchains::bitcoin::address::BitcoinAddress;
+use deps::bitcoin::blockdata::script::{
+    Builder as BtcScriptBuilder,
+};
+
+use deps::bitcoin::blockdata::transaction::TxOut;
+use deps::bitcoin::blockdata::opcodes::{All as BtcOp};
+
 use burnchains::bitcoin::address::{
+    BitcoinAddress, BitcoinAddressType,
     address_type_to_version_byte,
-    to_c32_version_byte
+    to_c32_version_byte,
+    to_b52_version_byte,
+    version_byte_to_address_type
 };
 
 use vm::types::{
@@ -137,6 +146,17 @@ impl StacksAddress {
     /// Convert to PrincipalData::Standard(StandardPrincipalData)
     pub fn to_account_principal(&self) -> PrincipalData {
         PrincipalData::Standard(StandardPrincipalData(self.version, self.bytes.as_bytes().clone()))
+    }
+
+    pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
+        let btc_version = to_b52_version_byte(self.version)
+            .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
+        let btc_addr_type = version_byte_to_address_type(btc_version)
+            .expect("BUG: failed to decode Bitcoin version byte").0;
+        match btc_addr_type {
+            BitcoinAddressType::PublicKeyHash => BitcoinAddress::to_p2pkh_tx_out(&self.bytes, value),
+            BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&self.bytes, value),
+        }
     }
 }
 

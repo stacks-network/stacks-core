@@ -1746,8 +1746,12 @@ impl SortitionDB {
     }
 
     #[cfg(test)]
-    pub fn get_next_block_recipients(&mut self, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
+    pub fn test_get_next_block_recipients(&mut self, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(&self.conn)?;
+        self.get_next_block_recipients(&parent_snapshot, next_pox_info)
+    }
+
+    pub fn get_next_block_recipients(&mut self, parent_snapshot: &BlockSnapshot, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let reward_set_vrf_hash = parent_snapshot.sortition_hash.mix_burn_header(&parent_snapshot.burn_header_hash);
 
         let sortition_db_handle = SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;

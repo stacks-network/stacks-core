@@ -5,16 +5,17 @@ use std::time::{
 
 use burnchains::{
     Error as BurnchainError,
-    Burnchain, BurnchainBlockHeader,
+    Burnchain, BurnchainBlockHeader, BurnchainHeaderHash,
     db::{
         BurnchainDB, BurnchainBlockData
     }
 };
 use chainstate::burn::{
-    BlockHeaderHash, ConsensusHash,
+    BlockHeaderHash, ConsensusHash, BlockSnapshot,
     db::sortdb::{
         SortitionDB, PoxId, SortitionId
-    }
+    },
+    operations::leader_block_commit::RewardSetInfo,
 };
 use chainstate::stacks::{
     StacksBlock, StacksBlockId, StacksAddress,
@@ -238,6 +239,54 @@ impl <'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator <'a, 
     }
 }
 
+pub fn get_next_recipients<U: RewardSetProvider>(
+    sortition_tip: &BlockSnapshot, chain_state: &StacksChainState,
+    sort_db: &mut SortitionDB, burnchain: &Burnchain, provider: &U) -> Result<Option<RewardSetInfo>, Error> {
+
+    let reward_cycle_info = get_reward_cycle_info(
+        sortition_tip.block_height + 1, &sortition_tip.burn_header_hash, &sortition_tip.sortition_id,
+        burnchain, chain_state, sort_db, provider)?;
+    sort_db.get_next_block_recipients(sortition_tip, reward_cycle_info.as_ref())
+        .map_err(|e| Error::from(e))
+}
+
+/// returns None if this burnchain block is _not_ the start of a reward cycle
+///         otherwise, returns the required reward cycle info for this burnchain block
+///                     in our current sortition view:
+///           * PoX anchor block
+///           * Was PoX anchor block known?
+pub fn get_reward_cycle_info<U: RewardSetProvider>(
+    burn_height: u64, parent_bhh: &BurnchainHeaderHash, sortition_tip: &SortitionId, burnchain: &Burnchain,
+    chain_state: &StacksChainState, sort_db: &SortitionDB, provider: &U) -> Result<Option<RewardCycleInfo>, Error> {
+
+    if burnchain.is_reward_cycle_start(burn_height) {
+        info!("Beginning reward cycle. block_height={}", burn_height);
+        let reward_cycle_info = {
+            let ic = sort_db.index_handle(sortition_tip);
+            ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants)
+        }?;
+        if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
+            info!("Anchor block selected: {}", stacks_block_hash);
+            let anchor_block_known = StacksChainState::is_stacks_block_processed(
+                &chain_state.headers_db, &consensus_hash, &stacks_block_hash)?;
+            let anchor_status = if anchor_block_known {
+                let reward_set = provider.get_reward_set(
+                    &chain_state, &stacks_block_hash, &consensus_hash)?;
+                PoxAnchorBlockStatus::SELECTED_AND_KNOWN(stacks_block_hash, reward_set)
+            } else {
+                PoxAnchorBlockStatus::SELECTED_AND_UNKNOWN(stacks_block_hash)
+            };
+            Ok(Some(RewardCycleInfo { anchor_status }))
+        } else {
+            Ok(Some(RewardCycleInfo {
+                anchor_status: PoxAnchorBlockStatus::NOT_SELECTED
+            }))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider> ChainsCoordinator <'a, T, N, U> {
     pub fn handle_new_stacks_block(&mut self) -> Result<(), Error> {
         if let Some(pox_anchor) = self.process_ready_blocks()? {
@@ -314,34 +363,10 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider> 
     ///           * PoX anchor block
     ///           * Was PoX anchor block known?
     pub fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Result<Option<RewardCycleInfo>, Error> {
-        if self.burnchain.is_reward_cycle_start(burn_header.block_height) {
-            info!("Beginning reward cycle. block_height={}", burn_header.block_height);
-            let reward_cycle_info = {
-                let ic = self.sortition_db.index_handle(
-                    self.canonical_sortition_tip.as_ref()
-                        .expect("FATAL: Processing anchor block, but no known sortition tip"));
-                ic.get_chosen_pox_anchor(&burn_header.parent_block_hash, &self.burnchain.pox_constants)
-            }?;
-            if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
-                info!("Anchor block selected: {}", stacks_block_hash);
-                let anchor_block_known = StacksChainState::is_stacks_block_processed(
-                    &self.chain_state_db.headers_db, &consensus_hash, &stacks_block_hash)?;
-                let anchor_status = if anchor_block_known {
-                    let reward_set = self.reward_set_provider.get_reward_set(
-                        &self.chain_state_db, &stacks_block_hash, &consensus_hash)?;
-                    PoxAnchorBlockStatus::SELECTED_AND_KNOWN(stacks_block_hash, reward_set)
-                } else {
-                    PoxAnchorBlockStatus::SELECTED_AND_UNKNOWN(stacks_block_hash)
-                };
-                Ok(Some(RewardCycleInfo { anchor_status }))
-            } else {
-                Ok(Some(RewardCycleInfo {
-                    anchor_status: PoxAnchorBlockStatus::NOT_SELECTED
-                }))
-            }
-        } else {
-            Ok(None)
-        }
+        let sortition_tip = self.canonical_sortition_tip.as_ref()
+            .expect("FATAL: Processing anchor block, but no known sortition tip");
+        get_reward_cycle_info(burn_header.block_height, &burn_header.parent_block_hash, sortition_tip,
+                              &self.burnchain, &self.chain_state_db, &self.sortition_db, &self.reward_set_provider)
     }
 
     ///

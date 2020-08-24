@@ -607,6 +607,7 @@ impl Node {
             parent_vtxindex,
             vtxindex: 0,
             txid: Txid([0u8; 32]),
+            commit_outs: vec![],
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash([0u8; 32]),
         })
