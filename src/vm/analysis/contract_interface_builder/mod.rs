@@ -83,6 +83,8 @@ pub enum ContractInterfaceAtomType {
     bool,
     principal,
     buffer { length: u32 },
+    string_utf8 { length: u32 },
+    string_ascii { length: u32 },
     tuple(Vec<ContractInterfaceTupleEntryType>),
     optional(Box<ContractInterfaceAtomType>),
     response { ok: Box<ContractInterfaceAtomType>, error: Box<ContractInterfaceAtomType> },
@@ -125,6 +127,8 @@ impl ContractInterfaceAtomType {
 
     pub fn from_type_signature(sig: &TypeSignature) -> ContractInterfaceAtomType {
         use vm::types::TypeSignature::*;
+        use vm::types::{SequenceSubtype::*, StringSubtype::*};
+
         match sig {
             NoType => ContractInterfaceAtomType::none,
             IntType => ContractInterfaceAtomType::int128,
@@ -132,9 +136,11 @@ impl ContractInterfaceAtomType {
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
             TraitReferenceType(_) => ContractInterfaceAtomType::trait_reference,
-            BufferType(len) => ContractInterfaceAtomType::buffer { length: len.into() },
-            TupleType(sig) => Self::from_tuple_type(sig),
-            ListType(list_data) => {
+            TupleType(sig) => ContractInterfaceAtomType::from_tuple_type(sig),
+            SequenceType(StringType(ASCII(len))) => ContractInterfaceAtomType::string_ascii { length: len.into() },
+            SequenceType(StringType(UTF8(len))) => ContractInterfaceAtomType::string_utf8 { length: len.into() },
+            SequenceType(BufferType(len)) => ContractInterfaceAtomType::buffer { length: len.into() },
+            SequenceType(ListType(list_data)) => {
                 let (type_f, length) = list_data.clone().destruct();
                 ContractInterfaceAtomType::list {
                     type_f: Box::new(Self::from_type_signature(&type_f)), length }

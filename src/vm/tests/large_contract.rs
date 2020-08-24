@@ -36,7 +36,7 @@ pub fn rollback_log_memory_test() {
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
-        let define_data_var = "(define-data-var XZ (buff 1048576) \"a\")";
+        let define_data_var = "(define-data-var XZ (buff 1048576) 0x00)";
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
@@ -78,7 +78,7 @@ pub fn let_memory_test() {
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
-        let define_data_var = "(define-constant buff-0 \"a\")";
+        let define_data_var = "(define-constant buff-0 0x00)";
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
@@ -121,7 +121,7 @@ pub fn argument_memory_test() {
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
-        let define_data_var = "(define-constant buff-0 \"a\")";
+        let define_data_var = "(define-constant buff-0 0x00)";
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
@@ -165,7 +165,7 @@ pub fn fcall_memory_test() {
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
-        let define_data_var = "(define-constant buff-0 \"a\")";
+        let define_data_var = "(define-constant buff-0 0x00)";
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
@@ -237,7 +237,7 @@ pub fn ccall_memory_test() {
                                                     &StacksBlockId([0 as u8; 32]),
                                                     &NULL_HEADER_DB);
 
-        let define_data_var = "(define-constant buff-0 \"a\")\n";
+        let define_data_var = "(define-constant buff-0 0x00)\n";
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
