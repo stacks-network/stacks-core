@@ -346,7 +346,7 @@ fn mempool_setup_chainstate() {
 
             let tx_bytes = make_contract_call(&contract_sk, 3, 200, &contract_addr, "use-trait-contract", "baz", &[Value::Principal(contract_principal)]);
             let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-            chain_state.will_admit_mempool_tx(mempool_conn, burn_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap();
+            chain_state.will_admit_mempool_tx(mempool_conn, consensus_hash, block_hash, &tx, tx_bytes.len() as u64).unwrap();
         }
     });
 
