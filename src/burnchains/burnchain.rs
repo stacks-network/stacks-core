@@ -358,16 +358,6 @@ impl Burnchain {
         }
     }
 
-    pub fn is_reward_cycle_registration(&self, block_height: u64) -> bool {
-        if block_height < self.first_block_height {
-            false
-        }
-        else {
-            let effective_height = block_height - self.first_block_height;
-            effective_height % self.reward_cycle_period >= self.reward_cycle_period - self.registration_period
-        }
-    }
-
     #[cfg(test)]
     pub fn default_unittest(first_block_height: u64, first_block_hash: &BurnchainHeaderHash) -> Burnchain {
         let mut ret = Burnchain::new(&"/unit-tests".to_string(), &"bitcoin".to_string(), &"mainnet".to_string()).unwrap();
@@ -1084,7 +1074,6 @@ pub mod tests {
             stable_confirmations: 7,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
-            pox_rejection_fraction: 25,
         };
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();        
         let block_121_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000012").unwrap();
@@ -1720,7 +1709,6 @@ pub mod tests {
             stable_confirmations: 7,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
-            pox_rejection_fraction: 25,
         };
 
         let mut leader_private_keys = vec![];
