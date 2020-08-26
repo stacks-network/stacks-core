@@ -2635,6 +2635,7 @@ mod test {
             stable_confirmations: 7,
             first_block_height: 50,
             first_block_hash: first_burn_hash.clone(),
+            pox_rejection_fraction: 25,
         };
 
         let mut burnchain_view = BurnchainView {
