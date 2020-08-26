@@ -343,6 +343,7 @@ impl Burnchain {
             first_block_hash: params.first_block_hash.clone(),
             reward_cycle_period: 1000,
             registration_period: 250,
+            pox_rejection_fraction: 25,
         })
     }
 
@@ -1090,7 +1091,8 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone()
+            first_block_hash: first_burn_hash.clone(),
+            pox_rejection_fraction: 25,
         };
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();        
         let block_121_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000012").unwrap();
@@ -1726,7 +1728,8 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone()
+            first_block_hash: first_burn_hash.clone(),
+            pox_rejection_fraction: 25,
         };
 
         let mut leader_private_keys = vec![];
