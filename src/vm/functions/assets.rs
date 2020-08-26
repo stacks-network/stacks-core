@@ -46,7 +46,7 @@ pub fn stx_balance_consolidated(db: &mut ClarityDatabase, principal: &PrincipalD
     let cur_burn_height     = db.get_current_burnchain_block_height() as u64;
 
     let (total_balance, consolidated) = stx_balance_with_unlock(balance_raw, stx_locked, unlock_height, cur_burn_height);
-    test_debug!("Balance of {} ({},{},{}, as of {}) is {} ({})", principal, balance_raw, stx_locked, unlock_height, cur_burn_height, total_balance, consolidated);
+    test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (consolidated={})", principal, balance_raw, stx_locked, unlock_height, cur_burn_height, total_balance, consolidated);
     (total_balance, consolidated)
 }
 
@@ -107,13 +107,14 @@ pub fn stx_transfer_consolidated(env: &mut Environment, from: &PrincipalData, to
     env.add_memory(TypeSignature::UIntType.size() as u64)?;
 
     // NOTE: this updates the balance with the unlocked tokens, if we did an unlock.
-    env.global_context.database.set_account_stx_balance(&from, final_from_bal);
-    env.global_context.database.set_account_stx_balance(&to,   final_to_bal);
+    env.global_context.database.set_account_stx_balance(from, final_from_bal);
+    env.global_context.database.set_account_stx_balance(to,   final_to_bal);
 
     if unlock {
         // clear lock state
-        env.global_context.database.set_account_stx_locked(&from, 0);
-        env.global_context.database.set_account_unlock_height(&from, 0);
+        env.global_context.database.set_account_stx_locked(from, 0);
+        env.global_context.database.set_account_unlock_height(from, 0);
+        debug!("Consolidated {} after stx-transfer", from);
     }
 
     env.global_context.log_stx_transfer(&from, amount)?;
@@ -174,12 +175,13 @@ pub fn special_stx_burn(args: &[SymbolicExpression],
         env.add_memory(TypeSignature::UIntType.size() as u64)?;
         env.add_memory(TypeSignature::UIntType.size() as u64)?;
 
-        env.global_context.database.set_account_stx_balance(&from, final_from_bal);
+        env.global_context.database.set_account_stx_balance(from, final_from_bal);
 
         if unlock {
             // clear lock state
-            env.global_context.database.set_account_stx_locked(&from, 0);
-            env.global_context.database.set_account_unlock_height(&from, 0);
+            env.global_context.database.set_account_stx_locked(from, 0);
+            env.global_context.database.set_account_unlock_height(from, 0);
+            debug!("Consolidated {} after burn", from);
         }
 
         env.global_context.log_stx_burn(&from, amount)?;
