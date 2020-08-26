@@ -393,7 +393,7 @@ impl Config {
             None => default_burnchain_config
         };
 
-        let supported_modes = vec!["mocknet", "helium", "neon", "argon", "xenon"];
+        let supported_modes = vec!["mocknet", "helium", "neon", "argon", "krypton", "xenon"];
 
         if !supported_modes.contains(&burnchain.mode.as_str())  {
             panic!("Setting burnchain.network not supported (should be: {})", supported_modes.join(", "))
