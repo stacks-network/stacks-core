@@ -33,7 +33,8 @@ use vm::types::{
     QualifiedContractIdentifier,
     Value,
     TupleData,
-    PrincipalData
+    PrincipalData,
+    SequenceData
 };
 
 use chainstate::stacks::StacksBlockId;
@@ -104,7 +105,7 @@ impl Value {
     }
 
     pub fn expect_buff(self, sz: usize) -> Vec<u8> {
-        if let Value::Buffer(buffdata) = self {
+        if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
             if buffdata.data.len() == sz {
                 buffdata.data
             }
@@ -214,7 +215,7 @@ impl StacksChainState {
             .ok_or(Error::PoxNoRewardCycle)?;
 
         // NOTE: the parent's burn block height is what's exposed as burn-block-height in the VM
-        Ok((((parent_header_info.burn_header_height as u64) - burnchain.first_block_height) / burnchain.reward_cycle_period) as u128)
+        Ok((((parent_header_info.burn_header_height as u64) - burnchain.first_block_height) / burnchain.pox_constants.reward_cycle_length as u64) as u128)
     }
 
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
@@ -319,7 +320,8 @@ pub mod test {
     fn instantiate_pox_peer(burnchain: &Burnchain, test_name: &str, port: u16) -> (TestPeer, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
         peer_config.burnchain = burnchain.clone();
-        peer_config.setup_code = format!("(contract-call? .pox-api set-burnchain-parameters u{} u{} u{} u{})", burnchain.first_block_height, burnchain.registration_period, burnchain.reward_cycle_period, burnchain.pox_rejection_fraction);
+        peer_config.setup_code = format!("(contract-call? .pox-api set-burnchain-parameters u{} u{} u{} u{})",
+                                          burnchain.first_block_height, burnchain.pox_constants.prepare_length, burnchain.pox_constants.reward_cycle_length, burnchain.pox_constants.pox_rejection_fraction);
 
         test_debug!("Setup code: '{}'", &peer_config.setup_code);
 
@@ -468,7 +470,7 @@ pub mod test {
     fn make_pox_addr(addr_version: AddressHashMode, addr_bytes: Hash160) -> Value {
         Value::Tuple(TupleData::from_data(vec![
             (ClarityName::try_from("version".to_owned()).unwrap(), Value::UInt((addr_version as u8) as u128)),
-            (ClarityName::try_from("hashbytes".to_owned()).unwrap(), Value::Buffer(BuffData { data: addr_bytes.as_bytes().to_vec() }))
+            (ClarityName::try_from("hashbytes".to_owned()).unwrap(), Value::Sequence(SequenceData::Buffer(BuffData { data: addr_bytes.as_bytes().to_vec() })))
         ]).unwrap())
     }
 
@@ -508,7 +510,7 @@ pub mod test {
 
         let bad_pox_addr_version = Value::Tuple(TupleData::from_data(vec![
             (ClarityName::try_from("version".to_owned()).unwrap(), Value::UInt(100)),
-            (ClarityName::try_from("hashbytes".to_owned()).unwrap(), Value::Buffer(BuffData { data: addr_bytes.as_bytes().to_vec() }))
+            (ClarityName::try_from("hashbytes".to_owned()).unwrap(), Value::Sequence(SequenceData::Buffer(BuffData { data: addr_bytes.as_bytes().to_vec() })))
         ]).unwrap());
 
         let generator = |amount, pox_addr, lock_period, nonce| {
@@ -563,7 +565,7 @@ pub mod test {
 
         let bad_pox_addr_version = Value::Tuple(TupleData::from_data(vec![
             (ClarityName::try_from("version".to_owned()).unwrap(), Value::UInt(100)),
-            (ClarityName::try_from("hashbytes".to_owned()).unwrap(), Value::Buffer(BuffData { data: addr_bytes.as_bytes().to_vec() }))
+            (ClarityName::try_from("hashbytes".to_owned()).unwrap(), Value::Sequence(SequenceData::Buffer(BuffData { data: addr_bytes.as_bytes().to_vec() })))
         ]).unwrap());
 
         let generator = |pox_addr, tenure_burn_block_begin, tenure_reward_num_cycles, nonce| {
@@ -916,8 +918,8 @@ pub mod test {
     #[test]
     fn test_liquid_ustx() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, keys) = instantiate_pox_peer(&burnchain, "test-liquid-ustx", 6000);
 
@@ -958,8 +960,8 @@ pub mod test {
     #[test]
     fn test_liquid_ustx_burns() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-liquid-ustx", 6026);
 
@@ -1007,8 +1009,8 @@ pub mod test {
     #[test]
     fn test_pox_input_validity() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-input-validity", 6028);
 
@@ -1080,8 +1082,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_single_tx_sender() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-single-tx-sender", 6002);
 
@@ -1195,7 +1197,7 @@ pub mod test {
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_account.stx_balance, 0);
                     assert_eq!(alice_account.stx_locked, 1024 * 1000000);
-                    assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                 }
                 else {
                     // no reward addresses
@@ -1208,8 +1210,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_contract() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-contract", 6018);
 
@@ -1342,7 +1344,7 @@ pub mod test {
                         let contract_account = get_account(&mut peer, &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into());
                         assert_eq!(contract_account.stx_balance, 0);
                         assert_eq!(contract_account.stx_locked, 1024 * 1000000);
-                        assert_eq!(contract_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                        assert_eq!(contract_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     }
                     else {
                         // no longer locked
@@ -1355,7 +1357,7 @@ pub mod test {
                         let contract_account = get_account(&mut peer, &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into());
                         assert_eq!(contract_account.stx_balance, 0);
                         assert_eq!(contract_account.stx_locked, 1024 * 1000000);
-                        assert_eq!(contract_account.unlock_height as u128, (alice_reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                        assert_eq!(contract_account.unlock_height as u128, (alice_reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     }
                 }
                 else {
@@ -1369,8 +1371,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_multi_tx_sender() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-multi-tx-sender", 6004);
 
@@ -1500,8 +1502,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_no_double_stacking() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-no-double-stacking", 6006);
 
@@ -1530,11 +1532,11 @@ pub mod test {
                 if tenure_id == 1 {
                     // Alice locks up exactly 12.5% of the liquid STX supply, twice.
                     // Only the first one succeeds.
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 1024 * 1000000 / 2, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
                     block_txs.push(alice_lockup_1);
                    
                     // will be rejected
-                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 1024 * 1000000 / 4, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
+                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
                     block_txs.push(alice_lockup_2);
                 }
                 if tenure_id == 2 {
@@ -1609,26 +1611,15 @@ pub mod test {
             else if tenure_id == 1 {
                 // only half locked
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 1024 * 1000000 / 2);
+                assert_eq!(alice_balance, 512 * 1000000);
             }
             else if tenure_id > 1 {
                 // only half locked, still
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 1024 * 1000000 / 2);
+                assert_eq!(alice_balance, 512 * 1000000);
             }
 
             if tenure_id <= 1 {
-                if tenure_id < 1 {
-                    // stacking minimum should be floor(total-liquid-ustx / 20000)
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
-                }
-                else {
-                    // stacking minimum should be floor(total-liquid-ustx / 5000)
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
-                }
-
                 // no reward addresses
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
@@ -1656,8 +1647,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_register_delegate_single_tx_sender() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-register-delegate-single-tx-sender", 6008);
 
@@ -1842,8 +1833,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_register_delegate_multi_tx_sender() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-register-delegate-multi-tx-sender", 6010);
 
@@ -2041,8 +2032,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_register_delegate_contract() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-register-delegate-contract", 6020);
 
@@ -2230,8 +2221,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_single_tx_sender_unlock() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-single-tx-sender-unlock", 6012);
 
@@ -2342,7 +2333,7 @@ pub mod test {
                         let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                         assert_eq!(alice_account.stx_balance, 0);
                         assert_eq!(alice_account.stx_locked, 1024 * 1000000);
-                        assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                        assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     }
                     else {
                         // unlock should have happened
@@ -2362,7 +2353,7 @@ pub mod test {
                         let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                         assert_eq!(alice_account.stx_balance, 0);
                         assert_eq!(alice_account.stx_locked, 1024 * 1000000);
-                        assert_eq!(alice_account.unlock_height as u128, (alice_reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                        assert_eq!(alice_account.unlock_height as u128, (alice_reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     }
                 }
                 else {
@@ -2376,8 +2367,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_unlock_relock() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-unlock-relock", 6014);
 
@@ -2557,13 +2548,13 @@ pub mod test {
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_account.stx_balance, 0);
                     assert_eq!(alice_account.stx_locked, 1024 * 1000000);
-                    assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     
                     // Lock-up is consistent with stacker state
                     let charlie_account = get_account(&mut peer, &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into());
                     assert_eq!(charlie_account.stx_balance, 0);
                     assert_eq!(charlie_account.stx_locked, 1024 * 1000000);
-                    assert_eq!(charlie_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(charlie_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                 }
                 else if cur_reward_cycle > first_reward_cycle {
                     test_between_reward_cycles = true;
@@ -2587,13 +2578,13 @@ pub mod test {
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_account.stx_balance, 0);
                     assert_eq!(alice_account.stx_locked, 1024 * 1000000);
-                    assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     
                     // Unlock is lazy
                     let charlie_account = get_account(&mut peer, &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into());
                     assert_eq!(charlie_account.stx_balance, 0);
                     assert_eq!(charlie_account.stx_locked, 1024 * 1000000);
-                    assert_eq!(charlie_account.unlock_height as u128, (first_reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(charlie_account.unlock_height as u128, (first_reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                 }
             }
             else if second_reward_cycle > 0 {
@@ -2633,13 +2624,13 @@ pub mod test {
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_account.stx_balance, 512 * 1000000);
                     assert_eq!(alice_account.stx_locked, 512 * 1000000);
-                    assert_eq!(alice_account.unlock_height as u128, (second_reward_cycle + lock_period) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(alice_account.unlock_height as u128, (second_reward_cycle + lock_period) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     
                     // Lock-up is consistent with stacker state
                     let charlie_account = get_account(&mut peer, &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into());
                     assert_eq!(charlie_account.stx_balance, 512 * 1000000);
                     assert_eq!(charlie_account.stx_locked, 512 * 1000000);
-                    assert_eq!(charlie_account.unlock_height as u128, (second_reward_cycle + lock_period) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(charlie_account.unlock_height as u128, (second_reward_cycle + lock_period) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                 }
                 else if cur_reward_cycle > second_reward_cycle {
                     test_after_second_reward_cycle = true;
@@ -2663,13 +2654,13 @@ pub mod test {
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_account.stx_balance, 512 * 1000000);
                     assert_eq!(alice_account.stx_locked, 512 * 1000000);
-                    assert_eq!(alice_account.unlock_height as u128, (second_reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(alice_account.unlock_height as u128, (second_reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     
                     // Unlock is lazy
                     let charlie_account = get_account(&mut peer, &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into());
                     assert_eq!(charlie_account.stx_balance, 512 * 1000000);
                     assert_eq!(charlie_account.stx_locked, 512 * 1000000);
-                    assert_eq!(charlie_account.unlock_height as u128, (second_reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(charlie_account.unlock_height as u128, (second_reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                 }
             }
         }
@@ -2684,8 +2675,8 @@ pub mod test {
     #[test]
     fn test_pox_lockup_unlock_on_spend() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-unlock-on-spend", 6016);
 
@@ -2906,7 +2897,7 @@ pub mod test {
                         let account = get_account(&mut peer, addr);
                         assert_eq!(account.stx_balance, 0);
                         assert_eq!(account.stx_locked, *expected_balance);
-                        assert_eq!(account.unlock_height as u128, (reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                        assert_eq!(account.unlock_height as u128, (reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     }
                 }
                 else if cur_reward_cycle > reward_cycle {
@@ -2953,7 +2944,7 @@ pub mod test {
                     let account = get_account(&mut peer, addr);
                     assert_eq!(account.stx_balance, *expected_balance);
                     assert_eq!(account.stx_locked, *expected_locked);
-                    assert_eq!(account.unlock_height as u128, (reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(account.unlock_height as u128, (reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                 }
             }
         }
@@ -2966,8 +2957,8 @@ pub mod test {
     #[test]
     fn test_pox_delegate_lockup_unlock_on_spend() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-delegate-lockup-unlock-on-spend", 6022);
 
@@ -3016,7 +3007,7 @@ pub mod test {
                     let danielle_stacks = make_delegate(&danielle, 1);
                     block_txs.push(danielle_stacks);
                 }
-                else if tenure_id >= 2 && tenure_id <= 10 {
+                else if tenure_id >= 2 && tenure_id <= 8 {
                     // try to spend tokens -- they should all fail (i.e. the miner should reject them due to a short-return)
                     let alice_spend = make_bare_contract(&alice, 1, 0, "alice-try-spend", &format!("(begin (unwrap! (stx-transfer? u1 tx-sender '{}) (err 1)))", &key_to_stacks_addr(&danielle)));
                     block_txs.push(alice_spend);
@@ -3171,7 +3162,7 @@ pub mod test {
                         let account = get_account(&mut peer, addr);
                         assert_eq!(account.stx_balance, 0);
                         assert_eq!(account.stx_locked, *expected_balance);
-                        assert_eq!(account.unlock_height as u128, (reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                        assert_eq!(account.unlock_height as u128, (reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                     }
                 }
                 else if cur_reward_cycle > reward_cycle {
@@ -3221,7 +3212,7 @@ pub mod test {
                     let account = get_account(&mut peer, addr);
                     assert_eq!(account.stx_balance, 0);
                     assert_eq!(account.stx_locked, *expected_balance);
-                    assert_eq!(account.unlock_height as u128, (reward_cycle + 1) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(account.unlock_height as u128, (reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                 }
             }
         }
@@ -3234,9 +3225,9 @@ pub mod test {
     #[test]
     fn test_pox_lockup_reject() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
-        burnchain.reward_cycle_period = 5;
-        burnchain.registration_period = 2;
-        burnchain.pox_rejection_fraction = 25;      // > 25% tokens must reject
+        burnchain.pox_constants.reward_cycle_length = 5;
+        burnchain.pox_constants.prepare_length = 2;
+        burnchain.pox_constants.pox_rejection_fraction = 25;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-reject", 6024);
 
@@ -3423,7 +3414,7 @@ pub mod test {
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_account.stx_balance, 0);
                     assert_eq!(alice_account.stx_locked, 1024 * 1000000);
-                    assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.reward_cycle_period as u128) + (burnchain.first_block_height as u128));
+                    assert_eq!(alice_account.unlock_height as u128, (first_reward_cycle + lock_period) * (burnchain.pox_constants.reward_cycle_length as u128) + (burnchain.first_block_height as u128));
                 }
                 else {
                     // no reward addresses
@@ -3433,7 +3424,5 @@ pub mod test {
         }
     }
 
-    // TODO: test Stacking-rejection with a contract
-    // TODO: input validation on all public methods
     // TODO: need Stacking-rejection with a BTC address -- contract name in OP_RETURN? (NEXT)
 }
