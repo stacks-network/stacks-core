@@ -27,6 +27,7 @@ pub mod sortition;
 pub const CONSENSUS_HASH_LIFETIME : u32 = 24;
 
 use std::fmt;
+use std::io::Write;
 
 use burnchains::Txid;
 use burnchains::Address;
@@ -38,7 +39,6 @@ use util::hash::{Hash160, to_hex};
 
 use sha2::Sha256;
 use ripemd160::Ripemd160;
-
 use rusqlite::Connection;
 use rusqlite::Transaction;
 
@@ -226,7 +226,7 @@ impl ConsensusHash {
     /// for the resulting consensus hash, and the geometric series of previous consensus
     /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
     /// least-recent.
-    pub fn from_ops(burn_header_hash: &BurnchainHeaderHash, opshash: &OpsHash, total_burn: u64, prev_consensus_hashes: &Vec<ConsensusHash>) -> ConsensusHash {
+    pub fn from_ops(burn_header_hash: &BurnchainHeaderHash, opshash: &OpsHash, total_burn: u64, prev_consensus_hashes: &Vec<ConsensusHash>, pox_id: &PoxId) -> ConsensusHash {
         // NOTE: unlike stacks v1, we calculate the next consensus hash
         // simply as a hash-chain of the new ops hash, the sequence of 
         // previous consensus hashes, and the total burn that went into this
@@ -252,6 +252,9 @@ impl ConsensusHash {
             
             // total burn amount on this fork...
             hasher.input(&burn_bytes);
+
+            // pox-fork bit vector
+            write!(hasher, "{}", pox_id).unwrap();
 
             // previous consensus hashes...
             for ch in prev_consensus_hashes {
@@ -298,9 +301,11 @@ impl ConsensusHash {
     }
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    pub fn from_parent_block_data(ic: &SortitionHandleConn, opshash: &OpsHash, parent_block_height: u64, first_block_height: u64, this_block_hash: &BurnchainHeaderHash, total_burn: u64) -> Result<ConsensusHash, db_error> {
+    pub fn from_parent_block_data(ic: &SortitionHandleConn, opshash: &OpsHash, parent_block_height: u64,
+                                  first_block_height: u64, this_block_hash: &BurnchainHeaderHash,
+                                  total_burn: u64, pox_id: &PoxId) -> Result<ConsensusHash, db_error> {
         let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(ic, parent_block_height, first_block_height)?;
-        Ok(ConsensusHash::from_ops(this_block_hash, opshash, total_burn, &prev_consensus_hashes))
+        Ok(ConsensusHash::from_ops(this_block_hash, opshash, total_burn, &prev_consensus_hashes, pox_id))
     }
 
     /// raw consensus hash

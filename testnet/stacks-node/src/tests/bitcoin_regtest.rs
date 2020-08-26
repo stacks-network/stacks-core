@@ -296,14 +296,14 @@ fn bitcoind_integration_test() {
             1 => {
                 // On round 1, publish the KV contract
                 // $ cat /tmp/out.clar 
-                // (define-map store ((key (buff 32))) ((value (buff 32))))
-                // (define-public (get-value (key (buff 32)))
+                // (define-map store ((key (string-ascii 32))) ((value (string-ascii 32))))
+                // (define-public (get-value (key (string-ascii 32)))
                 //     (begin
                 //         (print (concat "Getting key " key))
                 //         (match (map-get? store ((key key)))
                 //             entry (ok (get value entry))
                 //             (err 0))))
-                // (define-public (set-value (key (buff 32)) (value (buff 32)))
+                // (define-public (set-value (key (string-ascii 32)) (value (string-ascii 32)))
                 //     (begin
                 //         (print (concat "Setting key " key))
                 //         (map-set store ((key key)) ((value value)))
@@ -318,15 +318,15 @@ fn bitcoind_integration_test() {
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 1 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000001000000000000000001007f9308b891b1593029c520cae33c25f55c4e720f875c85f8845e0ee7204047a0223f3587c033e0ddb7b0618183c56bf27a1521adf433d71f17d86a7b90c72973030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
+                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
-                // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 1 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\"
+                // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 2 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\"
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe400000000000000020000000000000000010132033d83ad5051a52cef15cb88a93ac046e91a7ea2c6bf2110efdf8827ad8e0c6d0fbce1087637647ecf771c16613637742c08a4422cddfe7af03227257061ad030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020200000003666f6f0200000003626172";
+                let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe400000000000000020000000000000000010076df7ad6ddf5cf3d2eb5b96bed15c95bdb975470add5bedeee0b6f00e884c0213b6718ffd75fbb98783168bca19559798ac44647b330e481b19d3eba1b2248c6030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec()).unwrap();
             },
             4 => {
@@ -334,7 +334,7 @@ fn bitcoind_integration_test() {
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 3 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000300000000000000000100f1ffc472083f4fea947a6d1a83d0ddf0353dc0e9fac94d74da9d668b61676d1966474bc890f94c5fdb4d6ef816682f9073a2185e6ca8f8a6aa25a36ed851399d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
+                let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000300000000000000000101fd27e1727f78c38620dc155ca9940a02e964d08fcd35ac4fc8fbc56d62caac585891f537751626dc87fc7f212b3e7586845d36800e742c3f2b0c0a05cf81435e030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
                 tenure.mem_pool.submit_raw(&consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec()).unwrap();
             },
             5 => {

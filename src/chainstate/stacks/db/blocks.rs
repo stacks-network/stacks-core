@@ -420,6 +420,7 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
                                 consensus_hash TEXT NOT NULL,
+     -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
                                 parent_consensus_hash TEXT NOT NULL,
                                 parent_microblock_hash TEXT NOT NULL,
                                 parent_microblock_seq INT NOT NULL,
@@ -2262,7 +2263,12 @@ impl StacksChainState {
     /// elected the given Stacks block.
     /// 
     /// If we find the same Stacks block in two or more burnchain forks, insert it there too
-    /// 
+    ///
+    /// sort_ic: an indexed connection to a sortition DB
+    /// consensus_hash: this is the consensus hash of the sortition that chose this block
+    /// block: the actual block data for this anchored Stacks block
+    /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
+    ///
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block(&mut self, sort_ic: &SortitionDBConn, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash) -> Result<bool, Error> {
@@ -2799,7 +2805,6 @@ impl StacksChainState {
             };
 
             let microblock_cost = clarity_tx.cost_so_far();
-            
             debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
                    chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
                    block.header.total_work.work, block.header.total_work.burn,
@@ -3458,6 +3463,7 @@ pub mod test {
     use chainstate::stacks::test::*;
     use chainstate::stacks::db::*;
     use chainstate::stacks::db::test::*;
+    use chainstate::stacks::miner::test::*;
         
     use burnchains::*;
     use chainstate::burn::*;
@@ -3467,6 +3473,9 @@ pub mod test {
     use util::hash::*;
     use util::retry::*;
     use std::fs;
+    
+    use net::test::*;
+    use core::mempool::*;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex("59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01").unwrap();
@@ -5111,7 +5120,68 @@ pub mod test {
         }
     }
 
-   
+    #[test]
+    fn test_get_parent_block_header() {
+        let peer_config = TestPeerConfig::new("test_get_parent_block_header", 21313, 21314);
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let mut last_block_ch : Option<ConsensusHash> = None;
+        let mut last_parent_opt : Option<StacksBlock> = None;
+        for tenure_id in 0..num_blocks {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                last_parent_opt = parent_opt.cloned();
+                let parent_tip = match parent_opt {
+                    None => {
+                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                    }
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                    }
+                };
+                
+                let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                (anchored_block.0, vec![])
+            });
+
+            let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            let blocks_path = peer.chainstate().blocks_path.clone();
+
+            if tenure_id == 0 {
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &consensus_hash, &stacks_block.block_hash());
+                assert!(parent_header_opt.is_err());
+            }
+            else {
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &consensus_hash, &stacks_block.block_hash()).unwrap();
+                let (parent_header, parent_ch) = parent_header_opt.unwrap();
+                
+                assert_eq!(last_parent_opt.as_ref().unwrap().header, parent_header);
+                assert_eq!(parent_ch, last_block_ch.clone().unwrap());
+            }
+            
+            last_block_ch = Some(consensus_hash.clone());
+        }
+    }
+
     // TODO: test multiple anchored blocks confirming the same microblock stream (in the same
     // place, and different places, with/without orphans)
     // TODO: process_next_staging_block

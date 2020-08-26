@@ -39,18 +39,19 @@ use burnchains::{
     BurnchainRecipient,
     BurnchainTransaction,
     BurnchainBlock,
-    BurnchainBlockHeader
+    BurnchainBlockHeader,
+    BurnchainParameters,
+    Error as burnchain_error,
+    BurnchainStateTransition,
+    BurnchainStateTransitionOps,
+    PoxConstants
 };
 
-use burnchains::Error as burnchain_error;
 use burnchains::db::{
     BurnchainDB
 };
 
 use burnchains::indexer::{BurnchainIndexer, BurnchainBlockParser, BurnchainBlockDownloader, BurnBlockIPC};
-use burnchains::BurnchainParameters;
-use burnchains::BurnchainStateTransition;
-use burnchains::BurnchainStateTransitionOps;
 
 use burnchains::bitcoin::{BitcoinTxInput, BitcoinTxOutput, BitcoinInputType};
 use burnchains::bitcoin::address::to_c32_version_byte;
@@ -341,19 +342,19 @@ impl Burnchain {
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,
             first_block_hash: params.first_block_hash.clone(),
-            reward_cycle_period: 1000,
-            registration_period: 250,
-            pox_rejection_fraction: 25,
+            pox_constants: PoxConstants::mainnet_default(),
         })
     }
 
     pub fn is_reward_cycle_start(&self, block_height: u64) -> bool {
-        if block_height < self.first_block_height {
+        if block_height <= (self.first_block_height + 1) {
+            // not a reward cycle start if we're the first block after genesis.
             false
         }
         else {
             let effective_height = block_height - self.first_block_height;
-            (effective_height % self.reward_cycle_period) == 0
+            // first block of the new reward cycle
+            (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
         }
     }
 
@@ -1022,18 +1023,10 @@ pub mod tests {
         SortitionHandleTx, SortitionDB, SortitionId, PoxId
     };
 
-    use burnchains::Address;
-    use burnchains::PublicKey;
-    use burnchains::Burnchain;
-    use burnchains::BurnchainSigner;
-    use burnchains::BurnchainBlock;
+    use burnchains::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::address::BitcoinAddressType;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::bitcoin::BitcoinInputType;
-    use burnchains::bitcoin::BitcoinTxInput;
-    use burnchains::bitcoin::BitcoinBlock;
+    use burnchains::bitcoin::address::*;
+    use burnchains::bitcoin::*;
 
     use util::hash::hex_bytes;
     use util::log;
@@ -1081,8 +1074,7 @@ pub mod tests {
         let first_block_height = 120;
         
         let burnchain = Burnchain {
-            reward_cycle_period: 10,
-            registration_period: 5,
+            pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1315,7 +1307,7 @@ pub mod tests {
             burn_header_timestamp: 121,
             parent_burn_header_hash: first_burn_hash.clone(),
             ops_hash: block_opshash_121.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_121_hash, &block_opshash_121, 0, &block_prev_chs_121),
+            consensus_hash: ConsensusHash::from_ops(&block_121_hash, &block_opshash_121, 0, &block_prev_chs_121, &PoxId::stubbed()),
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1348,7 +1340,7 @@ pub mod tests {
             burn_header_timestamp: 122,
             parent_burn_header_hash: block_121_hash.clone(),
             ops_hash: block_opshash_122.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_122_hash, &block_opshash_122, 0, &block_prev_chs_122),
+            consensus_hash: ConsensusHash::from_ops(&block_122_hash, &block_opshash_122, 0, &block_prev_chs_122, &PoxId::stubbed()),
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1387,7 +1379,7 @@ pub mod tests {
             burn_header_timestamp: 123,
             parent_burn_header_hash: block_122_hash.clone(),
             ops_hash: block_opshash_123.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_123_hash, &block_opshash_123, 0, &block_prev_chs_123),        // user burns not included, so zero burns this block
+            consensus_hash: ConsensusHash::from_ops(&block_123_hash, &block_opshash_123, 0, &block_prev_chs_123, &PoxId::stubbed()),        // user burns not included, so zero burns this block
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1535,7 +1527,7 @@ pub mod tests {
                 burn_header_timestamp: 124,
                 parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
                 ops_hash: block_opshash_124.clone(),
-                consensus_hash: ConsensusHash::from_ops(&block_124_hash, &block_opshash_124, burn_total, &block_prev_chs_124),
+                consensus_hash: ConsensusHash::from_ops(&block_124_hash, &block_opshash_124, burn_total, &block_prev_chs_124, &PoxId::stubbed()),
                 total_burn: burn_total,
                 sortition: next_sortition,
                 sortition_hash: SortitionHash::initial()
@@ -1718,8 +1710,7 @@ pub mod tests {
         let first_block_height = 120;
         
         let burnchain = Burnchain {
-            reward_cycle_period: 10,
-            registration_period: 5,
+            pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),

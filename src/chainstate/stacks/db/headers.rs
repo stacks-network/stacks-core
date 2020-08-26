@@ -191,6 +191,16 @@ impl StacksChainState {
         Ok(())
     }
 
+    pub fn is_stacks_block_processed(conn: &Connection, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        let sql = "SELECT 1 FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
+        let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash];
+        match conn.query_row(sql, args, |_| true) {
+            Ok(_) => Ok(true),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+            Err(e) => Err(Error::DBError(e.into()))
+        }
+    }
+
     /// Get a stacks header info by burn block and block hash (i.e. by primary key).
     /// Does not get back data about the parent microblock stream.
     pub fn get_anchored_block_header_info(conn: &Connection, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {

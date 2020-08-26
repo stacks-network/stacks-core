@@ -1696,9 +1696,7 @@ mod test {
             stable_confirmations: 7,
             first_block_height: 12300,
             first_block_hash: first_burn_hash.clone(),
-            reward_cycle_period: 10,
-            registration_period: 5,
-            pox_rejection_fraction: 25,
+            pox_constants: PoxConstants::test_default(),
         }
     }
 

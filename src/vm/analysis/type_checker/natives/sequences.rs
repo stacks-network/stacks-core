@@ -1,8 +1,9 @@
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::types::{ TypeSignature, FunctionType };
+use vm::types::{TypeSignature, FunctionType};
+use vm::types::{SequenceSubtype::*, StringSubtype::*};
 use vm::types::{Value, MAX_VALUE_SIZE};
-pub use vm::types::signatures::{ListTypeData, BufferLength};
+pub use vm::types::signatures::{ListTypeData, BufferLength, StringUTF8Length};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
@@ -38,20 +39,28 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
     runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
     let argument_type = checker.type_check(&args[1], context)?;
     
-    match argument_type {
-        TypeSignature::ListType(list_data) => {
+    let (mapped_type, len) = match argument_type {
+        TypeSignature::SequenceType(ListType(list_data)) => {
             let (arg_items_type, arg_length) = list_data.destruct();
             let mapped_type = function_type.check_args(checker, &[arg_items_type])?;
-            TypeSignature::list_of(mapped_type, arg_length)
-                .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
+            (mapped_type, arg_length)
         },
-        TypeSignature::BufferType(buffer_data) => {
+        TypeSignature::SequenceType(BufferType(buffer_data)) => {
             let mapped_type = function_type.check_args(checker, &[TypeSignature::min_buffer()])?;
-            TypeSignature::list_of(mapped_type, buffer_data.into())
-                .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
+            (mapped_type, buffer_data.into())
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type).into())
-    }
+        TypeSignature::SequenceType(StringType(ASCII(ascii_data))) => {
+            let mapped_type = function_type.check_args(checker, &[TypeSignature::min_string_ascii()])?;
+            (mapped_type, ascii_data.into())
+        },
+        TypeSignature::SequenceType(StringType(UTF8(utf8_data))) => {
+            let mapped_type = function_type.check_args(checker, &[TypeSignature::min_string_utf8()])?;
+            (mapped_type, utf8_data.into())
+        },
+        _ => return Err(CheckErrors::ExpectedSequence(argument_type).into())
+    };
+    TypeSignature::list_of(mapped_type, len)
+        .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
 
 pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -68,9 +77,8 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
 
     {
         let input_type = match argument_type {
-            TypeSignature::ListType(ref list_data) => Ok(list_data.clone().destruct().0),
-            TypeSignature::BufferType(_) => Ok(TypeSignature::min_buffer()),
-            _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type.clone()))
+            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
+            _ => Err(CheckErrors::ExpectedSequence(argument_type.clone()))
         }?;
     
         let filter_type = function_type.check_args(checker, &[input_type])?;
@@ -96,9 +104,8 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     let argument_type = checker.type_check(&args[1], context)?;
 
     let input_type = match argument_type {
-        TypeSignature::ListType(list_data) => Ok(list_data.destruct().0),
-        TypeSignature::BufferType(_) => Ok(TypeSignature::min_buffer()),
-        _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type))
+        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()),
+        _ => Err(CheckErrors::ExpectedSequence(argument_type))
     }?;
 
     let initial_value_type = checker.type_check(&args[2], context)?;
@@ -126,33 +133,40 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
 
     analysis_typecheck_cost(checker, &lhs_type, &rhs_type)?;
     
-    match lhs_type {
-        TypeSignature::ListType(lhs_list) => {
-            if let TypeSignature::ListType(rhs_list) = rhs_type {
-                let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
-                let (rhs_entry_type, rhs_max_len) = rhs_list.destruct();
-
-                let list_entry_type = TypeSignature::least_supertype(&lhs_entry_type, &rhs_entry_type)?;
-                let new_len = lhs_max_len.checked_add(rhs_max_len)
-                    .ok_or(CheckErrors::MaxLengthOverflow)?;
-                let return_type = TypeSignature::list_of(list_entry_type, new_len)?;
-                return Ok(return_type);
-            } else {
-                return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::ListType(lhs_list)).into());
+    let res = match (&lhs_type, &rhs_type) {
+        (TypeSignature::SequenceType(lhs_seq), TypeSignature::SequenceType(rhs_seq)) => {
+            match (lhs_seq, rhs_seq) {
+                (ListType(lhs_list), ListType(rhs_list)) => {
+                    let (lhs_entry_type, lhs_max_len) = (lhs_list.get_list_item_type(), lhs_list.get_max_len());
+                    let (rhs_entry_type, rhs_max_len) = (rhs_list.get_list_item_type(), rhs_list.get_max_len());
+    
+                    let list_entry_type = TypeSignature::least_supertype(lhs_entry_type, rhs_entry_type)?;
+                    let new_len = lhs_max_len.checked_add(rhs_max_len)
+                        .ok_or(CheckErrors::MaxLengthOverflow)?;
+                    let type_sig = TypeSignature::list_of(list_entry_type, new_len)?;
+                    type_sig
+                },
+                (BufferType(lhs_len), BufferType(rhs_len)) => {
+                    let size: u32 = u32::from(lhs_len).checked_add(u32::from(rhs_len))
+                        .ok_or(CheckErrors::MaxLengthOverflow)?;
+                    TypeSignature::SequenceType(BufferType(size.try_into()?))
+                },
+                (StringType(ASCII(lhs_len)), StringType(ASCII(rhs_len))) => {
+                    let size: u32 = u32::from(lhs_len).checked_add(u32::from(rhs_len))
+                        .ok_or(CheckErrors::MaxLengthOverflow)?;
+                    TypeSignature::SequenceType(StringType(ASCII(size.try_into()?)))
+                },
+                (StringType(UTF8(lhs_len)), StringType(UTF8(rhs_len))) => {
+                    let size: u32 = u32::from(lhs_len).checked_add(u32::from(rhs_len))
+                        .ok_or(CheckErrors::MaxLengthOverflow)?;
+                    TypeSignature::SequenceType(StringType(UTF8(size.try_into()?)))
+                    },
+                (_, _) => return Err(CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into())
             }
-        },
-        TypeSignature::BufferType(lhs_buff_len) => {
-            if let TypeSignature::BufferType(rhs_buff_len) = rhs_type {
-                let size: u32 = u32::from(lhs_buff_len).checked_add(u32::from(rhs_buff_len))
-                    .ok_or(CheckErrors::MaxLengthOverflow)?;
-                let return_type = TypeSignature::BufferType(size.try_into()?);
-                return Ok(return_type);
-            } else {
-                return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::max_buffer()).into());
-            }
-        },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(lhs_type.clone()).into())
-    }
+        }
+        _ => return Err(CheckErrors::ExpectedSequence(lhs_type.clone()).into())
+    };
+    Ok(res)
 }
 
 pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -162,7 +176,7 @@ pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpressio
 
     let lhs_type = checker.type_check(&args[0], context)?;
     match lhs_type {
-        TypeSignature::ListType(lhs_list) => {
+        TypeSignature::SequenceType(ListType(lhs_list)) => {
             let rhs_type = checker.type_check(&args[1], context)?;
             let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
 
@@ -194,19 +208,25 @@ pub fn check_special_as_max_len(checker: &mut TypeChecker, args: &[SymbolicExpre
     let expected_len = u32::try_from(expected_len)
         .map_err(|_e| CheckErrors::MaxLengthOverflow)?;
 
-    let iterable = checker.type_check(&args[0], context)?;
-    analysis_typecheck_cost(checker, &iterable, &iterable)?;
+    let sequence = checker.type_check(&args[0], context)?;
+    analysis_typecheck_cost(checker, &sequence, &sequence)?;
 
-    match iterable {
-        TypeSignature::ListType(list) => {
+    match sequence {
+        TypeSignature::SequenceType(ListType(list)) => {
             let (lhs_entry_type, _) = list.destruct();
             let resized_list = ListTypeData::new_list(lhs_entry_type, expected_len)?;
-            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::ListType(resized_list))))
+            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::SequenceType(ListType(resized_list)))))
         },
-        TypeSignature::BufferType(_) => {
-            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::BufferType(BufferLength::try_from(expected_len).unwrap()))))
+        TypeSignature::SequenceType(BufferType(_)) => {
+            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::SequenceType(BufferType(BufferLength::try_from(expected_len).unwrap())))))
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(iterable).into())
+        TypeSignature::SequenceType(StringType(ASCII(_))) => {
+            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::SequenceType(StringType(ASCII(BufferLength::try_from(expected_len).unwrap()))))))
+        },
+        TypeSignature::SequenceType(StringType(UTF8(_))) => {
+            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::SequenceType(StringType(UTF8(StringUTF8Length::try_from(expected_len).unwrap()))))))
+        },
+        _ => Err(CheckErrors::ExpectedSequence(sequence).into())
     }
 }
 
@@ -217,8 +237,8 @@ pub fn check_special_len(checker: &mut TypeChecker, args: &[SymbolicExpression],
     runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
 
     match collection_type {
-        TypeSignature::ListType(_) | TypeSignature::BufferType(_) => Ok(()),
-        _ => Err(CheckErrors::ExpectedListOrBuffer(collection_type.clone()))
+        TypeSignature::SequenceType(_) => Ok(()),
+        _ => Err(CheckErrors::ExpectedSequence(collection_type.clone()))
     }?;
 
     Ok(TypeSignature::UIntType)
