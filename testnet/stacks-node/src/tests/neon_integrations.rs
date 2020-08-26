@@ -26,7 +26,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let keychain = Keychain::default(conf.node.seed.clone());
 
     conf.node.miner = true;
-
+    conf.burnchain.mode = "neon".into(); 
     conf.burnchain.username = Some("neon-tester".into());
     conf.burnchain.password = Some("neon-tester-pass".into());
     conf.burnchain.peer_host = "127.0.0.1".into();
