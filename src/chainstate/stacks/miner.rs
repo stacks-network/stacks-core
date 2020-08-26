@@ -636,14 +636,17 @@ impl StacksBlockBuilder {
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
-                Ok(_) => {},
+                Ok(_) => {
+                    test_debug!("Included {}", &tx.txid());
+                },
                 Err(Error::BlockTooBigError) => {
                     // done mining -- our execution budget is exceeded.
                     // Make the block from the transactions we did manage to get
                     debug!("Block budget exceeded on tx {}", &tx.txid());
                 },
-                Err(Error::InvalidStacksTransaction(_, true)) => {
+                Err(Error::InvalidStacksTransaction(_emsg, true)) => {
                     // if we have an invalid transaction that was quietly ignored, don't warn here either
+                    test_debug!("Failed to apply tx {}: InvalidStacksTransaction '{:?}'", &tx.txid(), &_emsg);
                     continue;
                 },
                 Err(e) => {
