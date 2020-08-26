@@ -190,6 +190,7 @@ impl StacksChainState {
             if unlock {
                 db.set_account_stx_locked(principal, 0);
                 db.set_account_unlock_height(principal, 0);
+                debug!("Consolidated {} after account-debit", &principal);
             }
 
             Ok(())
@@ -250,7 +251,7 @@ impl StacksChainState {
 
         // set the locks
         let new_stx_balance = cur_balance - lock_amount;
-        debug!("PoX lock {} uSTX (new balance {}) until {} for {:?}", lock_amount, new_stx_balance, unlock_burn_height, principal);
+        debug!("PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}", lock_amount, new_stx_balance, unlock_burn_height, principal);
 
         db.set_account_stx_balance(principal, new_stx_balance);
         db.set_account_stx_locked(principal, lock_amount);
