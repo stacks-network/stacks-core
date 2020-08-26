@@ -5,8 +5,7 @@ use crate::{Config, NeonGenesisNode, BurnchainController, EventDispatcher,
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::{Address, Burnchain};
-use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
-                                  address::{BitcoinAddressType}};
+use stacks::burnchains::bitcoin::{address::{BitcoinAddressType}};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 

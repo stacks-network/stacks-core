@@ -268,8 +268,9 @@ impl BitcoinRegtestController {
     pub fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            self.config.burnchain.get_bitcoin_network().1,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");        
@@ -605,8 +606,9 @@ impl BitcoinRegtestController {
         };
         
         let pkh = Hash160::from_data(&public_key).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            self.config.burnchain.get_bitcoin_network().1,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");
@@ -726,8 +728,9 @@ impl BurnchainController for BitcoinRegtestController {
 
             let pk = hex_bytes(&local_mining_pubkey).expect("Invalid byte sequence");
             let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
+            let (_, network_id) = self.config.burnchain.get_bitcoin_network();
             let address = BitcoinAddress::from_bytes(
-                self.config.burnchain.get_bitcoin_network().1,
+                network_id,
                 BitcoinAddressType::PublicKeyHash,
                 &pkh)
                 .expect("Public key incorrect");
@@ -1012,8 +1015,9 @@ impl BitcoinRPCRequest {
         let label = "";
 
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let (_, network_id) = config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            config.burnchain.get_bitcoin_network().1,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");        
