@@ -1264,19 +1264,6 @@ impl SortitionDB {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
         query_rows(self.conn(), qry, NO_PARAMS)
     }
-
-    /// Get the height of a burnchain block
-    pub fn inner_get_burn_block_height(conn: &Connection, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, db_error> {
-        let qry = "SELECT block_height FROM snapshots WHERE burn_header_hash = ?1 LIMIT 1";
-        query_row(conn, qry, &[burn_header_hash])
-    }
-
-    /// Get the burnchain hash given a height
-    pub fn inner_get_burn_header_hash(conn: &Connection, height: u32) -> Result<Option<BurnchainHeaderHash>, db_error> {
-        let qry = "SELECT burn_header_hash FROM snapshots WHERE block_height = ?1 LIMIT 1".to_string();
-        query_row_columns(conn, &qry, &[&height], "burn_header_hash")
-            .map(|mut rows| rows.pop())
-    }
 }
 
 impl <'a> SortitionDBConn <'a> {
@@ -1404,6 +1391,20 @@ impl <'a> SortitionDBConn <'a> {
             burn_stable_consensus_hash: stable_snapshot.consensus_hash,
             last_consensus_hashes: last_consensus_hashes
         })
+    }
+
+    /// Get the height of a burnchain block
+    pub fn inner_get_burn_block_height(&self, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, db_error> {
+        let qry = "SELECT block_height FROM snapshots WHERE burn_header_hash = ?1 LIMIT 1";
+        query_row(&self.conn, qry, &[burn_header_hash])
+    }
+
+    /// Get the burnchain hash given a height
+    pub fn inner_get_burn_header_hash(&self, height: u32) -> Result<Option<BurnchainHeaderHash>, db_error> {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&self.conn)?;
+        let ancestor_opt = SortitionDB::get_ancestor_snapshot(&self, height as u64, &tip.sortition_id)?
+            .map(|snapshot| snapshot.burn_header_hash);
+        Ok(ancestor_opt)
     }
 }
 
