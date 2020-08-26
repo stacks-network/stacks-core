@@ -66,6 +66,10 @@ fn main() {
             args.finish().unwrap();
             ConfigFile::argon()
         }
+        "krypton" => {
+            args.finish().unwrap();
+            ConfigFile::krypton()
+        }
         "xenon" => {
             args.finish().unwrap();
             ConfigFile::xenon()
@@ -95,7 +99,7 @@ fn main() {
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         run_loop.start(num_round);
-    } else if conf.burnchain.mode == "neon" || conf.burnchain.mode == "argon" || conf.burnchain.mode == "xenon" {
+    } else if conf.burnchain.mode == "neon" || conf.burnchain.mode == "argon" || conf.burnchain.mode == "krypton" || conf.burnchain.mode == "xenon" {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round);
     } else {
@@ -127,7 +131,9 @@ helium\t\tStart a node based on a local setup relying on a local instance of bit
 \t\t  rpcuser=helium
 \t\t  rpcpassword=helium
 
-argon\t\tStart a node that will join and stream blocks from the public argon testnet, powered by Blockstack.
+argon\t\tStart a node that will join and stream blocks from the public argon testnet, powered by Blockstack (Proof of Burn).
+
+krypton\t\tStart a node that will join and stream blocks from the public krypton testnet, powered by Blockstack via (Proof of Transfer).
 
 xenon\t\tStart a node that will join and stream blocks from the public xenon testnet, decentralized.
 

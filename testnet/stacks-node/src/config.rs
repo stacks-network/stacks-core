@@ -129,6 +129,49 @@ impl ConfigFile {
         }
     }
 
+    pub fn krypton() -> ConfigFile {    
+        let burnchain = BurnchainConfigFile {
+            mode: Some("krypton".to_string()),
+            rpc_port: Some(18443),
+            peer_port: Some(18444),
+            peer_host: Some("krypton.blockstack.org".to_string()),
+            process_exit_at_block_height: Some(5130), // 1 block every 2m, 24 hours * 7 + 300 blocks initially mined for seeding faucet / miner
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@argon.blockstack.org:20444".to_string()),
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
+        let balances = vec![
+            InitialBalanceFile {
+                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                amount: 10000000000000000,
+            },
+        ];
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            mstx_balance: Some(balances),
+            ..ConfigFile::default()
+        }
+    }
+
     pub fn xenon() -> ConfigFile {    
         let burnchain = BurnchainConfigFile {
             mode: Some("xenon".to_string()),
