@@ -1672,7 +1672,7 @@ mod test {
 
             let mut tx = SortitionHandleTx::begin(sortdb, &prev_snapshot.sortition_id).unwrap();
 
-            let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+            let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
             next_snapshot.index_root = next_index_root;
 
             test_debug!("i = {}, chain_view.burn_block_height = {}, ch = {}", i, chain_view.burn_block_height, next_snapshot.consensus_hash);
@@ -1680,6 +1680,23 @@ mod test {
             prev_snapshot = next_snapshot;
 
             tx.commit().unwrap();
+        }
+    }
+
+    fn testing_burnchain_config() -> Burnchain {
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        Burnchain {
+            peer_version: PEER_VERSION,
+            network_id: 0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
+            pox_constants: PoxConstants::test_default(),
         }
     }
 
@@ -1691,19 +1708,7 @@ mod test {
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
         
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -1796,17 +1801,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -1874,17 +1869,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -1954,17 +1939,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -2033,17 +2008,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -2126,17 +2091,7 @@ mod test {
        
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -2252,17 +2207,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -2339,17 +2284,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -2424,7 +2359,7 @@ mod test {
         };
 
         // convo_1 sends a getblocksinv to convo_2 for all the blocks
-        let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb_1.conn()).unwrap();
+        let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip(sortdb_1.conn()).unwrap();
         let getblocksdata_1 = GetBlocksInv { consensus_hash: convo_1_chaintip.consensus_hash, num_blocks: BLOCKS_INV_DATA_MAX_BITLEN as u16 };
         let getblocksdata_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_1.clone())).unwrap();
         let mut rh_1 = convo_1.send_signed_request(getblocksdata_1_msg, 10000000).unwrap();
@@ -2501,17 +2436,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -2577,17 +2502,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -2693,17 +2608,7 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let burnchain = Burnchain {
-            peer_version: PEER_VERSION,
-            network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: 12300,
-            first_block_hash: first_burn_hash.clone(),
-        };
+        let burnchain = testing_burnchain_config();
         
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,

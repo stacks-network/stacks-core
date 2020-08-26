@@ -2191,7 +2191,8 @@ mod test {
         let mut peer_1_config = TestPeerConfig::from_port(31990);
         let peer_2_config = TestPeerConfig::from_port(31992);
 
-        // peer 1 crawls peer 2
+        // peer 1 crawls peer 2, but not vice versa
+        // (so only peer 1 will learn its public IP)
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
 
         let mut peer_1 = TestPeer::new(peer_1_config);
@@ -2201,7 +2202,7 @@ mod test {
         let mut walk_1_count = 0;
         let mut walk_2_count = 0;
         
-        while walk_1_count < 20 || walk_2_count < 20 || (!peer_1.network.public_ip_confirmed || !peer_2.network.public_ip_confirmed) {
+        while walk_1_count < 20 || walk_2_count < 20 || (!peer_1.network.public_ip_confirmed) {
             let _ = peer_1.step();
             let _ = peer_2.step();
 
@@ -2264,11 +2265,10 @@ mod test {
         assert!(peer_1.network.public_ip_learned);
         assert!(peer_1.network.public_ip_confirmed);
 
-        // peer 2 learned and confirmed its public IP address from peer 1
-        assert!(peer_2.network.local_peer.public_ip_address.is_some());
-        assert_eq!(peer_2.network.local_peer.public_ip_address.clone().unwrap(), (PeerAddress::from_socketaddr(&format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()), 31992)); 
+        // peer 2 learned nothing, despite trying
+        assert!(peer_2.network.local_peer.public_ip_address.is_none());
         assert!(peer_2.network.public_ip_learned);
-        assert!(peer_2.network.public_ip_confirmed);
+        assert!(!peer_2.network.public_ip_confirmed);
     }
     
     #[test]

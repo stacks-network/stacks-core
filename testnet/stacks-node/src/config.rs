@@ -299,7 +299,7 @@ lazy_static! {
         soft_max_clients_per_host: 1000,
         walk_interval: 30,
         inv_sync_interval: 45,
-        download_interval: 60,
+        download_interval: 10,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         .. std::default::Default::default()
@@ -446,6 +446,14 @@ impl Config {
 
         let connection_options = match config_file.connection_options {
             Some(opts) => {
+                let ip_addr = match opts.public_ip_address {
+                    Some(public_ip_address) => {
+                        let addr = public_ip_address.parse::<SocketAddr>().unwrap();
+                        println!("addr.parse {:?}", addr);
+                        Some((PeerAddress::from_socketaddr(&addr), addr.port()))
+                    },
+                    None => None
+                };
                 let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS.read_only_call_limit.clone();
                 opts.read_only_call_limit_write_length.map(|x| { read_only_call_limit.write_length = x; });
                 opts.read_only_call_limit_write_count.map(|x| { read_only_call_limit.write_count = x; });
@@ -473,6 +481,9 @@ impl Config {
                     dns_timeout: opts.dns_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
                     max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks.clone()),
                     maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size.clone()),
+                    download_interval: opts.download_interval.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval.clone()),
+                    inv_sync_interval: opts.inv_sync_interval.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval.clone()),
+                    public_ip_address: ip_addr,
                     ..ConnectionOptions::default() 
                 }
             },
@@ -556,7 +567,7 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -645,7 +656,7 @@ pub struct BurnchainConfigFile {
     pub process_exit_at_block_height: Option<u64>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct NodeConfig {
     pub name: String,
     pub seed: Vec<u8>,
@@ -692,7 +703,7 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
-            wait_time_for_microblocks: 0,
+            wait_time_for_microblocks: 15000,
             prometheus_bind: None,
         }
     }
@@ -764,6 +775,9 @@ pub struct ConnectionOptionsFile {
     pub read_only_call_limit_read_count: Option<u64>,
     pub read_only_call_limit_runtime: Option<u64>,
     pub maximum_call_argument_size: Option<u32>,
+    pub download_interval: Option<u64>,
+    pub inv_sync_interval: Option<u64>,
+    pub public_ip_address: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize)]

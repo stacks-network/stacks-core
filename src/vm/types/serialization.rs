@@ -1,7 +1,7 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
-use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, MAX_VALUE_SIZE,
-                BOUND_VALUE_SERIALIZATION_BYTES,
+use vm::types::{Value, SequenceSubtype, StringSubtype, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, StringUTF8Length, MAX_VALUE_SIZE,
+                BOUND_VALUE_SERIALIZATION_BYTES, SequenceData, CharType,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
@@ -15,7 +15,7 @@ use serde_json::{Value as JSONValue};
 use util::hash::{hex_bytes, to_hex};
 use util::retry::{BoundReader};
 
-use std::{error, fmt};
+use std::{error, fmt, str};
 use std::io::{Write, Read};
 
 
@@ -88,7 +88,9 @@ define_u8_enum!(TypePrefix {
     OptionalNone = 9,
     OptionalSome = 10,
     List = 11,
-    Tuple = 12
+    Tuple = 12,
+    StringASCII = 13,
+    StringUTF8 = 14
 });
 
 impl From<&PrincipalData> for TypePrefix {
@@ -104,11 +106,12 @@ impl From<&PrincipalData> for TypePrefix {
 impl From<&Value> for TypePrefix {
     fn from(v: &Value) -> TypePrefix {
         use super::Value::*;
+        use super::SequenceData::*;
+        use super::CharType;
 
         match v {
             Int(_) => TypePrefix::Int,
             UInt(_) => TypePrefix::UInt,
-            Buffer(_) => TypePrefix::Buffer,
             Bool(value) => {
                 if *value {
                     TypePrefix::BoolTrue
@@ -126,8 +129,11 @@ impl From<&Value> for TypePrefix {
             },
             Optional(OptionalData{ data: None }) => TypePrefix::OptionalNone,
             Optional(OptionalData{ data: Some(_) }) => TypePrefix::OptionalSome,
-            List(_) => TypePrefix::List,
             Tuple(_) => TypePrefix::Tuple,
+            Sequence(Buffer(_)) => TypePrefix::Buffer,
+            Sequence(List(_)) => TypePrefix::List,
+            Sequence(String(CharType::ASCII(_))) => TypePrefix::StringASCII,
+            Sequence(String(CharType::UTF8(_))) => TypePrefix::StringUTF8,
         }
     }
 }
@@ -286,7 +292,7 @@ impl Value {
 
                 if let Some(x) = expected_type {
                     let passed_test = match x {
-                        TypeSignature::BufferType(expected_len) => {
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(expected_len)) => {
                             u32::from(&buffer_len) <= u32::from(expected_len)
                         },
                         _ => false
@@ -378,7 +384,7 @@ impl Value {
 
                 let (list_type, entry_type) = match expected_type {
                     None => (None, None),
-                    Some(TypeSignature::ListType(list_type)) => {
+                    Some(TypeSignature::SequenceType(SequenceSubtype::ListType(list_type))) => {
                         if len > list_type.get_max_len() {
                             return Err(SerializationError::DeserializeExpected(
                                 expected_type.unwrap().clone()))
@@ -447,23 +453,74 @@ impl Value {
                         .map_err(|_| "Illegal tuple type".into())
                         .map(Value::from)
                 }
-            }
+            },
+            TypePrefix::StringASCII => {
+                let mut buffer_len = [0; 4];
+                r.read_exact(&mut buffer_len)?;
+                let buffer_len = BufferLength::try_from(
+                    u32::from_be_bytes(buffer_len))?;
+
+                if let Some(x) = expected_type {
+                    let passed_test = match x {
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(expected_len))) => {
+                            u32::from(&buffer_len) <= u32::from(expected_len)
+                        },
+                        _ => false
+                    };
+                    if !passed_test {
+                        return Err(SerializationError::DeserializeExpected(x.clone()))
+                    }
+                }
+
+                let mut data = vec![0; u32::from(buffer_len) as usize];
+
+                r.read_exact(&mut data[..])?;
+
+                // can safely unwrap, because the string length was _already_ checked.
+                Ok(Value::string_ascii_from_bytes(data).unwrap())
+            },
+            TypePrefix::StringUTF8 => {
+                let mut total_len = [0; 4];
+                r.read_exact(&mut total_len)?;
+                let total_len = BufferLength::try_from(
+                    u32::from_be_bytes(total_len))?;
+
+                let mut data: Vec<u8> = vec![0; u32::from(total_len) as usize];
+
+                r.read_exact(&mut data[..])?;
+
+                let value = Value::string_utf8_from_bytes(data)
+                    .map_err(|_| "Illegal string_utf8 type".into());
+
+                if let Some(x) = expected_type {
+                    let passed_test = match (x, &value) {
+                        (TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(expected_len))), 
+                         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(utf8))))) => {
+                            utf8.data.len() as u32 <= u32::from(expected_len)
+                        },
+                        _ => false
+                    };
+                    if !passed_test {
+                        return Err(SerializationError::DeserializeExpected(x.clone()))
+                    }
+                }
+
+                value
+            },
         }
 
     }
 
     pub fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
         use super::Value::*;
+        use super::SequenceData::{self, *};
+        use super::CharType::*;
         use super::PrincipalData::*;
 
         w.write_all(&[TypePrefix::from(self) as u8])?;
         match self {
             Int(value) => w.write_all(&value.to_be_bytes())?,
             UInt(value) => w.write_all(&value.to_be_bytes())?,
-            Buffer(value) => {
-                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
-                w.write_all(&value.data)?
-            }
             Principal(Standard(data)) => {
                 data.serialize_write(w)?
             },
@@ -481,11 +538,27 @@ impl Value {
             Optional(OptionalData{ data: Some(value) }) => {
                 value.serialize_write(w)?;
             },
-            List(data) => {
+            Sequence(List(data)) => {
                 w.write_all(&data.len().to_be_bytes())?;
                 for item in data.data.iter() {
                     item.serialize_write(w)?;
                 }
+            },
+            Sequence(Buffer(value)) => {
+                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
+                w.write_all(&value.data)?
+            },
+            Sequence(SequenceData::String(UTF8(value))) => {
+                let total_len: u32 = value.data.iter()
+                    .fold(0u32, |len, c| len + c.len() as u32);
+                w.write_all(&(total_len.to_be_bytes()))?;
+                for bytes in value.data.iter() {
+                    w.write_all(&bytes)?
+                }
+            },
+            Sequence(SequenceData::String(ASCII(value))) => {
+                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
+                w.write_all(&value.data)?
             },
             Tuple(data) => {
                 w.write_all(&u32::try_from(data.data_map.len())
@@ -565,7 +638,7 @@ mod tests {
     use vm::types::TypeSignature::{IntType, BoolType};
 
     fn buff_type(size: u32) -> TypeSignature {
-        TypeSignature::BufferType(size.try_into().unwrap()).into()
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
     }
 
 
@@ -717,7 +790,31 @@ mod tests {
         test_bad_expectation(
             Value::buff_from(vec![0,0xde,0xad,0xbe,0xef,0]).unwrap(),
             TypeSignature::from("(buff 2)"));
-        
+    }
+
+    #[test]
+    fn test_string_ascii() {
+        test_deser_ser(Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap());
+
+        // fail because we expect a shorter string
+        test_bad_expectation(
+            Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap(),
+            TypeSignature::from("(string-ascii 3)"));
+    }
+
+    #[test]
+    fn test_string_utf8() {
+        test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap());
+        test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap());
+
+        // fail because we expect a shorter string
+        test_bad_expectation(
+            Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap(),
+            TypeSignature::from("(string-utf8 3)"));
+
+        test_bad_expectation(
+            Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap(),
+            TypeSignature::from("(string-utf8 3)"));    
     }
 
     #[test]

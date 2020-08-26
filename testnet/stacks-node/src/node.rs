@@ -27,7 +27,6 @@ use stacks::net::{
 };
 
 use stacks::util::vrf::VRFPublicKey;
-use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
@@ -200,7 +199,7 @@ impl Node {
         loop {
             let sortdb = SortitionDB::open(&sortdb_path, false).expect("BUG: failed to open burn database");
             if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&sortdb) {
-                if chain_tip.burn_header_hash == burnchain_tip.block_snapshot.burn_header_hash {
+                if chain_tip.consensus_hash == burnchain_tip.block_snapshot.consensus_hash {
                     info!("Syncing Stacks blocks - completed");
                     break;
                 } else {
@@ -228,7 +227,7 @@ impl Node {
 
         let view = {
             let ic = sortdb.index_conn();
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic)
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&ic)
                 .expect("Failed to get sortition tip");
             ic.get_burnchain_view(&burnchain, &sortition_tip).unwrap()
         };
@@ -472,39 +471,46 @@ impl Node {
     /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
     pub fn process_tenure(
         &mut self, 
-        anchored_block: &StacksBlock, 
-        burn_header_hash: &BurnchainHeaderHash, 
-        parent_burn_header_hash: &BurnchainHeaderHash, 
+        anchored_block: &StacksBlock,
+        consensus_hash: &ConsensusHash,
         microblocks: Vec<StacksMicroblock>, 
         db: &mut SortitionDB) -> ChainTip {
 
-        {
-            // let mut db = burn_db.lock().unwrap();
+        let parent_consensus_hash = {
+            // look up parent consensus hash
             let ic = db.index_conn();
+            let parent_consensus_hash = StacksChainState::get_parent_consensus_hash(&ic, &anchored_block.header.parent_block, consensus_hash)
+                .expect(&format!("BUG: could not query chainstate to find parent consensus hash of {}/{}", consensus_hash, &anchored_block.block_hash()))
+                .expect(&format!("BUG: no such parent of block {}/{}", consensus_hash, &anchored_block.block_hash()));
 
             // Preprocess the anchored block
             self.chain_state.preprocess_anchored_block(
                 &ic,
-                &burn_header_hash,
-                get_epoch_time_secs(),
+                consensus_hash,
                 &anchored_block, 
-                &parent_burn_header_hash).unwrap();
+                &parent_consensus_hash).unwrap();
 
             // Preprocess the microblocks
             for microblock in microblocks.iter() {
                 let res = self.chain_state.preprocess_streamed_microblock(
-                    &burn_header_hash, 
+                    &consensus_hash,
                     &anchored_block.block_hash(), 
                     microblock).unwrap();
                 if !res {
                     warn!("Unhandled error while pre-processing microblock {}", microblock.header.block_hash());
                 }
             }
-        }
+
+            parent_consensus_hash
+        };
 
         let mut processed_blocks = vec![];
         loop {
-            match self.chain_state.process_blocks(db, 1) {
+            let mut process_blocks_at_tip = {
+                let tx = db.tx_begin_at_tip();
+                self.chain_state.process_blocks(tx, 1)
+            };
+            match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {:?}", e),
                 Ok(ref mut blocks) => {
                     if blocks.len() == 0 {
@@ -526,13 +532,12 @@ impl Node {
         let block: StacksBlock = {
             let block_path = StacksChainState::get_block_path(
                 &self.chain_state.blocks_path, 
-                &metadata.burn_header_hash, 
+                &metadata.consensus_hash,
                 &metadata.anchored_header.block_hash()).unwrap();
             StacksChainState::consensus_load(&block_path).unwrap()
         };
 
-        let parent_index_hash = StacksBlockHeader::make_index_block_hash(
-            parent_burn_header_hash, &block.header.parent_block);
+        let parent_index_hash = StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &block.header.parent_block);
 
         let chain_tip = ChainTip {
             metadata,

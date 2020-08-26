@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType};
-use vm::types::{Value, TupleData, TypeSignature, QualifiedContractIdentifier, StandardPrincipalData, ListData, TupleTypeSignature};
+use vm::types::{Value, SequenceData, TupleData, TypeSignature, QualifiedContractIdentifier, StandardPrincipalData, ListData, TupleTypeSignature};
 use vm::contexts::{OwnedEnvironment};
 use vm::database::MemoryBackingStore;
 use vm::execute;
@@ -307,7 +307,7 @@ fn test_get_list_max_len() {
     let actual_value = execute(&contract_src).unwrap().unwrap();
 
     match actual_value {
-        Value::List(ListData { data, type_signature }) => {
+        Value::Sequence(SequenceData::List(ListData { data, type_signature })) => {
             assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)],
                        data);
             assert_eq!("(list 10 int)", &format!("{}", TypeSignature::from(type_signature)));
@@ -317,12 +317,12 @@ fn test_get_list_max_len() {
 }
 
 #[test]
-fn test_set_buffer_variable() {
+fn test_set_string_variable() {
     let contract_src = r#"
-        (define-data-var name (buff 5) "alice")
+        (define-data-var name (string-ascii 5) "alice")
         (define-private (get-name)
             (var-get name))
-        (define-private (set-name (new-name (buff 5)))
+        (define-private (set-name (new-name (string-ascii 5)))
             (if (var-set name new-name)
                 new-name
                 (get-name)))
@@ -331,9 +331,9 @@ fn test_set_buffer_variable() {
     let mut contract_src = contract_src.to_string();
     contract_src.push_str("(list (get-name) (set-name \"celia\") (get-name))");
     let expected = Value::list_from(vec![
-        Value::buff_from("alice".to_string().into_bytes()).unwrap(),
-        Value::buff_from("celia".to_string().into_bytes()).unwrap(),
-        Value::buff_from("celia".to_string().into_bytes()).unwrap(),
+        Value::string_ascii_from_bytes("alice".to_string().into_bytes()).unwrap(),
+        Value::string_ascii_from_bytes("celia".to_string().into_bytes()).unwrap(),
+        Value::string_ascii_from_bytes("celia".to_string().into_bytes()).unwrap(),
     ]);
     assert_executes(expected, &contract_src);
 }
@@ -528,10 +528,10 @@ fn lists_system() {
 fn tuples_system() {
     let test1 =
         "(define-map tuples ((name int))
-                            ((contents (tuple (name (buff 5))
-                                              (owner (buff 5))))))
+                            ((contents (tuple (name (string-ascii 5))
+                                              (owner (string-ascii 5))))))
 
-         (define-private (add-tuple (name int) (content (buff 5)))
+         (define-private (add-tuple (name int) (content (string-ascii 5)))
            (map-insert tuples (tuple (name name))
                                  (tuple (contents
                                    (tuple (name content)
@@ -565,8 +565,8 @@ fn tuples_system() {
     test_bad_tuple_5.push_str("(map-delete tuples (tuple (names 1)))");
 
     let expected = || {
-        let buff1 = Value::buff_from("abcde".to_string().into_bytes())?;
-        let buff2 = Value::buff_from("abcd".to_string().into_bytes())?;
+        let buff1 = Value::string_ascii_from_bytes("abcde".to_string().into_bytes())?;
+        let buff2 = Value::string_ascii_from_bytes("abcd".to_string().into_bytes())?;
         Value::list_from(vec![buff1, buff2])
     };
 

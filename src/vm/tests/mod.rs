@@ -15,7 +15,7 @@ use chainstate::stacks::StacksBlockId;
 mod forking;
 mod assets;
 mod events;
-mod iterables;
+mod sequences;
 mod defines;
 mod simple_apply_eval;
 mod datamaps;

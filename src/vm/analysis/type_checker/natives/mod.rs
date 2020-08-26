@@ -12,7 +12,7 @@ use std::convert::TryFrom;
 use vm::costs::{cost_functions, analysis_typecheck_cost, CostOverflowingMath};
 
 mod assets;
-mod iterables;
+mod sequences;
 mod maps;
 mod options;
 
@@ -415,13 +415,13 @@ impl TypedNativeFunction {
             Let => Special(SpecialNativeFunction(&check_special_let)),
             FetchVar => Special(SpecialNativeFunction(&check_special_fetch_var)),
             SetVar => Special(SpecialNativeFunction(&check_special_set_var)),
-            Map => Special(SpecialNativeFunction(&iterables::check_special_map)),
-            Filter => Special(SpecialNativeFunction(&iterables::check_special_filter)),
-            Fold => Special(SpecialNativeFunction(&iterables::check_special_fold)),
-            Append => Special(SpecialNativeFunction(&iterables::check_special_append)),
-            Concat => Special(SpecialNativeFunction(&iterables::check_special_concat)),
-            AsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_as_max_len)),
-            Len => Special(SpecialNativeFunction(&iterables::check_special_len)),
+            Map => Special(SpecialNativeFunction(&sequences::check_special_map)),
+            Filter => Special(SpecialNativeFunction(&sequences::check_special_filter)),
+            Fold => Special(SpecialNativeFunction(&sequences::check_special_fold)),
+            Append => Special(SpecialNativeFunction(&sequences::check_special_append)),
+            Concat => Special(SpecialNativeFunction(&sequences::check_special_concat)),
+            AsMaxLen => Special(SpecialNativeFunction(&sequences::check_special_as_max_len)),
+            Len => Special(SpecialNativeFunction(&sequences::check_special_len)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
             SetEntry => Special(SpecialNativeFunction(&maps::check_special_set_entry)),

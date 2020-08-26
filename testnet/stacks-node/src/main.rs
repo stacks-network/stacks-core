@@ -93,12 +93,20 @@ fn main() {
     };
 
     let conf = Config::from_config_file(config_file);
+    debug!("node configuration {:?}", &conf.node);
+    debug!("burnchain configuration {:?}", &conf.burnchain);
+    debug!("connection configuration {:?}", &conf.connection_options);
+    debug!("block_limit {:?}", &conf.block_limit);
+
 
     let num_round: u64 = 0; // Infinite number of rounds
 
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
-        run_loop.start(num_round);
+        if let Err(e) = run_loop.start(num_round) {
+            warn!("Helium runloop exited: {}", e);
+            return
+        }
     } else if conf.burnchain.mode == "neon" || conf.burnchain.mode == "argon" || conf.burnchain.mode == "krypton" || conf.burnchain.mode == "xenon" {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round);

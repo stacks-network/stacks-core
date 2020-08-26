@@ -1,16 +1,16 @@
 use vm::database::MemoryBackingStore;
-use vm::types::{TypeSignature, QualifiedContractIdentifier};
+use vm::types::{TypeSignature, SequenceSubtype, StringSubtype, QualifiedContractIdentifier};
 use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{AnalysisDatabase, mem_type_check};
 use std::convert::TryInto;
 
-fn buff_type(size: u32) -> TypeSignature {
-    TypeSignature::BufferType(size.try_into().unwrap()).into()
+fn string_ascii_type(size: u32) -> TypeSignature {
+    TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(size.try_into().unwrap()))).into()
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
-         (define-non-fungible-token stacka-nfts (buff 10))
+         (define-non-fungible-token stacka-nfts (string-ascii 10))
          (nft-get-owner? stacka-nfts \"1234567890\" )
          (define-read-only (my-ft-get-balance (account principal))
             (ft-get-balance stackaroos account))
@@ -142,16 +142,16 @@ fn test_bad_asset_usage() {
                                TypeSignature::IntType),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(buff_type(10),
+        CheckErrors::TypeError(string_ascii_type(10),
                                TypeSignature::UIntType),
-        CheckErrors::TypeError(buff_type(10),
-                               buff_type(15)),
+        CheckErrors::TypeError(string_ascii_type(10),
+                               string_ascii_type(15)),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(buff_type(10),
+        CheckErrors::TypeError(string_ascii_type(10),
                                TypeSignature::UIntType),
-        CheckErrors::TypeError(buff_type(10),
-                               buff_type(15)),
+        CheckErrors::TypeError(string_ascii_type(10),
+                               string_ascii_type(15)),
         CheckErrors::TypeError(TypeSignature::PrincipalType,
                                TypeSignature::UIntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),
@@ -166,7 +166,7 @@ fn test_bad_asset_usage() {
                                TypeSignature::UIntType),
         CheckErrors::TypeError(TypeSignature::PrincipalType,
                                TypeSignature::UIntType),
-        CheckErrors::TypeError(buff_type(10),
+        CheckErrors::TypeError(string_ascii_type(10),
                                TypeSignature::UIntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
