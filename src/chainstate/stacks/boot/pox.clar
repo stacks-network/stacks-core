@@ -17,6 +17,8 @@
 (define-constant ERR-STACKING-ALREADY-DELEGATED 14)
 (define-constant ERR-STACKING-DELEGATE-ALREADY-REGISTERED 15)
 (define-constant ERR-STACKING-DELEGATE-EXPIRED 16)
+(define-constant ERR-STACKING-ALREADY-REJECTED 17)
+(define-constant ERR-STACKING-INVALID-AMOUNT 18)
 
 ;; Min/max number of reward cycles uSTX can be locked for
 (define-constant MIN-POX-REWARD-CYCLES u1)
@@ -39,21 +41,26 @@
 (define-constant STACKING-THRESHOLD-25 u20000)
 (define-constant STACKING-THRESHOLD-100 u5000)
 
+;; PoX disabling threshold (a percent)
+(define-constant POX-REJECTION-FRACTION u25)
+
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
 (define-data-var pox-registration-window-length uint REGISTRATION-WINDOW-LENGTH)
 (define-data-var pox-reward-cycle-length uint REWARD-CYCLE-LENGTH)
+(define-data-var pox-rejection-fraction uint POX-REJECTION-FRACTION)
 (define-data-var first-burnchain-block-height uint u0)
 (define-data-var configured bool false)
 
 ;; This function can only be called once, when it boots up
-(define-public (set-burnchain-parameters (first-burn-height uint) (pox-reg-window-len uint) (pox-reward-cycle-len uint))
+(define-public (set-burnchain-parameters (first-burn-height uint) (pox-reg-window-len uint) (pox-reward-cycle-len uint) (pox-rejection-frac uint))
     (if (and is-in-regtest (not (var-get configured)))
         (begin
             (var-set first-burnchain-block-height first-burn-height)
             (var-set pox-registration-window-length pox-reg-window-len)
             (var-set pox-reward-cycle-length pox-reward-cycle-len)
+            (var-set pox-rejection-fraction pox-rejection-frac)
             (var-set configured true)
             (ok true)
         )
@@ -154,6 +161,34 @@
         ;; How long the uSTX will be locked for, in reward cycles
         (tenure-cycles uint)
     )
+)
+
+;; Amount of uSTX that reject PoX, by reward cycle
+(define-map stacking-rejection
+    ((reward-cycle uint))
+    ((amount uint))
+)
+
+;; Who rejected in which reward cycle
+(define-map stacking-rejectors
+    ((stacker principal) (reward-cycle uint))
+    ((amount uint))
+)
+
+;; Getter for stacking-rejectors
+(define-read-only (get-pox-rejection (stacker principal) (reward-cycle uint))
+    (map-get? stacking-rejectors { stacker: stacker, reward-cycle: reward-cycle }))
+
+;; Has PoX been rejected in the given reward cycle?
+(define-read-only (is-pox-active (reward-cycle uint))
+    (let (
+        (reject-votes 
+            (default-to
+                u0
+                (get amount (map-get? stacking-rejection { reward-cycle: reward-cycle }))))
+    )
+    ;; (100 * reject-votes) / total-liquid-ustx < pox-rejection-fraction
+    (< (/ (* u100 reject-votes) total-liquid-ustx) (var-get pox-rejection-fraction)))
 )
 
 ;; What's the reward cycle number of the burnchain block height?
@@ -327,11 +362,11 @@
     )
 )
 
-;; What is the minimum number of uSTX to be stacked in the current reward cycle?
+;; What is the minimum number of uSTX to be stacked in the given reward cycle?
 ;; Used internally by the Stacks node, and visible publicly.
-(define-read-only (get-stacking-minimum)
+(define-read-only (get-stacking-minimum (reward-cycle uint))
     (let (
-        (ustx-stacked-so-far (get-total-ustx-stacked (current-pox-reward-cycle)))
+        (ustx-stacked-so-far (get-total-ustx-stacked reward-cycle))
     )
     (begin
         (if (< ustx-stacked-so-far (/ total-liquid-ustx u4))
@@ -361,7 +396,7 @@
                                            (num-cycles uint)
                                            (is-delegate bool))
     (let (
-        (ustx-min (get-stacking-minimum))
+        (ustx-min (get-stacking-minimum first-reward-cycle))
         (is-registered (is-pox-addr-registered pox-addr first-reward-cycle num-cycles))
     )
     (begin
@@ -395,7 +430,7 @@
     (map-get? delegates { stacker: client-stacker })
 )
 
-;;; Get the delegate control info
+;; Get the delegate control info
 (define-read-only (get-delegate-control-info (delegate principal))
     (map-get? delegate-control { delegate: delegate }))
 
@@ -429,6 +464,10 @@
         (asserts! (< tenure-burn-block-begin (reward-cycle-to-burn-height first-allowed-reward-cycle))
             (err ERR-STACKING-INVALID-DELEGATE-TENURE))
 
+        ;; tenure must start at or after the current burn block height -- no retroactive registration
+        (asserts! (<= burn-block-height tenure-burn-block-begin)
+            (err ERR-STACKING-INVALID-DELEGATE-TENURE))
+
         ;; register!
         (map-set delegate-control
             { delegate: tx-sender }
@@ -455,7 +494,8 @@
 ;; configuration to use.  The delegate will then carry out the PoX address
 ;; registration.
 ;; Some checks are performed:
-;; * the Stacker must not currently be Stacking.
+;; * The Stacker must not have rejected PoX in the upcoming reward cycle
+;; * The Stacker must not currently be Stacking.
 ;; * The Stacker must have the given amount-ustx funds available.
 ;; * The Stacker cannot be a delegate
 ;; * The stacker cannot have a delegate
@@ -479,6 +519,14 @@
                (err ERR-STACKING-NO-SUCH-DELEGATE)))
     )
     (begin 
+        ;; amount must be valid
+        (asserts! (> amount-ustx u0)
+            (err ERR-STACKING-INVALID-AMOUNT))
+
+        ;; tx-sender principal (the Stacker) must not have rejected in this upcoming reward cycle
+        (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
+            (err ERR-STACKING-ALREADY-REJECTED))
+
         ;; tx-sender principal (the Stacker) must not be Stacking.
         (asserts! (is-none (get-stacker-info tx-sender))
             (err ERR-STACKING-ALREADY-STACKED))
@@ -563,6 +611,14 @@
         (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
     )
     (begin
+        ;; amount must be valid
+        (asserts! (> amount-ustx u0)
+            (err ERR-STACKING-INVALID-AMOUNT))
+
+        ;; tx-sender principal must not have rejected in this upcoming reward cycle
+        (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
+            (err ERR-STACKING-ALREADY-REJECTED))
+
         ;; tx-sender principal must not be stacking
         (asserts! (is-none (get-stacker-info tx-sender))
             (err ERR-STACKING-ALREADY-STACKED))
@@ -604,6 +660,8 @@
 ;; The stacker will be the delegate, in place of its clients' uSTX.
 ;; The delegate can only call this once per stacking tenure.
 ;; Once called, no future Stackers can add this delegate as their delegate.
+;; NOTE: the delegate itself may reject PoX, but still call this method on behalf
+;; of its clients.
 (define-public (delegate-stack-stx)
     (let (
         ;; delegate must exist
@@ -651,3 +709,46 @@
     ))
 )
 
+;; Reject Stacking for this reward cycle.
+;; tx-sender votes all its uSTX for rejection.
+;; Note that unlike PoX, rejecting PoX does not lock the tx-sender's
+;; tokens.  PoX rejection acts like a coin vote.
+(define-public (reject-pox)
+    (let (
+        (balance (stx-get-balance tx-sender))
+        (vote-reward-cycle (+ u1 (current-pox-reward-cycle)))
+    )
+    (let (
+        (cur-rejected
+            (default-to
+                u0
+                (get amount (map-get? stacking-rejection { reward-cycle: (+ u1 (current-pox-reward-cycle)) }))))
+    )
+    (begin
+        ;; tx-sender principal must not have rejected in this upcoming reward cycle
+        (asserts! (is-none (get-pox-rejection tx-sender vote-reward-cycle))
+            (err ERR-STACKING-ALREADY-REJECTED))
+
+        ;; tx-sender can't be a stacker
+        (asserts! (is-none (get-stacker-info tx-sender))
+            (err ERR-STACKING-ALREADY-STACKED))
+
+        ;; tx-sender can't be a delegate
+        (asserts! (is-none (get-delegate-control-info tx-sender))
+            (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
+
+        ;; vote for rejection
+        (map-set stacking-rejection
+            { reward-cycle: vote-reward-cycle }
+            { amount: (+ cur-rejected balance) }
+        )
+
+        ;; mark voted
+        (map-set stacking-rejectors
+            { stacker: tx-sender, reward-cycle: vote-reward-cycle }
+            { amount: balance }
+        )
+
+        (ok true)
+    )))
+)
