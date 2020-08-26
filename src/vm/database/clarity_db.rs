@@ -156,13 +156,13 @@ impl HeadersDB for &dyn HeadersDB {
 
 impl BurnStateDB for SortitionDBConn<'_> {
     fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
-        SortitionDB::inner_get_burn_block_height(&self.conn, bhh)
+        self.inner_get_burn_block_height(bhh)
             .expect("FATAL: Sqlite error when loading burn block height")
             .map(|h| h as u32)
     }
 
     fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
-        SortitionDB::inner_get_burn_header_hash(&self.conn, height)
+        self.inner_get_burn_header_hash(height)
             .expect("FATAL: Sqlite error when loading burn block hash")
     }
 } 
