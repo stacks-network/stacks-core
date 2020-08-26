@@ -10,8 +10,6 @@ use base64::{encode};
 use serde::{Serialize};
 use serde_json::value::RawValue;
 
-use secp256k1::{Secp256k1};
-
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
@@ -522,20 +520,19 @@ impl BitcoinRegtestController {
             let sig_hash_all = 0x01;
             let sig_hash = tx.signature_hash(i, &script_pub_key, sig_hash_all);   
     
-            let mut sig1_der = {
-                let secp = Secp256k1::new();
+            let sig1_der = {
                 let message = signer.sign_message(sig_hash.as_bytes())
                     .expect("Unable to sign message");
-                let der = message.to_secp256k1_recoverable()
+                message.to_secp256k1_recoverable()
                     .expect("Unable to get recoverable signature")
-                    .to_standard(&secp)
-                    .serialize_der(&secp);
-                der
+                    .to_standard()
+                    .serialize_der()
             };
-            sig1_der.push(sig_hash_all as u8);
+            // sig1_der.push(sig_hash_all as u8);
     
             tx.input[i].script_sig = Builder::new()
-                .push_slice(&sig1_der[..])
+                .push_slice(&sig1_der)
+                .push_slice(&[sig_hash_all as u8])
                 .push_slice(&public_key.to_bytes())
                 .into_script();   
         }
