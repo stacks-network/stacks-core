@@ -153,7 +153,7 @@ fn integration_test_get_info() {
         return
     });
 
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, pox_dbconn| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
         let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
@@ -197,32 +197,32 @@ fn integration_test_get_info() {
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "block-height"),
+                        burn_dbconn, bhh, &contract_identifier, "block-height"),
                     Value::UInt(2));
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn,bhh, &contract_identifier, "(test-1)"),
+                        burn_dbconn,bhh, &contract_identifier, "(test-1)"),
                     Value::some(Value::UInt(headers[0].burn_header_timestamp as u128)).unwrap());
                 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-2)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-2)"),
                     Value::none());
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-3)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-3)"),
                     Value::none());
                 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-4 u1)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-4 u1)"),
                     Value::some(parent_val.clone()).unwrap());
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-5)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-5)"),
                     Value::some(parent_val).unwrap());
 
                 // test-6 and test-7 return the block at height 1's VRF-seed,
@@ -237,51 +237,50 @@ fn integration_test_get_info() {
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-6)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-6)"),
                     Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-7)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-7)"),
                     Value::some(Value::buff_from(last_vrf_seed).unwrap()).unwrap());
 
                 // verify that we can get the block miner
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-8)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-8)"),
                     Value::some(Value::Principal(miners[0].address.to_account_principal())).unwrap());
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-9)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-9)"),
                     Value::none());
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-10)"),
+                        burn_dbconn, bhh, &contract_identifier, "(test-10)"),
                     Value::none());
                
-                // verify we can read the burn block height (should be 3, since we sent the
-                // contract at block 2)
+                // verify we can read the burn block height
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
-                        pox_dbconn, bhh, &contract_identifier, "(test-11)"),
-                    Value::UInt(3));
+                        burn_dbconn, bhh, &contract_identifier, "(test-11)"),
+                    Value::UInt(2));
                     
             },
             3 => {
                 let bhh = &chain_tip.metadata.index_block_hash();
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    pox_dbconn, bhh, &contract_identifier, "(exotic-block-height u1)"));
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u1)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    pox_dbconn, bhh, &contract_identifier, "(exotic-block-height u2)"));
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u2)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    pox_dbconn, bhh, &contract_identifier, "(exotic-block-height u3)"));
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-block-height u3)"));
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    pox_dbconn, bhh, &contract_identifier, "(exotic-data-checks u2)"));
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u2)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
-                    pox_dbconn, bhh, &contract_identifier, "(exotic-data-checks u3)"));
+                    burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u3)"));
 
                 let client = reqwest::blocking::Client::new();
                 let path = format!("{}/v2/map_entry/{}/{}/{}",
@@ -296,7 +295,7 @@ fn integration_test_get_info() {
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
-                let expected_data = chain_state.clarity_eval_read_only(pox_dbconn, bhh, &contract_identifier,
+                let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
                 assert!(res.get("proof").is_some());
 
@@ -330,7 +329,7 @@ fn integration_test_get_info() {
 
                 assert!(res.get("proof").is_none());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
-                let expected_data = chain_state.clarity_eval_read_only(pox_dbconn, bhh, &contract_identifier,
+                let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
 
@@ -351,7 +350,7 @@ fn integration_test_get_info() {
 
                 assert!(res.get("proof").is_some());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
-                let expected_data = chain_state.clarity_eval_read_only(pox_dbconn, bhh, &contract_identifier,
+                let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
 
@@ -483,7 +482,7 @@ fn integration_test_get_info() {
                 assert!(res["okay"].as_bool().unwrap());
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
-                let expected_data = chain_state.clarity_eval_read_only(pox_dbconn, bhh, &contract_identifier,
+                let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(get-exotic-data-info u1)");
                 assert_eq!(result_data, expected_data);
 
@@ -506,7 +505,7 @@ fn integration_test_get_info() {
                 assert!(res["okay"].as_bool().unwrap());
 
                 let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
-                let expected_data = chain_state.clarity_eval_read_only(pox_dbconn, bhh, &contract_identifier,
+                let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(get-exotic-data-info? u1)");
                 assert_eq!(result_data, expected_data);
 
@@ -678,7 +677,7 @@ fn contract_stx_transfer() {
         return
     });
 
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, pox_dbconn| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}",
                                                         to_addr(
@@ -694,7 +693,7 @@ fn contract_stx_transfer() {
                 let cur_tip = (chain_tip.metadata.consensus_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
                 // check that 1000 stx _was_ transfered to the contract principal
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                    chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
@@ -704,7 +703,7 @@ fn contract_stx_transfer() {
                 let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                 let addr_3 = to_addr(&sk_3).into();
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                    chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&addr_3)
                         })
@@ -728,7 +727,7 @@ fn contract_stx_transfer() {
                 let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
                 let addr_2 = to_addr(&sk_2).into();
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                    chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&addr_2)
                         })
@@ -736,7 +735,7 @@ fn contract_stx_transfer() {
                     1);
 
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                    chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
@@ -752,7 +751,7 @@ fn contract_stx_transfer() {
 
                 // check that 1000 stx were sent to the contract
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                    chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
@@ -762,7 +761,7 @@ fn contract_stx_transfer() {
                 let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                 let addr_3 = to_addr(&sk_3).into();
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                    chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&addr_3)
                         })
@@ -802,7 +801,7 @@ fn mine_contract_twice() {
         }
     });
 
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, pox_dbconn| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}",
                                                         to_addr(
@@ -813,7 +812,7 @@ fn mine_contract_twice() {
             let cur_tip = (chain_tip.metadata.consensus_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
             // check that the contract published!
             assert_eq!(
-                &chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                &chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                     conn.with_clarity_db_readonly(|db| {
                         db.get_contract_src(&contract_identifier).unwrap()
                     })
@@ -872,7 +871,7 @@ fn bad_contract_tx_rollback() {
         return
     });
 
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, pox_dbconn| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}",
                                                         to_addr(
@@ -888,7 +887,7 @@ fn bad_contract_tx_rollback() {
                 let cur_tip = (chain_tip.metadata.consensus_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
                 // check that 1000 stx _was_ transfered to the contract principal
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                    chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&contract_identifier.clone().into())
                         })
@@ -898,7 +897,7 @@ fn bad_contract_tx_rollback() {
                 let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
                 let addr_3 = to_addr(&sk_3).into();
                 assert_eq!(
-                    chain_state.with_read_only_clarity_tx(pox_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
+                    chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             db.get_account_stx_balance(&addr_3)
                         })
@@ -988,7 +987,7 @@ fn block_limit_runtime_test() {
         return
     });
 
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _chain_state, block, _chain_tip_info, _pox_dbconn| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _chain_state, block, _chain_tip_info, _burn_dbconn| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let _contract_identifier =
             QualifiedContractIdentifier::parse(
@@ -1049,7 +1048,7 @@ fn mempool_errors() {
         return
     });
 
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _chain_state, _block, _chain_tip_info, _pox_dbconn| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _chain_state, _block, _chain_tip_info, _burn_dbconn| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let _contract_identifier =
             QualifiedContractIdentifier::parse(

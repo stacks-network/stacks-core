@@ -47,7 +47,7 @@ use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::vm::costs::ExecutionCost;
 
-use stacks::vm::database::PoxStateDB;
+use stacks::vm::database::BurnStateDB;
 
 use stacks::monitoring::{
     increment_stx_blocks_mined_counter,
@@ -141,7 +141,7 @@ fn inner_process_tenure(
 
     let canonical_tip = StacksBlockId::new(&canonical_consensus_hash, &canonical_block_hash);
     debug!("Reload unconfirmed state");
-    chain_state.reload_unconfirmed_state(canonical_tip)?;
+    chain_state.reload_unconfirmed_state(&burn_db.index_conn(), canonical_tip)?;
 
     Ok(true)
 }
@@ -631,7 +631,7 @@ impl InitializedNeonNode {
     fn relayer_mint_microblocks(mined_block_consensus_hash: &ConsensusHash,
                                 mined_block_shh: &BlockHeaderHash,
                                 chain_state: &mut StacksChainState,
-                                pox_dbconn: &dyn PoxStateDB,
+                                burn_dbconn: &dyn BurnStateDB,
                                 keychain: &Keychain,
                                 consumed_execution: ExecutionCost,
                                 bytes_so_far: u64,
@@ -639,7 +639,7 @@ impl InitializedNeonNode {
         let mut microblock_miner = StacksMicroblockBuilder::new(mined_block_shh.clone(),
                                                                 mined_block_consensus_hash.clone(),
                                                                 chain_state,
-                                                                pox_dbconn,
+                                                                burn_dbconn,
                                                                 consumed_execution,
                                                                 bytes_so_far)?;
         let mblock_key = keychain.get_microblock_key()

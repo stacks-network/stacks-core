@@ -89,7 +89,7 @@ fn mempool_setup_chainstate() {
         }
     });
 
-    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, _pox_dbconn| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, _burn_dbconn| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let contract_addr = to_addr(&contract_sk);
 
