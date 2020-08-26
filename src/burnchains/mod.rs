@@ -271,6 +271,7 @@ pub struct Burnchain {
     pub first_block_hash: BurnchainHeaderHash,
     pub reward_cycle_period: u64,
     pub registration_period: u64,
+    pub pox_rejection_fraction: u64,
 }
 
 /// Structure for encoding our view of the network 
