@@ -1,4 +1,4 @@
-name: stacks-blockchain-test
+name: stacks-blockchain
 
 # Only run when:
 #   - tags starting with "v" get pushed
