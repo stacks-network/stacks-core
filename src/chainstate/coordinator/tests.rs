@@ -169,7 +169,7 @@ pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispat
 
 fn get_burnchain(path: &str) -> Burnchain {
     let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
-    b.pox_constants = PoxConstants::new(5, 3, 3);
+    b.pox_constants = PoxConstants::new(5, 3, 3, 25);
     b
 }
 
@@ -1059,6 +1059,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(chainstate_path);
     chainstate.with_read_only_clarity_tx(
+        &sort_db.index_conn(),
         &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
         |conn| conn.with_readonly_clarity_env(
             PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
