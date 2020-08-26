@@ -282,27 +282,31 @@ pub struct PoxConstants {
     /// the number of confirmations a PoX anchor block must
     ///  receive in order to become the anchor. must be at least > prepare_length/2
     pub anchor_threshold: u32,
+    /// fraction of liquid STX that must vote to reject PoX for
+    /// it to revert to PoB in the next reward cycle
+    pub pox_rejection_fraction: u32,
     _shadow: PhantomData<()>,
 }
 
 impl PoxConstants {
-    pub fn new(reward_cycle_length: u32, prepare_length: u32, anchor_threshold: u32) -> PoxConstants {
+    pub fn new(reward_cycle_length: u32, prepare_length: u32, anchor_threshold: u32, pox_rejection_fraction: u32) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
 
         PoxConstants {
             reward_cycle_length,
             prepare_length,
             anchor_threshold,
+            pox_rejection_fraction,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        PoxConstants::new(10, 5, 3)
+        PoxConstants::new(10, 5, 3, 25)
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(1000, 240, 192)
+        PoxConstants::new(1000, 240, 192, 25)
     }
 }
 
