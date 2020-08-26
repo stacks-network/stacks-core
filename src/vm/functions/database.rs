@@ -112,10 +112,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
             return Err(CheckErrors::ReturnTypesMustMatch(returns_type_signature.clone(), actual_returns.clone()).into())
         }
     }
-
-    // take any special actions with the result.
-    let sender_principal = nested_env.sender.clone().map(|v| v.expect_principal());
-    handle_contract_call_special_cases(&mut nested_env.global_context.database, sender_principal.as_ref(), &contract_identifier, function_name, &result)?;
+    
     Ok(result)
 }
 
