@@ -441,7 +441,8 @@ it to crowd out other miners. In the extreme case, this consolidation
 could lead to centralization of mining, which would undermine the
 decentralization goals of the Stacks blockchain. While we are actively
 investigating additional mechanisms to address this potential
-consolidation, we propose a time-bounded PoX mechanism here.
+consolidation, we propose a time-bounded PoX mechanism and a Stacker-
+driven mechanism here.
 
 **Time-Bounded PoX.** Stacking rewards incentivize miner consolidation
 if miners obtain _permanent_ advantages for obtaining the new
@@ -471,3 +472,19 @@ use PoX to help bootstrap support for the new blockchain, providing
 miners and holders with incentives for participating in the network
 early on. Then, as natural use cases for the blockchain develop and
 gain steam, the PoX system could gradually scale down.
+
+**Stacker-driven PoX.**  To further discourage miners from consolidating,
+holders of liquid (i.e. non-Stacked) STX tokens may vote to disable PoX in the next upcoming
+reward cycle.  This can be done with any amount of STX, and the act of voting
+to disable PoX does not lock the tokens.
+
+This allows a community of vigilent
+users guard the chain from bad miner behavior arising from consolidation
+on a case-by-case basis.  Specifically, if a fraction _R_ of liquid STX
+tokens vote to disable PoX, it is disabled
+only for the next reward cycle.  To continuously deactivate PoX, the STX
+holders must continuously vote to disable it.
+
+Due to the costs of remaining vigilent, this proposal recomments _R = 0.25_.
+At the time of this writing, this is higher than any single STX allocation, but
+not so high that large-scale cooperation is needed to stop a mining cartel.
