@@ -5156,7 +5156,7 @@ pub mod test {
                 let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block.0, vec![])
             });
 
