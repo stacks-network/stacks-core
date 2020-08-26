@@ -1,8 +1,6 @@
 version: 2.1
 executors:
   docker-publisher:
-    environment:
-      IMAGE_NAME: blockstack/stacks-blockchain
     docker:
       - image: circleci/buildpack-deps:stretch
 jobs:
@@ -61,68 +59,12 @@ jobs:
           no_output_timeout: 200m
           command: |
             cargo test --workspace && cargo test -- --ignored --test-threads 1
-  build-docker:
-    executor: docker-publisher
-    steps:
-      - checkout
-      - setup_remote_docker
-      - run:
-          name: build docker image
-          no_output_timeout: 30m
-          command: docker build . -t $IMAGE_NAME:latest
-      - run:
-          name: save image to workspace
-          command: docker save -o image.tar $IMAGE_NAME:latest
-      - persist_to_workspace:
-          root: .
-          paths:
-            - ./image.tar
-  build-docker-stretch:
-    executor: docker-publisher
-    steps:
-      - checkout
-      - setup_remote_docker
-      - run:
-          name: build docker image
-          no_output_timeout: 30m
-          command: docker build . -f Dockerfile.stretch -t $IMAGE_NAME:stretch
-      - run:
-          name: save image to workspace
-          command: docker save -o image-stretch.tar $IMAGE_NAME:stretch
-      - persist_to_workspace:
-          root: .
-          paths:
-            - ./image-stretch.tar
-  push-docker-tags:
-    executor: docker-publisher
-    steps:
-      - attach_workspace:
-          at: /tmp/workspace
-      - setup_remote_docker
-      - run:
-          name: load docker image
-          command: docker load -i /tmp/workspace/image.tar
-      - run:
-          name: load docker image
-          command: docker load -i /tmp/workspace/image-stretch.tar
-      - run:
-          name: push docker image
-          command: |
-            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-            if [ "${CIRCLE_BRANCH}" = "master" ]; then
-               docker tag $IMAGE_NAME:latest $IMAGE_NAME:master
-               docker push $IMAGE_NAME:latest
-               docker push $IMAGE_NAME:master
-               docker push $IMAGE_NAME:stretch
-            fi
 workflows:
   version: 2
-  build-deploy:
+  test:
     jobs:
       - unit_tests
       - test_demo
-      - build-docker
-      - build-docker-stretch
       - all_tests:
           filters:
             branches:
@@ -130,12 +72,3 @@ workflows:
                 - master
                 - /.*net.*/
                 - /.*marf.*/
-      - push-docker-tags:
-          requires:
-            - unit_tests
-            - build-docker
-            - build-docker-stretch
-          filters:
-            branches:
-              only:
-                - master
