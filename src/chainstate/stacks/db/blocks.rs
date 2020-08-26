@@ -2830,11 +2830,17 @@ impl StacksChainState {
                     0
                 };
 
+            // total burns
+            let total_burnt = block_burns.checked_add(microblock_burns).expect("Overflow: Too many STX burnt");
+
             // unlock any uSTX
             let new_unlocked_ustx = StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+
+            // calculate total liquid STX
             let total_liquid_ustx = parent_chain_tip.total_liquid_ustx
                 .checked_add(new_liquid_miner_ustx).expect("FATAL: uSTX overflow")
-                .checked_add(new_unlocked_ustx).expect("FATAL: uSTX overflow");
+                .checked_add(new_unlocked_ustx).expect("FATAL: uSTX overflow")
+                .checked_sub(total_burnt).expect("FATAL: uSTX underflow");
 
             let root_hash = clarity_tx.get_root_hash();
             if root_hash != block.header.state_index_root {
@@ -2859,7 +2865,7 @@ impl StacksChainState {
                                                                                        next_block_height, 
                                                                                        block_fees,                // TODO: calculate (STX/compute unit) * (compute used) 
                                                                                        microblock_fees, 
-                                                                                       block_burns.checked_add(microblock_burns).expect("Overflow: Too many STX burnt"),
+                                                                                       total_burnt,
                                                                                        burnchain_commit_burn,
                                                                                        burnchain_sortition_burn,
                                                                                        0xffffffffffffffff)        // TODO: calculate total compute budget and scale up
