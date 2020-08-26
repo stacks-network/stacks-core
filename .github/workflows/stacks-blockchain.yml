@@ -90,7 +90,7 @@ jobs:
           # Only push if (a tag was passed in) or (we're building a tag) or (we're building a non-master branch which isn't a PR)
           push: ${{ github.event.inputs.tag != '' || contains(github.ref, 'refs/tags') || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
 
-  # Build stretch docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
+  # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
   # Will publish if:
   #   - a tag was passed into this workflow
   #   - a tag was pushed up
@@ -99,10 +99,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      # Stretch tag will be "<TAG>-stretch" if a tag was passed in, otherwise "<BRANCH>-stretch". If the BRANCH is master, will result in "latest-stretch"
       - name: Determine Stretch Tag
         run: |
           if [[ -z ${TAG} ]]; then
-              echo '::set-env name=STRETCH_TAG::stretch'
+              REF=$(echo ${GITHUB_REF#refs/*/} | tr / -)
+              if [[ "${REF}" == "master" ]]; then
+                  echo "::set-env name=STRETCH_TAG::latest-stretch"
+              else
+                  echo "::set-env name=STRETCH_TAG::${REF}-stretch"
+              fi
           else
               echo "::set-env name=STRETCH_TAG::${TAG}-stretch"
           fi
