@@ -454,7 +454,6 @@ pub mod tests {
             stable_confirmations: 7,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
-            pox_rejection_fraction: 25,
         };
         
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();

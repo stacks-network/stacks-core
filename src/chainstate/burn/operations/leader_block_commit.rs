@@ -581,7 +581,6 @@ mod tests {
             stable_confirmations: 7,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
-            pox_rejection_fraction: 25,
         };
         
         let leader_key_1 = LeaderKeyRegisterOp { 

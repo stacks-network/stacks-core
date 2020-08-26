@@ -363,8 +363,6 @@ mod test {
             stable_confirmations: 7,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
-            registration_period: 250,
-            pox_rejection_fraction: 25,
         };
 
         let db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
