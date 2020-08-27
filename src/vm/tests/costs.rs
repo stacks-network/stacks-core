@@ -19,6 +19,10 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::StacksBlockId;
 
+use chainstate::stacks::StacksBlockHeader;
+use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use core::FIRST_STACKS_BLOCK_HASH;
+
 pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     use vm::functions::NativeFunctions::*;
     match function {
@@ -89,7 +93,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetAssetOwner => "(nft-get-owner? nft-foo 1)",
         TransferToken => "(ft-transfer? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         TransferAsset => "(nft-transfer? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        AtBlock => "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 1)",
+        AtBlock => "(at-block 0x55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee 1)",   // first stacksblockid
         GetStxBalance => "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxTransfer => "(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxBurn => "(stx-burn? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
@@ -134,14 +138,14 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     let mut marf_kv = MarfedKV::temporary();
     marf_kv.begin(&TrieFileStorage::block_sentinel(),
-                  &StacksBlockId([0 as u8; 32]));
+                  &StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH));
 
     {
         marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB).initialize();
     }
 
     marf_kv.test_commit();
-    marf_kv.begin(&StacksBlockId([0 as u8; 32]),
+    marf_kv.begin(&StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
                   &StacksBlockId([1 as u8; 32]));
 
 
