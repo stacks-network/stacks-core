@@ -135,6 +135,12 @@ impl From<sqlite_error> for Error {
     }
 }
 
+impl From<MARFError> for Error {
+    fn from(e: MARFError) -> Error {
+        Error::IndexError(e)
+    }
+}
+
 pub trait FromRow<T> {
     fn from_row<'a>(row: &'a Row) -> Result<T, Error>;
 }
@@ -287,11 +293,9 @@ where
     P::Item: ToSql,
     T: FromColumn<T>
 {
-    let mut stmt = conn.prepare(sql_query)
-        .map_err(Error::SqliteError)?;
+    let mut stmt = conn.prepare(sql_query)?;
 
-    let mut rows = stmt.query(sql_args)
-        .map_err(Error::SqliteError)?;
+    let mut rows = stmt.query(sql_args)?;
 
     // gather 
     let mut row_data = vec![];
@@ -316,11 +320,9 @@ where
     P: IntoIterator,
     P::Item: ToSql
 {
-    let mut stmt = conn.prepare(sql_query)
-        .map_err(Error::SqliteError)?;
+    let mut stmt = conn.prepare(sql_query)?;
 
-    let mut rows = stmt.query(sql_args)
-        .map_err(Error::SqliteError)?;
+    let mut rows = stmt.query(sql_args)?;
 
     let mut row_data = vec![];
     while let Some(row_res) = rows.next() {
@@ -472,20 +474,22 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
 /// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
 /// then we don't have to worry about any extra rollback logic.
 pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Error> {
-    conn.busy_handler(Some(tx_busy_handler)).map_err(Error::SqliteError)?;
-    let tx = Transaction::new(conn, TransactionBehavior::Immediate).map_err(Error::SqliteError)?;
+    conn.busy_handler(Some(tx_busy_handler))?;
+    let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
     Ok(tx)
 }
 
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
 pub fn get_ancestor_block_hash<T: MarfTrieId>(index: &MARF<T>, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
     assert!(block_height < u32::max_value() as u64);
-    MARF::get_block_at_height(&mut index.reopen_storage_readonly().map_err(Error::IndexError)?, block_height as u32, tip_block_hash).map_err(Error::IndexError)
+    let mut read_only = index.reopen_storage_readonly()?;
+    MARF::get_block_at_height(&mut read_only.connection(), block_height as u32, tip_block_hash).map_err(Error::IndexError)
 }
 
 /// Get the height of an ancestor block, if it is indeed the ancestor.
 pub fn get_ancestor_block_height<T: MarfTrieId>(index: &MARF<T>, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
-    match MARF::get_block_height(&mut index.reopen_storage_readonly().map_err(Error::IndexError)?, ancestor_block_hash, tip_block_hash).map_err(Error::IndexError)? {
+    let mut read_only = index.reopen_storage_readonly()?;
+    match MARF::get_block_height(&mut read_only.connection(), ancestor_block_hash, tip_block_hash)? {
         Some(height_u32) => {
             Ok(Some(height_u32 as u64))
         }
@@ -521,7 +525,7 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
 
 /// Get a value from the fork index
 pub fn get_indexed<T: MarfTrieId>(conn: &DBConn, index: &MARF<T>, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-    let mut ro_index = index.reopen_readonly().map_err(Error::IndexError)?;
+    let mut ro_index = index.reopen_readonly()?;
     let parent_index_root = match ro_index.get_root_hash_at(header_hash) {
         Ok(root) => {
             root
@@ -621,7 +625,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     /// Store some data to the index storage.
     fn store_indexed(&mut self, value: &String) -> Result<MARFValue, Error> {
         let marf_value = MARFValue::from_value(value);
-        self.tx().execute("INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)", &[&to_hex(&marf_value.to_vec()), value]).map_err(Error::SqliteError)?;
+        self.tx().execute("INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)", &[&to_hex(&marf_value.to_vec()), value])?;
         Ok(marf_value)
     }
 
@@ -637,7 +641,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     pub fn put_indexed_begin(&mut self, parent_header_hash: &T, header_hash: &T) -> Result<(), Error> {
         match self.block_linkage {
             None => {
-                self.index.begin(parent_header_hash, header_hash).map_err(Error::IndexError)?;
+                self.index.begin(parent_header_hash, header_hash)?;
                 self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
                 Ok(())
             },
@@ -659,19 +663,21 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
             marf_values.push(marf_value);
         }
 
-        self.index.insert_batch(&keys, marf_values).map_err(Error::IndexError)?;
-        let root_hash = self.index.get_root_hash().map_err(Error::IndexError)?;
+        self.index.insert_batch(&keys, marf_values)?;
+        let root_hash = self.index.get_root_hash()?;
         Ok(root_hash)
     }
 
     /// Commit the tx
     pub fn commit(mut self) -> Result<(), Error> {
         let tx = self._tx.take();
-        test_debug!("Indexed-commit: storage");
-        tx.unwrap().commit().map_err(Error::SqliteError)?;
+        debug!("Indexed-commit: storage");
+        tx.unwrap().commit()?;
         if self.block_linkage.is_some() {
-            test_debug!("Indexed-commit: MARF index");
-            self.index.commit().map_err(Error::IndexError)?;
+            // force the issue.
+            sleep_ms(1000);
+            debug!("Indexed-commit: MARF index");
+            self.index.commit()?;
             self.block_linkage = None;
         }
         Ok(())
@@ -679,7 +685,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
 
     /// Get the root hash
     pub fn get_root_hash_at(&mut self, bhh: &T) -> Result<TrieHash, Error> {
-        let root_hash = self.index.get_root_hash_at(bhh).map_err(Error::IndexError)?;
+        let root_hash = self.index.get_root_hash_at(bhh)?;
         Ok(root_hash)
     }
 }

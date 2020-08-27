@@ -452,7 +452,7 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         if height == 0 {
-            Some(TrieFileStorage::block_sentinel())
+            Some(StacksBlockId::sentinel())
         } else {
             None
         }

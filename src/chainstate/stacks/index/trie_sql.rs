@@ -255,7 +255,7 @@ pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(conn: &Connection, bhh: &T, ptr
     Ok(TrieHash(hash_buff))
 }
 
-pub fn tx_lock_bhh_for_extension<'a, T: MarfTrieId>(tx: &mut Transaction<'a>, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
+pub fn tx_lock_bhh_for_extension<T: MarfTrieId>(tx: &Connection, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
     if !unconfirmed {
         // confirmed tries can only be extended once.
         // unconfirmed tries can be overwritten.
@@ -276,10 +276,11 @@ pub fn tx_lock_bhh_for_extension<'a, T: MarfTrieId>(tx: &mut Transaction<'a>, bh
     Ok(true)
 }
 
-pub fn lock_bhh_for_extension<T: MarfTrieId>(conn: &mut Connection, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
-    let mut tx = tx_begin_immediate(conn)?;
-    tx_lock_bhh_for_extension(&mut tx, bhh, unconfirmed)?;
-    tx.commit()?;
+pub fn lock_bhh_for_extension<T: MarfTrieId>(conn: &Connection, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
+//  TX_TODO
+//    let mut tx = tx_begin_immediate(conn)?;
+    tx_lock_bhh_for_extension(conn, bhh, unconfirmed)?;
+//    tx.commit()?;
     Ok(true)
 }
 
@@ -303,10 +304,12 @@ pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn clear_tables(conn: &mut Connection) -> Result<(), Error> {
-    let tx = tx_begin_immediate(conn)?;
-    tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
-    tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
-    tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
-    tx.commit().map_err(|e| e.into())
+pub fn clear_tables(conn: &Connection) -> Result<(), Error> {
+    // TX_TODO
+    //let tx = tx_begin_immediate(conn)?;
+    conn.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
+    conn.execute("DELETE FROM marf_data", NO_PARAMS)?;
+    conn.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
+    Ok(())
+    //tx.commit().map_err(|e| e.into())
 }

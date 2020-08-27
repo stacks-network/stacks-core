@@ -137,6 +137,21 @@ impl <T: MarfTrieId> BlockMap for TrieFileStorage<T> {
     }
 }
 
+impl <'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
+    type TrieId = T;
+
+    fn get_block_hash(&self, id: u32) -> Result<T, Error> {
+        trie_sql::get_block_hash(&self.db, id)
+    }
+
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
+        if !self.block_hash_cache.contains_key(&id) {
+            self.block_hash_cache.insert(id, self.get_block_hash(id)?);
+        }
+        Ok(&self.block_hash_cache[&id])
+    }
+}
+
 impl <T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
     type TrieId = T;
 
@@ -571,6 +586,37 @@ impl NodeHashReader for TrieSqlCursor<'_> {
     }
 }
 
+pub struct TrieStorageConnection <'a, T: MarfTrieId> {
+    last_extended: Option<(T, TrieRAM<T>)>,
+
+    db: &'a Connection,
+    cur_block: T,
+    /// Tracking the row_id for the cur_block. If cur_block == last_extended,
+    ///   this value should always be None
+    cur_block_id: Option<u32>,
+
+    read_count: u64,
+    read_backptr_count: u64,
+    read_node_count: u64,
+    read_leaf_count: u64,
+
+    write_count: u64,
+    write_node_count: u64,
+    write_leaf_count: u64,
+
+    trie_ancestor_hash_bytes_cache: Option<(T, Vec<TrieHash>)>,
+
+    block_hash_cache: HashMap<u32, T>,
+
+    pub readonly: bool,
+    pub unconfirmed: bool,
+
+    // used in testing in order to short-circuit block-height lookups
+    //   when the trie struct is tested outside of marf.rs usage
+    #[cfg(test)]
+    pub test_genesis_block: Option<T>,
+}
+
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
 // to extend_to_block() with a different block header hash.
@@ -594,7 +640,7 @@ pub struct TrieFileStorage <T: MarfTrieId> {
     write_node_count: u64,
     write_leaf_count: u64,
 
-    pub trie_ancestor_hash_bytes_cache: Option<(T, Vec<TrieHash>)>,
+    trie_ancestor_hash_bytes_cache: Option<(T, Vec<TrieHash>)>,
 
     block_hash_cache: HashMap<u32, T>,
 
@@ -608,6 +654,10 @@ pub struct TrieFileStorage <T: MarfTrieId> {
 }
 
 impl <T: MarfTrieId> TrieFileStorage <T> {
+    pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, T> {
+        panic!()
+    }
+
     fn open_opts(db_path: &str, readonly: bool, unconfirmed: bool) -> Result<TrieFileStorage<T>, Error> {
         let mut create_flag = false;
         let open_flags = 
@@ -665,7 +715,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             db,
 
             last_extended: None,
-            cur_block: TrieFileStorage::block_sentinel(),
+            cur_block: T::sentinel(),
             cur_block_id: None,
             
             read_count: 0,
@@ -742,7 +792,9 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
 
         Ok(ret)
     }
+}
 
+impl <'a, T: MarfTrieId> TrieStorageConnection <'a, T> {
     pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &T, bytes: Vec<TrieHash>) {
         self.trie_ancestor_hash_bytes_cache = Some((bhh.clone(), bytes));
     }
@@ -885,7 +937,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         let trie_buf = TrieRAM::new(bhh, size_hint, &self.cur_block);
         
         // place a lock on this block, so we can't extend to it again
-        if !trie_sql::lock_bhh_for_extension(&mut self.db, bhh, false)? {
+        if !trie_sql::lock_bhh_for_extension(self.db, bhh, false)? {
             warn!("Block already extended: {}", &bhh);
             return Err(Error::ExistsError);
         }
@@ -906,13 +958,14 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         self.flush()?;
 
         // try to load up the trie
-        let mut tx = tx_begin_immediate(&mut self.db)?;
+        // TX_TODO: this should be wrapped in a tx...
+        //    let mut tx = tx_begin_immediate(self.db)?;
         let (trie_buf, created) = 
-            if let Some(block_id) = trie_sql::get_unconfirmed_block_identifier(&mut tx, bhh)? {
+            if let Some(block_id) = trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)? {
                 debug!("Reload unconfirmed trie {} ({})", bhh, block_id);
 
                 // restore trie
-                let mut fd = trie_sql::open_trie_blob(&tx, block_id)?;
+                let mut fd = trie_sql::open_trie_blob(&self.db, block_id)?;
                 (TrieRAM::load(&mut fd, bhh)?, false)
             }
             else {
@@ -928,12 +981,12 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             };
 
         // place a lock on this block, so we can't extend to it again
-        if !trie_sql::tx_lock_bhh_for_extension(&mut tx, bhh, true)? {
+        if !trie_sql::tx_lock_bhh_for_extension(&self.db, bhh, true)? {
             warn!("Block already extended: {}", &bhh);
             return Err(Error::ExistsError);
         }
 
-        tx.commit()?;
+        // tx.commit()?;
 
         self.switch_trie(bhh, trie_buf);
         Ok(created)
@@ -996,7 +1049,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             return Ok(())
         }
 
-        let sentinel = TrieFileStorage::block_sentinel();
+        let sentinel = T::sentinel();
         if *bhh == sentinel {
             // just reset to newly opened state
             self.cur_block = sentinel;
@@ -1067,7 +1120,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             }
         }
 
-        TrieFileStorage::<T>::root_ptr_disk()
+        TrieStorageConnection::<T>::root_ptr_disk()
     }
 
     pub fn root_trieptr(&self) -> TriePtr {
@@ -1085,17 +1138,17 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             return Err(Error::ReadOnlyError);
         }
 
-        debug!("Format TrieFileStorage {}", &self.db_path);
+        debug!("Format TrieFileStorage");
 
         // blow away db
-        trie_sql::clear_tables(&mut self.db)?;
+        trie_sql::clear_tables(self.db)?;
 
         match self.last_extended {
             Some((_, ref mut trie_storage)) => trie_storage.format()?,
             None => {}
         };
 
-        self.cur_block = TrieFileStorage::block_sentinel();
+        self.cur_block = T::sentinel();
         self.cur_block_id = None;
         self.last_extended = None;
         self.clear_cached_ancestor_hashes_bytes();
@@ -1135,7 +1188,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         if let Some((ref last_extended, ref mut last_extended_trie)) = self.last_extended {
             if &self.cur_block == last_extended {
                 let hash_reader = last_extended_trie;
-                return TrieFileStorage::<T>::inner_write_children_hashes(hash_reader, &mut map, node, w)
+                return TrieStorageConnection::<T>::inner_write_children_hashes(hash_reader, &mut map, node, w)
             }
         }
 
@@ -1146,7 +1199,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
                                              Error::NotFoundError
                                          })? };
 
-        TrieFileStorage::<T>::inner_write_children_hashes(&mut cursor, &mut map, node, w)
+        TrieStorageConnection::<T>::inner_write_children_hashes(&mut cursor, &mut map, node, w)
     }
 
     fn inner_write_children_hashes<W: Write, H: NodeHashReader, M: BlockMap>(
@@ -1285,14 +1338,15 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
             trace!("Buffering block flush finished.");
 
             debug!("Flush: {} to {}", bhh, flush_options);
-            
-            let tx = tx_begin_immediate(&mut self.db)?;
+  
+            // TX_TODO
+//            let tx = tx_begin_immediate(self.db)?;
             let block_id = match flush_options {
                 FlushOptions::CurrentHeader => {
                     if self.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
-                    trie_sql::write_trie_blob(&tx, bhh, &buffer)?
+                    trie_sql::write_trie_blob(&self.db, bhh, &buffer)?
                 },
                 FlushOptions::NewHeader(real_bhh) => {
                     // If we opened a block with a given hash, but want to store it as a block with a *different*
@@ -1311,24 +1365,24 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
                         // switch over state
                         self.cur_block = real_bhh.clone();
                     }
-                    trie_sql::write_trie_blob(&tx, real_bhh, &buffer)?
+                    trie_sql::write_trie_blob(&self.db, real_bhh, &buffer)?
                 },
                 FlushOptions::MinedTable(real_bhh) => {
                     if self.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
-                    trie_sql::write_trie_blob_to_mined(&tx, real_bhh, &buffer)?
+                    trie_sql::write_trie_blob_to_mined(&self.db, real_bhh, &buffer)?
                 },
                 FlushOptions::UnconfirmedTable => {
                     if !self.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
-                    trie_sql::write_trie_blob_to_unconfirmed(&tx, bhh, &buffer)?
+                    trie_sql::write_trie_blob_to_unconfirmed(&self.db, bhh, &buffer)?
                 }
             };
 
-            trie_sql::drop_lock(&tx, bhh)?;
-            tx.commit()?;
+            trie_sql::drop_lock(&self.db, bhh)?;
+//            tx.commit()?;
 
             debug!("Flush: identifier of {} is {}", flush_options, block_id);
         }
@@ -1357,12 +1411,13 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
         self.clear_cached_ancestor_hashes_bytes();
         if !self.readonly {
             if let Some((ref bhh, _)) = self.last_extended.take() {
-                let tx = tx_begin_immediate(&mut self.db)
-                    .expect("Corruption: Failed to obtain db transaction");
-                trie_sql::drop_lock(&tx, bhh)
+                // TX_TODO
+//                let tx = tx_begin_immediate(self.db)
+//                    .expect("Corruption: Failed to obtain db transaction");
+                trie_sql::drop_lock(&self.db, bhh)
                     .expect("Corruption: Failed to drop the extended trie lock");
-                tx.commit()
-                    .expect("Corruption: Failed to drop the extended trie");
+//                tx.commit()
+//                    .expect("Corruption: Failed to drop the extended trie");
             }
             self.last_extended = None;
             self.cur_block_id = None;
@@ -1373,14 +1428,15 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     pub fn drop_unconfirmed_trie(&mut self, bhh: &T) {
         self.clear_cached_ancestor_hashes_bytes();
         if !self.readonly && self.unconfirmed {
-            let tx = tx_begin_immediate(&mut self.db)
-                .expect("Corruption: Failed to obtain db transaction");
-            trie_sql::drop_unconfirmed_trie(&tx, bhh)
+            // TX_TODO
+//            let tx = tx_begin_immediate(self.db)
+//                .expect("Corruption: Failed to obtain db transaction");
+            trie_sql::drop_unconfirmed_trie(&self.db, bhh)
                 .expect("Corruption: Failed to drop unconfirmed trie");
-            trie_sql::drop_lock(&tx, bhh)
+            trie_sql::drop_lock(&self.db, bhh)
                 .expect("Corruption: Failed to drop the extended trie lock");
-            tx.commit()
-                .expect("Corruption: Failed to drop the extended trie");
+//            tx.commit()
+//                .expect("Corruption: Failed to drop the extended trie");
             self.last_extended = None;
             self.cur_block_id = None;
             self.trie_ancestor_hash_bytes_cache = None;
@@ -1514,7 +1570,7 @@ pub mod test {
         let confirmed_marf_storage = TrieFileStorage::<StacksBlockId>::open(&test_name).unwrap();
         let mut confirmed_marf = MARF::<StacksBlockId>::from_storage(confirmed_marf_storage);
 
-        confirmed_marf.begin(&TrieFileStorage::block_sentinel(), &StacksBlockId([0x02; 32])).unwrap();
+        confirmed_marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0x02; 32])).unwrap();
 
         // pre-populate
         for i in 0..n {

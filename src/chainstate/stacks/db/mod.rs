@@ -48,7 +48,8 @@ use chainstate::stacks::db::accounts::*;
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::index::{
     TrieHash,
-    MARFValue
+    MARFValue,
+    MarfTrieId,
 };
 use chainstate::stacks::index::marf::{
     MARF,
@@ -708,7 +709,7 @@ impl StacksChainState {
         {
             // add a block header entry for the boot code
             let mut headers_tx = chainstate.headers_tx_begin()?;
-            let parent_hash = TrieFileStorage::block_sentinel();
+            let parent_hash = StacksBlockId::sentinel();
             let first_index_hash = StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
             
             test_debug!("Boot code headers index_put_begin {}-{}", &parent_hash, &first_index_hash);
@@ -981,7 +982,7 @@ impl StacksChainState {
     fn get_parent_index_block(parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> StacksBlockId {
         if *parent_block == BOOT_BLOCK_HASH {
             // begin boot block
-            TrieFileStorage::block_sentinel()
+            StacksBlockId::sentinel()
         }
         else if *parent_block == FIRST_STACKS_BLOCK_HASH {
             // begin first-ever block
@@ -1033,7 +1034,6 @@ impl StacksChainState {
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(burn_hash: &BurnchainHeaderHash, header: &StacksBlockHeader) -> StacksBlockId {
         if burn_hash == &FIRST_BURNCHAIN_BLOCK_HASH {
-            // TrieFileStorage::block_sentinel()
             StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)
         } else {
             header.index_block_hash(burn_hash)

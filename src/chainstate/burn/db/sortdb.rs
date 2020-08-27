@@ -1239,7 +1239,8 @@ impl <'a> SortitionDBConn <'a> {
         let stable_snapshot = db_handle.get_block_snapshot_by_height(stable_block_height)?
             .ok_or_else(|| {
                 // shouldn't be possible, but don't panic since this is network-callable code
-                error!("Failed to load snapshot for block {} from fork {}", stable_block_height, &chain_tip.burn_header_hash);
+                error!("Failed to load snapshot for block {} from burnchain_header={}, sortition_id={}, first_block_height={}, first_block_height={}",
+                       stable_block_height, &chain_tip.burn_header_hash, &chain_tip.sortition_id, &self.context.first_block_height, burnchain.first_block_height);
                 db_error::Corruption
             })?;
 
@@ -2026,8 +2027,74 @@ mod tests {
     use chainstate::stacks::StacksAddress;
     use chainstate::stacks::StacksPublicKey;
     use address::AddressHashMode;
-
+    use std::sync::mpsc::sync_channel;
+    use std::thread;
     use core::*;
+
+    #[test]
+    fn silly_sqlite_test() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir_2 = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let first_burn_hash = BurnchainHeaderHash([0; 32]);
+        let first_block_height = 1;
+
+        let (sender_a, receiver_a) = sync_channel(1);
+        let (sender_b, receiver_b) = sync_channel(1);
+
+        thread::spawn(move || {
+            let mut db_1 = SortitionDB::connect(&db_path_dir, first_block_height, &first_burn_hash,
+                                                get_epoch_time_secs(), true).unwrap();
+            let sortition_id = SortitionDB::get_canonical_burn_chain_tip_stubbed(&db_1.conn).unwrap().sortition_id;
+
+            let tx = SortitionHandleTx::begin(&mut db_1, 
+                                              &sortition_id)
+                .unwrap();
+
+            tx.execute("INSERT INTO canonical_accepted_stacks_blocks (tip_burn_block_hash, burn_block_hash, stacks_block_hash, block_height)
+                    VALUES (\"aaaaaaa\", \"bbbbbbbb\", \"ccccccccc\", 1234)", rusqlite::NO_PARAMS).unwrap();
+
+            sender_b.send(1).unwrap();
+            receiver_a.recv().unwrap();
+
+            sender_b.send(2).unwrap();
+            receiver_a.recv().unwrap();
+
+            tx.commit().unwrap();
+
+            sender_b.send(3).unwrap();
+        });
+
+
+        let j2 = thread::spawn(move || {
+            receiver_b.recv().unwrap(); // wait for db_1 to connect
+
+            let mut db_2 = SortitionDB::connect(&db_path_dir_2, first_block_height, &first_burn_hash,
+                                                get_epoch_time_secs(), true).unwrap();
+
+            let a: i64 = db_2.conn.query_row("SELECT COUNT(*) FROM canonical_accepted_stacks_blocks", rusqlite::NO_PARAMS,
+                                             |row| row.get(0)).unwrap();
+
+            sender_a.send(1).unwrap();
+            receiver_b.recv().unwrap();
+
+            let b: i64 = db_2.conn.query_row("SELECT COUNT(*) FROM canonical_accepted_stacks_blocks", rusqlite::NO_PARAMS,
+                                             |row| row.get(0)).unwrap();
+           
+            sender_a.send(2).unwrap();
+            receiver_b.recv().unwrap();
+
+            let c: i64 = db_2.conn.query_row("SELECT COUNT(*) FROM canonical_accepted_stacks_blocks", rusqlite::NO_PARAMS,
+                                             |row| row.get(0)).unwrap();
+
+            eprintln!("Got row counts: {}, {}, {}", a, b, c);
+
+        });
+
+        j2.join().unwrap();
+    }
 
     #[test]
     fn test_instantiate() {
