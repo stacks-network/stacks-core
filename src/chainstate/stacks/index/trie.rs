@@ -830,14 +830,15 @@ mod test {
     #[test]
     fn trie_cursor_try_attach_leaf() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let mut f = TrieStorageConnection::new_memory().unwrap();
+            let mut f_store = TrieFileStorage::new_memory().unwrap();
+            let mut f = f_store.connection();
 
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block = Some(block_header.clone());
+            f.test_genesis_block.replace(block_header.clone());
 
             let path_segments = vec![
                 (vec![], 0),
@@ -957,14 +958,15 @@ mod test {
 
     #[test]
     fn trie_cursor_promote_leaf_to_node4() {
-        let mut f = TrieStorageConnection::new_memory().unwrap();
+        let mut f_store = TrieFileStorage::new_memory().unwrap();
+        let mut f = f_store.connection();
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
 
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block = Some(block_header.clone());
+        f.test_genesis_block.replace(block_header.clone());
 
         let (node, root_hash) = Trie::read_root(&mut f).unwrap();
 
@@ -1055,13 +1057,14 @@ mod test {
 
     #[test]
     fn trie_cursor_promote_node4_to_node16() {
-        let mut f = TrieStorageConnection::new_memory().unwrap();
-        
+        let mut f_store = TrieFileStorage::new_memory().unwrap();
+        let mut f = f_store.connection();
+
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block = Some(block_header.clone());
+        f.test_genesis_block.replace(block_header.clone());
 
         let path_segments = vec![
             (vec![], 0),
@@ -1168,13 +1171,14 @@ mod test {
 
     #[test]
     fn trie_cursor_promote_node16_to_node48() {
-        let mut f = TrieStorageConnection::new_memory().unwrap();
+        let mut f_store = TrieFileStorage::new_memory().unwrap();
+        let mut f = f_store.connection();
         
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block = Some(block_header.clone());
+        f.test_genesis_block.replace(block_header.clone());
         
         let path_segments = vec![
             (vec![], 0),
@@ -1348,13 +1352,14 @@ mod test {
 
     #[test]
     fn trie_cursor_promote_node48_to_node256() {
-        let mut f = TrieStorageConnection::new_memory().unwrap();
+        let mut f_store = TrieFileStorage::new_memory().unwrap();
+        let mut f = f_store.connection();
         
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block = Some(block_header.clone());
+        f.test_genesis_block.replace(block_header.clone());
 
         let path_segments = vec![
             (vec![], 0),
@@ -1591,14 +1596,15 @@ mod test {
     #[test]
     fn trie_cursor_splice_leaf_4() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let mut f = TrieStorageConnection::new_memory().unwrap();
+            let mut f_store = TrieFileStorage::new_memory().unwrap();
+            let mut f = f_store.connection();
 
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block = Some(block_header.clone());
+            f.test_genesis_block.replace(block_header.clone());
 
             let path_segments = vec![
                 (vec![0,1,2,3], 4),
@@ -1648,14 +1654,15 @@ mod test {
     #[test]
     fn trie_cursor_splice_leaf_2() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let mut f = TrieFileStorage::new_memory().unwrap();
+            let mut f_store = TrieFileStorage::new_memory().unwrap();
+            let mut f = f_store.connection();
         
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block = Some(block_header.clone());
+            f.test_genesis_block.replace(block_header.clone());
 
             let path_segments = vec![
                 (vec![0,1], 2),
@@ -1709,8 +1716,8 @@ mod test {
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
-        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
-        MARF::get_block_height(marf.borrow_storage_backend() , &block_header, &block_header).unwrap().unwrap();
+        marf.begin(&BlockHeaderHash::sentinel(), &block_header).unwrap();
+        MARF::get_block_height(&mut marf.borrow_storage_backend() , &block_header, &block_header).unwrap().unwrap();
 
         for i in 0..count {
             eprintln!("{}", i);
@@ -1720,17 +1727,17 @@ mod test {
             marf.insert_raw(triepath, value).unwrap();
 
             if merkle_check {
-                merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
+                merkle_test(&mut marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
             }
         }
 
         for i in 0..count {
             let path = path_gen(i);
             let triepath = TriePath::from_bytes(&path).unwrap();
-            let value = MARF::get_path(marf.borrow_storage_backend(), &block_header, &triepath).unwrap().unwrap();
+            let value = MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &triepath).unwrap().unwrap();
             assert_eq!(value.data.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
             if merkle_check {
-                merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
+                merkle_test(&mut marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
             }
         }
         

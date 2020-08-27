@@ -14,6 +14,7 @@ use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, ClarityDatabase
 use vm::clarity::ClarityInstance;
 use vm::ast;
 use vm::costs::ExecutionCost;
+use chainstate::stacks::index::MarfTrieId;
 
 use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
 
@@ -169,9 +170,9 @@ fn test_simple_token_system() {
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
 
     {
-        let mut block = clarity.begin_block(&TrieFileStorage::block_sentinel(),
-                                        &test_block_headers(0),
-                                        &NULL_HEADER_DB);
+        let mut block = clarity.begin_block(&StacksBlockId::sentinel(),
+                                            &test_block_headers(0),
+                                            &NULL_HEADER_DB);
 
         let tokens_contract = SIMPLE_TOKENS;
 

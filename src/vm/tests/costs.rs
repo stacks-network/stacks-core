@@ -133,7 +133,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let trait_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
     let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(&TrieFileStorage::block_sentinel(),
+    marf_kv.begin(&StacksBlockId::sentinel(),
                   &StacksBlockId([0 as u8; 32]));
 
     {

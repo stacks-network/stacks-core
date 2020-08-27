@@ -1358,7 +1358,7 @@ mod test {
 
         let mut m = MARF::from_path(":memory:").unwrap();
 
-        let sentinel_block = TrieFileStorage::block_sentinel();
+        let sentinel_block = BlockHeaderHash::sentinel();
         let block_0 = BlockHeaderHash([0u8; 32]);
         let block_1 = BlockHeaderHash([1u8; 32]);
         let block_2 = BlockHeaderHash([2u8; 32]);
@@ -1373,13 +1373,13 @@ mod test {
         // Block #1
         m.begin(&block_0, &block_1).unwrap();
         let r = m.insert(&k1, MARFValue::from_value(&old_v));
-        let (_, root_hash_1) = Trie::read_root(m.borrow_storage_backend()).unwrap();
+        let (_, root_hash_1) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
         m.commit().unwrap();
 
         // Block #2
         m.begin(&block_1, &block_2).unwrap();
         let r = m.insert(&k1, MARFValue::from_value(&new_v));
-        let (_, root_hash_2) = Trie::read_root(m.borrow_storage_backend()).unwrap();
+        let (_, root_hash_2) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
         m.commit().unwrap();
 
         let old_value = m.get(&block_1, &k1);
@@ -1390,13 +1390,13 @@ mod test {
         
         let path = TriePath::from_key(&k1);
 
-        merkle_test_marf_key_value(m.borrow_storage_backend(), &block_2, &k1, &new_v, None);
+        merkle_test_marf_key_value(&mut m.borrow_storage_backend(), &block_2, &k1, &new_v, None);
 
         let root_to_block = m.borrow_storage_backend().read_root_to_block_table().unwrap();
 
         // create a proof from the current block to the old value.
         // It should succeed
-        let proof_2 = TrieMerkleProof::from_entry(m.borrow_storage_backend(), &k1, &old_v, &block_2).unwrap();
+        let proof_2 = TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_2).unwrap();
 
         // the verifier should not allow a proof from k1 to old_v from block_2
         let triepath_2 = TriePath::from_key(&k1);
@@ -1405,7 +1405,7 @@ mod test {
         
         // create a proof from the previous block to the old value.
         // It should succeed
-        let proof_1 = TrieMerkleProof::from_entry(m.borrow_storage_backend(), &k1, &old_v, &block_1).unwrap();
+        let proof_1 = TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_1).unwrap();
 
         // the verifier should allow a proof from k1 to old_v from block_1
         let triepath_1 = TriePath::from_key(&k1);

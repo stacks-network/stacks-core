@@ -1068,7 +1068,7 @@ mod tests {
             stx_balance: 5000
         };
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0; 32]),
                                                         &NULL_HEADER_DB);
 
