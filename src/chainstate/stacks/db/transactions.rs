@@ -493,6 +493,12 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
+                if *addr == origin_account.principal {
+                    let msg = format!("Invalid TokenTransfer: address tried to send to itself");
+                    warn!("{}", &msg);
+                    return Err(Error::InvalidStacksTransaction(msg, false));
+                }
+
                 let cost_before = clarity_tx.cost_so_far();
                 let (value, _asset_map, events) = clarity_tx.run_stx_transfer(&origin_account.principal, addr, *amount as u128)
                     .map_err(Error::ClarityError)?;
@@ -931,6 +937,7 @@ pub mod test {
                 },
                 _ => {
                     eprintln!("bad error: {:?}", &res);
+                    eprintln!("Expected '{}'", &err_frag);
                     assert!(false);
                 }
             }
