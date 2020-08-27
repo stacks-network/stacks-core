@@ -81,6 +81,9 @@ impl RunLoop {
 
         self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &mut first_tenure);
 
+        // TODO (hack) instantiate db
+        let _ = burnchain.sortdb_mut();
+
         // Run the tenure, keep the artifacts
         let artifacts_from_1st_tenure = match first_tenure.run(&burnchain.sortdb_ref().index_conn()) {
             Some(res) => res,

@@ -327,6 +327,9 @@ fn microblock_integration_test() {
     let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(&spender_sk, 1, 1000, &recipient.into(), 1000);
     let unconfirmed_tx = StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..]).unwrap();
 
+    // TODO (hack) instantiate the sortdb in the burnchain
+    let _ = btc_regtest_controller.sortdb_mut();
+
     // put it into a microblock
     let microblock = {
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
