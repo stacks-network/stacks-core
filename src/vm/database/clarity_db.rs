@@ -30,7 +30,11 @@ use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleConn, Sortiti
 
 use core::{
     FIRST_BURNCHAIN_BLOCK_HEIGHT,
+    FIRST_BURNCHAIN_BLOCK_HASH,
+    FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
     POX_REWARD_CYCLE_LENGTH,
+    FIRST_BURNCHAIN_CONSENSUS_HASH,
+    FIRST_STACKS_BLOCK_HASH
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -184,20 +188,40 @@ pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
 pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {};
 
 impl HeadersDB for NullHeadersDB {
-    fn get_burn_header_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
-        None
+    fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
+        if *id_bhh == StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+            Some(FIRST_BURNCHAIN_BLOCK_HASH)
+        }
+        else {
+            None
+        }
     }
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
     }
-    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
-        None
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
+        if *id_bhh == StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+            Some(FIRST_STACKS_BLOCK_HASH)
+        }
+        else {
+            None
+        }
     }
-    fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
-        None
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        if *id_bhh == StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+            Some(FIRST_BURNCHAIN_BLOCK_TIMESTAMP)
+        }
+        else {
+            None
+        }
     }
-    fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
-        None
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        if *id_bhh == StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+            Some(FIRST_BURNCHAIN_BLOCK_HEIGHT)
+        }
+        else {
+            None
+        }
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
         None
@@ -381,9 +405,16 @@ impl <'a> ClarityDatabase <'a> {
     /// This is the burnchain block height of its parent.
     pub fn get_current_burnchain_block_height(&mut self) -> u32 {
         let cur_stacks_height = self.store.get_current_block_height();
-        let last_mined_bhh = self.get_index_block_header_hash(cur_stacks_height.checked_sub(1).expect("BUG: cannot eval burn-block-height in boot code"));
+        let last_mined_bhh = 
+            if cur_stacks_height == 0 {
+                StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+            }
+            else {
+                self.get_index_block_header_hash(cur_stacks_height.checked_sub(1).expect("BUG: cannot eval burn-block-height in boot code"))
+            };
+
         self.get_burnchain_block_height(&last_mined_bhh)
-            .expect(&format!("Block header hash '{}' must return for provided burn block height", &last_mined_bhh))
+            .expect(&format!("Block header hash '{}' must return for provided stacks block height {}", &last_mined_bhh, cur_stacks_height))
     }
 
     pub fn get_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
