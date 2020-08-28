@@ -169,7 +169,7 @@ impl FunctionType {
         }
     }
 
-    pub fn check_args_by_allowing_trait_cast(&self, func_args: &[Value]) -> CheckResult<TypeSignature> {
+    pub fn check_args_by_allowing_trait_cast(&self, db: &mut AnalysisDatabase, func_args: &[Value]) -> CheckResult<TypeSignature> {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction{ args, returns }) => (args, returns),
             _ => panic!("Unexpected function type")
@@ -178,7 +178,13 @@ impl FunctionType {
 
         for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
             match (&expected_arg.signature, arg) {
-                (TypeSignature::TraitReferenceType(_), Value::Principal(PrincipalData::Contract(_))) => continue,
+                (TypeSignature::TraitReferenceType(trait_id), Value::Principal(PrincipalData::Contract(contract))) => {
+                    let contract_to_check = db.load_contract(contract)
+                        .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
+                    let trait_definition = db.get_defined_trait(&trait_id.contract_identifier, &trait_id.name).unwrap()
+                        .ok_or(CheckErrors::NoSuchContract(trait_id.contract_identifier.to_string()))?;
+                    contract_to_check.check_trait_compliance(trait_id, &trait_definition)?;
+                },
                 (expected_type, value) => {
                     let actual_type = TypeSignature::type_of(&value);
                     if !expected_type.admits_type(&actual_type) {
