@@ -619,6 +619,33 @@ is supplied the hash is computed over the little-endian representation of the in
     example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
 };
 
+const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 65)",
+    output_type: "(response (buff 33) uint)",
+    signature: "(secp256k1-recover message-hash signature)",
+    description: "The `secp256k1-recover` function recovers the public key used to sign the message `message-hash`
+    with the provided `signature`. If the signature does not match, it will return the error code `(err u1)`.
+    The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.",
+    example: "(secp256k1-recover 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)
+ ;; Returns 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110"
+};
+
+const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 65), (buff 33)",
+    output_type: "bool",
+    signature: "(secp256k1-verify message-hash signature public-key)",
+    description: "The `secp256k1-verify` function verifies that the provided signature of the message-hash
+was signed with the private key that generated the public key.
+The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.",
+    example: "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
+(secp256k1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
+ 0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns false"
+};
+
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     output_type: "(response A B)",
@@ -643,6 +670,14 @@ const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
   (begin
     (ok (contract-of contract)))) ;; returns the principal of the contract implementing <token-a-trait>
 "
+};
+
+const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 33)",
+    output_type: "principal",
+    signature: "(principal-of public-key)",
+    description: "The `principal-of` function returns the principal derived from the provided public key",
+    example: "(principal-of 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP"
 };
 
 const AT_BLOCK: SpecialAPI = SpecialAPI {
@@ -1159,7 +1194,7 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
     signature: "(ft-mint? token-name amount recipient)",
     description: "`ft-mint?` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
-rather minted.
+rather minted.  
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
 returns `(ok true)`.
@@ -1368,9 +1403,12 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Sha512 => make_for_special(&SHA512_API, name),
         Sha512Trunc256 => make_for_special(&SHA512T256_API, name),
         Keccak256 => make_for_special(&KECCAK256_API, name),
+        Secp256k1Recover => make_for_special(&SECP256K1RECOVER_API, name),
+        Secp256k1Verify => make_for_special(&SECP256K1VERIFY_API, name),
         Print => make_for_special(&PRINT_API, name),
         ContractCall => make_for_special(&CONTRACT_CALL_API, name),
         ContractOf => make_for_special(&CONTRACT_OF_API, name),
+        PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
         AsContract => make_for_special(&AS_CONTRACT_API, name),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, name),
         ConsOkay => make_for_special(&CONS_OK_API, name),

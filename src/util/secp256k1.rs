@@ -45,6 +45,9 @@ use rusqlite::Row;
 use rand::RngCore;
 use rand::thread_rng;
 
+use chainstate::stacks::StacksPublicKey;
+
+
 // per-thread Secp256k1 context
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
 
@@ -386,6 +389,29 @@ fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Resu
 
     LibSecp256k1PrivateKey::from_slice(&key_bytes[..])
         .map_err(de_Error::custom)
+}
+
+pub fn secp256k1_recover(message_arr: &[u8], serialized_signature_arr: &[u8]) -> Result<[u8; 33], LibSecp256k1Error> {
+    _secp256k1.with(|ctx| {
+        let message = LibSecp256k1Message::from_slice(message_arr)?;
+
+        let rec_id = LibSecp256k1RecoveryID::from_i32(serialized_signature_arr[64] as i32)?;
+        let recovered_sig = LibSecp256k1RecoverableSignature::from_compact(&serialized_signature_arr[..64], rec_id)?;
+        let recovered_pub = ctx.recover(&message, &recovered_sig)?;
+        let recovered_serialized = recovered_pub.serialize();  // 33 bytes version
+
+        Ok(recovered_serialized)
+    })
+}
+
+pub fn secp256k1_verify(message_arr: &[u8], serialized_signature_arr: &[u8], pubkey_arr: &[u8]) -> Result<(), LibSecp256k1Error> {
+    _secp256k1.with(|ctx| {
+        let message = LibSecp256k1Message::from_slice(message_arr)?;
+        let expanded_sig = LibSecp256k1Signature::from_compact(&serialized_signature_arr[..64])?;  // strip 65th byte
+        let pubkey = LibSecp256k1PublicKey::from_slice(pubkey_arr)?;
+
+        ctx.verify(&message, &expanded_sig, &pubkey)
+    })
 }
 
 #[cfg(test)]

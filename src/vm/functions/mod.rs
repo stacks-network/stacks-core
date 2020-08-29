@@ -8,13 +8,18 @@ mod options;
 mod assets;
 
 use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
-use vm::types::{Value, SequenceData, CharType, PrincipalData, ResponseData, TypeSignature};
+use vm::types::{BUFF_32, BUFF_33, BUFF_65, BuffData, Value, SequenceData, CharType, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::{CallableType, NativeHandle};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 use vm::costs::{cost_functions, MemoryConsumer, CostTracker, constants as cost_constants};
 use util::hash;
+
+use chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksAddress};
+use address::AddressHashMode;
+
+use util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
 
 define_named_enum!(NativeFunctions {
     Add("+"),
@@ -58,10 +63,13 @@ define_named_enum!(NativeFunctions {
     Sha512("sha512"),
     Sha512Trunc256("sha512/256"),
     Keccak256("keccak256"),
+    Secp256k1Recover("secp256k1-recover"),
+    Secp256k1Verify("secp256k1-verify"),
     Print("print"),
     ContractCall("contract-call?"),
     AsContract("as-contract"),
     ContractOf("contract-of"),
+    PrincipalOf("principal-of"),
     AtBlock("at-block"),
     GetBlockInfo("get-block-info?"),
     ConsError("err"),
@@ -138,10 +146,13 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Sha512 => NativeFunction("native_sha512", NativeHandle::SingleArg(&native_sha512), cost_functions::SHA512),
             Sha512Trunc256 => NativeFunction("native_sha512trunc256", NativeHandle::SingleArg(&native_sha512trunc256), cost_functions::SHA512T256),
             Keccak256 => NativeFunction("native_keccak256", NativeHandle::SingleArg(&native_keccak256), cost_functions::KECCAK256),
+            Secp256k1Recover => SpecialFunction("native_secp256k1-recover", &special_secp256k1_recover),
+            Secp256k1Verify => SpecialFunction("native_secp256k1-verify", &special_secp256k1_verify),
             Print => SpecialFunction("special_print", &special_print),
             ContractCall => SpecialFunction("special_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
             ContractOf => SpecialFunction("special_contract-of", &special_contract_of),
+            PrincipalOf => SpecialFunction("special_principal-of", &special_principal_of),
             GetBlockInfo => SpecialFunction("special_get_block_info", &database::special_get_block_info),
             ConsSome => NativeFunction("native_some", NativeHandle::SingleArg(&options::native_some), cost_functions::SOME_CONS),
             ConsOkay => NativeFunction("native_okay", NativeHandle::SingleArg(&options::native_okay), cost_functions::OK_CONS),
@@ -398,4 +409,114 @@ fn special_contract_of(args: &[SymbolicExpression], env: &mut Environment, conte
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
     Ok(contract_principal)
+}
+
+fn special_principal_of(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    // (principal-of (..))
+    // arg0 => (buff 33)
+    check_argument_count(1, args)?;
+
+    runtime_cost!(cost_functions::PRINCIPAL_OF, env, 0)?;
+
+    let param0 = eval(&args[0], env, context)?;
+    let pub_key = match param0 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 33 {
+                return Err(CheckErrors::TypeValueError(BUFF_33, param0).into())
+            }
+            data
+        },
+        _ => return Err(CheckErrors::TypeValueError(BUFF_33, param0).into())
+    };
+
+    let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![Secp256k1PublicKey::from_slice(&pub_key).unwrap()]).unwrap();
+    let principal = addr.to_account_principal();
+
+    Ok(Value::Principal(principal))
+}
+
+fn special_secp256k1_recover(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    // (principal-of (..))
+    // arg0 => (buff 32), arg1 => (buff 65)
+    check_argument_count(2, args)?;
+
+    runtime_cost!(cost_functions::SECP256K1RECOVER, env, 0)?;
+
+    let param0 = eval(&args[0], env, context)?;
+    let message = match param0 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 32 {
+                return Err(CheckErrors::TypeValueError(BUFF_32, param0).into())
+            }
+            data
+        },
+        _ => return Err(CheckErrors::TypeValueError(BUFF_32, param0).into())
+    };
+
+    let param1 = eval(&args[1], env, context)?;
+    let signature = match param1 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 65 {
+                return Err(CheckErrors::TypeValueError(BUFF_65, param1).into())
+            }
+            if data[64] > 3 {
+                return Err(CheckErrors::InvalidSecp65k1Signature.into())
+            }
+            data
+        },
+        _ => return Err(CheckErrors::TypeValueError(BUFF_65, param1).into())
+    };
+
+    match secp256k1_recover(&message, &signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature) {
+        Ok(pubkey) => {
+            return Ok(Value::okay(Value::buff_from(pubkey.to_vec()).unwrap()).unwrap())
+        },
+        _ => return Ok(Value::err_uint(1))
+    };
+}
+
+fn special_secp256k1_verify(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    // (principal-of (..))
+    // arg0 => (buff 32), arg1 => (buff 65), arg2 => (buff 33)
+    check_argument_count(3, args)?;
+
+    runtime_cost!(cost_functions::SECP256K1VERIFY, env, 0)?;
+
+    let param0 = eval(&args[0], env, context)?;
+    let message = match param0 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 32 {
+                return Err(CheckErrors::TypeValueError(BUFF_32, param0).into())
+            }
+            data
+        },
+        _ => return Err(CheckErrors::TypeValueError(BUFF_32, param0).into())
+    };
+
+    let param1 = eval(&args[1], env, context)?;
+    let signature = match param1 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 65 {
+                return Err(CheckErrors::TypeValueError(BUFF_65, param1).into())
+            }
+            if data[64] > 3 {
+                return Err(CheckErrors::InvalidSecp65k1Signature.into())
+            }
+            data
+        },
+        _ => return Err(CheckErrors::TypeValueError(BUFF_65, param1).into())
+    };
+
+    let param2 = eval(&args[2], env, context)?;
+    let pubkey = match param2 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 33 {
+                return Err(CheckErrors::TypeValueError(BUFF_33, param2).into())
+            }
+            data
+        },
+        _ => return Err(CheckErrors::TypeValueError(BUFF_33, param2).into())
+    };
+
+    Ok(Value::Bool(secp256k1_verify(&message, &signature, &pubkey).is_ok()))
 }

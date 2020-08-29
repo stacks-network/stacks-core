@@ -64,7 +64,7 @@ version = "1.0"
 features = ["arbitrary_precision"]
 
 [dependencies.secp256k1]
-version = "0.17.2"
+version = "0.19.0"
 features = ["serde", "recovery"]
 
 [dependencies.rusqlite]

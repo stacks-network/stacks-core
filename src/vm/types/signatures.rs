@@ -42,7 +42,7 @@ pub struct TupleTypeSignature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BufferLength (u32);
+pub struct BufferLength (pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length (u32);
@@ -107,7 +107,9 @@ use self::TypeSignature::{
 };
 
 pub const BUFF_64: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(64)));
+pub const BUFF_65: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(65)));
 pub const BUFF_32: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(32)));
+pub const BUFF_33: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(33)));
 pub const BUFF_20: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(20)));
 pub const BUFF_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
 
