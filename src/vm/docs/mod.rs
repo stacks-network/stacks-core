@@ -192,11 +192,11 @@ const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(sqrti n)",
-    description: "Returns the largest unsigned integer that is less than or equal to the square root of `n`.",
+    description: "Returns the largest integer that is less than or equal to the square root of `n`.  Fails on a negative numbers.",
     example: "(sqrti u11) ;; Returns u3
-(sqrti u1000000) ;; Returns 1000
-(sqrti u1) ;; Returns 1
-(sqrti u0) ;; Returns 0
+(sqrti 1000000) ;; Returns 1000
+(sqrti u1) ;; Returns u1
+(sqrti 0) ;; Returns 0
 "
 };
 
