@@ -189,6 +189,17 @@ const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
 "
 };
 
+const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(sqrti n)",
+    description: "Returns the largest unsigned integer that is less than or equal to the square root of `n`.",
+    example: "(sqrti u11) ;; Returns 3
+(sqrti u1000000) ;; Returns 1000
+(sqrti u1) ;; Returns 1
+(sqrti u0) ;; Returns 0
+"
+};
+
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(xor i1 i2)",
@@ -1326,6 +1337,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         CmpGreater => make_for_simple_native(&GREATER_API, &CmpGreater, name),
         Modulo => make_for_simple_native(&MOD_API, &Modulo, name),
         Power => make_for_simple_native(&POW_API, &Power, name),
+        Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
         BitwiseXOR => make_for_simple_native(&XOR_API, &BitwiseXOR, name),
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),

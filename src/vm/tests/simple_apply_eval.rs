@@ -289,6 +289,18 @@ fn test_simple_arithmetic_functions() {
          "(>= 1 1)",
          "(pow 2 16)",
          "(pow 2 32)",
+         "(pow 0 0)",
+         "(pow 170141183460469231731687303715884105727 1)",
+         "(pow u340282366920938463463374607431768211455 u1)",
+         "(pow 0 170141183460469231731687303715884105727)",
+         "(pow u1 u340282366920938463463374607431768211455)",
+         "(sqrti u81)",
+         "(sqrti u80)",
+         "(sqrti 81)",
+         "(sqrti 80)",
+         // from https://en.wikipedia.org/wiki/128-bit_computing
+         "(sqrti 170141183460469231731687303715884105727)",  // max i128
+         "(sqrti u340282366920938463463374607431768211455)", // max u128
          "(+ (pow u2 u127) (- (pow u2 u127) u1))",
          "(+ (to-uint 127) u10)",
          "(to-int (- (pow u2 u127) u1))",
@@ -310,6 +322,17 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Int(65536),
         Value::Int(u32::max_value() as i128 + 1),
+        Value::Int(1),
+        Value::Int(170_141_183_460_469_231_731_687_303_715_884_105_727),
+        Value::UInt(340_282_366_920_938_463_463_374_607_431_768_211_455),
+        Value::Int(0),
+        Value::UInt(1),
+        Value::UInt(9),
+        Value::UInt(8),
+        Value::Int(9),
+        Value::Int(8),
+        Value::Int(13_043_817_825_332_782_212),
+        Value::UInt(18_446_744_073_709_551_615),
         Value::UInt(u128::max_value()),
         Value::UInt(137),
         Value::Int(i128::max_value()),
@@ -321,7 +344,7 @@ fn test_simple_arithmetic_functions() {
 }
 
 #[test]
-fn test_arithmetic_errors() {
+fn test_simple_arithmetic_errors() {
     let tests = [
         "(>= 1)",
         "(+ 1 true)",
@@ -335,6 +358,9 @@ fn test_arithmetic_errors() {
         "(/)",
         "(mod 1)",
         "(pow 1)",
+        "(sqrti)",
+        "(sqrti 256 16)",
+        "(sqrti -1)",
         "(xor 1)",
         "(pow 2 (pow 2 32))",
         "(pow 2 (- 1))",
@@ -353,6 +379,9 @@ fn test_arithmetic_errors() {
         CheckErrors::IncorrectArgumentCount(1,0).into(),
         CheckErrors::IncorrectArgumentCount(2,1).into(),
         CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(1,0).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        RuntimeErrorType::Arithmetic("sqrti must be passed a positive number".to_string()).into(),
         CheckErrors::IncorrectArgumentCount(2,1).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
