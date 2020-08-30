@@ -319,7 +319,9 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticVariadic)),
             CmpGeq | CmpLeq | CmpLess | CmpGreater =>
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticComparison)),
-            Modulo | Power | Sqrti | BitwiseXOR =>
+            Sqrti =>
+                Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
+            Modulo | Power | BitwiseXOR =>
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticBinary)),
             And | Or =>
                 Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::BoolType,

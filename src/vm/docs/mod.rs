@@ -193,7 +193,7 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(sqrti n)",
     description: "Returns the largest unsigned integer that is less than or equal to the square root of `n`.",
-    example: "(sqrti u11) ;; Returns 3
+    example: "(sqrti u11) ;; Returns u3
 (sqrti u1000000) ;; Returns 1000
 (sqrti u1) ;; Returns 1
 (sqrti u0) ;; Returns 0
@@ -291,13 +291,14 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions, n
                     in_types.join(" | ")
                 },
                 FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
+                FunctionType::ArithmeticUnary => "int | uint".to_string(),
                 FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => "int, int | uint, uint".to_string(),
             };
             let output_type = match function_type {
                 FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
                 FunctionType::Fixed(FixedFunction{ ref returns, .. }) => format!("{}", returns),
                 FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
-                FunctionType::ArithmeticVariadic | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+                FunctionType::ArithmeticVariadic | FunctionType::ArithmeticUnary | FunctionType::ArithmeticBinary => "int | uint".to_string(),
                 FunctionType::ArithmeticComparison => "bool".to_string(),
             };
             (input_type, output_type)

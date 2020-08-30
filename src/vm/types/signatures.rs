@@ -135,7 +135,7 @@ pub enum FunctionType {
     Fixed(FixedFunction),
     // Functions where the single input is a union type, e.g., Buffer or Int
     UnionArgs(Vec<TypeSignature>, TypeSignature),
-    ArithmeticVariadic, ArithmeticBinary, ArithmeticComparison
+    ArithmeticVariadic, ArithmeticUnary, ArithmeticBinary, ArithmeticComparison
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
