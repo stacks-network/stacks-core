@@ -8,7 +8,7 @@ use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName, ClarityName, MAX_STRING_LEN};
 use vm::types::{Value, PrincipalData, TraitIdentifier, QualifiedContractIdentifier};
 
-pub const CONTRACT_MIN_NAME_LENGTH : usize = 5;
+pub const CONTRACT_MIN_NAME_LENGTH : usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH : usize = 40;
 
 pub enum LexItem {
@@ -677,6 +677,19 @@ r#"z (let ((x 1) (y 2))
             },
             _ => false
         });
+
+        let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.a";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match x1.match_atom_value() {
+            Some(Value::Principal(PrincipalData::Contract(identifier))) => {
+                format!("{}", 
+                    PrincipalData::Standard(identifier.issuer.clone())) == "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    identifier.name == "a".into()
+            },
+            _ => false
+        });
     }
 
     #[test]
@@ -783,7 +796,7 @@ r#"z (let ((x 1) (y 2))
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err {
-            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+            ParseErrors::SeparatorExpected(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&wrong_tuple_literal_close).unwrap_err().err {
             ParseErrors::ClosingTupleLiteralExpected => true, _ => false });
