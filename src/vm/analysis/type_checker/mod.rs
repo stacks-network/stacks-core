@@ -186,8 +186,8 @@ impl FunctionType {
                     contract_to_check.check_trait_compliance(trait_id, &trait_definition)?;
                 },
                 (expected_type, value) => {
-                    let actual_type = TypeSignature::type_of(&value);
-                    if !expected_type.admits_type(&actual_type) {
+                    if !expected_type.admits(&value) {
+                        let actual_type = TypeSignature::type_of(&value);
                         return Err(CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into())
                     }
                 }
