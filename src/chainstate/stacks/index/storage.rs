@@ -83,7 +83,7 @@ use chainstate::stacks::index::node::{
 };
 
 use rusqlite::{
-    Connection, OptionalExtension,
+    Connection, OptionalExtension, Transaction,
     types::{ FromSql,
              ToSql },
     NO_PARAMS,
@@ -586,8 +586,23 @@ impl NodeHashReader for TrieSqlCursor<'_> {
     }
 }
 
+enum SqliteConnection<'a> {
+    ConnRef(&'a Connection),
+    Tx(Transaction<'a>)
+}
+
+impl <'a> Deref for SqliteConnection<'a> {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        match self {
+            SqliteConnection::ConnRef(x) => x,
+            SqliteConnection::Tx(tx) => tx,
+        }
+    }
+}
+
 pub struct TrieStorageConnection <'a, T: MarfTrieId> {
-    db: &'a Connection,
+    db: SqliteConnection<'a>,
     data: &'a mut TrieStorageTransientData<T>,
 
     // used in testing in order to short-circuit block-height lookups
@@ -640,12 +655,24 @@ pub struct TrieFileStorage <T: MarfTrieId> {
 impl <T: MarfTrieId> TrieFileStorage <T> {
     pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, T> {
         TrieStorageConnection {
-            db: &self.db,
+            db: SqliteConnection::ConnRef(&self.db),
             data: &mut self.data,
 
             #[cfg(test)]
             test_genesis_block: &mut self.test_genesis_block,
         }
+    }
+
+    pub fn transaction<'a>(&'a mut self) -> Result<TrieStorageConnection<'a, T>, Error> {
+        let tx = tx_begin_immediate(&mut self.db)?;
+
+        Ok(TrieStorageConnection {
+            db: SqliteConnection::Tx(tx),
+            data: &mut self.data,
+
+            #[cfg(test)]
+            test_genesis_block: &mut self.test_genesis_block,
+        })
     }
 
     fn open_opts(db_path: &str, readonly: bool, unconfirmed: bool) -> Result<TrieFileStorage<T>, Error> {
@@ -941,7 +968,7 @@ impl <'a, T: MarfTrieId> TrieStorageConnection <'a, T> {
         let trie_buf = TrieRAM::new(bhh, size_hint, &self.data.cur_block);
         
         // place a lock on this block, so we can't extend to it again
-        if !trie_sql::lock_bhh_for_extension(self.db, bhh, false)? {
+        if !trie_sql::lock_bhh_for_extension(&self.db, bhh, false)? {
             warn!("Block already extended: {}", &bhh);
             return Err(Error::ExistsError);
         }
@@ -1145,7 +1172,7 @@ impl <'a, T: MarfTrieId> TrieStorageConnection <'a, T> {
         debug!("Format TrieFileStorage");
 
         // blow away db
-        trie_sql::clear_tables(self.db)?;
+        trie_sql::clear_tables(&self.db)?;
 
         match self.data.last_extended {
             Some((_, ref mut trie_storage)) => trie_storage.format()?,

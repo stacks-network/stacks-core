@@ -428,15 +428,7 @@ impl <'a, C, T: MarfTrieId> Deref for IndexDBConn<'a, C, T> {
 }
 
 pub struct IndexDBTx<'a, C: Clone, T: MarfTrieId> {
-    _tx: Option<DBTx<'a>>,      // the reason this is Option<..> is because we
-                                // need to implement Drop for this struct, and
-                                // Drop is already implemented for DBTx<'a>.
-                                // Using an Option lets us clear the tx, commit
-                                // it, and when the instance drops, run the
-                                // Drop() method safely.  However, by design,
-                                // _tx is always Some(..) over this struct's 
-                                // lifetime, so .unwrap() is safe.
-    pub index: &'a mut MARF<T>,
+    pub index: TrieStorageConnection<'a, T>,
     pub context: C,
     block_linkage: Option<(T, T)>
 }
@@ -483,20 +475,16 @@ pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Erro
 pub fn get_ancestor_block_hash<T: MarfTrieId>(index: &MARF<T>, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
     assert!(block_height < u32::max_value() as u64);
     let mut read_only = index.reopen_storage_readonly()?;
-    MARF::get_block_at_height(&mut read_only.connection(), block_height as u32, tip_block_hash).map_err(Error::IndexError)
+    let bh = MARF::get_block_at_height(&mut read_only.connection(), block_height as u32, tip_block_hash)?;
+    Ok(bh)
 }
 
 /// Get the height of an ancestor block, if it is indeed the ancestor.
 pub fn get_ancestor_block_height<T: MarfTrieId>(index: &MARF<T>, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
     let mut read_only = index.reopen_storage_readonly()?;
-    match MARF::get_block_height(&mut read_only.connection(), ancestor_block_hash, tip_block_hash)? {
-        Some(height_u32) => {
-            Ok(Some(height_u32 as u64))
-        }
-        None => {
-            Ok(None)
-        }
-    }
+    let height_opt = MARF::get_block_height(&mut read_only.connection(), ancestor_block_hash, tip_block_hash)?
+        .map(|height| height as u64);
+    Ok(height_opt)
 }
 
 /// Load some index data
@@ -573,10 +561,11 @@ pub fn get_indexed<T: MarfTrieId>(conn: &DBConn, index: &MARF<T>, header_hash: &
 }
 
 impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
-    pub fn new(tx: DBTx<'a>, index: &'a mut MARF<T>, context: C) -> IndexDBTx<'a, C, T> {
+    pub fn new(index: &'a mut MARF<T>, context: C) -> IndexDBTx<'a, C, T> {
+        let tx = index.begin_tx()
+            .expect("BUG: failure to begin MARF transaction");
         IndexDBTx {
-            _tx: Some(tx),
-            index: index,
+            index: tx,
             block_linkage: None,
             context: context
         }

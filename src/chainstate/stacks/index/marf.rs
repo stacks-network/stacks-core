@@ -650,6 +650,10 @@ impl <T: MarfTrieId> MARF <T> {
 // instance methods
 impl <T: MarfTrieId> MARF<T> {
 
+    pub fn begin_tx<'a>(&'a mut self) -> Result<TrieStorageConnection<'a, T>, Error> {
+        self.storage.transaction()
+    }
+
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     pub fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         MARF::get_by_key(&mut self.storage.connection(), block_hash, key)
@@ -805,8 +809,7 @@ impl <T: MarfTrieId> MARF<T> {
     /// Set up a new extension.
     /// Opens storage to chain_tip/
     fn inner_setup_extension(&mut self, chain_tip: &T, next_chain_tip: &T, block_height: u32, new_extension: bool) -> Result<(), Error> {
-        let mut conn = self.storage.connection();
-        conn.open_block(next_chain_tip)?;
+        self.storage.connection().open_block(next_chain_tip)?;
         self.open_chain_tip = Some(WriteChainTip{ block_hash: next_chain_tip.clone(),
                                                   height: block_height });
 
