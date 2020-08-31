@@ -45,7 +45,7 @@ fn parse_pox_stacking_result(result: &Value) -> std::result::Result<(PrincipalDa
 /// Handle special cases when calling into the PoX API contract
 fn handle_pox_api_contract_call(db: &mut ClarityDatabase, sender_opt: Option<&PrincipalData>, function_name: &str, value: &Value) -> Result<()> {
     if function_name == "stack-stx" || function_name == "delegate-stx" {
-        debug!("Handle special-case contract-call to {:?} {} (which returned {:?})", boot_code_id("pox-api"), function_name, value);
+        debug!("Handle special-case contract-call to {:?} {} (which returned {:?})", boot_code_id("pox"), function_name, value);
 
         // sender is required
         let sender = match sender_opt {
@@ -82,7 +82,7 @@ fn handle_pox_api_contract_call(db: &mut ClarityDatabase, sender_opt: Option<&Pr
 
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
 pub fn handle_contract_call_special_cases(db: &mut ClarityDatabase, sender: Option<&PrincipalData>, contract_id: &QualifiedContractIdentifier, function_name: &str, result: &Value) -> Result<()> {
-    if *contract_id == boot_code_id("pox-api") {
+    if *contract_id == boot_code_id("pox") {
         return handle_pox_api_contract_call(db, sender, function_name, result);
     }
     // TODO: insert more special cases here, as needed

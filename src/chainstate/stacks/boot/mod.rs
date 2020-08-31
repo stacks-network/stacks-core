@@ -52,7 +52,7 @@ use std::boxed::Box;
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "ST000000000000000000002AMW42H";
 
 pub const STACKS_BOOT_CODE : &'static [(&'static str, &'static str)] = &[
-    ("pox-api", std::include_str!("pox.clar")),     // Clarity prevents us from using anything shorter than 5 characters, so 'pox' isn't an option :(
+    ("pox", std::include_str!("pox.clar")),
     ("lookup", std::include_str!("lockup.clar"))
 ];
 
@@ -222,20 +222,20 @@ impl StacksChainState {
     /// reward cycle
     #[cfg(test)]
     pub fn get_stacking_minimum(&mut self, sortdb: &SortitionDB, stacks_block_id: &StacksBlockId) -> Result<u128, Error> {
-        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox-api", &format!("(at-block 0x{} (get-stacking-minimum (+ u1 (current-pox-reward-cycle))))", &stacks_block_id))
+        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(at-block 0x{} (get-stacking-minimum (+ u1 (current-pox-reward-cycle))))", &stacks_block_id))
             .map(|value| value.expect_u128())
     }
     
     /// Determine how many uSTX are stacked in a given reward cycle
     #[cfg(test)]
     pub fn get_total_ustx_stacked(&mut self, sortdb: &SortitionDB, stacks_block_id: &StacksBlockId, reward_cycle: u128) -> Result<u128, Error> {
-        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox-api", &format!("(at-block 0x{} (get-total-ustx-stacked u{}))", &stacks_block_id, reward_cycle))
+        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(at-block 0x{} (get-total-ustx-stacked u{}))", &stacks_block_id, reward_cycle))
             .map(|value| value.expect_u128())
     }
 
     /// Is PoX active in the given reward cycle?
     pub fn is_pox_active(&mut self, sortdb: &SortitionDB, stacks_block_id: &StacksBlockId, reward_cycle: u128) -> Result<bool, Error> {
-        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox-api", &format!("(at-block 0x{} (is-pox-active u{}))", &stacks_block_id, reward_cycle))
+        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(at-block 0x{} (is-pox-active u{}))", &stacks_block_id, reward_cycle))
             .map(|value| value.expect_bool())
     }
 
@@ -249,7 +249,7 @@ impl StacksChainState {
         }
 
         // how many in this cycle?
-        let num_addrs = self.eval_boot_code_read_only(sortdb, block_id, "pox-api", &format!("(get-reward-set-size u{})", reward_cycle))?
+        let num_addrs = self.eval_boot_code_read_only(sortdb, block_id, "pox", &format!("(get-reward-set-size u{})", reward_cycle))?
             .expect_u128();
 
         debug!("At block {:?} (reward cycle {}): {} PoX reward addresses", block_id, reward_cycle, num_addrs);
@@ -258,7 +258,7 @@ impl StacksChainState {
         for i in 0..num_addrs {
             // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
             // Get the tuple.
-            let tuple_data = self.eval_boot_code_read_only(sortdb, block_id, "pox-api", &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i))?
+            let tuple_data = self.eval_boot_code_read_only(sortdb, block_id, "pox", &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i))?
                 .expect_optional()
                 .expect(&format!("FATAL: missing PoX address in slot {} out of {} in reward cycle {}", i, num_addrs, reward_cycle))
                 .expect_tuple();
@@ -320,7 +320,7 @@ pub mod test {
     fn instantiate_pox_peer(burnchain: &Burnchain, test_name: &str, port: u16) -> (TestPeer, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
         peer_config.burnchain = burnchain.clone();
-        peer_config.setup_code = format!("(contract-call? .pox-api set-burnchain-parameters u{} u{} u{} u{})",
+        peer_config.setup_code = format!("(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
                                           burnchain.first_block_height, burnchain.pox_constants.prepare_length, burnchain.pox_constants.reward_cycle_length, burnchain.pox_constants.pox_rejection_fraction);
 
         test_debug!("Setup code: '{}'", &peer_config.setup_code);
@@ -374,7 +374,7 @@ pub mod test {
     }
     
     fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
-        let value = eval_at_tip(peer, "pox-api", "total-liquid-ustx");
+        let value = eval_at_tip(peer, "pox", "total-liquid-ustx");
         if let Value::UInt(inner_uint) = value {
             return inner_uint;
         }
@@ -384,7 +384,7 @@ pub mod test {
     }
 
     fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
-        let value = eval_at_tip(peer, "pox-api", &format!("(stx-get-balance '{})", addr.to_string()));
+        let value = eval_at_tip(peer, "pox", &format!("(stx-get-balance '{})", addr.to_string()));
         if let Value::UInt(balance) = value {
             return balance;
         }
@@ -394,7 +394,7 @@ pub mod test {
     }
 
     fn get_stacker_info(peer: &mut TestPeer, addr: &PrincipalData) -> Option<(u128, (AddressHashMode, Hash160), u128, u128, Option<PrincipalData>)> {
-        let value_opt = eval_at_tip(peer, "pox-api", &format!("(get-stacker-info '{})", addr.to_string()));
+        let value_opt = eval_at_tip(peer, "pox", &format!("(get-stacker-info '{})", addr.to_string()));
         let data = 
             if let Some(d) = value_opt.expect_optional() {
                 d
@@ -415,7 +415,7 @@ pub mod test {
     }
 
     fn get_delegate_control_info(peer: &mut TestPeer, addr: &PrincipalData) -> Option<(u128, (AddressHashMode, Hash160), u128, u128, u128)> {
-        let value_opt = eval_at_tip(peer, "pox-api", &format!("(get-delegate-control-info '{})", addr.to_string()));
+        let value_opt = eval_at_tip(peer, "pox", &format!("(get-delegate-control-info '{})", addr.to_string()));
         let data = 
             if let Some(d) = value_opt.expect_optional() {
                 d
@@ -483,7 +483,7 @@ pub mod test {
         let addr = auth.origin().address_testnet();
         let mut pox_lockup = StacksTransaction::new(TransactionVersion::Testnet, auth,
                                                     TransactionPayload::new_contract_call(boot_code_addr(),
-                                                                                         "pox-api",
+                                                                                         "pox",
                                                                                          "stack-stx",
                                                                                          vec![
                                                                                             Value::UInt(amount),
@@ -518,7 +518,7 @@ pub mod test {
             let addr = auth.origin().address_testnet();
             let mut pox_lockup = StacksTransaction::new(TransactionVersion::Testnet, auth,
                                                         TransactionPayload::new_contract_call(boot_code_addr(),
-                                                                                             "pox-api",
+                                                                                             "pox",
                                                                                              "stack-stx",
                                                                                              vec![
                                                                                                 Value::UInt(amount),
@@ -573,7 +573,7 @@ pub mod test {
             let addr = auth.origin().address_testnet();
             let mut pox_lockup = StacksTransaction::new(TransactionVersion::Testnet, auth,
                                                         TransactionPayload::new_contract_call(boot_code_addr(),
-                                                                                             "pox-api",
+                                                                                             "pox",
                                                                                              "register-delegate",
                                                                                              vec![
                                                                                                 pox_addr,
@@ -619,7 +619,7 @@ pub mod test {
             let addr = auth.origin().address_testnet();
             let mut pox_lockup = StacksTransaction::new(TransactionVersion::Testnet, auth,
                                                         TransactionPayload::new_contract_call(boot_code_addr(),
-                                                                                             "pox-api",
+                                                                                             "pox",
                                                                                              "delegate-stx",
                                                                                              vec![
                                                                                                 Value::Principal(delegate),
@@ -686,7 +686,7 @@ pub mod test {
 
                 ;; this contract stacks the stx given to it
                 (as-contract
-                    (contract-call? '{}.pox-api stack-stx amount-ustx pox-addr lock-period))
+                    (contract-call? '{}.pox stack-stx amount-ustx pox-addr lock-period))
             ))
         )
 
@@ -695,12 +695,12 @@ pub mod test {
                                              (tenure-burn-block-height uint)
                                              (tenure-reward-cycles uint))
             (as-contract
-                (contract-call? '{}.pox-api register-delegate pox-addr tenure-burn-block-height tenure-reward-cycles)))
+                (contract-call? '{}.pox register-delegate pox-addr tenure-burn-block-height tenure-reward-cycles)))
 
         ;; delegate-stack any STX sent to this contract, if this contract is used as a delegate
         (define-public (do-delegate-stx)
             (as-contract
-                (contract-call? '{}.pox-api delegate-stack-stx)))
+                (contract-call? '{}.pox delegate-stack-stx)))
 
         ;; get back STX from this contract
         (define-public (withdraw-stx (amount-ustx uint))
@@ -814,7 +814,7 @@ pub mod test {
         let mut register_delegate = StacksTransaction::new(
                                         TransactionVersion::Testnet, auth,
                                         TransactionPayload::new_contract_call(boot_code_addr(),
-                                                                             "pox-api",
+                                                                             "pox",
                                                                              "register-delegate",
                                                                              vec![
                                                                                 make_pox_addr(addr_version, addr_bytes),
@@ -840,7 +840,7 @@ pub mod test {
         let mut delegate_stx = StacksTransaction::new(
                                         TransactionVersion::Testnet, auth,
                                         TransactionPayload::new_contract_call(boot_code_addr(),
-                                                                             "pox-api",
+                                                                             "pox",
                                                                              "delegate-stx",
                                                                              vec![
                                                                                 Value::Principal(delegate.clone()),
@@ -864,7 +864,7 @@ pub mod test {
         let mut delegate = StacksTransaction::new(
                                         TransactionVersion::Testnet, auth,
                                         TransactionPayload::new_contract_call(boot_code_addr(),
-                                                                             "pox-api",
+                                                                             "pox",
                                                                              "delegate-stack-stx",
                                                                              vec![]).unwrap());
 
@@ -886,7 +886,7 @@ pub mod test {
         let mut tx = StacksTransaction::new(
                                         TransactionVersion::Testnet, auth,
                                         TransactionPayload::new_contract_call(boot_code_addr(),
-                                                                             "pox-api",
+                                                                             "pox",
                                                                              "reject-pox",
                                                                              vec![]).unwrap());
 
@@ -1545,7 +1545,7 @@ pub mod test {
                         "(define-data-var bob-test-run bool false)
                         (let (
                             (res
-                                (contract-call? '{}.pox-api stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
+                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 12) res)
@@ -1562,7 +1562,7 @@ pub mod test {
                         "(define-data-var alice-test-run bool false)
                         (let (
                             (res
-                                (contract-call? '{}.pox-api stack-stx u512000000 (tuple (version u0) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12))
+                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version u0) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 3) res)
@@ -1579,7 +1579,7 @@ pub mod test {
                         "(define-data-var charlie-test-run bool false)
                         (let (
                             (res
-                                (contract-call? '{}.pox-api stack-stx u1024000000000 (tuple (version u0) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12))
+                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version u0) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 1) res)
@@ -1688,10 +1688,10 @@ pub mod test {
                         "(define-data-var danielle-test-run bool false)
                         (let (
                             (res-del
-                                (contract-call? '{}.pox-api register-delegate (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u100 u6))
+                                (contract-call? '{}.pox register-delegate (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u100 u6))
                             
                             (res-stx
-                                (contract-call? '{}.pox-api stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
+                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 8) res-stx)
@@ -1729,7 +1729,7 @@ pub mod test {
             }
             else if tenure_id == 2 {
                 // Danielle has become a delegate over Alice's tokens
-                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox", &format!(
                     "(let (
                         (alice '{})
                         (danielle '{})
@@ -1781,7 +1781,7 @@ pub mod test {
             }
             else if tenure_id == 3 {
                 // Danielle is now a Stacker
-                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox", &format!(
                     "(let (
                         (danielle '{})
                         (danielle-addrbytes 0x{})
@@ -1915,7 +1915,7 @@ pub mod test {
             }
             else if tenure_id == 2 {
                 // Danielle has become a delegate over Alice's tokens _and_ Bob's tokens
-                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox", &format!(
                     "(let (
                         (alice '{})
                         (bob '{})
@@ -1981,7 +1981,7 @@ pub mod test {
             }
             else if tenure_id == 3 {
                 // Danielle is now a Stacker
-                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox", &format!(
                     "(let (
                         (danielle '{})
                         (danielle-addrbytes 0x{})
@@ -2117,7 +2117,7 @@ pub mod test {
             }
             else if tenure_id == 2 {
                 // Danielle's contract has become a delegate over Alice's tokens
-                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox", &format!(
                     "(let (
                         (alice '{})
                         (danielle '{}.do-lockup)
@@ -2169,7 +2169,7 @@ pub mod test {
             }
             else if tenure_id == 3 {
                 // Danielle's contract is now a Stacker
-                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox-api", &format!(
+                let danielle_query_result = eval_contract_at_tip(&mut peer, &boot_code_addr(), "pox", &format!(
                     "(let (
                         (danielle '{}.do-lockup)
                         (danielle-addrbytes 0x{})
@@ -3191,7 +3191,7 @@ pub mod test {
 
                     // empty reward cycle
                     assert_eq!(reward_addrs.len(), 0);
-                
+
                     // min STX is reset
                     assert_eq!(min_ustx, total_liquid_ustx / 20000);    
                 }
@@ -3277,7 +3277,7 @@ pub mod test {
                     // If it's the case, then this tx will NOT be mined.
                     let charlie_stack = make_bare_contract(&charlie, 1, 0, "charlie-try-stack",
                         &format!(
-                            "(asserts! (not (is-eq (contract-call? '{}.pox-api stack-stx u1 {{ version: u1, hashbytes: 0x1111111111111111111111111111111111111111 }} u1) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (contract-call? '{}.pox stack-stx u1 {{ version: u1, hashbytes: 0x1111111111111111111111111111111111111111 }} u1) (err 17))) (err 1))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_stack);
@@ -3287,7 +3287,7 @@ pub mod test {
                     // If it's the case, then this tx will NOT be mined.
                     let charlie_stack_delegator = make_bare_contract(&charlie, 1, 0, "charlie-try-stack-delegator",
                         &format!(
-                            "(asserts! (not (is-eq (contract-call? '{}.pox-api delegate-stx '{} u1) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (contract-call? '{}.pox delegate-stx '{} u1) (err 17))) (err 1))",
                             boot_code_addr(), &key_to_stacks_addr(&danielle)));
 
                     block_txs.push(charlie_stack_delegator);
@@ -3298,7 +3298,7 @@ pub mod test {
                     // If it's the case, then this tx will NOT be mined
                     let alice_reject = make_bare_contract(&alice, 1, 0, "alice-try-reject",
                         &format!(
-                            "(asserts! (not (is-eq (contract-call? '{}.pox-api reject-pox) (err 3))) (err 1))",
+                            "(asserts! (not (is-eq (contract-call? '{}.pox reject-pox) (err 3))) (err 1))",
                             boot_code_addr()));
                     
                     block_txs.push(alice_reject);
@@ -3308,7 +3308,7 @@ pub mod test {
                     // If it's the case, then this tx will NOT be mined.
                     let charlie_reject = make_bare_contract(&charlie, 1, 0, "charlie-try-reject",
                         &format!(
-                            "(asserts! (not (is-eq (contract-call? '{}.pox-api reject-pox) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (contract-call? '{}.pox reject-pox) (err 17))) (err 1))",
                             boot_code_addr()));
                     
                     block_txs.push(charlie_reject);
