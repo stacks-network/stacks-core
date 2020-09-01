@@ -241,15 +241,13 @@
     (let (
         (pox-addr-range-opt (map-get? pox-addr-reward-cycles { pox-addr: pox-addr }))
     )
-    (begin
-        (match pox-addr-range-opt
-            ;; some range
-            pox-addr-range
-                (and (>= (+ reward-cycle-start num-cycles) (get first-reward-cycle pox-addr-range))
-                     (< reward-cycle-start (+ (get first-reward-cycle pox-addr-range) (get num-cycles pox-addr-range))))
-            ;; none
-            false
-        )
+    (match pox-addr-range-opt
+        ;; some range
+        pox-addr-range
+            (and (>= (+ reward-cycle-start num-cycles) (get first-reward-cycle pox-addr-range))
+                    (< reward-cycle-start (+ (get first-reward-cycle pox-addr-range) (get num-cycles pox-addr-range))))
+        ;; none
+        false
     ))
 )
 
@@ -262,15 +260,13 @@
     (let (
         (sz (get-reward-set-size reward-cycle))
     )
-    (begin
-        (map-set reward-cycle-pox-address-list
-            { reward-cycle: reward-cycle, index: sz }
-            { pox-addr: pox-addr, total-ustx: amount-ustx })
-        (map-set reward-cycle-pox-address-list-len
-            { reward-cycle: reward-cycle }
-            { len: (+ u1 sz) })
-        (+ u1 sz)
-    ))
+    (map-set reward-cycle-pox-address-list
+        { reward-cycle: reward-cycle, index: sz }
+        { pox-addr: pox-addr, total-ustx: amount-ustx })
+    (map-set reward-cycle-pox-address-list-len
+        { reward-cycle: reward-cycle }
+        { len: (+ u1 sz) })
+    (+ u1 sz))
 )
 
 ;; How many uSTX are stacked?
@@ -304,22 +300,20 @@
         (let (
             (total-ustx (get-total-ustx-stacked reward-cycle))
         )
-        (begin
-            ;; record how many uSTX this pox-addr will stack for in the given reward cycle
-            (append-reward-cycle-pox-addr
-                (get pox-addr args)
-                reward-cycle
-                (get amount-ustx args))
+        ;; record how many uSTX this pox-addr will stack for in the given reward cycle
+        (append-reward-cycle-pox-addr
+            (get pox-addr args)
+            reward-cycle
+            (get amount-ustx args))
 
-            ;; update running total
-            (map-set reward-cycle-total-stacked
-                { reward-cycle: reward-cycle }
-                { total-ustx: (+ (get amount-ustx args) total-ustx) }
-            )
-            
-            ;; updated _this_ reward cycle
-            u1
-        ))
+        ;; update running total
+        (map-set reward-cycle-total-stacked
+            { reward-cycle: reward-cycle }
+            { total-ustx: (+ (get amount-ustx args) total-ustx) }
+        )
+        
+        ;; updated _this_ reward cycle
+        u1)
         u0
     ))
 )
@@ -368,13 +362,11 @@
     (let (
         (ustx-stacked-so-far (get-total-ustx-stacked reward-cycle))
     )
-    (begin
-        (if (< ustx-stacked-so-far (/ total-liquid-ustx u4))
-            ;; less than 25% of all liquid STX are stacked, so the threshold is smaller
-            (/ total-liquid-ustx STACKING-THRESHOLD-25)
-            ;; at least 25% of all liquid STX are stacked, so the threshold is larger
-            (/ total-liquid-ustx STACKING-THRESHOLD-100))
-    ))
+    (if (< ustx-stacked-so-far (/ total-liquid-ustx u4))
+        ;; less than 25% of all liquid STX are stacked, so the threshold is smaller
+        (/ total-liquid-ustx STACKING-THRESHOLD-25)
+        ;; at least 25% of all liquid STX are stacked, so the threshold is larger
+        (/ total-liquid-ustx STACKING-THRESHOLD-100)))
 )
 
 ;; Is the address mode valid for a PoX burn address?
@@ -399,28 +391,26 @@
         (ustx-min (get-stacking-minimum first-reward-cycle))
         (is-registered (is-pox-addr-registered pox-addr first-reward-cycle num-cycles))
     )
-    (begin
-        ;; can't be registered yet if not a delegate
-        ;; (the delegate claims its PoX address when it registers)
-        (asserts! (or (not is-registered) is-delegate)
-            (err ERR-STACKING-POX-ADDRESS-IN-USE))
+    ;; can't be registered yet if not a delegate
+    ;; (the delegate claims its PoX address when it registers)
+    (asserts! (or (not is-registered) is-delegate)
+        (err ERR-STACKING-POX-ADDRESS-IN-USE))
 
-        ;; minimum uSTX must be met
-        (asserts! (<= ustx-min amount-ustx)
-            (err ERR-STACKING-THRESHOLD-NOT-MET))
+    ;; minimum uSTX must be met
+    (asserts! (<= ustx-min amount-ustx)
+        (err ERR-STACKING-THRESHOLD-NOT-MET))
 
-        ;; lock period must be in acceptable range.
-        (asserts! (check-pox-lock-period num-cycles)
-            (err ERR-STACKING-INVALID-LOCK-PERIOD))
+    ;; lock period must be in acceptable range.
+    (asserts! (check-pox-lock-period num-cycles)
+        (err ERR-STACKING-INVALID-LOCK-PERIOD))
 
-        ;; address version must be valid
-        (asserts! (check-pox-addr-version (get version pox-addr))
-            (err ERR-STACKING-INVALID-POX-ADDRESS))
+    ;; address version must be valid
+    (asserts! (check-pox-addr-version (get version pox-addr))
+        (err ERR-STACKING-INVALID-POX-ADDRESS))
 
-        ;; register address and stacking
-        (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle num-cycles amount-ustx)
-        (ok true)
-    ))
+    ;; register address and stacking
+    (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle num-cycles amount-ustx)
+    (ok true))
 )
 
 ;; Get the a client stacker's delegate information.
@@ -447,46 +437,44 @@
         (first-allowed-reward-cycle 
             (+ u1 (burn-height-to-reward-cycle tenure-burn-block-begin)))
     )
-    (begin
-        ;; must not be a registered delegate already
-        (asserts! (is-none (get-delegate-control-info tx-sender))
-            (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
+    ;; must not be a registered delegate already
+    (asserts! (is-none (get-delegate-control-info tx-sender))
+        (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
 
-        ;; lock period must be in acceptable range.
-        (asserts! (check-pox-lock-period tenure-reward-num-cycles)
-            (err ERR-STACKING-INVALID-DELEGATE-TENURE))
+    ;; lock period must be in acceptable range.
+    (asserts! (check-pox-lock-period tenure-reward-num-cycles)
+        (err ERR-STACKING-INVALID-DELEGATE-TENURE))
 
-        ;; PoX address version must be valid
-        (asserts! (check-pox-addr-version (get version pox-addr))
-            (err ERR-STACKING-INVALID-POX-ADDRESS))
+    ;; PoX address version must be valid
+    (asserts! (check-pox-addr-version (get version pox-addr))
+        (err ERR-STACKING-INVALID-POX-ADDRESS))
 
-        ;; tenure must start strictly before the first-allowed reward cycle
-        (asserts! (< tenure-burn-block-begin (reward-cycle-to-burn-height first-allowed-reward-cycle))
-            (err ERR-STACKING-INVALID-DELEGATE-TENURE))
+    ;; tenure must start strictly before the first-allowed reward cycle
+    (asserts! (< tenure-burn-block-begin (reward-cycle-to-burn-height first-allowed-reward-cycle))
+        (err ERR-STACKING-INVALID-DELEGATE-TENURE))
 
-        ;; tenure must start at or after the current burn block height -- no retroactive registration
-        (asserts! (<= burn-block-height tenure-burn-block-begin)
-            (err ERR-STACKING-INVALID-DELEGATE-TENURE))
+    ;; tenure must start at or after the current burn block height -- no retroactive registration
+    (asserts! (<= burn-block-height tenure-burn-block-begin)
+        (err ERR-STACKING-INVALID-DELEGATE-TENURE))
 
-        ;; register!
-        (map-set delegate-control
-            { delegate: tx-sender }
-            {
-                total-ustx: u0,
-                pox-addr: pox-addr,
-                burn-block-height-start: tenure-burn-block-begin,
-                first-reward-cycle: first-allowed-reward-cycle,
-                tenure-cycles: tenure-reward-num-cycles
-            }
-        )
+    ;; register!
+    (map-set delegate-control
+        { delegate: tx-sender }
+        {
+            total-ustx: u0,
+            pox-addr: pox-addr,
+            burn-block-height-start: tenure-burn-block-begin,
+            first-reward-cycle: first-allowed-reward-cycle,
+            tenure-cycles: tenure-reward-num-cycles
+        }
+    )
 
-        ;; claim PoX address up-front
-        (map-set pox-addr-reward-cycles
-            { pox-addr: pox-addr }
-            { first-reward-cycle: first-allowed-reward-cycle, num-cycles: tenure-reward-num-cycles }
-        )
-        (ok true)
-    ))
+    ;; claim PoX address up-front
+    (map-set pox-addr-reward-cycles
+        { pox-addr: pox-addr }
+        { first-reward-cycle: first-allowed-reward-cycle, num-cycles: tenure-reward-num-cycles }
+    )
+    (ok true))
 )
 
 ;; Delegated uSTX lock-up.
@@ -518,76 +506,74 @@
                (get-delegate-control-info delegate)
                (err ERR-STACKING-NO-SUCH-DELEGATE)))
     )
-    (begin 
-        ;; amount must be valid
-        (asserts! (> amount-ustx u0)
-            (err ERR-STACKING-INVALID-AMOUNT))
+    ;; amount must be valid
+    (asserts! (> amount-ustx u0)
+        (err ERR-STACKING-INVALID-AMOUNT))
 
-        ;; tx-sender principal (the Stacker) must not have rejected in this upcoming reward cycle
-        (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
-            (err ERR-STACKING-ALREADY-REJECTED))
+    ;; tx-sender principal (the Stacker) must not have rejected in this upcoming reward cycle
+    (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
+        (err ERR-STACKING-ALREADY-REJECTED))
 
-        ;; tx-sender principal (the Stacker) must not be Stacking.
-        (asserts! (is-none (get-stacker-info tx-sender))
-            (err ERR-STACKING-ALREADY-STACKED))
-        
-        ;; the Stacker must have no delegate/client relationships
-        (asserts! (is-none (get-client-delegate-info tx-sender))
-            (err ERR-STACKING-ALREADY-DELEGATED))
+    ;; tx-sender principal (the Stacker) must not be Stacking.
+    (asserts! (is-none (get-stacker-info tx-sender))
+        (err ERR-STACKING-ALREADY-STACKED))
+    
+    ;; the Stacker must have no delegate/client relationships
+    (asserts! (is-none (get-client-delegate-info tx-sender))
+        (err ERR-STACKING-ALREADY-DELEGATED))
 
-        ;; the Stacker must not be registered as a delegate
-        (asserts! (is-none (get-delegate-control-info tx-sender))
-            (err ERR-STACKING-BAD-DELEGATE))
+    ;; the Stacker must not be registered as a delegate
+    (asserts! (is-none (get-delegate-control-info tx-sender))
+        (err ERR-STACKING-BAD-DELEGATE))
 
-        ;; the delegate must not have begun stacking yet
-        (asserts! (is-none (get-stacker-info delegate))
-            (err ERR-STACKING-ALREADY-DELEGATED))
+    ;; the delegate must not have begun stacking yet
+    (asserts! (is-none (get-stacker-info delegate))
+        (err ERR-STACKING-ALREADY-DELEGATED))
 
-        ;; the delegate's first reward cycle must not have started yet
-        (asserts! (< (current-pox-reward-cycle) (get first-reward-cycle delegate-control-info))
-            (err ERR-STACKING-DELEGATE-EXPIRED))
+    ;; the delegate's first reward cycle must not have started yet
+    (asserts! (< (current-pox-reward-cycle) (get first-reward-cycle delegate-control-info))
+        (err ERR-STACKING-DELEGATE-EXPIRED))
 
-        ;; the Stacker must have sufficient unlocked funds
-        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
-            (err ERR-STACKING-INSUFFICIENT-FUNDS))
+    ;; the Stacker must have sufficient unlocked funds
+    (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+        (err ERR-STACKING-INSUFFICIENT-FUNDS))
 
-        ;; encode the delegate/client relationship
-        (map-set delegates
-            { stacker: tx-sender }
-            {
-                delegate: delegate,
-                amount-ustx: amount-ustx
-            }
-        )
+    ;; encode the delegate/client relationship
+    (map-set delegates
+        { stacker: tx-sender }
+        {
+            delegate: delegate,
+            amount-ustx: amount-ustx
+        }
+    )
 
-        ;; update how much uSTX the delegate now controls in total
-        (map-set delegate-control
-            { delegate: delegate }
-            {
-                total-ustx: (+ amount-ustx (get total-ustx delegate-control-info)),
-                pox-addr: (get pox-addr delegate-control-info),
-                burn-block-height-start: (get burn-block-height-start delegate-control-info),
-                first-reward-cycle: (get first-reward-cycle delegate-control-info),
-                tenure-cycles: (get tenure-cycles delegate-control-info)
-            }
-        )
+    ;; update how much uSTX the delegate now controls in total
+    (map-set delegate-control
+        { delegate: delegate }
+        {
+            total-ustx: (+ amount-ustx (get total-ustx delegate-control-info)),
+            pox-addr: (get pox-addr delegate-control-info),
+            burn-block-height-start: (get burn-block-height-start delegate-control-info),
+            first-reward-cycle: (get first-reward-cycle delegate-control-info),
+            tenure-cycles: (get tenure-cycles delegate-control-info)
+        }
+    )
 
-        ;; add a stacker record for this principal
-        (map-set stacking-state
-            { stacker: tx-sender }
-            {
-                amount-ustx: amount-ustx,
-                pox-addr: (get pox-addr delegate-control-info),
-                first-reward-cycle: first-reward-cycle,
-                lock-period: (get tenure-cycles delegate-control-info),
-                delegate: (some delegate)
-            }
-        )
+    ;; add a stacker record for this principal
+    (map-set stacking-state
+        { stacker: tx-sender }
+        {
+            amount-ustx: amount-ustx,
+            pox-addr: (get pox-addr delegate-control-info),
+            first-reward-cycle: first-reward-cycle,
+            lock-period: (get tenure-cycles delegate-control-info),
+            delegate: (some delegate)
+        }
+    )
 
-        ;; we're done! let the delgate do its thing.
-        ;; Give back the information the node needs to actually carry out the lock.
-        (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle (get tenure-cycles delegate-control-info))) })
-    ))
+    ;; we're done! let the delgate do its thing.
+    ;; Give back the information the node needs to actually carry out the lock.
+    (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle (get tenure-cycles delegate-control-info))) }))
 )
 
 ;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
@@ -610,50 +596,48 @@
         ;; this stacker's first reward cycle is the _next_ reward cycle
         (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
     )
-    (begin
-        ;; amount must be valid
-        (asserts! (> amount-ustx u0)
-            (err ERR-STACKING-INVALID-AMOUNT))
+    ;; amount must be valid
+    (asserts! (> amount-ustx u0)
+        (err ERR-STACKING-INVALID-AMOUNT))
 
-        ;; tx-sender principal must not have rejected in this upcoming reward cycle
-        (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
-            (err ERR-STACKING-ALREADY-REJECTED))
+    ;; tx-sender principal must not have rejected in this upcoming reward cycle
+    (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
+        (err ERR-STACKING-ALREADY-REJECTED))
 
-        ;; tx-sender principal must not be stacking
-        (asserts! (is-none (get-stacker-info tx-sender))
-            (err ERR-STACKING-ALREADY-STACKED))
+    ;; tx-sender principal must not be stacking
+    (asserts! (is-none (get-stacker-info tx-sender))
+        (err ERR-STACKING-ALREADY-STACKED))
 
-        ;; tx-sender must not have a delegate/client relationship
-        (asserts! (is-none (get-client-delegate-info tx-sender))
-            (err ERR-STACKING-ALREADY-DELEGATED))
+    ;; tx-sender must not have a delegate/client relationship
+    (asserts! (is-none (get-client-delegate-info tx-sender))
+        (err ERR-STACKING-ALREADY-DELEGATED))
 
-        ;; tx-sender must not be a delegate
-        (asserts! (is-none (get-delegate-control-info tx-sender))
-            (err ERR-STACKING-BAD-DELEGATE))
+    ;; tx-sender must not be a delegate
+    (asserts! (is-none (get-delegate-control-info tx-sender))
+        (err ERR-STACKING-BAD-DELEGATE))
 
-        ;; the Stacker must have sufficient unlocked funds
-        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
-            (err ERR-STACKING-INSUFFICIENT-FUNDS))
-        
-        ;; register the PoX address with the amount stacked
-        (try!
-            (register-pox-addr-checked pox-addr amount-ustx first-reward-cycle lock-period false))
+    ;; the Stacker must have sufficient unlocked funds
+    (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+        (err ERR-STACKING-INSUFFICIENT-FUNDS))
+    
+    ;; register the PoX address with the amount stacked
+    (try!
+        (register-pox-addr-checked pox-addr amount-ustx first-reward-cycle lock-period false))
 
-        ;; add stacker record
-        (map-set stacking-state
-            { stacker: tx-sender }
-            {
-                amount-ustx: amount-ustx,
-                pox-addr: pox-addr,
-                first-reward-cycle: first-reward-cycle,
-                lock-period: lock-period,
-                delegate: none
-            }
-        )
-     
-        ;; return the lock-up information, so the node can actually carry out the lock. 
-        (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) })
-    ))
+    ;; add stacker record
+    (map-set stacking-state
+        { stacker: tx-sender }
+        {
+            amount-ustx: amount-ustx,
+            pox-addr: pox-addr,
+            first-reward-cycle: first-reward-cycle,
+            lock-period: lock-period,
+            delegate: none
+        }
+    )
+    
+    ;; return the lock-up information, so the node can actually carry out the lock. 
+    (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))
 )
 
 ;; Delegated uSTX lockup, executed by the delegate.
@@ -670,43 +654,41 @@
                 (get-delegate-control-info tx-sender)
                 (err ERR-STACKING-NO-SUCH-DELEGATE)))
     )
-    (begin
-        ;; tx-sender principal is the delegate, and it must not be stacking
-        (asserts! (is-none (get-stacker-info tx-sender))
-            (err ERR-STACKING-ALREADY-STACKED))
+    ;; tx-sender principal is the delegate, and it must not be stacking
+    (asserts! (is-none (get-stacker-info tx-sender))
+        (err ERR-STACKING-ALREADY-STACKED))
 
-        ;; delegate's first reward cycle must not have begun yet
-        (asserts! (< (current-pox-reward-cycle) (get first-reward-cycle delegate-control-info))
-            (err ERR-STACKING-DELEGATE-EXPIRED))
+    ;; delegate's first reward cycle must not have begun yet
+    (asserts! (< (current-pox-reward-cycle) (get first-reward-cycle delegate-control-info))
+        (err ERR-STACKING-DELEGATE-EXPIRED))
 
-        ;; delegate can't call this until the start of its tenure (by burn block height)
-        (asserts! (<= (get burn-block-height-start delegate-control-info) burn-block-height)
-            (err ERR-STACKING-PERMISSION-DENIED))
+    ;; delegate can't call this until the start of its tenure (by burn block height)
+    (asserts! (<= (get burn-block-height-start delegate-control-info) burn-block-height)
+        (err ERR-STACKING-PERMISSION-DENIED))
 
-        ;; lock it in!
-        ;; register the PoX address with the amount stacked
-        (try!
-            (register-pox-addr-checked
-                (get pox-addr delegate-control-info)
-                (get total-ustx delegate-control-info)
-                (get first-reward-cycle delegate-control-info)
-                (get tenure-cycles delegate-control-info)
-                true))
+    ;; lock it in!
+    ;; register the PoX address with the amount stacked
+    (try!
+        (register-pox-addr-checked
+            (get pox-addr delegate-control-info)
+            (get total-ustx delegate-control-info)
+            (get first-reward-cycle delegate-control-info)
+            (get tenure-cycles delegate-control-info)
+            true))
 
-        ;; add stacker record for the delegate
-        (map-set stacking-state
-            { stacker: tx-sender }
-            {
-                amount-ustx: (get total-ustx delegate-control-info),
-                pox-addr: (get pox-addr delegate-control-info),
-                first-reward-cycle: (get first-reward-cycle delegate-control-info),
-                lock-period: (get tenure-cycles delegate-control-info),
-                delegate: none
-            }
-        )
-        
-        (ok true)
-    ))
+    ;; add stacker record for the delegate
+    (map-set stacking-state
+        { stacker: tx-sender }
+        {
+            amount-ustx: (get total-ustx delegate-control-info),
+            pox-addr: (get pox-addr delegate-control-info),
+            first-reward-cycle: (get first-reward-cycle delegate-control-info),
+            lock-period: (get tenure-cycles delegate-control-info),
+            delegate: none
+        }
+    )
+    
+    (ok true))
 )
 
 ;; Reject Stacking for this reward cycle.
@@ -724,31 +706,29 @@
                 u0
                 (get amount (map-get? stacking-rejection { reward-cycle: (+ u1 (current-pox-reward-cycle)) }))))
     )
-    (begin
-        ;; tx-sender principal must not have rejected in this upcoming reward cycle
-        (asserts! (is-none (get-pox-rejection tx-sender vote-reward-cycle))
-            (err ERR-STACKING-ALREADY-REJECTED))
+    ;; tx-sender principal must not have rejected in this upcoming reward cycle
+    (asserts! (is-none (get-pox-rejection tx-sender vote-reward-cycle))
+        (err ERR-STACKING-ALREADY-REJECTED))
 
-        ;; tx-sender can't be a stacker
-        (asserts! (is-none (get-stacker-info tx-sender))
-            (err ERR-STACKING-ALREADY-STACKED))
+    ;; tx-sender can't be a stacker
+    (asserts! (is-none (get-stacker-info tx-sender))
+        (err ERR-STACKING-ALREADY-STACKED))
 
-        ;; tx-sender can't be a delegate
-        (asserts! (is-none (get-delegate-control-info tx-sender))
-            (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
+    ;; tx-sender can't be a delegate
+    (asserts! (is-none (get-delegate-control-info tx-sender))
+        (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
 
-        ;; vote for rejection
-        (map-set stacking-rejection
-            { reward-cycle: vote-reward-cycle }
-            { amount: (+ cur-rejected balance) }
-        )
+    ;; vote for rejection
+    (map-set stacking-rejection
+        { reward-cycle: vote-reward-cycle }
+        { amount: (+ cur-rejected balance) }
+    )
 
-        ;; mark voted
-        (map-set stacking-rejectors
-            { stacker: tx-sender, reward-cycle: vote-reward-cycle }
-            { amount: balance }
-        )
+    ;; mark voted
+    (map-set stacking-rejectors
+        { stacker: tx-sender, reward-cycle: vote-reward-cycle }
+        { amount: balance }
+    )
 
-        (ok true)
-    )))
+    (ok true)))
 )

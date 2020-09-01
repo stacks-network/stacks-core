@@ -82,15 +82,13 @@
 
         (this-contract (as-contract tx-sender))
     )
-    (begin
-        (unwrap!
-            (stx-transfer? (get unlock-ustx unlock-data) this-contract (get owner unlock-data))
-            (err ERR-UNLOCK-UNREACHABLE))
-        
-        ;; never process this row again
-        (map-delete internal-locked-stx { stx-height: block-height, index: index })
-        (ok true)
-    ))
+    (unwrap!
+        (stx-transfer? (get unlock-ustx unlock-data) this-contract (get owner unlock-data))
+        (err ERR-UNLOCK-UNREACHABLE))
+    
+    ;; never process this row again
+    (map-delete internal-locked-stx { stx-height: block-height, index: index })
+    (ok true))
 )
 
 ;; Determine how many principals need to have their tokens unlocked at this block height.
@@ -121,28 +119,27 @@
                 u0
                 (get total-unlocked (map-get? unlocked-stx-per-block { stx-height: stx-height }))))
     )
-    (begin
-        ;; Add unlock record
-        (map-set internal-locked-stx
-            { stx-height: stx-height, index: cur-stx-unlock-len }
-            {
-                owner: owner,
-                metadata: metadata,
-                unlock-ustx: unlock-ustx
-            }
-        )
+    ;; Add unlock record
+    (map-set internal-locked-stx
+        { stx-height: stx-height, index: cur-stx-unlock-len }
+        {
+            owner: owner,
+            metadata: metadata,
+            unlock-ustx: unlock-ustx
+        }
+    )
 
-        (map-set internal-locked-stx-len { stx-height: stx-height } { len: (+ u1 cur-stx-unlock-len) })
+    (map-set internal-locked-stx-len { stx-height: stx-height } { len: (+ u1 cur-stx-unlock-len) })
 
-        ;; Add owner unlock height
-        (map-set owner-unlock-heights
-            { owner: owner, index: cur-owner-unlock-len }
-            { stx-height: stx-height }
-        )
+    ;; Add owner unlock height
+    (map-set owner-unlock-heights
+        { owner: owner, index: cur-owner-unlock-len }
+        { stx-height: stx-height }
+    )
 
-        (map-set owner-unlock-heights-len { owner: owner } { len: (+ u1 cur-owner-unlock-len) })
+    (map-set owner-unlock-heights-len { owner: owner } { len: (+ u1 cur-owner-unlock-len) })
 
-        ;; Update the total amount of uSTX to be unlocked at this height.
-        (map-set unlocked-stx-per-block { stx-height: stx-height } { total-unlocked: (+ unlock-ustx cur-stx-unlocked) })
-    ))
+    ;; Update the total amount of uSTX to be unlocked at this height.
+    (map-set unlocked-stx-per-block { stx-height: stx-height } { total-unlocked: (+ unlock-ustx cur-stx-unlocked) })
+    )
 )
