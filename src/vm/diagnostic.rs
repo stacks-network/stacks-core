@@ -35,6 +35,10 @@ impl Diagnostic {
             suggestion: error.suggestion(),
         }
     }
+
+    pub fn add_span(&mut self, start_line: u32, start_column: u32, end_line: u32, end_column: u32) {
+        self.spans.push(Span { start_line, start_column, end_line, end_column });
+    }
 }
 
 impl fmt::Display for Diagnostic {

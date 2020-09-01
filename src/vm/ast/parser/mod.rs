@@ -411,8 +411,9 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                             handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         },
                         ParseContext::CollectTuple => {
-                            debug!("Closing tuple literal expected ({}, {}, {}, {})", start_line, start_column, line_pos, column_pos);
-                            return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
+                            let mut error = ParseError::new(ParseErrors::ClosingTupleLiteralExpected);
+                            error.diagnostic.add_span(start_line, start_column, line_pos, column_pos);
+                            return Err(error)
                         }
                     }
                 } else {
@@ -462,8 +463,9 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                             handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         },
                         ParseContext::CollectList => {
-                            debug!("Closing parenthesis is expected ({}, {}, {}, {})", start_line, start_column, line_pos, column_pos);
-                            return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                            let mut error = ParseError::new(ParseErrors::ClosingParenthesisExpected);
+                            error.diagnostic.add_span(start_line, start_column, line_pos, column_pos);
+                            return Err(error)
                         }
                     }
                 } else {
@@ -549,10 +551,12 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
     // check unfinished stack:
     if parse_stack.len() > 0 {
+        let mut error = ParseError::new(ParseErrors::ClosingParenthesisExpected);
         if let Some((_list, start_line, start_column, _parse_context)) = parse_stack.pop() {
+            error.diagnostic.add_span(start_line, start_column, 0, 0); 
             debug!("Unfinished stack: {} items remaining starting at ({}, {})", parse_stack.len() + 1, start_line, start_column);
         }
-        Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+        Err(error)
     } else {
         Ok(output_list)
     }
