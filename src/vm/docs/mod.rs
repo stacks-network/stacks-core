@@ -1488,6 +1488,7 @@ mod test {
     use super::make_all_api_reference;
     use chainstate::stacks::{StacksAddress, StacksBlockId, index::MarfTrieId};
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
+    use chainstate::burn::db::sortdb::SortitionId;
     use burnchains::BurnchainHeaderHash;
 
     use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext,
@@ -1525,10 +1526,10 @@ mod test {
     const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
 
     impl BurnStateDB for DocBurnStateDB {
-        fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
+        fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
             Some(5678)
         }
-        fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
+        fn get_burn_header_hash(&self, height: u32, _sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
             Some(BurnchainHeaderHash::from_hex("e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8").unwrap())
         }
     }

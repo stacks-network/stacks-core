@@ -26,7 +26,7 @@ use vm::database::RollbackWrapper;
 use util::db::{DBConn, FromRow};
 use vm::costs::CostOverflowingMath;
 
-use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleConn, SortitionDB};
+use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleConn, SortitionDB, SortitionId};
 
 use core::{
     FIRST_BURNCHAIN_BLOCK_HEIGHT,
@@ -76,8 +76,8 @@ pub trait HeadersDB {
 }
 
 pub trait BurnStateDB {
-    fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32>;
-    fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash>;
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash>;
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
@@ -159,25 +159,29 @@ impl HeadersDB for &dyn HeadersDB {
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
-    fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
-        self.inner_get_burn_block_height(bhh)
-            .expect("FATAL: Sqlite error when loading burn block height")
-            .map(|h| h as u32)
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        match SortitionDB::get_block_snapshot(self.conn, sortition_id) {
+            Ok(Some(x)) => Some(x.block_height as u32),
+            _ => return None
+        }
     }
 
-    fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
-        self.inner_get_burn_header_hash(height)
-            .expect("FATAL: Sqlite error when loading burn block hash")
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
+        match db_handle.get_block_snapshot_by_height(height as u64) {
+            Ok(Some(x)) => Some(x.burn_header_hash),
+            _ => return None
+        }
     }
 } 
 
 impl BurnStateDB for &dyn BurnStateDB {
-    fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
-        (*self).get_burn_block_height(bhh)
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        (*self).get_burn_block_height(sortition_id)
     }
 
-    fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
-        (*self).get_burn_header_hash(height)
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        (*self).get_burn_header_hash(height, sortition_id)
     }
 }
 
@@ -232,11 +236,11 @@ impl HeadersDB for NullHeadersDB {
 }
 
 impl BurnStateDB for NullBurnStateDB {
-    fn get_burn_block_height(&self, _bhh: &BurnchainHeaderHash) -> Option<u32> {
+    fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
         None
     }
     
-    fn get_burn_header_hash(&self, _height: u32) -> Option<BurnchainHeaderHash> {
+    fn get_burn_header_hash(&self, _height: u32, _sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
         None
     }
 }
@@ -814,11 +818,11 @@ impl<'a> ClarityDatabase<'a> {
 
 // access burnchain state
 impl <'a> ClarityDatabase<'a> {
-    pub fn get_burn_block_height(&self, bhh: &BurnchainHeaderHash) -> Option<u32> {
-        self.burn_state_db.get_burn_block_height(bhh)
+    pub fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        self.burn_state_db.get_burn_block_height(sortition_id)
     }
 
-    pub fn get_burn_header_hash(&self, height: u32) -> Option<BurnchainHeaderHash> {
-        self.burn_state_db.get_burn_header_hash(height)
+    pub fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        self.burn_state_db.get_burn_header_hash(height, sortition_id)
     }
 }
