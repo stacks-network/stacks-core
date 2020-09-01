@@ -384,7 +384,7 @@ fn special_contract_of(args: &[SymbolicExpression], env: &mut Environment, conte
         _ => return Err(CheckErrors::ContractOfExpectsTrait.into())
     };
 
-    let contract_identifier = match context.callable_contracts.get(contract_ref) {
+    let contract_identifier = match context.lookup_callable_contract(contract_ref) {
         Some((ref contract_identifier, _trait_identifier)) => {
             env.global_context.database.get_contract(contract_identifier)
                 .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
