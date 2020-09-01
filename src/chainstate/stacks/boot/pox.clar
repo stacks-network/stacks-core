@@ -407,7 +407,7 @@
         (err ERR-STACKING-INVALID-POX-ADDRESS))
 
     ;; register address and stacking
-    (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle num-cycles amount-ustx)
+    (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle num-cycles amount-ustx))
     (ok true))
 )
 
