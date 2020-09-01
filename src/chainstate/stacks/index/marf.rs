@@ -139,16 +139,6 @@ pub trait MarfConnection<T: MarfTrieId> {
     }
 }
 
-impl <'a, T: MarfTrieId> MarfConnection <T> for TrieStorageConnection <'a, T> {
-    fn with_conn<F, R>(&mut self, exec: F) -> R
-    where F: FnOnce(&mut TrieStorageConnection<T>) -> R {
-        exec(&mut self)
-    }
-    fn sqlite_conn(&self) -> &Connection {
-        self.sqlite_conn()
-    }
-}
-
 impl <'a, T: MarfTrieId> MarfConnection <T> for MarfTransaction <'a, T> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where F: FnOnce(&mut TrieStorageConnection<T>) -> R {
@@ -180,6 +170,19 @@ impl <'a, T: MarfTrieId> MarfTransaction <'a, T> {
             self.storage.commit_tx();
         }
         Ok(())
+    }
+
+    pub fn reopen_readonly(&self) -> Result<MARF<T>, Error> {
+        if self.open_chain_tip.is_some() {
+            error!("MARF at {} is already in the process of writing", &self.storage.db_path);
+            return Err(Error::InProgressError);
+        }
+
+        let ro_storage = self.storage.reopen_readonly()?;
+        Ok(MARF {
+            storage: ro_storage,
+            open_chain_tip: None,
+        })
     }
 
     /// deprecated!

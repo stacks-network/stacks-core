@@ -567,16 +567,18 @@ impl <'a> SortitionHandleTx <'a> {
         Ok(handle)
     }
 
-    pub fn conn_view<'b>(&'b self, view_sortition: &SortitionId) -> SortitionHandleConn<'b> {
-        let mut conn_view = self.as_conn();
-        conn_view.context.chain_tip = view_sortition.clone();
-        conn_view
-    }
+    /// Uses the handle's current fork identifier to get a block snapshot by
+    ///   burnchain block header
+    /// If the burn header hash is _not_ in the current fork, then this will return Ok(None)
+    pub fn get_block_snapshot(&mut self, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+        let sortition_identifier_key = db_keys::sortition_id_for_bhh(burn_header_hash);
+        let chain_tip = self.context.chain_tip.clone();
+        let sortition_id = match self.get_indexed(&chain_tip, &sortition_identifier_key)? {
+            None => return Ok(None),
+            Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB")
+        };
 
-    pub fn has_VRF_public_key(&self, key: &VRFPublicKey) -> Result<bool, db_error> {
-        let key_status = self.get_tip_indexed(&db_keys::vrf_key_status(key))?
-            .is_some();
-        Ok(key_status)
+        SortitionDB::get_block_snapshot(self.tx(), &sortition_id)
     }
 }
 
@@ -683,7 +685,6 @@ impl <'a> SortitionHandleConn <'a> {
     /// open a reader handle
     pub fn open_reader(connection: &'a SortitionDBConn<'a>, chain_tip: &SortitionId) -> Result<SortitionHandleConn<'a>, db_error> {
         Ok(SortitionHandleConn {
-            conn: &connection.conn,
             context: SortitionHandleContext {
                 chain_tip: chain_tip.clone(),
                 first_block_height: connection.context.first_block_height
@@ -706,11 +707,11 @@ impl <'a> SortitionHandleConn <'a> {
             Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB")
         };
 
-        SortitionDB::get_block_snapshot(&self.conn, &sortition_id)
+        SortitionDB::get_block_snapshot(self.conn(), &sortition_id)
     }
 
     pub fn get_tip_snapshot(&self) -> Result<Option<BlockSnapshot>, db_error> {
-        SortitionDB::get_block_snapshot(&self.conn, &self.context.chain_tip)
+        SortitionDB::get_block_snapshot(self.conn(), &self.context.chain_tip)
     }
 
     pub fn has_VRF_public_key(&self, key: &VRFPublicKey) -> Result<bool, db_error> {
@@ -720,7 +721,7 @@ impl <'a> SortitionHandleConn <'a> {
     }
 
     pub fn get_first_block_snapshot(&self) -> Result<BlockSnapshot, db_error> {
-        SortitionDB::get_first_block_snapshot(&self.conn)
+        SortitionDB::get_first_block_snapshot(self.conn())
     }
 
     /// Do we expect a stacks block in this particular fork?
@@ -775,7 +776,7 @@ impl <'a> SortitionHandleConn <'a> {
 
     /// Get the block snapshot of the parent stacks block of the given stacks block
     pub fn get_block_snapshot_of_parent_stacks_block(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<(LeaderBlockCommitOp, BlockSnapshot)>, db_error> {
-        let block_commit = match SortitionDB::get_block_commit_for_stacks_block(&self.conn, burn_header_hash, &block_hash)? {
+        let block_commit = match SortitionDB::get_block_commit_for_stacks_block(self.conn(), burn_header_hash, &block_hash)? {
             Some(bc) => bc,
             None => {
                 // unsoliciated
@@ -909,7 +910,7 @@ impl <'a> SortitionHandleConn <'a> {
         //                   should not be allowed to cause a panic)
         let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND burn_header_hash = ?2";
         let args: [&dyn ToSql; 2] = [&txid, &burn_header_hash];
-        query_row_panic(&self.conn, qry, &args,
+        query_row_panic(self.conn(), qry, &args,
                         || format!("FATAL: multiple block commits for {},{}", &txid, &burn_header_hash))
     }
 
@@ -991,12 +992,12 @@ impl SortitionDB {
 
     /// Make an indexed connectino
     pub fn index_conn<'a>(&'a self) -> SortitionDBConn<'a> {
-        SortitionDBConn::new(&self.conn, &self.marf,
+        SortitionDBConn::new(&self.marf,
                              SortitionDBTxContext { first_block_height: self.first_block_height })
     }
 
     pub fn index_handle<'a>(&'a self, chain_tip: &SortitionId) -> SortitionHandleConn<'a> {
-        SortitionHandleConn::new(&self.conn, &self.marf,
+        SortitionHandleConn::new(&self.marf,
                                  SortitionHandleContext {
                                      first_block_height: self.first_block_height,
                                      chain_tip: chain_tip.clone() })
@@ -1152,7 +1153,6 @@ impl SortitionDB {
 impl <'a> SortitionDBConn <'a> {
     pub fn as_handle <'b> (&'b self, chain_tip: &SortitionId) -> SortitionHandleConn <'b> {
         SortitionHandleConn {
-            conn: self.conn,
             index: self.index,
             context: SortitionHandleContext {
                 first_block_height: self.context.first_block_height.clone(),
@@ -1325,7 +1325,7 @@ impl SortitionDB {
         }
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
-        let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&burn_header.parent_block_hash)?
+        let parent_snapshot = sortition_db_handle.get_block_snapshot(&burn_header.parent_block_hash)?
             .ok_or_else(|| {
                 warn!("Unknown block {:?}", burn_header.parent_block_hash);
                 BurnchainError::MissingParentBlock
@@ -1934,36 +1934,40 @@ impl <'a> SortitionHandleTx <'a> {
         let mut keys = vec![];
         let mut values = vec![];
 
-        let db_handle = self.conn_view(&parent_tip.sortition_id);
-
-        let old_max_arrival_index = db_handle.get_tip_indexed(&db_keys::stacks_block_max_arrival_index())?
-            .unwrap_or("0".into())
-            .parse::<u64>().expect("BUG: max arrival index is not a u64");
-        let max_arrival_index = SortitionDB::get_max_arrival_index(&db_handle)?;
-
         let mut new_block_arrivals = vec![];
 
-        // find all Stacks block hashes who arrived since this parent_tip was built.
-        for ari in old_max_arrival_index..(max_arrival_index+1) {
-            let arrival_sn = match SortitionDB::get_snapshot_by_arrival_index(&db_handle, ari)? {
-                Some(sn) => sn,
-                None => {
+        let max_arrival_index = self.with_conn::<_, _, db_error>(|db_handle| {
+            db_handle.context.chain_tip = parent_tip.sortition_id.clone();
+
+            let old_max_arrival_index = db_handle.get_tip_indexed(&db_keys::stacks_block_max_arrival_index())?
+                .unwrap_or("0".into())
+                .parse::<u64>().expect("BUG: max arrival index is not a u64");
+            let max_arrival_index = SortitionDB::get_max_arrival_index(&db_handle)?;
+
+            // find all Stacks block hashes who arrived since this parent_tip was built.
+            for ari in old_max_arrival_index..(max_arrival_index+1) {
+                let arrival_sn = match SortitionDB::get_snapshot_by_arrival_index(&db_handle, ari)? {
+                    Some(sn) => sn,
+                    None => {
+                        continue;
+                    }
+                };
+
+                // must be an ancestor of this tip, or must be this tip
+                if let Some(sn) = db_handle.get_block_snapshot(&arrival_sn.burn_header_hash)? {
+                    // this block arrived on an ancestor block
+                    assert_eq!(sn, arrival_sn);
+
+                    debug!("New Stacks anchored block arrived since {}: block {} ({}) ari={} tip={}", parent_tip.burn_header_hash, sn.stacks_block_height, sn.winning_stacks_block_hash, ari, &parent_tip.burn_header_hash);
+                    new_block_arrivals.push((sn.burn_header_hash, sn.winning_stacks_block_hash, sn.stacks_block_height));
+                } else {
+                    // this block did not arrive on an ancestor block
                     continue;
                 }
-            };
-
-            // must be an ancestor of this tip, or must be this tip
-            if let Some(sn) = db_handle.get_block_snapshot(&arrival_sn.burn_header_hash)? {
-                // this block arrived on an ancestor block
-                assert_eq!(sn, arrival_sn);
-
-                debug!("New Stacks anchored block arrived since {}: block {} ({}) ari={} tip={}", parent_tip.burn_header_hash, sn.stacks_block_height, sn.winning_stacks_block_hash, ari, &parent_tip.burn_header_hash);
-                new_block_arrivals.push((sn.burn_header_hash, sn.winning_stacks_block_hash, sn.stacks_block_height));
-            } else {
-                // this block did not arrive on an ancestor block
-                continue;
             }
-        }
+
+            Ok(max_arrival_index)
+        })?;
 
         let mut best_tip_block_bhh = parent_tip.canonical_stacks_tip_hash.clone();
         let mut best_tip_burn_bhh = parent_tip.canonical_stacks_tip_burn_hash.clone();

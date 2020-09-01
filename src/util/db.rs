@@ -422,12 +422,16 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         let mut ro_index = self.index.reopen_readonly()?;
         get_indexed(&mut ro_index, header_hash, key)
     }
+
+    pub fn conn(&self) -> &DBConn {
+        self.index.sqlite_conn()
+    }
 }
 
 impl <'a, C, T: MarfTrieId> Deref for IndexDBConn<'a, C, T> {
     type Target = DBConn;
     fn deref(&self) -> &DBConn {
-        self.conn
+        self.conn()
     }
 }
 
@@ -559,8 +563,12 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(())
     }
 
-    pub fn as_conn_2<'b> (&'b self) -> IndexDBConn<'b, C, T> {
-        panic!("Not implemented");
+    pub fn with_conn<F, R, E>(&self, exec: F) -> Result<R, E>
+    where F: FnOnce(&mut IndexDBConn<C, T>) -> Result<R, E>,
+          E: From<Error> {
+        let store = self.index.reopen_readonly().map_err(Error::from)?;
+        let mut db_conn = IndexDBConn { index: &store, context: self.context.clone() };
+        exec(&mut db_conn)
     }
 
     /// Get the ancestor block hash of a block of a given height, given a descendent block hash.

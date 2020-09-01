@@ -631,6 +631,7 @@ impl <'a, T: MarfTrieId> DerefMut for TrieStorageTransaction<'a, T> {
 pub struct TrieStorageTransaction <'a, T: MarfTrieId>(TrieStorageConnection<'a, T>);
 
 pub struct TrieStorageConnection <'a, T: MarfTrieId> {
+    pub db_path: &'a str,
     db: SqliteConnection<'a>,
     data: &'a mut TrieStorageTransientData<T>,
 
@@ -685,6 +686,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
     pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, T> {
         TrieStorageConnection {
             db: SqliteConnection::ConnRef(&self.db),
+            db_path: &self.db_path,
             data: &mut self.data,
 
             #[cfg(test)]
@@ -700,6 +702,7 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
 
         Ok(TrieStorageTransaction(TrieStorageConnection {
             db: SqliteConnection::Tx(tx),
+            db_path: &self.db_path,
             data: &mut self.data,
 
             #[cfg(test)]
@@ -1069,6 +1072,56 @@ impl <'a, T: MarfTrieId> TrieStorageTransaction <'a, T> {
 
         self.switch_trie(bhh, trie_buf);
         Ok(created)
+    }
+
+    // This is only used to minimize the blast-radius of the change to Transaction objects
+    //  for MARFs: this is used to implement the `as_conn` function for the IndexedDBTx struct
+    //  however, this _should not_ be strictly necessary: we should be able to implement
+    //  Deref/DerefMut for IndexedDBTx -> IndexedDBConn conversions, however, that would require
+    //  a big restructuring there (such that IndexedDBConn holds something that a MarfTransaction
+    //  could deref to).
+    // Another (similarly large blast-radius) alternative is to define a trait for IndexDBConn/IndexDBTx
+    //  and refactor usage of those structs into generics.
+    //
+    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
+        let db = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        db.busy_handler(Some(tx_busy_handler))?;
+
+        trace!("Make read-only view of TrieFileStorage: {}", &self.db_path);
+       
+        // TODO: borrow self.last_extended and self.block_hash_cache; don't copy them
+        let ret = TrieFileStorage {
+            db_path: self.db_path.to_owned(),
+            db: db,
+
+            data: TrieStorageTransientData {
+                last_extended: self.data.last_extended.clone(),
+                cur_block: self.data.cur_block.clone(),
+                cur_block_id: self.data.cur_block_id.clone(),
+
+                read_count: 0,
+                read_backptr_count: 0,
+                read_node_count: 0,
+                read_leaf_count: 0,
+
+                write_count: 0,
+                write_node_count: 0,
+                write_leaf_count: 0,
+
+                trie_ancestor_hash_bytes_cache: None,
+                block_hash_cache: self.data.block_hash_cache.clone(),
+  
+                readonly: true,
+                unconfirmed: true,
+            },
+
+            // used in testing in order to short-circuit block-height lookups
+            //   when the trie struct is tested outside of marf.rs usage
+            #[cfg(test)]
+            test_genesis_block: self.test_genesis_block.clone()
+        };
+
+        Ok(ret)
     }
 
     pub fn sqlite_tx(&self) -> &Transaction<'a> {
