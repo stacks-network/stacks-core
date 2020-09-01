@@ -19,6 +19,7 @@
 (define-constant ERR-STACKING-DELEGATE-EXPIRED 16)
 (define-constant ERR-STACKING-ALREADY-REJECTED 17)
 (define-constant ERR-STACKING-INVALID-AMOUNT 18)
+(define-constant ERR-NOT-ALLOWED 19)
 
 ;; Min/max number of reward cycles uSTX can be locked for
 (define-constant MIN-POX-REWARD-CYCLES u1)
@@ -55,17 +56,14 @@
 
 ;; This function can only be called once, when it boots up
 (define-public (set-burnchain-parameters (first-burn-height uint) (pox-reg-window-len uint) (pox-reward-cycle-len uint) (pox-rejection-frac uint))
-    (if (and is-in-regtest (not (var-get configured)))
-        (begin
-            (var-set first-burnchain-block-height first-burn-height)
-            (var-set pox-registration-window-length pox-reg-window-len)
-            (var-set pox-reward-cycle-length pox-reward-cycle-len)
-            (var-set pox-rejection-fraction pox-rejection-frac)
-            (var-set configured true)
-            (ok true)
-        )
-        (ok false)
-    )
+    (begin
+        (asserts! (and is-in-regtest (not (var-get configured))) (err ERR-NOT-ALLOWED))
+        (var-set first-burnchain-block-height first-burn-height)
+        (var-set pox-registration-window-length pox-reg-window-len)
+        (var-set pox-reward-cycle-length pox-reward-cycle-len)
+        (var-set pox-rejection-fraction pox-rejection-frac)
+        (var-set configured true)
+        (ok true))
 )
 
 ;; The Stacking lock-up state and associated metadata.
