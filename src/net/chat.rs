@@ -1672,7 +1672,7 @@ mod test {
 
             let mut tx = SortitionHandleTx::begin(sortdb, &prev_snapshot.sortition_id).unwrap();
 
-            let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+            let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], None).unwrap();
             next_snapshot.index_root = next_index_root;
 
             test_debug!("i = {}, chain_view.burn_block_height = {}, ch = {}", i, chain_view.burn_block_height, next_snapshot.consensus_hash);
