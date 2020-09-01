@@ -531,20 +531,22 @@ pub const MINER_FEE_WINDOW : u64 = 24;                      // number of blocks 
 
 impl StacksChainState {
     fn instantiate_headers_db(conn: &mut DBConn, mainnet: bool, chain_id: u32, marf_path: &str) -> Result<(), Error> {
-        let tx = tx_begin_immediate(conn)?;
-        
-        for cmd in STACKS_CHAIN_STATE_SQL {
-            tx.execute(cmd, NO_PARAMS).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        }
-
-        tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)", &[&CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
         let mut marf = StacksChainState::open_index(marf_path)?;
-        let mut dbtx = StacksDBTx::new(tx, &mut marf, ());
+        let mut dbtx = StacksDBTx::new(&mut marf, ());
+
+        {
+            let tx = dbtx.tx();
         
-        dbtx.instantiate_index().map_err(Error::DBError)?;
-        dbtx.commit().map_err(Error::DBError)?;
+            for cmd in STACKS_CHAIN_STATE_SQL {
+                tx.execute(cmd, NO_PARAMS)?;
+            }
+
+            tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
+                       &[&CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])?;
+        }
+        
+        dbtx.instantiate_index()?;
+        dbtx.commit()?;
         Ok(())
     }
     
@@ -863,8 +865,7 @@ impl StacksChainState {
     
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     pub fn headers_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        let tx = tx_begin_immediate(&mut self.headers_db)?;
-        Ok(StacksDBTx::new(tx, &mut self.headers_state_index, ()))
+        Ok(StacksDBTx::new(&mut self.headers_state_index, ()))
     }
     
     /// Begin a transaction against our staging block index DB.
@@ -877,12 +878,11 @@ impl StacksChainState {
     /// Used when considering a new block to append the chain state.
     pub fn chainstate_tx_begin<'a>(&'a mut self) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
         let config = self.config();
-        let headers_inner_tx = tx_begin_immediate(&mut self.headers_db)?;
         let blocks_inner_tx = tx_begin_immediate(&mut self.blocks_db)?;
 
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
-        let headers_tx = StacksDBTx::new(headers_inner_tx, &mut self.headers_state_index, ());
+        let headers_tx = StacksDBTx::new(&mut self.headers_state_index, ());
         let blocks_tx = BlocksDBTx::new(blocks_inner_tx, blocks_path);
 
         let chainstate_tx = ChainstateTx {

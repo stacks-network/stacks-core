@@ -59,7 +59,7 @@ use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::db::accounts::MinerReward;
 
 use chainstate::stacks::db::blocks::MemPoolRejection;
-
+use rusqlite::Error as RusqliteError;
 use net::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
@@ -243,6 +243,12 @@ impl Error {
             "reason_data": reason_data
         });
         result
+    }
+}
+
+impl From<RusqliteError> for Error {
+    fn from(e: RusqliteError) -> Error {
+        Error::DBError(db_error::SqliteError(e))
     }
 }
 

@@ -17,6 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use chainstate::stacks::index::storage::TrieStorageConnection;
 use std::fmt;
 use std::error;
 use std::fs;
@@ -25,6 +26,7 @@ use std::io::Error as IOError;
 use std::path::PathBuf;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::convert::TryInto;
 
 use util::hash::to_hex;
 use util::sleep_ms;
@@ -40,10 +42,13 @@ use rusqlite::Transaction;
 use rusqlite::types::{ToSql, ToSqlOutput, FromSql, FromSqlResult, FromSqlError, Value as RusqliteValue, ValueRef as RusqliteValueRef};
 
 use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::marf::MarfTransaction;
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::index::MARFValue;
+use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::Error as MARFError;
+use chainstate::stacks::index::storage::TrieStorageTransaction;
 
 use rand::Rng;
 use rand::RngCore;
@@ -390,17 +395,15 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
 
 /// Read-only connection to a MARF-indexed DB
 pub struct IndexDBConn<'a, C, T: MarfTrieId> {
-    pub conn: &'a Connection,
     pub index: &'a MARF<T>,
     pub context: C
 }
 
 impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
-    pub fn new(conn: &'a Connection, index: &'a MARF<T>, context: C) -> IndexDBConn<'a, C, T> {
+    pub fn new(index: &'a MARF<T>, context: C) -> IndexDBConn<'a, C, T> {
         IndexDBConn {
-            conn: conn,
-            index: index,
-            context: context
+            index,
+            context
         }
     }
     
@@ -416,7 +419,8 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     
     /// Get a value from the fork index
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        get_indexed(self.conn, self.index, header_hash, key)
+        let mut ro_index = self.index.reopen_readonly()?;
+        get_indexed(&mut ro_index, header_hash, key)
     }
 }
 
@@ -428,7 +432,7 @@ impl <'a, C, T: MarfTrieId> Deref for IndexDBConn<'a, C, T> {
 }
 
 pub struct IndexDBTx<'a, C: Clone, T: MarfTrieId> {
-    pub index: TrieStorageConnection<'a, T>,
+    pub index: MarfTransaction<'a, T>,
     pub context: C,
     block_linkage: Option<(T, T)>
 }
@@ -437,12 +441,6 @@ impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
     type Target = DBTx<'a>;
     fn deref(&self) -> &DBTx<'a> {
         self.tx()
-    }
-}
-
-impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
-    fn deref_mut(&mut self) -> &mut DBTx<'a> {
-        self.tx_mut()
     }
 }
 
@@ -474,15 +472,15 @@ pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Erro
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
 pub fn get_ancestor_block_hash<T: MarfTrieId>(index: &MARF<T>, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
     assert!(block_height < u32::max_value() as u64);
-    let mut read_only = index.reopen_storage_readonly()?;
-    let bh = MARF::get_block_at_height(&mut read_only.connection(), block_height as u32, tip_block_hash)?;
+    let mut read_only = index.reopen_readonly()?;
+    let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
     Ok(bh)
 }
 
 /// Get the height of an ancestor block, if it is indeed the ancestor.
 pub fn get_ancestor_block_height<T: MarfTrieId>(index: &MARF<T>, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
-    let mut read_only = index.reopen_storage_readonly()?;
-    let height_opt = MARF::get_block_height(&mut read_only.connection(), ancestor_block_hash, tip_block_hash)?
+    let mut read_only = index.reopen_readonly()?;
+    let height_opt = read_only.get_block_height(ancestor_block_hash, tip_block_hash)?
         .map(|height| height as u64);
     Ok(height_opt)
 }
@@ -512,50 +510,22 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
 }
 
 /// Get a value from the fork index
-pub fn get_indexed<T: MarfTrieId>(conn: &DBConn, index: &MARF<T>, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-    let mut ro_index = index.reopen_readonly()?;
-    let parent_index_root = match ro_index.get_root_hash_at(header_hash) {
-        Ok(root) => {
-            root
+fn get_indexed<T: MarfTrieId, M: MarfConnection<T>>(index: &mut M, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+    match index.get(header_hash, key) {
+        Ok(Some(marf_value)) => {
+            let value = load_indexed(index.sqlite_conn(), &marf_value)?
+                .expect(&format!("FATAL: corrupt index: key '{}' from {} is present in the index but missing a value in the DB", &key, &header_hash));
+            Ok(Some(value))
+        },
+        Ok(None) => {
+            Ok(None)
+        },
+        Err(MARFError::NotFoundError) => {
+            Ok(None)
         },
         Err(e) => {
-            match e {
-                MARFError::NotFoundError => {
-                    test_debug!("Not found: Get '{}' off of {} (parent index root not found)", key, header_hash);
-                    return Ok(None);
-                },
-                _ => {
-                    error!("Failed to get root hash of {}: {:?}", &header_hash, &e);
-                    return Err(Error::Corruption);
-                }
-            }
-        }
-    };
-
-    match ro_index.get(header_hash, key) {
-        Ok(marf_value_opt) => { 
-            match marf_value_opt {
-                Some(marf_value) => {
-                    let value = load_indexed(conn, &marf_value)?
-                        .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash, &parent_index_root));
-
-                    return Ok(Some(value));
-                },
-                None => {
-                    return Ok(None);
-                }
-            }
-        },
-        Err(e) => {
-            match e {
-                MARFError::NotFoundError => {
-                    return Ok(None);
-                },
-                _ => {
-                    error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash, &e);
-                    return Err(Error::Corruption);
-                }
-            }
+            error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash, &e);
+            Err(Error::Corruption)
         }
     }
 }
@@ -572,11 +542,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     pub fn tx(&self) -> &DBTx<'a> {
-        self._tx.as_ref().unwrap()
-    }
-    
-    pub fn tx_mut(&mut self) -> &mut DBTx<'a> {
-        self._tx.as_mut().unwrap()
+        self.index.sqlite_tx()
     }
 
     pub fn instantiate_index(&mut self) -> Result<(), Error> {
@@ -593,22 +559,21 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(())
     }
 
-    pub fn as_conn<'b> (&'b self) -> IndexDBConn<'b, C, T> {
-        IndexDBConn {
-            conn: self.tx(),
-            index: self.index,
-            context: self.context.clone()
-        }
+    pub fn as_conn_2<'b> (&'b self) -> IndexDBConn<'b, C, T> {
+        panic!("Not implemented");
     }
 
     /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
     pub fn get_ancestor_block_hash(&mut self, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
-        get_ancestor_block_hash(self.index, block_height, tip_block_hash)
+        self.index.get_block_at_height(block_height.try_into().expect("Height > u32::max()"), tip_block_hash)
+            .map_err(Error::from)
     }
 
     /// Get the height of an ancestor block, if it is indeed the ancestor.
     pub fn get_ancestor_block_height(&mut self, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
-        get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
+        let height_opt = self.index.get_block_height(ancestor_block_hash, tip_block_hash)?
+            .map(|height| height as u64);
+        Ok(height_opt)
     }
 
     /// Store some data to the index storage.
@@ -623,8 +588,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     /// namely, made so it doesn't just naively clone the underlying TrieRAM when reopening
     /// read-only, the caller should make sure to only use the get_indexed() _before_ writing any
     /// MARF key/value pairs.  Doing so afterwards will clone all uncommitted trie state.
-    pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        get_indexed(self.tx(), &self.index, header_hash, key)
+    pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+        get_indexed(&mut self.index, header_hash, key)
     }
 
     pub fn put_indexed_begin(&mut self, parent_header_hash: &T, header_hash: &T) -> Result<(), Error> {
@@ -659,16 +624,9 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
 
     /// Commit the tx
     pub fn commit(mut self) -> Result<(), Error> {
-        let tx = self._tx.take();
-        debug!("Indexed-commit: storage");
-        tx.unwrap().commit()?;
-        if self.block_linkage.is_some() {
-            // force the issue.
-            sleep_ms(1000);
-            debug!("Indexed-commit: MARF index");
-            self.index.commit()?;
-            self.block_linkage = None;
-        }
+        self.block_linkage = None;
+        debug!("Indexed-commit: MARF index");
+        self.index.commit()?;
         Ok(())
     }
 
@@ -679,11 +637,14 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 }
 
+/*
 impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
     fn drop(&mut self) {
         if let Some((ref parent, ref child)) = self.block_linkage {
             debug!("Dropping MARF linkage ({},{})", parent, child);
-            self.index.drop_current();
+            panic!("Not implemented");
+            //            self.index.drop_current();
         }
     }
 }
+*/

@@ -831,7 +831,7 @@ mod test {
     fn trie_cursor_try_attach_leaf() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
             let mut f_store = TrieFileStorage::new_memory().unwrap();
-            let mut f = f_store.connection();
+            let mut f = f_store.transaction().unwrap();
 
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
@@ -959,7 +959,7 @@ mod test {
     #[test]
     fn trie_cursor_promote_leaf_to_node4() {
         let mut f_store = TrieFileStorage::new_memory().unwrap();
-        let mut f = f_store.connection();
+        let mut f = f_store.transaction().unwrap();
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
@@ -1058,7 +1058,7 @@ mod test {
     #[test]
     fn trie_cursor_promote_node4_to_node16() {
         let mut f_store = TrieFileStorage::new_memory().unwrap();
-        let mut f = f_store.connection();
+        let mut f = f_store.transaction().unwrap();
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
@@ -1172,7 +1172,7 @@ mod test {
     #[test]
     fn trie_cursor_promote_node16_to_node48() {
         let mut f_store = TrieFileStorage::new_memory().unwrap();
-        let mut f = f_store.connection();
+        let mut f = f_store.transaction().unwrap();
         
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
@@ -1353,7 +1353,7 @@ mod test {
     #[test]
     fn trie_cursor_promote_node48_to_node256() {
         let mut f_store = TrieFileStorage::new_memory().unwrap();
-        let mut f = f_store.connection();
+        let mut f = f_store.transaction().unwrap();
         
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
@@ -1597,7 +1597,7 @@ mod test {
     fn trie_cursor_splice_leaf_4() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
             let mut f_store = TrieFileStorage::new_memory().unwrap();
-            let mut f = f_store.connection();
+            let mut f = f_store.transaction().unwrap();
 
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
@@ -1655,7 +1655,7 @@ mod test {
     fn trie_cursor_splice_leaf_2() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
             let mut f_store = TrieFileStorage::new_memory().unwrap();
-            let mut f = f_store.connection();
+            let mut f = f_store.transaction().unwrap();
         
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();

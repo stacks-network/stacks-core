@@ -33,7 +33,10 @@ use std::path::{
 };
 
 use std::fs;
-
+use rusqlite::{
+    Transaction,
+    Connection
+};
 use sha2::Digest;
 
 use chainstate::burn::BlockHeaderHash;
@@ -64,7 +67,7 @@ use chainstate::stacks::index::node::{
 };
 
 use chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieStorageConnection
+    TrieFileStorage, TrieStorageConnection, TrieStorageTransaction
 };
 
 use chainstate::stacks::index::{
@@ -80,7 +83,7 @@ use chainstate::stacks::index::trie::{
 };
 
 use chainstate::stacks::index::Error as Error;
-
+use std::ops::DerefMut;
 use util::log;
 use util::hash::Sha512Trunc256Sum;
 
@@ -94,10 +97,266 @@ pub struct MARF<T: MarfTrieId> {
     open_chain_tip: Option<WriteChainTip<T>>,
 }
 
+pub struct MarfTransaction<'a, T: MarfTrieId> {
+    storage: TrieStorageTransaction<'a, T>,
+    open_chain_tip: &'a mut Option<WriteChainTip<T>>,
+}
+
 #[derive(Clone)]
 struct WriteChainTip<T> {
     block_hash: T,
     height: u32
+}
+
+pub trait MarfConnection<T: MarfTrieId> {
+    fn with_conn<F, R>(&mut self, exec: F) -> R
+    where F: FnOnce(&mut TrieStorageConnection<T>) -> R;
+
+    fn sqlite_conn(&self) -> &Connection;
+
+
+    /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
+    fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
+        self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
+    }
+
+    fn get_block_at_height(&mut self, height: u32, tip: &T) -> Result<Option<T>, Error> {
+        self.with_conn(|c| MARF::get_block_at_height(c, height, tip))
+    }
+
+    fn get_block_height(&mut self, ancestor: &T, tip: &T) -> Result<Option<u32>, Error> {
+        self.with_conn(|c| MARF::get_block_height(c, ancestor, tip))
+    }
+
+    /// Get the current root trie hash
+    fn get_root_hash(&mut self) -> Result<TrieHash, Error> {
+        self.with_conn(|c| read_root_hash(c))
+    }
+
+    /// Get the root trie hash at a particular block
+    fn get_root_hash_at(&mut self, block_hash: &T) -> Result<TrieHash, Error> {
+        self.with_conn(|c| c.get_root_hash_at(block_hash))
+    }
+}
+
+impl <'a, T: MarfTrieId> MarfConnection <T> for TrieStorageConnection <'a, T> {
+    fn with_conn<F, R>(&mut self, exec: F) -> R
+    where F: FnOnce(&mut TrieStorageConnection<T>) -> R {
+        exec(&mut self)
+    }
+    fn sqlite_conn(&self) -> &Connection {
+        self.sqlite_conn()
+    }
+}
+
+impl <'a, T: MarfTrieId> MarfConnection <T> for MarfTransaction <'a, T> {
+    fn with_conn<F, R>(&mut self, exec: F) -> R
+    where F: FnOnce(&mut TrieStorageConnection<T>) -> R {
+        exec(&mut self.storage)
+    }
+    fn sqlite_conn(&self) -> &Connection {
+        self.storage.sqlite_tx()
+    }
+}
+
+impl <T: MarfTrieId> MarfConnection <T> for MARF <T> {
+    fn with_conn<F, R>(&mut self, exec: F) -> R
+    where F: FnOnce(&mut TrieStorageConnection<T>) -> R {
+        let mut conn = self.storage.connection();
+        exec(&mut conn)
+    }
+    fn sqlite_conn(&self) -> &Connection {
+        self.storage.sqlite_conn()
+    }
+}
+
+impl <'a, T: MarfTrieId> MarfTransaction <'a, T> {
+    pub fn commit(mut self) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if let Some(_tip) = self.open_chain_tip.take() {
+            self.storage.flush()?;
+            self.storage.commit_tx();
+        }
+        Ok(())
+    }
+
+    /// deprecated!
+    ///  only used by Clarity MarfedKV and tests.
+    pub fn commit_tx(self) {
+        self.storage.commit_tx()
+    }
+
+    pub fn sqlite_tx(&self) -> &Transaction<'a> {
+        self.storage.sqlite_tx()
+    }
+
+    /// Begin writing the next trie in the MARF, given the block header hash that will contain the
+    /// associated block's new state.  Call commit() or commit_to() to persist the changes.
+    /// Fails if the block already exists.
+    /// Storage will point to new chain tip on success.
+    pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.open_chain_tip.is_some() {
+            return Err(Error::InProgressError);
+        }
+        if self.storage.has_block(next_chain_tip)? {
+            error!("Block data already exists: {}", next_chain_tip);
+            return Err(Error::ExistsError);
+        }
+        
+        let block_height = self.inner_get_extension_height(chain_tip, next_chain_tip)?;
+        MARF::extend_trie(&mut self.storage, next_chain_tip)?;
+        self.inner_setup_extension(chain_tip, next_chain_tip, block_height, true)
+    }
+
+    /// Set up the trie extension we're making.
+    /// Sets storage pointer to chain_tip.
+    /// Returns the height next_chain_tip would be at.
+    fn inner_get_extension_height(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<u32, Error> {
+        // current chain tip must exist if it's not the "sentinel"
+        let is_parent_sentinel = chain_tip == &T::sentinel();
+        if !is_parent_sentinel {
+            debug!("Extending off of existing node {}", chain_tip);
+        }
+        else {
+            info!("First-ever block {}", next_chain_tip);
+        }
+
+        self.storage.open_block(chain_tip)?;
+
+        let block_height = 
+            if !is_parent_sentinel {
+                let height = MARF::get_block_height_miner_tip(&mut self.storage, chain_tip, chain_tip)?
+                    .ok_or(Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?;
+                height.checked_add(1).expect("FATAL: block height overflow!")
+            } else {
+                0
+            };
+
+        Ok(block_height)
+    }
+   
+    /// Set up a new extension.
+    /// Opens storage to chain_tip/
+    fn inner_setup_extension(&mut self, chain_tip: &T, next_chain_tip: &T, block_height: u32, new_extension: bool) -> Result<(), Error> {
+        self.storage.open_block(next_chain_tip)?;
+        self.open_chain_tip.replace(WriteChainTip{ block_hash: next_chain_tip.clone(),
+                                                   height: block_height });
+
+        if new_extension {
+            self.set_block_heights(chain_tip, next_chain_tip, block_height)
+                .map_err(|e| {
+                    self.open_chain_tip.take();
+                    e
+                })?;
+        }
+
+        debug!("Opened {} to {}", chain_tip, next_chain_tip);
+        Ok(())
+    }
+
+    pub fn set_block_heights(&mut self, block_hash: &T, next_block_hash: &T, height: u32) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        let mut keys = vec![];
+        let mut values = vec![];
+
+        let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
+        let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash);
+
+        debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash);
+        debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash, height);
+        debug!("Set {} = {}", OWN_BLOCK_HEIGHT_KEY, height);
+
+        keys.push(OWN_BLOCK_HEIGHT_KEY.to_string());
+        values.push(MARFValue::from(height));
+
+        keys.push(height_key);
+        values.push(MARFValue::from(next_block_hash.clone()));
+
+        keys.push(hash_key);
+        values.push(MARFValue::from(height));
+
+        if height > 0 {
+            let prev_height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1);
+            let prev_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
+
+            debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1, block_hash);
+            debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash, height - 1);
+
+            keys.push(prev_height_key);
+            values.push(MARFValue::from(block_hash.clone()));
+
+            keys.push(prev_hash_key);
+            values.push(MARFValue::from(height - 1));
+        }
+
+        self.insert_batch(&keys, values)?;
+        Ok(())
+    }
+
+    /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
+    /// the trie root hash will only be calculated once (which is an O(log B) operation).
+    pub fn insert_batch(&mut self, keys: &Vec<String>, values: Vec<MARFValue>) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        assert_eq!(keys.len(), values.len());
+
+        let block_hash = match self.open_chain_tip {
+            None => {
+                Err(Error::WriteNotBegunError)
+            },
+            Some(WriteChainTip{ ref block_hash, .. }) => {
+                Ok(block_hash.clone())
+            }
+        }?;
+
+        if keys.len() == 0 {
+            return Ok(());
+        }
+
+        MARF::inner_insert_batch(&mut self.storage, &block_hash, keys, values)?;
+        Ok(())
+    }
+
+    /// Begin extending the MARF to an unconfirmed trie.  The resulting trie will have a block hash
+    /// equal to MARF::make_unconfirmed_block_hash(chain_tip) to avoid collision
+    /// and block hash reuse.
+    pub fn begin_unconfirmed(&mut self, chain_tip: &T) -> Result<T, Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.open_chain_tip.is_some() {
+            return Err(Error::InProgressError);
+        }
+        if !self.storage.unconfirmed() {
+            return Err(Error::UnconfirmedError);
+        }
+        
+        // chain_tip must exist and must be confirmed
+        if !self.storage.has_confirmed_block(chain_tip)? {
+            error!("No such confirmed block {}", chain_tip);
+            return Err(Error::NotFoundError);
+        }
+        
+        let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(chain_tip);
+
+        let block_height = self.inner_get_extension_height(chain_tip, &unconfirmed_tip)?;
+
+        let created = self.storage.extend_to_unconfirmed_block(&unconfirmed_tip)?;
+        if created {
+            MARF::root_copy(&mut self.storage, chain_tip)?;
+        }
+
+        self.inner_setup_extension(chain_tip, &unconfirmed_tip, block_height, created)?;
+        Ok(unconfirmed_tip)
+    }
 }
 
 // static methods
@@ -109,6 +368,22 @@ impl <T: MarfTrieId> MARF <T> {
             open_chain_tip: Some(WriteChainTip { block_hash: opened_to.clone(),
                                                  height: 0 }),
         }
+    }
+
+    #[cfg(test)]
+    pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
+        let mut tx = self.begin_tx()?;
+        tx.begin(chain_tip, next_chain_tip)?;
+        tx.commit_tx();
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn begin_unconfirmed(&mut self, chain_tip: &T) -> Result<T, Error> {
+        let mut tx = self.begin_tx()?;
+        let result = tx.begin_unconfirmed(chain_tip)?;
+        tx.commit_tx();
+        Ok(result)
     }
 
     // helper method for walking a node's backpr
@@ -209,9 +484,9 @@ impl <T: MarfTrieId> MARF <T> {
     /// On Ok, s will point to new_bhh and will be open for reading.
     /// Returns true/false, based on whether or not the trie will be created (this can return false
     /// if we're resuming work on an unconfirmed trie)
-    pub fn extend_trie(storage: &mut TrieStorageConnection<T>, new_bhh: &T) -> Result<(), Error> {
+    pub fn extend_trie(storage: &mut TrieStorageTransaction<T>, new_bhh: &T) -> Result<(), Error> {
         if storage.readonly() {
-            return Err(Error::ReadOnlyError);
+            unreachable!("CORRUPTION: constructed read-only TrieStorageTransaction instance");
         }
 
         let (cur_bhh, cur_block_id) = storage.get_cur_block_and_id();
@@ -220,7 +495,7 @@ impl <T: MarfTrieId> MARF <T> {
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
             let node = TrieNode256::new(&vec![]);
-            let hash = get_node_hash(&node, &vec![], storage);
+            let hash = get_node_hash(&node, &vec![], storage.deref_mut());
             let root_ptr = storage.root_ptr();
             storage.write_nodetype(root_ptr, &TrieNodeType::Node256(node), hash)?;
             Ok(())
@@ -255,7 +530,7 @@ impl <T: MarfTrieId> MARF <T> {
     /// Walk down this MARF at the given block hash, doing a copy-on-write for intermediate nodes in this block's Trie from any prior Tries.
     /// s must point to the last filled-in Trie -- i.e. block_hash points to the _new_ Trie that is
     /// being filled in.
-    fn walk_cow(storage: &mut TrieStorageConnection<T>, block_hash: &T, path: &TriePath) -> Result<TrieCursor<T>, Error> {
+    fn walk_cow(storage: &mut TrieStorageTransaction<T>, block_hash: &T, path: &TriePath) -> Result<TrieCursor<T>, Error> {
         let block_id = storage.get_block_identifier(block_hash);
         MARF::extend_trie(storage, block_hash)?;
 
@@ -411,15 +686,16 @@ impl <T: MarfTrieId> MARF <T> {
         return Err(Error::CorruptionError("Trie has a cycle".to_string()));
     }
 
-    pub fn format(storage: &mut TrieStorageConnection<T>, first_block_hash: &T) -> Result<(), Error> {
+    pub fn format(storage: &mut TrieStorageTransaction<T>, first_block_hash: &T) -> Result<(), Error> {
         if storage.readonly() {
-            return Err(Error::ReadOnlyError);
+            unreachable!("CORRUPTION: constructed read-only TrieStorageTransaction instance");
         }
+
 
         storage.format()?;
         storage.extend_to_block(first_block_hash)?;
         let node = TrieNode256::new(&vec![]);
-        let hash = get_node_hash(&node, &vec![], storage);
+        let hash = get_node_hash(&node, &vec![], storage.deref_mut());
         let root_ptr = storage.root_ptr();
         let node_type = TrieNodeType::Node256(node);
         storage.write_nodetype(root_ptr, &node_type, hash)
@@ -457,7 +733,7 @@ impl <T: MarfTrieId> MARF <T> {
         }
     }
 
-    fn do_insert_leaf(storage: &mut TrieStorageConnection<T>, block_hash: &T, path: &TriePath, leaf_value: &TrieLeaf, update_skiplist: bool) -> Result<(), Error> {
+    fn do_insert_leaf(storage: &mut TrieStorageTransaction<T>, block_hash: &T, path: &TriePath, leaf_value: &TrieLeaf, update_skiplist: bool) -> Result<(), Error> {
         let mut value = leaf_value.clone();
         let mut cursor = MARF::walk_cow(storage, block_hash, path)?;
 
@@ -480,18 +756,19 @@ impl <T: MarfTrieId> MARF <T> {
         Ok(())
     }
 
-    pub fn insert_leaf(storage: &mut TrieStorageConnection<T>, block_hash: &T, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
+    pub fn insert_leaf(storage: &mut TrieStorageTransaction<T>, block_hash: &T, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
         if storage.readonly() {
-            return Err(Error::ReadOnlyError);
+            unreachable!("CORRUPTION: constructed read-only TrieStorageTransaction instance");
         }
         MARF::do_insert_leaf(storage, block_hash, path, value, true)
     }
     
     // like insert_leaf, but don't update the merkle skiplist
-    pub fn insert_leaf_in_batch(storage: &mut TrieStorageConnection<T>, block_hash: &T, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
+    pub fn insert_leaf_in_batch(storage: &mut TrieStorageTransaction<T>, block_hash: &T, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
         if storage.readonly() {
-            return Err(Error::ReadOnlyError);
+            unreachable!("CORRUPTION: constructed read-only TrieStorageTransaction instance");
         }
+
         MARF::do_insert_leaf(storage, block_hash, path, value, false)
     }
 
@@ -614,7 +891,7 @@ impl <T: MarfTrieId> MARF <T> {
 
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
-    fn inner_insert_batch(conn: &mut TrieStorageConnection<T>, block_hash: &T, keys: &Vec<String>, values: Vec<MARFValue>) -> Result<(), Error> {
+    fn inner_insert_batch(conn: &mut TrieStorageTransaction<T>, block_hash: &T, keys: &Vec<String>, values: Vec<MARFValue>) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
         if keys.len() == 0 {
@@ -649,14 +926,12 @@ impl <T: MarfTrieId> MARF <T> {
 
 // instance methods
 impl <T: MarfTrieId> MARF<T> {
-
-    pub fn begin_tx<'a>(&'a mut self) -> Result<TrieStorageConnection<'a, T>, Error> {
-        self.storage.transaction()
-    }
-
-    /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
-    pub fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
-        MARF::get_by_key(&mut self.storage.connection(), block_hash, key)
+    pub fn begin_tx<'a>(&'a mut self) -> Result<MarfTransaction<'a, T>, Error> {
+        let storage = self.storage.transaction()?;
+        Ok(MarfTransaction {
+            storage,
+            open_chain_tip: &mut self.open_chain_tip
+        })
     }
 
     /// Target the MARF's storage at a given block.
@@ -676,47 +951,6 @@ impl <T: MarfTrieId> MARF<T> {
 
     pub fn get_bhh_at_height(&mut self, block_hash: &T, height: u32) -> Result<Option<T>, Error> {
         MARF::get_block_at_height(&mut self.storage.connection(), height, block_hash)
-    }
-
-    pub fn set_block_heights(&mut self, block_hash: &T, next_block_hash: &T, height: u32) -> Result<(), Error> {
-        if self.storage.readonly() {
-            return Err(Error::ReadOnlyError);
-        }
-        let mut keys = vec![];
-        let mut values = vec![];
-
-        let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
-        let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash);
-
-        debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash);
-        debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash, height);
-        debug!("Set {} = {}", OWN_BLOCK_HEIGHT_KEY, height);
-
-        keys.push(OWN_BLOCK_HEIGHT_KEY.to_string());
-        values.push(MARFValue::from(height));
-
-        keys.push(height_key);
-        values.push(MARFValue::from(next_block_hash.clone()));
-
-        keys.push(hash_key);
-        values.push(MARFValue::from(height));
-
-        if height > 0 {
-            let prev_height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1);
-            let prev_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
-
-            debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1, block_hash);
-            debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash, height - 1);
-
-            keys.push(prev_height_key);
-            values.push(MARFValue::from(block_hash.clone()));
-
-            keys.push(prev_hash_key);
-            values.push(MARFValue::from(height - 1));
-        }
-
-        self.insert_batch(&keys, values)?;
-        Ok(())
     }
 
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
@@ -740,8 +974,10 @@ impl <T: MarfTrieId> MARF<T> {
             return Ok(());
         }
 
-        let mut conn = self.storage.connection();
-        MARF::inner_insert_batch(&mut conn, &block_hash, keys, values)
+        let mut tx = self.storage.transaction()?;
+        MARF::inner_insert_batch(&mut tx, &block_hash, keys, values)?;
+        tx.commit_tx();
+        Ok(())
     }
 
     pub fn insert(&mut self, key: &str, value: MARFValue) -> Result<(), Error> {
@@ -765,133 +1001,31 @@ impl <T: MarfTrieId> MARF<T> {
                 Err(Error::WriteNotBegunError)
             },
             Some(WriteChainTip{ ref block_hash, .. }) => {
-                let mut conn = self.storage.connection();
-                let (cur_block_hash, cur_block_id) = conn.get_cur_block_and_id();
+                let mut tx = self.storage.transaction()?;
+                let (cur_block_hash, cur_block_id) = tx.get_cur_block_and_id();
 
-                let result = MARF::insert_leaf(&mut conn, block_hash, &path, &marf_leaf);
+                let result = MARF::insert_leaf(&mut tx, block_hash, &path, &marf_leaf);
                 
                 // restore
-                conn.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
+                tx.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
+                tx.commit_tx();
 
                 result
             }
         }
-    }
-
-    /// Set up the trie extension we're making.
-    /// Sets storage pointer to chain_tip.
-    /// Returns the height next_chain_tip would be at.
-    fn inner_get_extension_height(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<u32, Error> {
-        // current chain tip must exist if it's not the "sentinel"
-        let is_parent_sentinel = chain_tip == &T::sentinel();
-        if !is_parent_sentinel {
-            debug!("Extending off of existing node {} in {}", chain_tip, self.storage.db_path);
-        }
-        else {
-            info!("First-ever block {} in {}", next_chain_tip, self.storage.db_path);
-        }
-        let mut conn = self.storage.connection();
-
-        conn.open_block(chain_tip)?;
-
-        let block_height = 
-            if !is_parent_sentinel {
-                let height = MARF::get_block_height_miner_tip(&mut conn, chain_tip, chain_tip)?
-                    .ok_or(Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?;
-                height.checked_add(1).expect("FATAL: block height overflow!")
-            } else {
-                0
-            };
-
-        Ok(block_height)
-    }
-   
-    /// Set up a new extension.
-    /// Opens storage to chain_tip/
-    fn inner_setup_extension(&mut self, chain_tip: &T, next_chain_tip: &T, block_height: u32, new_extension: bool) -> Result<(), Error> {
-        self.storage.connection().open_block(next_chain_tip)?;
-        self.open_chain_tip = Some(WriteChainTip{ block_hash: next_chain_tip.clone(),
-                                                  height: block_height });
-
-        if new_extension {
-            self.set_block_heights(chain_tip, next_chain_tip, block_height)
-                .map_err(|e| {
-                    self.open_chain_tip = None;
-                    e
-                })?;
-        }
-
-        debug!("Opened {} to {} in {}", chain_tip, next_chain_tip, self.storage.db_path);
-        Ok(())
-    }
-
-    /// Begin writing the next trie in the MARF, given the block header hash that will contain the
-    /// associated block's new state.  Call commit() or commit_to() to persist the changes.
-    /// Fails if the block already exists.
-    /// Storage will point to new chain tip on success.
-    pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
-        if self.storage.readonly() {
-            return Err(Error::ReadOnlyError);
-        }
-        if self.open_chain_tip.is_some() {
-            return Err(Error::InProgressError);
-        }
-        if self.storage.connection().has_block(next_chain_tip)? {
-            error!("Block data already exists: {}", next_chain_tip);
-            return Err(Error::ExistsError);
-        }
-        
-        let block_height = self.inner_get_extension_height(chain_tip, next_chain_tip)?;
-        MARF::extend_trie(&mut self.storage.connection(), next_chain_tip)?;
-        self.inner_setup_extension(chain_tip, next_chain_tip, block_height, true)
-    }
-
-    /// Begin extending the MARF to an unconfirmed trie.  The resulting trie will have a block hash
-    /// equal to MARF::make_unconfirmed_block_hash(chain_tip) to avoid collision
-    /// and block hash reuse.
-    pub fn begin_unconfirmed(&mut self, chain_tip: &T) -> Result<T, Error> {
-        if self.storage.readonly() {
-            return Err(Error::ReadOnlyError);
-        }
-        if self.open_chain_tip.is_some() {
-            return Err(Error::InProgressError);
-        }
-        if !self.storage.unconfirmed() {
-            return Err(Error::UnconfirmedError);
-        }
-       
-        // chain_tip must exist and must be confirmed
-        if !self.storage.connection().has_confirmed_block(chain_tip)? {
-            error!("No such confirmed block {}", chain_tip);
-            return Err(Error::NotFoundError);
-        }
-        
-        let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(chain_tip);
-
-        let block_height = self.inner_get_extension_height(chain_tip, &unconfirmed_tip)?;
-
-        let created = {
-            let mut conn = self.storage.connection();
-            let created = conn.extend_to_unconfirmed_block(&unconfirmed_tip)?;
-            if created {
-                MARF::root_copy(&mut conn, chain_tip)?;
-            }
-            created
-        };
-
-        self.inner_setup_extension(chain_tip, &unconfirmed_tip, block_height, created)?;
-        Ok(unconfirmed_tip)
     }
     
     /// Drop the current trie from the MARF. This rolls back all
     ///   changes in the block, and closes the current chain tip.
     pub fn drop_current(&mut self) {
         if !self.storage.readonly() {
-            let mut conn = self.storage.connection();
-            conn.drop_extending_trie();
-            self.open_chain_tip = None;
-            conn.open_block(&T::sentinel())
+            let mut tx = self.storage.transaction()
+                .expect("BUG: failed to start transaction to drop trie");
+            tx.drop_extending_trie();
+            self.open_chain_tip.take();
+            tx.open_block(&T::sentinel())
                 .expect("BUG: should never fail to open the block sentinel");
+            tx.commit_tx();
         }
     }
 
@@ -899,10 +1033,12 @@ impl <T: MarfTrieId> MARF<T> {
     pub fn drop_unconfirmed(&mut self) {
         if !self.storage.readonly() && self.storage.unconfirmed() {
             if let Some(tip) = self.open_chain_tip.take() {
-                let mut conn = self.storage.connection();
-                conn.drop_unconfirmed_trie(&tip.block_hash);
-                conn.open_block(&T::sentinel())
+                let mut tx = self.storage.transaction()
+                    .expect("BUG: failed to start transaction to drop trie");
+                tx.drop_unconfirmed_trie(&tip.block_hash);
+                tx.open_block(&T::sentinel())
                     .expect("BUG: should never fail to open the block sentinel");
+                tx.commit_tx();
             }
         }
     }
@@ -913,12 +1049,11 @@ impl <T: MarfTrieId> MARF<T> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
-        match self.open_chain_tip.take() {
-            Some(_tip) => {
-                self.storage.connection().flush()?;
-            },
-            None => {}
-        };
+        if let Some(_tip) = self.open_chain_tip.take() {
+            let mut tx = self.storage.transaction()?;
+            tx.flush()?;
+            tx.commit_tx();
+        }
         Ok(())
     }
 
@@ -933,12 +1068,11 @@ impl <T: MarfTrieId> MARF<T> {
         if self.storage.unconfirmed() {
             return Err(Error::UnconfirmedError);
         }
-        match self.open_chain_tip.take() {
-            Some(_tip) => {
-                self.storage.connection().flush_mined(bhh)?;
-            },
-            None => {}
-        };
+        if let Some(_tip) = self.open_chain_tip.take() {
+            let mut tx = self.storage.transaction()?;
+            tx.flush_mined(bhh)?;
+            tx.commit_tx();
+        }
         Ok(())
     }
     
@@ -951,12 +1085,11 @@ impl <T: MarfTrieId> MARF<T> {
         if self.storage.unconfirmed() {
             return Err(Error::UnconfirmedError);
         }
-        match self.open_chain_tip.take() {
-            Some(_tip) => {
-                self.storage.connection().flush_to(real_bhh)?;
-            },
-            None => {}
-        };
+        if let Some(_tip) = self.open_chain_tip.take() {
+            let mut tx = self.storage.transaction()?;
+            tx.flush_to(real_bhh)?;
+            tx.commit_tx();
+        }
         Ok(())
     }
 
@@ -1019,6 +1152,11 @@ impl <T: MarfTrieId> MARF<T> {
         self.storage.connection()
     }
 
+    #[cfg(test)]
+    pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<T> {
+        self.storage.transaction().unwrap()
+    }
+
     /// Reopen storage read-only
     pub fn reopen_storage_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         self.storage.reopen_readonly()
@@ -1045,15 +1183,7 @@ impl <T: MarfTrieId> MARF<T> {
     
     /// Get the root trie hash at a particular block
     pub fn get_root_hash_at(&mut self, block_hash: &T) -> Result<TrieHash, Error> {
-        let mut conn = self.storage.connection();
-        let cur_block_hash = conn.get_cur_block();
-
-        conn.open_block(block_hash)?;
-        let root_hash_res = read_root_hash(&mut conn);
-
-        // restore
-        conn.open_block(&cur_block_hash)?;
-        root_hash_res
+        self.storage.connection().get_root_hash_at(block_hash)
     }
 }
 
@@ -1401,12 +1531,14 @@ mod test {
         let mut last_block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
         let (nodes, node_ptrs, hashes) = {
-            let mut f = f_store.connection();
+            let mut f = f_store.transaction().unwrap();
             MARF::format(&mut f, &last_block_header).unwrap();
             f.test_genesis_block.replace(last_block_header.clone());
 
 
-            path_init(&mut f)
+            let r = path_init(&mut f);
+            f.commit_tx();
+            r
         };
 
         let mut marf = MARF::from_storage(f_store);
@@ -1553,7 +1685,6 @@ mod test {
     fn marf_merkle_verify_backptrs() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
             let mut f_store = TrieFileStorage::new_memory().unwrap();
-            let mut f = f_store.connection();
 
             let path_segments = vec![
                 (vec![], 12),
@@ -1566,10 +1697,14 @@ mod test {
             let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
             let (nodes, node_ptrs, hashes) = {
+                let mut f = f_store.transaction().unwrap();
                 MARF::format(&mut f, &block_header_1).unwrap();
                 f.test_genesis_block.replace(block_header_1.clone());
 
-                make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec())
+                let r = make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
+                f.commit_tx();
+
+                r
             };
 
             let mut marf = MARF::from_storage(f_store);
@@ -2356,11 +2491,10 @@ mod test {
         let leaf = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].to_vec());
         let value = MARFValue::from(0x1234);
 
-        if let Err(Error::ReadOnlyError) = MARF::extend_trie(&mut ro_marf.borrow_storage_backend(), &BlockHeaderHash([0x11; 32])) {} else { assert!(false); }
-        if let Err(Error::ReadOnlyError) = MARF::format(&mut ro_marf.borrow_storage_backend(), &BlockHeaderHash([0x01; 32])) {} else { assert!(false); }
-        if let Err(Error::ReadOnlyError) = MARF::insert_leaf(&mut ro_marf.borrow_storage_backend(), &BlockHeaderHash([0x11; 32]), &triepath, &leaf) {} else { assert!(false); }
-        if let Err(Error::ReadOnlyError) = MARF::insert_leaf_in_batch(&mut ro_marf.borrow_storage_backend(), &BlockHeaderHash([0x11; 32]), &triepath, &leaf) {} else { assert!(false); }
-        if let Err(Error::ReadOnlyError) = ro_marf.set_block_heights(&BlockHeaderHash([0x11; 32]), &BlockHeaderHash([0x22; 32]), 123) {} else { assert!(false); }
+        // functions that require a transaction _cannot_ be called on a readonly marf, because
+        //   both the storage function for initiating a tx _and_ sqlite will have errored before
+        //   you could call the function.
+        if let Err(Error::ReadOnlyError) = ro_marf.begin_tx() {} else { assert!(false); }
         if let Err(Error::ReadOnlyError) = ro_marf.insert("foo", value.clone()) {} else { assert!(false); }
         if let Err(Error::ReadOnlyError) = ro_marf.insert_raw(triepath.clone(), leaf.clone()) {} else { assert!(false); }
         if let Err(Error::ReadOnlyError) = ro_marf.insert_batch(&vec!["foo".to_string()], vec![value.clone()]) {} else { assert!(false); }

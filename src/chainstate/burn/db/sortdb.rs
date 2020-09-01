@@ -559,9 +559,8 @@ impl <'a> SortitionHandleTx <'a> {
             return Err(db_error::ReadOnly);
         }
 
-        let tx = tx_begin_immediate(&mut conn.conn)?;
         let handle = SortitionHandleTx::new(
-            tx, &mut conn.marf,
+            &mut conn.marf,
             SortitionHandleContext { chain_tip: parent_chain_tip.clone(),
                                      first_block_height: conn.first_block_height });
 
@@ -572,6 +571,12 @@ impl <'a> SortitionHandleTx <'a> {
         let mut conn_view = self.as_conn();
         conn_view.context.chain_tip = view_sortition.clone();
         conn_view
+    }
+
+    pub fn has_VRF_public_key(&self, key: &VRFPublicKey) -> Result<bool, db_error> {
+        let key_status = self.get_tip_indexed(&db_keys::vrf_key_status(key))?
+            .is_some();
+        Ok(key_status)
     }
 }
 
@@ -979,8 +984,7 @@ impl SortitionDB {
             return Err(db_error::ReadOnly);
         }
 
-        let tx = tx_begin_immediate(&mut self.conn)?;
-        let index_tx = SortitionDBTx::new(tx, &mut self.marf,
+        let index_tx = SortitionDBTx::new(&mut self.marf,
                                           SortitionDBTxContext { first_block_height: self.first_block_height });
         Ok(index_tx)
     }
