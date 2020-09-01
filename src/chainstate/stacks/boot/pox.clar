@@ -1,25 +1,25 @@
 ;; The .pox contract
 ;; Error codes
-(define-constant ERR-STACKING-UNREACHABLE 255)
-(define-constant ERR-STACKING-INSUFFICIENT-FUNDS 1)
-(define-constant ERR-STACKING-INVALID-LOCK-PERIOD 2)
-(define-constant ERR-STACKING-ALREADY-STACKED 3)
-(define-constant ERR-STACKING-NO-SUCH-PRINCIPAL 4)
-(define-constant ERR-STACKING-EXPIRED 5)
-(define-constant ERR-STACKING-STX-LOCKED 6)
-(define-constant ERR-STACKING-NO-SUCH-DELEGATE 7)
-(define-constant ERR-STACKING-BAD-DELEGATE 8)
-(define-constant ERR-STACKING-PERMISSION-DENIED 9)
-(define-constant ERR-STACKING-INVALID-DELEGATE-TENURE 10)
-(define-constant ERR-STACKING-THRESHOLD-NOT-MET 11)
-(define-constant ERR-STACKING-POX-ADDRESS-IN-USE 12)
-(define-constant ERR-STACKING-INVALID-POX-ADDRESS 13)
-(define-constant ERR-STACKING-ALREADY-DELEGATED 14)
-(define-constant ERR-STACKING-DELEGATE-ALREADY-REGISTERED 15)
-(define-constant ERR-STACKING-DELEGATE-EXPIRED 16)
-(define-constant ERR-STACKING-ALREADY-REJECTED 17)
-(define-constant ERR-STACKING-INVALID-AMOUNT 18)
-(define-constant ERR-NOT-ALLOWED 19)
+(define-constant ERR_STACKING_UNREACHABLE 255)
+(define-constant ERR_STACKING_INSUFFICIENT_FUNDS 1)
+(define-constant ERR_STACKING_INVALID_LOCK_PERIOD 2)
+(define-constant ERR_STACKING_ALREADY_STACKED 3)
+(define-constant ERR_STACKING_NO_SUCH_PRINCIPAL 4)
+(define-constant ERR_STACKING_EXPIRED 5)
+(define-constant ERR_STACKING_STX_LOCKED 6)
+(define-constant ERR_STACKING_NO_SUCH_DELEGATE 7)
+(define-constant ERR_STACKING_BAD_DELEGATE 8)
+(define-constant ERR_STACKING_PERMISSION_DENIED 9)
+(define-constant ERR_STACKING_INVALID_DELEGATE_TENURE 10)
+(define-constant ERR_STACKING_THRESHOLD_NOT_MET 11)
+(define-constant ERR_STACKING_POX-ADDRESS_IN_USE 12)
+(define-constant ERR_STACKING_INVALID_POX_ADDRESS 13)
+(define-constant ERR_STACKING_ALREADY_DELEGATED 14)
+(define-constant ERR_STACKING_DELEGATE_ALREADY_REGISTERED 15)
+(define-constant ERR_STACKING_DELEGATE_EXPIRED 16)
+(define-constant ERR_STACKING_ALREADY_REJECTED 17)
+(define-constant ERR_STACKING_INVALID_AMOUNT 18)
+(define-constant ERR_NOT_ALLOWED 19)
 
 ;; Min/max number of reward cycles uSTX can be locked for
 (define-constant MIN-POX-REWARD-CYCLES u1)
@@ -57,7 +57,7 @@
 ;; This function can only be called once, when it boots up
 (define-public (set-burnchain-parameters (first-burn-height uint) (pox-reg-window-len uint) (pox-reward-cycle-len uint) (pox-rejection-frac uint))
     (begin
-        (asserts! (and is-in-regtest (not (var-get configured))) (err ERR-NOT-ALLOWED))
+        (asserts! (and is-in-regtest (not (var-get configured))) (err ERR_NOT_ALLOWED))
         (var-set first-burnchain-block-height first-burn-height)
         (var-set pox-registration-window-length pox-reg-window-len)
         (var-set pox-reward-cycle-length pox-reward-cycle-len)
@@ -342,7 +342,7 @@
               { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u10 }
               { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u11 }))
            u0))
-           (err ERR-STACKING-UNREACHABLE))
+           (err ERR_STACKING_UNREACHABLE))
 
         ;; mark address in use over this range
         (map-set pox-addr-reward-cycles
@@ -392,19 +392,19 @@
     ;; can't be registered yet if not a delegate
     ;; (the delegate claims its PoX address when it registers)
     (asserts! (or (not is-registered) is-delegate)
-        (err ERR-STACKING-POX-ADDRESS-IN-USE))
+        (err ERR_STACKING_POX_ADDRESS_IN_USE))
 
     ;; minimum uSTX must be met
     (asserts! (<= ustx-min amount-ustx)
-        (err ERR-STACKING-THRESHOLD-NOT-MET))
+        (err ERR_STACKING_THRESHOLD_NOT_MET))
 
     ;; lock period must be in acceptable range.
     (asserts! (check-pox-lock-period num-cycles)
-        (err ERR-STACKING-INVALID-LOCK-PERIOD))
+        (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
     ;; address version must be valid
     (asserts! (check-pox-addr-version (get version pox-addr))
-        (err ERR-STACKING-INVALID-POX-ADDRESS))
+        (err ERR_STACKING_INVALID_POX_ADDRESS))
 
     ;; register address and stacking
     (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle num-cycles amount-ustx))
@@ -437,23 +437,23 @@
     )
     ;; must not be a registered delegate already
     (asserts! (is-none (get-delegate-control-info tx-sender))
-        (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
+        (err ERR_STACKING_DELEGATE_ALREADY_REGISTERED))
 
     ;; lock period must be in acceptable range.
     (asserts! (check-pox-lock-period tenure-reward-num-cycles)
-        (err ERR-STACKING-INVALID-DELEGATE-TENURE))
+        (err ERR_STACKING_INVALID_DELEGATE_TENURE))
 
     ;; PoX address version must be valid
     (asserts! (check-pox-addr-version (get version pox-addr))
-        (err ERR-STACKING-INVALID-POX-ADDRESS))
+        (err ERR_STACKING_INVALID_POX_ADDRESS))
 
     ;; tenure must start strictly before the first-allowed reward cycle
     (asserts! (< tenure-burn-block-begin (reward-cycle-to-burn-height first-allowed-reward-cycle))
-        (err ERR-STACKING-INVALID-DELEGATE-TENURE))
+        (err ERR_STACKING_INVALID_DELEGATE_TENURE))
 
     ;; tenure must start at or after the current burn block height -- no retroactive registration
     (asserts! (<= burn-block-height tenure-burn-block-begin)
-        (err ERR-STACKING-INVALID-DELEGATE-TENURE))
+        (err ERR_STACKING_INVALID_DELEGATE_TENURE))
 
     ;; register!
     (map-set delegate-control
@@ -502,39 +502,39 @@
         (delegate-control-info
            (unwrap!
                (get-delegate-control-info delegate)
-               (err ERR-STACKING-NO-SUCH-DELEGATE)))
+               (err ERR_STACKING_NO_SUCH_DELEGATE)))
     )
     ;; amount must be valid
     (asserts! (> amount-ustx u0)
-        (err ERR-STACKING-INVALID-AMOUNT))
+        (err ERR_STACKING_INVALID_AMOUNT))
 
     ;; tx-sender principal (the Stacker) must not have rejected in this upcoming reward cycle
     (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
-        (err ERR-STACKING-ALREADY-REJECTED))
+        (err ERR_STACKING_ALREADY_REJECTED))
 
     ;; tx-sender principal (the Stacker) must not be Stacking.
     (asserts! (is-none (get-stacker-info tx-sender))
-        (err ERR-STACKING-ALREADY-STACKED))
+        (err ERR_STACKING_ALREADY_STACKED))
     
     ;; the Stacker must have no delegate/client relationships
     (asserts! (is-none (get-client-delegate-info tx-sender))
-        (err ERR-STACKING-ALREADY-DELEGATED))
+        (err ERR_STACKING_ALREADY_DELEGATED))
 
     ;; the Stacker must not be registered as a delegate
     (asserts! (is-none (get-delegate-control-info tx-sender))
-        (err ERR-STACKING-BAD-DELEGATE))
+        (err ERR_STACKING_BAD_DELEGATE))
 
     ;; the delegate must not have begun stacking yet
     (asserts! (is-none (get-stacker-info delegate))
-        (err ERR-STACKING-ALREADY-DELEGATED))
+        (err ERR_STACKING_ALREADY_DELEGATED))
 
     ;; the delegate's first reward cycle must not have started yet
     (asserts! (< (current-pox-reward-cycle) (get first-reward-cycle delegate-control-info))
-        (err ERR-STACKING-DELEGATE-EXPIRED))
+        (err ERR_STACKING_DELEGATE_EXPIRED))
 
     ;; the Stacker must have sufficient unlocked funds
     (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
-        (err ERR-STACKING-INSUFFICIENT-FUNDS))
+        (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
     ;; encode the delegate/client relationship
     (map-set delegates
@@ -596,27 +596,27 @@
     )
     ;; amount must be valid
     (asserts! (> amount-ustx u0)
-        (err ERR-STACKING-INVALID-AMOUNT))
+        (err ERR_STACKING_INVALID_AMOUNT))
 
     ;; tx-sender principal must not have rejected in this upcoming reward cycle
     (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
-        (err ERR-STACKING-ALREADY-REJECTED))
+        (err ERR_STACKING_ALREADY_REJECTED))
 
     ;; tx-sender principal must not be stacking
     (asserts! (is-none (get-stacker-info tx-sender))
-        (err ERR-STACKING-ALREADY-STACKED))
+        (err ERR_STACKING_ALREADY_STACKED))
 
     ;; tx-sender must not have a delegate/client relationship
     (asserts! (is-none (get-client-delegate-info tx-sender))
-        (err ERR-STACKING-ALREADY-DELEGATED))
+        (err ERR_STACKING_ALREADY_DELEGATED))
 
     ;; tx-sender must not be a delegate
     (asserts! (is-none (get-delegate-control-info tx-sender))
-        (err ERR-STACKING-BAD-DELEGATE))
+        (err ERR_STACKING_BAD_DELEGATE))
 
     ;; the Stacker must have sufficient unlocked funds
     (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
-        (err ERR-STACKING-INSUFFICIENT-FUNDS))
+        (err ERR_STACKING_INSUFFICIENT_FUNDS))
     
     ;; register the PoX address with the amount stacked
     (try!
@@ -650,19 +650,19 @@
         (delegate-control-info 
             (unwrap!
                 (get-delegate-control-info tx-sender)
-                (err ERR-STACKING-NO-SUCH-DELEGATE)))
+                (err ERR_STACKING_NO_SUCH_DELEGATE)))
     )
     ;; tx-sender principal is the delegate, and it must not be stacking
     (asserts! (is-none (get-stacker-info tx-sender))
-        (err ERR-STACKING-ALREADY-STACKED))
+        (err ERR_STACKING_ALREADY_STACKED))
 
     ;; delegate's first reward cycle must not have begun yet
     (asserts! (< (current-pox-reward-cycle) (get first-reward-cycle delegate-control-info))
-        (err ERR-STACKING-DELEGATE-EXPIRED))
+        (err ERR_STACKING_DELEGATE_EXPIRED))
 
     ;; delegate can't call this until the start of its tenure (by burn block height)
     (asserts! (<= (get burn-block-height-start delegate-control-info) burn-block-height)
-        (err ERR-STACKING-PERMISSION-DENIED))
+        (err ERR_STACKING_PERMISSION_DENIED))
 
     ;; lock it in!
     ;; register the PoX address with the amount stacked
@@ -706,15 +706,15 @@
     )
     ;; tx-sender principal must not have rejected in this upcoming reward cycle
     (asserts! (is-none (get-pox-rejection tx-sender vote-reward-cycle))
-        (err ERR-STACKING-ALREADY-REJECTED))
+        (err ERR_STACKING_ALREADY_REJECTED))
 
     ;; tx-sender can't be a stacker
     (asserts! (is-none (get-stacker-info tx-sender))
-        (err ERR-STACKING-ALREADY-STACKED))
+        (err ERR_STACKING_ALREADY_STACKED))
 
     ;; tx-sender can't be a delegate
     (asserts! (is-none (get-delegate-control-info tx-sender))
-        (err ERR-STACKING-DELEGATE-ALREADY-REGISTERED))
+        (err ERR_STACKING_DELEGATE_ALREADY-REGISTERED))
 
     ;; vote for rejection
     (map-set stacking-rejection

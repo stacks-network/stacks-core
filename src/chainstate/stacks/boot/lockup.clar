@@ -1,6 +1,6 @@
 ;; The .lockup boot contract
 ;; Error codes
-(define-constant ERR-UNLOCK-UNREACHABLE 255)
+(define-constant ERR_UNLOCK_UNREACHABLE 255)
 
 ;; Map for all locked STX that will later unlock.
 ;; Entries in this map exist from Stacks 1.0.  These are tokens that were purchased
@@ -78,13 +78,13 @@
         (unlock-data
             (unwrap!
                 (map-get? internal-locked-stx { stx-height: block-height, index: index })
-                (err ERR-UNLOCK-UNREACHABLE)))
+                (err ERR_UNLOCK_UNREACHABLE)))
 
         (this-contract (as-contract tx-sender))
     )
     (unwrap!
         (stx-transfer? (get unlock-ustx unlock-data) this-contract (get owner unlock-data))
-        (err ERR-UNLOCK-UNREACHABLE))
+        (err ERR_UNLOCK_UNREACHABLE))
     
     ;; never process this row again
     (map-delete internal-locked-stx { stx-height: block-height, index: index })
