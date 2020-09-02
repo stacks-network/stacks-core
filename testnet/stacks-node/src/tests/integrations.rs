@@ -695,7 +695,7 @@ fn contract_stx_transfer() {
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
-                            db.get_account_stx_balance(&contract_identifier.clone().into()).unlocked_amount
+                            db.get_account_stx_balance(&contract_identifier.clone().into()).amount_unlocked
                         })
                     }),
                     1000);
@@ -705,7 +705,7 @@ fn contract_stx_transfer() {
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
-                            db.get_account_stx_balance(&addr_3).unlocked_amount
+                            db.get_account_stx_balance(&addr_3).amount_unlocked
                         })
                     }),
                     99000);
@@ -729,7 +729,7 @@ fn contract_stx_transfer() {
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
-                            db.get_account_stx_balance(&addr_2).unlocked_amount
+                            db.get_account_stx_balance(&addr_2).amount_unlocked
                         })
                     }),
                     1);
@@ -737,7 +737,7 @@ fn contract_stx_transfer() {
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
-                            db.get_account_stx_balance(&contract_identifier.clone().into()).unlocked_amount
+                            db.get_account_stx_balance(&contract_identifier.clone().into()).amount_unlocked
                         })
                     }),
                     999);
@@ -753,7 +753,7 @@ fn contract_stx_transfer() {
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
-                            db.get_account_stx_balance(&contract_identifier.clone().into()).unlocked_amount
+                            db.get_account_stx_balance(&contract_identifier.clone().into()).amount_unlocked
                         })
                     }),
                     5999);
@@ -763,7 +763,7 @@ fn contract_stx_transfer() {
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
-                            db.get_account_stx_balance(&addr_3).unlocked_amount
+                            db.get_account_stx_balance(&addr_3).amount_unlocked
                         })
                     }),
                     93000);
@@ -889,7 +889,7 @@ fn bad_contract_tx_rollback() {
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
-                            db.get_account_stx_balance(&contract_identifier.clone().into()).unlocked_amount
+                            db.get_account_stx_balance(&contract_identifier.clone().into()).amount_unlocked
                         })
                     }),
                     1000);
@@ -899,7 +899,7 @@ fn bad_contract_tx_rollback() {
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(burn_dbconn, &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1), |conn| {
                         conn.with_clarity_db_readonly(|db| {
-                            db.get_account_stx_balance(&addr_3).unlocked_amount
+                            db.get_account_stx_balance(&addr_3).amount_unlocked
                         })
                     }),
                     99000);
