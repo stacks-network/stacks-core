@@ -39,7 +39,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
         },
         SymbolicExpressionType::Atom(contract_ref) => {
             // Dynamic dispatch
-            match context.callable_contracts.get(contract_ref) {
+            match context.lookup_callable_contract(contract_ref) {
                 Some((ref contract_identifier, trait_identifier)) => {
                     // Ensure that contract-call is used for inter-contract calls only 
                     if *contract_identifier == env.contract_context.contract_identifier {

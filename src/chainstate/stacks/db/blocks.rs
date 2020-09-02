@@ -3374,15 +3374,13 @@ impl StacksChainState {
 
                 let contract_identifier = QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
 
-                let function_type = clarity_connection.with_analysis_db_readonly(|db| {
-                        db.get_public_function_type(&contract_identifier, &function_name)
-                    })
-                    .map_err(|_e| MemPoolRejection::NoSuchContract)?
-                    .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
-
-                let arg_types: Vec<_> = function_args.iter().map(|x| TypeSignature::type_of(x)).collect();
-                function_type.check_args(&mut (), &arg_types)
-                    .map_err(|e| MemPoolRejection::BadFunctionArgument(e))?;
+                clarity_connection.with_analysis_db_readonly(|db| {
+                    let function_type = db.get_public_function_type(&contract_identifier, &function_name)
+                        .map_err(|_e| MemPoolRejection::NoSuchContract)?
+                        .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
+                    function_type.check_args_by_allowing_trait_cast(db, &function_args)
+                        .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
+                })?;
             },
             TransactionPayload::SmartContract(TransactionSmartContract { name, code_body: _ }) => {
                 let contract_identifier = QualifiedContractIdentifier::new(tx.origin_address().into(), name.clone());

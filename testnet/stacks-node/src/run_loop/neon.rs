@@ -5,8 +5,7 @@ use crate::{Config, NeonGenesisNode, BurnchainController, EventDispatcher,
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::{Address, Burnchain};
-use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
-                                  address::{BitcoinAddressType}};
+use stacks::burnchains::bitcoin::{address::{BitcoinAddressType}};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 
@@ -93,7 +92,7 @@ impl RunLoop {
         let is_miner = if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
             let btc_addr = BitcoinAddress::from_bytes(
-                BitcoinNetworkType::Regtest,
+                self.config.burnchain.get_bitcoin_network().1,
                 BitcoinAddressType::PublicKeyHash,
                 &Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer()).to_bytes())
                 .unwrap();

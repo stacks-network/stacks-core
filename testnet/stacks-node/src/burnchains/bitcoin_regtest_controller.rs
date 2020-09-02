@@ -20,7 +20,6 @@ use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::Error as burnchain_error;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
 use stacks::burnchains::bitcoin::spv::SpvClient; 
@@ -66,7 +65,7 @@ impl BitcoinRegtestController {
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
     
-        let res = SpvClient::new(&config.burnchain.spv_headers_path, 0, None, BitcoinNetworkType::Regtest, true, false);
+        let res = SpvClient::new(&config.burnchain.spv_headers_path, 0, None, config.burnchain.get_bitcoin_network().1, true, false);
         if let Err(err) = res {
             error!("Unable to init block headers: {}", err);
             panic!()
@@ -128,9 +127,9 @@ impl BitcoinRegtestController {
     }
 
     fn setup_burnchain(&self) -> Burnchain {
-        let network = "regtest".to_string();
+        let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
         let working_dir = self.config.get_burn_db_path();
-        match Burnchain::new(&working_dir,  &self.config.burnchain.chain, &network) {
+        match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
             Ok(burnchain) => burnchain,
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);
@@ -144,7 +143,7 @@ impl BitcoinRegtestController {
         let working_dir = self.config.get_burn_db_path();
         let burnchain = self.setup_burnchain();
 
-        let indexer_runtime = BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest);
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
             config: self.indexer_config.clone(),
             runtime: indexer_runtime
@@ -276,8 +275,9 @@ impl BitcoinRegtestController {
     pub fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");        
@@ -611,8 +611,9 @@ impl BitcoinRegtestController {
         };
         
         let pkh = Hash160::from_data(&public_key).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");
@@ -732,8 +733,9 @@ impl BurnchainController for BitcoinRegtestController {
 
             let pk = hex_bytes(&local_mining_pubkey).expect("Invalid byte sequence");
             let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
+            let (_, network_id) = self.config.burnchain.get_bitcoin_network();
             let address = BitcoinAddress::from_bytes(
-                BitcoinNetworkType::Regtest,
+                network_id,
                 BitcoinAddressType::PublicKeyHash,
                 &pkh)
                 .expect("Public key incorrect");
@@ -1018,8 +1020,9 @@ impl BitcoinRPCRequest {
         let label = "";
 
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let (_, network_id) = config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");        
