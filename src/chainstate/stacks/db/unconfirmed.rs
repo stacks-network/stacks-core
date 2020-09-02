@@ -412,7 +412,7 @@ mod test {
             peer.sortdb = Some(sortdb);
             
             // move 1 stx per round
-            assert_eq!(recv_balance, (tenure_id + 1) as u128);
+            assert_eq!(recv_balance.amount_unlocked, (tenure_id + 1) as u128);
             let (canonical_burn, canonical_block) = SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
             let sortdb = peer.sortdb.take().unwrap();
@@ -423,8 +423,8 @@ mod test {
             });
             peer.sortdb = Some(sortdb);
 
-            assert_eq!(confirmed_recv_balance, tenure_id as u128);
-            eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance, confirmed_recv_balance, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
+            assert_eq!(confirmed_recv_balance.amount_unlocked, tenure_id as u128);
+            eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked, confirmed_recv_balance.amount_unlocked, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
         }
     }
     
@@ -548,7 +548,7 @@ mod test {
                 peer.sortdb = Some(sortdb);
 
                 // move 100 ustx per round -- 10 per mblock
-                assert_eq!(recv_balance, (100*tenure_id + 10*(i+1)) as u128);
+                assert_eq!(recv_balance.amount_unlocked, (100*tenure_id + 10*(i+1)) as u128);
                 let (canonical_burn, canonical_block) = SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
                 let sortdb = peer.sortdb.take().unwrap();
@@ -559,8 +559,8 @@ mod test {
                 });
                 peer.sortdb = Some(sortdb);
 
-                assert_eq!(confirmed_recv_balance, 100*tenure_id as u128);
-                eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance, confirmed_recv_balance, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
+                assert_eq!(confirmed_recv_balance.amount_unlocked, 100*tenure_id as u128);
+                eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked, confirmed_recv_balance.amount_unlocked, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
             }
         }
     }

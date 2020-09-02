@@ -100,6 +100,7 @@ use vm::database::{
     HeadersDB,
     BurnStateDB,
     NULL_BURN_STATE_DB,
+    STXBalance,
 };
 use vm::clarity::{
     ClarityInstance,
@@ -137,11 +138,7 @@ pub struct StacksChainState {
 pub struct StacksAccount {
     pub principal: PrincipalData,
     pub nonce: u64,
-    pub stx_balance: u128,      // liquid uSTX
-    // PoX state
-    pub stx_locked: u128,       // locked-up uSTX
-    pub unlock_height: u64,     // Absolute height at which the locked-up STX become liquid again.
-                                // Set to 0 if there is no lock.
+    pub stx_balance: STXBalance,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -618,9 +615,7 @@ impl StacksChainState {
         let mut boot_code_account = StacksAccount {
             principal: PrincipalData::Standard(StandardPrincipalData::from(boot_code_address.clone())),
             nonce: 0,
-            stx_balance: 0,
-            stx_locked: 0,
-            unlock_height: 0
+            stx_balance: STXBalance::zero(),
         };
 
         let mut initial_liquid_ustx = 0u128;

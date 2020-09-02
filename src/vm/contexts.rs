@@ -452,8 +452,9 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
         self.execute_in_env(recipient.clone().into(),
                             |env| {
-                                let bal = env.global_context.database.get_account_stx_balance(recipient);
-                                env.global_context.database.set_account_stx_balance(recipient, bal + amount);
+                                let mut balance = env.global_context.database.get_account_stx_balance(recipient);
+                                balance.credit(amount, 0).unwrap();
+                                env.global_context.database.set_account_stx_balance(recipient, &balance);
                                 Ok(())
                             }).unwrap();
     }

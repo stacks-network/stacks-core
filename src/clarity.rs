@@ -425,10 +425,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     db.initialize();
                     db.begin();
                     for (principal, amount) in allocations.iter() {
-                        let cur_balance = db.get_account_stx_balance(principal);
-                        let final_balance = cur_balance.checked_add(*amount as u128).expect("FATAL: account balance overflow");
-                        db.set_account_stx_balance(principal, final_balance as u128);
-                        println!("{} credited: {} uSTX", principal, final_balance);
+                        let mut balance = db.get_account_stx_balance(principal);
+                        let block_height = db.get_current_burnchain_block_height();
+                        balance.credit(*amount as u128, block_height as u64)
+                            .expect("STX overflow");
+                        db.set_account_stx_balance(principal, &balance);
+                        println!("{} credited: {} uSTX", principal, balance.get_total_balance());
                     }
                     db.commit();
                 };

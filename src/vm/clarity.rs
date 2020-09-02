@@ -708,7 +708,7 @@ mod tests {
     use super::*;
     use vm::analysis::errors::CheckErrors;
     use vm::types::{Value, StandardPrincipalData};
-    use vm::database::{NULL_HEADER_DB, NULL_BURN_STATE_DB, ClarityBackingStore, MarfedKV};
+    use vm::database::{NULL_HEADER_DB, NULL_BURN_STATE_DB, ClarityBackingStore, MarfedKV, STXBalance};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
     use std::fs;
@@ -1118,13 +1118,12 @@ mod tests {
                 function_args: vec![] }));
 
         tx3.post_conditions.push(TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 100));
-
+        let mut stx_balance = STXBalance::zero();
+        stx_balance.credit(5000, 0).unwrap();
         let account = StacksAccount {
             principal: sender.into(),
             nonce: 0,
-            stx_balance: 5000,
-            stx_locked: 0,
-            unlock_height: 0
+            stx_balance
         };
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),

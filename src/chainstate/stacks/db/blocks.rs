@@ -2689,10 +2689,12 @@ impl StacksChainState {
         let miner_reward_total = miner_reward.total();
         clarity_tx.connection().as_transaction(|x| { x.with_clarity_db(|ref mut db| {
             let miner_principal = PrincipalData::Standard(StandardPrincipalData::from(miner_reward.address.clone()));
-            let cur_balance = db.get_account_stx_balance(&miner_principal);
-            let new_balance = cur_balance.checked_add(miner_reward_total).expect("FATAL: STX reward overflow");
-            debug!("Balance available for {} is {} STX", &miner_reward.address, new_balance);
-            db.set_account_stx_balance(&miner_principal, new_balance);
+            let mut balance = db.get_account_stx_balance(&miner_principal);
+            let cur_burn_height = db.get_current_burnchain_block_height() as u64;
+            balance.credit(miner_reward_total, cur_burn_height)
+                .expect("STX overflow");
+            debug!("Balance available for {} is {} STX", &miner_reward.address, balance.get_available_balance_at_block(cur_burn_height));
+            db.set_account_stx_balance(&miner_principal, &balance);
 
             Ok(())
         })}).map_err(Error::ClarityError)?;
@@ -3366,13 +3368,13 @@ impl StacksChainState {
         }
 
         // 5: the paying account must have enough funds
-        if fee as u128 > payer.stx_balance {
+        if  !payer.stx_balance.can_transfer(fee as u128, 0) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
                     // pass: we'll return a total_spent failure below.
                 },
                 _ => {
-                    return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance));
+                    return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance.amount_unlocked));
                 }
             }
         }
@@ -3392,8 +3394,8 @@ impl StacksChainState {
                     } else {
                         0
                     };
-                if total_spent > origin.stx_balance {
-                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance))
+                if origin.stx_balance.can_transfer(total_spent, 0) {
+                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance.get_available_balance_at_block(0)))
                 }
             },
             TransactionPayload::ContractCall(TransactionContractCall {

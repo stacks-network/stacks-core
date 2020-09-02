@@ -1492,7 +1492,7 @@ mod test {
     use burnchains::BurnchainHeaderHash;
 
     use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext,
-              database::{ MarfedKV, HeadersDB, BurnStateDB },
+              database::{ MarfedKV, HeadersDB, BurnStateDB, STXBalance },
               LimitedCostTracker, GlobalContext, Error, contexts::OwnedEnvironment };
 
     struct DocHeadersDB {}
@@ -1609,11 +1609,13 @@ mod test {
             let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
             let mut env = OwnedEnvironment::new(conn);
+            let mut balance = STXBalance::zero();
+            balance.credit(10000, 0).unwrap();
             env.execute_in_env(QualifiedContractIdentifier::local("tokens").unwrap().into(),
                                |e| {
                                    e.global_context.database.set_account_stx_balance(
                                        &QualifiedContractIdentifier::local("docs-test").unwrap().into(),
-                                       10000);
+                                       &balance);
                                    Ok(())
                                }).unwrap();
             env.initialize_contract(contract_id, 

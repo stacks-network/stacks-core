@@ -1590,6 +1590,7 @@ pub mod test {
     use util::vrf::*;
 
     use vm::types::*;
+    use vm::database::STXBalance;
 
     // emulate a socket
     pub struct NetCursor<T> {
@@ -1920,9 +1921,7 @@ pub mod test {
                             let boot_code_account = StacksAccount {
                                 principal: PrincipalData::Standard(StandardPrincipalData::from(boot_code_address.clone())),
                                 nonce: 0,
-                                stx_balance: 0,
-                                stx_locked: 0,
-                                unlock_height: 0
+                                stx_balance: STXBalance::zero(),
                             };
                             let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
                                 signer: boot_code_address.bytes.clone(),

@@ -20,7 +20,7 @@ use vm::database::{MarfedKV, ClarityBackingStore};
 use vm::database::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, ContractMetadata,
     DataMapMetadata, DataVariableMetadata, ClaritySerializable, SimmedBlock,
-    ClarityDeserializable
+    ClarityDeserializable, STXBalance
 };
 use vm::database::RollbackWrapper;
 use util::db::{DBConn, FromRow};
@@ -747,30 +747,23 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_stx_consolidated_balance(&mut self, principal: &PrincipalData) -> u128 {
         let bal = self.get_account_stx_balance(principal);
-        let unlock_height = self.get_account_unlock_height(principal);
         let cur_burn_block_height = self.get_current_burnchain_block_height();
-        if unlock_height != 0 && unlock_height <= (cur_burn_block_height as u64) {
-            // spendible balance now includes the locked STX
-            let locked_bal = self.get_account_stx_locked(principal);
-            bal + locked_bal
-        }
-        else {
-            bal
-        }
+        let total = bal.get_available_balance_at_block(cur_burn_block_height as u64);
+        total
     }
 
-    pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
+    pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         let result = self.get(&key);
         match result {
-            None => 0,
+            None => STXBalance::zero(),
             Some(balance) => balance
         }
     }
 
-    pub fn set_account_stx_balance(&mut self, principal: &PrincipalData, balance: u128) {
+    pub fn set_account_stx_balance(&mut self, principal: &PrincipalData, balance: &STXBalance) {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
-        self.put(&key, &balance);
+        self.put(&key, balance);
     }
 
     pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> u64 {
@@ -789,10 +782,10 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_stx_locked(&mut self, principal: &PrincipalData) -> u128 {
         let key = ClarityDatabase::make_key_for_account_stx_locked(principal);
-        let result = self.get(&key);
+        let result: Option<STXBalance> = self.get(&key);
         match result {
             None => 0,
-            Some(locked) => locked
+            Some(balance) => balance.amount_locked
         }
     }
 

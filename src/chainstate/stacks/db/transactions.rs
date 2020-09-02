@@ -83,8 +83,6 @@ use vm::database::ClarityDatabase;
 
 use vm::contracts::Contract;
 
-use vm::stx_balance_consolidated;
-
 // make it possible to have a set of Values
 impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -283,7 +281,7 @@ impl StacksChainState {
             db.get_current_burnchain_block_height()
         });
 
-        let (consolidated_balance, _) = payer_account.balance_consolidated(cur_burn_block_height as u64);
+        let consolidated_balance = payer_account.get_available_balance_at_block(cur_burn_block_height as u64);
         if consolidated_balance < fee as u128 {
             return Err(Error::InvalidFee);
         }
@@ -772,7 +770,7 @@ pub mod test {
         let _account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         let recv_account = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
 
-        assert_eq!(recv_account.stx_balance, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
         assert_eq!(recv_account.nonce, 0);
 
         conn.connection().as_transaction(
@@ -782,11 +780,11 @@ pub mod test {
 
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
-        assert_eq!(account_after.stx_balance, 100);
+        assert_eq!(account_after.stx_balance.amount_unlocked, 100);
 
         let recv_account_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance, 123);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 123);
 
         assert_eq!(fee, 0);
 
@@ -812,18 +810,18 @@ pub mod test {
 
         let recv_account = StacksChainState::get_account(&mut conn, &recv_addr);
 
-        assert_eq!(recv_account.stx_balance, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
         assert_eq!(recv_account.nonce, 0);
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
         
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 2);
-        assert_eq!(account_after.stx_balance, 0);
+        assert_eq!(account_after.stx_balance.amount_unlocked, 0);
 
         let recv_account_after = StacksChainState::get_account(&mut conn, &recv_addr);
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance, 100);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 100);
 
         assert_eq!(fee, 0);
 
@@ -925,7 +923,7 @@ pub mod test {
             // give the spending account some stx
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
 
-            assert_eq!(account.stx_balance, 123);
+            assert_eq!(account.stx_balance.amount_unlocked, 123);
             assert_eq!(account.nonce, 0);
 
             let res = StacksChainState::process_transaction(&mut conn, &signed_tx, false);
@@ -943,7 +941,7 @@ pub mod test {
             }
 
             let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
-            assert_eq!(account_after.stx_balance, 123);
+            assert_eq!(account_after.stx_balance.amount_unlocked, 123);
             assert_eq!(account_after.nonce, 0);
         }
 
@@ -988,9 +986,9 @@ pub mod test {
 
         assert_eq!(account.nonce, 0);
         assert_eq!(account_sponsor.nonce, 0);
-        assert_eq!(account_sponsor.stx_balance, 0);
+        assert_eq!(account_sponsor.stx_balance.amount_unlocked, 0);
         assert_eq!(recv_account.nonce, 0);
-        assert_eq!(recv_account.stx_balance, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
 
         // give the spending account some stx
         conn.connection().as_transaction(
@@ -1000,15 +998,15 @@ pub mod test {
 
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
-        assert_eq!(account_after.stx_balance, 0);
+        assert_eq!(account_after.stx_balance.amount_unlocked, 0);
 
         let account_sponsor_after = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
         assert_eq!(account_sponsor_after.nonce, 1);
-        assert_eq!(account_sponsor_after.stx_balance, 0);
+        assert_eq!(account_sponsor_after.stx_balance.amount_unlocked, 0);
 
         let recv_account_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance, 123);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 123);
 
         conn.commit_block();
 
@@ -2499,12 +2497,12 @@ pub mod test {
     }
 
     fn make_account(principal: &PrincipalData, nonce: u64, balance: u128) -> StacksAccount {
+        let mut stx_balance = STXBalance::zero();
+        stx_balance.credit(balance, 0).unwrap();
         StacksAccount {
             principal: principal.clone(),
-            nonce: nonce,
-            stx_balance: balance,
-            stx_locked: 0,
-            unlock_height: 0
+            nonce,
+            stx_balance,
         }
     }
 

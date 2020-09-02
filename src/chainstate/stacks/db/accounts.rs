@@ -36,17 +36,17 @@ use vm::types::*;
 use util::db::*;
 use util::db::Error as db_error;
 
-use vm::{stx_balance_consolidated, stx_balance_with_unlock};
+use vm::{get_stx_balance_snapshot};
 
 pub type MinerPaymentCache = HashMap<StacksBlockId, Vec<MinerPaymentSchedule>>;
 
 impl StacksAccount {
-    pub fn balance_consolidated(&self, burn_block_height: u64) -> (u128, bool) {
-        stx_balance_with_unlock(self.stx_balance, self.stx_locked, self.unlock_height, burn_block_height)
+    pub fn get_available_balance_at_block(&self, burn_block_height: u64) -> u128 {
+        self.stx_balance.get_available_balance_at_block(burn_block_height)
     }
 
-    pub fn has_pox_lock(&self, burn_block_height: u64) -> bool {
-        self.unlock_height != 0 && self.unlock_height > burn_block_height
+    pub fn has_locked_tokens(&self, burn_block_height: u64) -> bool {
+        self.stx_balance.has_unavailable_locked_tokens(burn_block_height)
     }
 }
 
@@ -142,14 +142,10 @@ impl StacksChainState {
         clarity_tx.with_clarity_db_readonly(|ref mut db| {
             let stx_balance = db.get_account_stx_balance(principal);
             let nonce = db.get_account_nonce(principal);
-            let stx_locked = db.get_account_stx_locked(principal);
-            let unlock_height = db.get_account_unlock_height(principal);
             StacksAccount {
                 principal: principal.clone(),
                 stx_balance,
                 nonce,
-                stx_locked,
-                unlock_height
             }
         })
     }
@@ -176,22 +172,17 @@ impl StacksChainState {
     /// DOES NOT UPDATE THE NONCE
     pub fn account_debit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
-            let (cur_balance, unlock) = stx_balance_consolidated(db, principal);
+            let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
 
             // last line of defense: if we don't have sufficient funds, panic.
             // This should be checked by the block validation logic.
-            if cur_balance < (amount as u128) {
-                panic!("Tried to debit {} from account {} (which only has {})", amount, principal, cur_balance);
+            if !balance.can_transfer(amount as u128, block_height) {
+                panic!("Tried to debit {} from account {} (which only has {})", amount, principal, balance.get_available_balance_at_block(block_height));
             }
 
-            let final_balance = cur_balance - (amount as u128);
-            db.set_account_stx_balance(principal, final_balance);
-
-            if unlock {
-                db.set_account_stx_locked(principal, 0);
-                db.set_account_unlock_height(principal, 0);
-                debug!("Consolidated {} after account-debit", &principal);
-            }
+            balance.debit(amount as u128, block_height)
+                .expect("STX underflow");
+            db.set_account_stx_balance(principal, &balance);
 
             Ok(())
         }).expect("FATAL: failed to debit account")
@@ -201,10 +192,11 @@ impl StacksChainState {
     /// No nonce update is needed, since the transfer action is not taken by the principal.
     pub fn account_credit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
-            let cur_balance = db.get_account_stx_balance(principal);
-            let final_balance = cur_balance.checked_add(amount as u128).expect("FATAL: account balance overflow");
-            db.set_account_stx_balance(principal, final_balance as u128);
-            info!("{} credited: {} uSTX", principal, final_balance);
+            let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
+            balance.credit(amount as u128, block_height)
+                .expect("STX overflow");
+            db.set_account_stx_balance(principal, &balance);
+            info!("{} credited: {} uSTX", principal, balance.get_available_balance_at_block(block_height));
             Ok(())
         }).expect("FATAL: failed to credit account")
     }
@@ -224,38 +216,23 @@ impl StacksChainState {
         assert!(lock_amount > 0);
 
         // consolidate if we need to, since the last tx sent could have been for a PoX lockup.
-        let cur_balance_raw     = db.get_account_stx_balance(principal);
-        let cur_unlock_height   = db.get_account_unlock_height(principal);
-        let cur_stx_locked      = db.get_account_stx_locked(principal);
-        let cur_burn_height     = db.get_current_burnchain_block_height();
+        let mut balance = db.get_account_stx_balance(principal);
+        let cur_burn_height = db.get_current_burnchain_block_height() as u64;
 
-        let cur_balance = 
-            if cur_unlock_height != 0 && cur_unlock_height <= (cur_burn_height as u64) {
-                cur_balance_raw + cur_stx_locked
-            }
-            else {
-                // last line of defense -- must not be _currently_ locked
-                if cur_unlock_height != 0 {
-                    return Err(Error::PoxAlreadyLocked);
-                }
+        if balance.has_unavailable_locked_tokens(cur_burn_height) {
+            return Err(Error::PoxAlreadyLocked);
+        }
 
-                // no lock present.
-                cur_balance_raw
-            };
-
-        // last line of defense: if we don't have sufficient funds, panic.
-        // This should be checked by the transaction-level PoX validation logic.
-        if cur_balance < lock_amount {
+        if !balance.can_transfer(lock_amount, cur_burn_height) {
             return Err(Error::PoxInsufficientBalance);
         }
 
+        balance.lock_tokens(lock_amount, unlock_burn_height, cur_burn_height)
+            .expect("Unable to lock tokens");
         // set the locks
-        let new_stx_balance = cur_balance - lock_amount;
-        debug!("PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}", lock_amount, new_stx_balance, unlock_burn_height, principal);
+        debug!("PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}", balance.amount_locked, balance.amount_unlocked, unlock_burn_height, principal);
 
-        db.set_account_stx_balance(principal, new_stx_balance);
-        db.set_account_stx_locked(principal, lock_amount);
-        db.set_account_unlock_height(principal, unlock_burn_height);
+        db.set_account_stx_balance(principal, &balance);
 
         Ok(())
     }
