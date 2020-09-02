@@ -645,6 +645,14 @@ impl <'a> SortitionHandleTx <'a> {
         self.set_stacks_block_accepted_at_tip(&chain_tip, consensus_hash, parent_stacks_block_hash, stacks_block_hash, stacks_block_height)
     }
 
+    /// Get the expected PoX recipients (reward set) for the next sortition, either by querying information
+    ///  from the current reward cycle, or if `next_pox_info` is provided, by querying information
+    ///  for the next reward cycle.
+    ///
+    /// Returns None if:
+    ///   * The reward cycle had an anchor block, but it isn't known by this node.
+    ///   * The reward cycle did not have anchor block
+    ///   * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
     fn pick_recipients(&self, reward_set_vrf_seed: &SortitionHash, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
         if let Some(next_pox_info) = next_pox_info {
             if let PoxAnchorBlockStatus::SelectedAndKnown(ref anchor_block, ref reward_set) = next_pox_info.anchor_status {
@@ -2332,6 +2340,13 @@ impl <'a> SortitionHandleTx <'a> {
     /// * sortdb::stacks::block::${STACKS_BLOCK_HASH} --> ${STACKS_BLOCK_HEIGHT} for each block that has been accepted so far
     /// * sortdb::stacks::block::max_arrival_index --> ${ARRIVAL_INDEX} to set the maximum arrival index processed in this fork
     /// * sortdb::pox_reward_set::${n} --> recipient Bitcoin address, to track the reward set as the permutation progresses
+    ///
+    /// `recipient_info` is used to pass information to this function about which reward set addresses were consumed 
+    ///   during this sortition. this object will be None in the following cases:
+    ///    * The reward cycle had an anchor block, but it isn't known by this node.
+    ///    * The reward cycle did not have anchor block
+    ///    * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
+    ///
     /// NOTE: the resulting index root must be globally unique.  This is guaranteed because each
     /// burn block hash is unique, no matter what fork it's on (and this index uses burn block
     /// hashes as its index's block hash data).
