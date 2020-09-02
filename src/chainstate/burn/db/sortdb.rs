@@ -647,13 +647,13 @@ impl <'a> SortitionHandleTx <'a> {
 
     fn pick_recipients(&self, reward_set_vrf_seed: &SortitionHash, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
         if let Some(next_pox_info) = next_pox_info {
-            if let PoxAnchorBlockStatus::SELECTED_AND_KNOWN(ref anchor_block, ref reward_set) = next_pox_info.anchor_status {
+            if let PoxAnchorBlockStatus::SelectedAndKnown(ref anchor_block, ref reward_set) = next_pox_info.anchor_status {
                 if reward_set.len() == 0 {
                     return Ok(None)
                 }
 
-                let chosen_recipients = reward_set_vrf_seed.choose(OUTPUTS_PER_COMMIT.try_into().unwrap(),
-                                                                   reward_set.len().try_into().unwrap());
+                let chosen_recipients = reward_set_vrf_seed.choose(OUTPUTS_PER_COMMIT.try_into().expect("BUG: u32 overflow in PoX outputs per commit"),
+                                                                   reward_set.len().try_into().expect("BUG: u32 overflow in PoX outputs per commit"));
                 Ok(Some(RewardSetInfo {
                     anchor_block: anchor_block.clone(),
                     recipients: chosen_recipients.into_iter().map(|ix| {
@@ -673,7 +673,7 @@ impl <'a> SortitionHandleTx <'a> {
                 if reward_set_size == 0 {
                     Ok(None)
                 } else {
-                    let chosen_recipients = reward_set_vrf_seed.choose(OUTPUTS_PER_COMMIT.try_into().unwrap(),
+                    let chosen_recipients = reward_set_vrf_seed.choose(OUTPUTS_PER_COMMIT.try_into().expect("BUG: u32 overflow in PoX outputs per commit"),
                                                                        reward_set_size as u32);
                     let mut recipients = vec![];
                     for ix in chosen_recipients.into_iter() {

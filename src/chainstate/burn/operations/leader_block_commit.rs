@@ -272,7 +272,7 @@ impl LeaderBlockCommitOp {
                 },
             };
 
-        if burn_fee <= 0 {
+        if burn_fee == 0 {
             warn!("Invalid commit tx: burn/transfer amount is 0");
             return Err(op_error::ParseError)
         }

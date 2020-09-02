@@ -193,7 +193,7 @@ impl SortitionHash {
         }
         sample(&mut rng, max as usize, n as usize)
             // returned samples should always be u32, because max is u32.
-            .into_iter().map(|ix| ix.try_into().unwrap())
+            .into_iter().map(|ix| ix.try_into().expect("CORRUPTION: u32-overflow in PoX recipient sample"))
             .collect()
     }
 

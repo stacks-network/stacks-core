@@ -50,9 +50,9 @@ use chainstate::coordinator::comm::{
 ///  reward cycle's relationship to its PoX anchor
 #[derive(Debug, PartialEq)]
 pub enum PoxAnchorBlockStatus {
-    SELECTED_AND_KNOWN(BlockHeaderHash, Vec<StacksAddress>),
-    SELECTED_AND_UNKNOWN(BlockHeaderHash),
-    NOT_SELECTED,
+    SelectedAndKnown(BlockHeaderHash, Vec<StacksAddress>),
+    SelectedAndUnknown(BlockHeaderHash),
+    NotSelected,
 }
 
 #[derive(Debug, PartialEq)]
@@ -64,31 +64,31 @@ impl RewardCycleInfo {
     pub fn selected_anchor_block(&self) -> Option<&BlockHeaderHash> {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
-            SELECTED_AND_UNKNOWN(ref block) | SELECTED_AND_KNOWN(ref block, _) => Some(block),
-            NOT_SELECTED => None
+            SelectedAndUnknown(ref block) | SelectedAndKnown(ref block, _) => Some(block),
+            NotSelected => None
         }
     }
     pub fn is_reward_info_known(&self) -> bool {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
-            SELECTED_AND_UNKNOWN(_) => false,
-            SELECTED_AND_KNOWN(_, _) | NOT_SELECTED => true
+            SelectedAndUnknown(_) => false,
+            SelectedAndKnown(_, _) | NotSelected => true
         }
     }
     pub fn known_selected_anchor_block(&self) -> Option<&Vec<StacksAddress>> {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
-            SELECTED_AND_UNKNOWN(_) => None,
-            SELECTED_AND_KNOWN(_, ref reward_set) => Some(reward_set),
-            NOT_SELECTED => None
+            SelectedAndUnknown(_) => None,
+            SelectedAndKnown(_, ref reward_set) => Some(reward_set),
+            NotSelected => None
         }
     }
     pub fn known_selected_anchor_block_owned(self) -> Option<Vec<StacksAddress>> {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
-            SELECTED_AND_UNKNOWN(_) => None,
-            SELECTED_AND_KNOWN(_, reward_set) => Some(reward_set),
-            NOT_SELECTED => None
+            SelectedAndUnknown(_) => None,
+            SelectedAndKnown(_, reward_set) => Some(reward_set),
+            NotSelected => None
         }
     }
 }
@@ -272,14 +272,14 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             let anchor_status = if anchor_block_known {
                 let reward_set = provider.get_reward_set(
                     &chain_state, &stacks_block_hash, &consensus_hash)?;
-                PoxAnchorBlockStatus::SELECTED_AND_KNOWN(stacks_block_hash, reward_set)
+                PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, reward_set)
             } else {
-                PoxAnchorBlockStatus::SELECTED_AND_UNKNOWN(stacks_block_hash)
+                PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash)
             };
             Ok(Some(RewardCycleInfo { anchor_status }))
         } else {
             Ok(Some(RewardCycleInfo {
-                anchor_status: PoxAnchorBlockStatus::NOT_SELECTED
+                anchor_status: PoxAnchorBlockStatus::NotSelected
             }))
         }
     } else {

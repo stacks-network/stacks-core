@@ -20,6 +20,7 @@ use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::Error as burnchain_error;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
 use stacks::burnchains::bitcoin::spv::SpvClient; 
@@ -126,11 +127,11 @@ impl BitcoinRegtestController {
         }        
     }
 
-    fn setup_burnchain(&self) -> Burnchain {
+    fn setup_burnchain(&self) -> (Burnchain, BitcoinNetworkType) {
         let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
         let working_dir = self.config.get_burn_db_path();
         match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
-            Ok(burnchain) => burnchain,
+            Ok(burnchain) => (burnchain, network_type),
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);
                 panic!()    
@@ -139,9 +140,7 @@ impl BitcoinRegtestController {
     }
 
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
-        let network = "regtest".to_string();
-        let working_dir = self.config.get_burn_db_path();
-        let burnchain = self.setup_burnchain();
+        let (burnchain, network_type) = self.setup_burnchain();
 
         let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
