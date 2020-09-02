@@ -764,8 +764,6 @@ impl InitializedNeonNode {
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer);
 
-        // rotate_vrf_and_register(keychain, &burn_block, bitcoin_controller);
-
         Some(AssembledAnchorBlock {
             parent_consensus_hash: parent_consensus_hash,
             my_burn_hash: burn_block.burn_header_hash,
