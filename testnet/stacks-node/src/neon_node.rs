@@ -585,6 +585,7 @@ impl InitializedNeonNode {
 
         if let Some(burnchain_tip) = self.last_burn_block.clone() {
             if let Some(key) = self.active_keys.first() {
+                debug!("Using key {:?}", &key.vrf_public_key);
                 // sleep a little before building the anchor block, to give any broadcasted 
                 //   microblocks time to propagate.
                 info!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
