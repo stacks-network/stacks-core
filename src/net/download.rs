@@ -586,7 +586,7 @@ impl BlockDownloader {
     /// burn/block-header-hashes of the sortition that _produced_ them.
     fn get_microblock_stream_availability(inv_state: &InvState, sortdb: &SortitionDB, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Vec<NeighborKey>, net_error> {
         let sortid = SortitionId::stubbed(burn_header_hash);
-        let sn = SortitionDB::get_block_snapshot(&sortdb.conn, &sortid)?
+        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sortid)?
             .ok_or_else(|| net_error::DBError(db_error::NotFoundError))?;
 
         let block_height = sn.block_height - 1;      // sortdb is 1-indexed

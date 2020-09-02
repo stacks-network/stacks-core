@@ -23,7 +23,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::sortdb::{ SortitionHandleConn };
+use chainstate::burn::db::sortdb::{ SortitionHandleTx };
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -206,7 +206,7 @@ impl BlockstackOperation for UserBurnSupportOp {
         UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
+    fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
 
         /////////////////////////////////////////////////////////////////
@@ -236,7 +236,8 @@ impl BlockstackOperation for UserBurnSupportOp {
             return Err(op_error::ParseError);
         }
 
-        let register_key_opt = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into())?;
+        let chain_tip = tx.context.chain_tip.clone();
+        let register_key_opt = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into(), &chain_tip)?;
 
         if register_key_opt.is_none() {
             warn!("Invalid user burn: no such leader VRF key {}", &self.public_key.to_hex());
@@ -593,8 +594,8 @@ mod tests {
                 num_txs: 1,
                 timestamp: get_epoch_time_secs()
             };
-            let ic = db.index_handle(&SortitionId::stubbed(&fixture.op.burn_header_hash));
-            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic)));
+            let mut ic = SortitionHandleTx::begin(&mut db, &SortitionId::stubbed(&fixture.op.burn_header_hash)).unwrap();
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &mut ic)));
         }
     }
 }

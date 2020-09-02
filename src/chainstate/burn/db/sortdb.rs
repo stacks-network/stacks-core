@@ -71,6 +71,7 @@ use chainstate::stacks::*;
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::MARFValue;
 use chainstate::stacks::index::Error as MARFError;
@@ -441,7 +442,6 @@ const BURNDB_SETUP : &'static [&'static str]= &[
 ];
 
 pub struct SortitionDB {
-    pub conn: Connection,
     pub readwrite: bool,
     pub marf: MARF<SortitionId>,
     pub first_block_height: u64,
@@ -476,7 +476,7 @@ pub type SortitionHandleTx<'a> = IndexDBTx<'a, SortitionHandleContext, Sortition
 /// This trait is used for functions that
 ///  can accept either a SortitionHandleConn or a SortitionDBConn
 ///
-pub trait SortitionContext {
+pub trait SortitionContext: Clone {
     fn first_block_height(&self) -> u64;
 }
 
@@ -493,12 +493,30 @@ impl SortitionContext for SortitionDBTxContext {
 }
 
 fn get_ancestor_sort_id<C: SortitionContext>(ic: &IndexDBConn<'_, C, SortitionId>, block_height: u64, tip_block_hash: &SortitionId) -> Result<Option<SortitionId>, db_error> {
-    let first_block_height = ic.context.first_block_height();
+    let adjusted_height = match get_adjusted_block_height(&ic.context, block_height) {
+        Some(x) => x,
+        None => return Ok(None)
+    };
+
+    ic.get_ancestor_block_hash(adjusted_height, &tip_block_hash)
+}
+
+fn get_ancestor_sort_id_tx<C: SortitionContext>(ic: &mut IndexDBTx<'_, C, SortitionId>, block_height: u64, tip_block_hash: &SortitionId) -> Result<Option<SortitionId>, db_error> {
+    let adjusted_height = match get_adjusted_block_height(&ic.context, block_height) {
+        Some(x) => x,
+        None => return Ok(None)
+    };
+
+    ic.get_ancestor_block_hash(adjusted_height, &tip_block_hash)
+}
+
+fn get_adjusted_block_height<C: SortitionContext>(context: &C, block_height: u64) -> Option<u64> {
+    let first_block_height = context.first_block_height();
     if block_height < first_block_height {
-        return Ok(None);
+        return None;
     }
  
-    ic.get_ancestor_block_hash(block_height - first_block_height, &tip_block_hash)
+    Some(block_height - first_block_height)
 }
 
 /// Identifier used to identify "sortitions" in the
@@ -570,15 +588,212 @@ impl <'a> SortitionHandleTx <'a> {
     /// Uses the handle's current fork identifier to get a block snapshot by
     ///   burnchain block header
     /// If the burn header hash is _not_ in the current fork, then this will return Ok(None)
-    pub fn get_block_snapshot(&mut self, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_block_snapshot(&mut self, burn_header_hash: &BurnchainHeaderHash, chain_tip: &SortitionId) -> Result<Option<BlockSnapshot>, db_error> {
         let sortition_identifier_key = db_keys::sortition_id_for_bhh(burn_header_hash);
-        let chain_tip = self.context.chain_tip.clone();
         let sortition_id = match self.get_indexed(&chain_tip, &sortition_identifier_key)? {
             None => return Ok(None),
             Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB")
         };
 
         SortitionDB::get_block_snapshot(self.tx(), &sortition_id)
+    }
+
+    /// Get a leader key at a specific location in the burn chain's fork history, given the
+    /// matching block commit's fork index root (block_height and vtxindex are the leader's
+    /// calculated location in this fork).
+    /// Returns None if there is no leader key at this location.
+    pub fn get_leader_key_at(&mut self, key_block_height: u64, key_vtxindex: u32, tip: &SortitionId) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
+        assert!(key_block_height < BLOCK_HEIGHT_MAX);
+        let ancestor_snapshot = match SortitionDB::get_ancestor_snapshot_tx(self, key_block_height, tip)? {
+            Some(sn) => sn,
+            None => {
+                return Ok(None);
+            }
+        };
+
+        // PoX TODO: note -- leader_keys table will index on burn_header_hash: if a leader key is reprocessed due to a PoX fork,
+        //                   it should be allowed to either overwrite the previous entry OR skip insertion (i.e., UNIQUE constraints
+        //                   should not be allowed to cause a panic)
+        let qry = "SELECT * FROM leader_keys WHERE burn_header_hash = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
+        let args : &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(key_block_height)?, &key_vtxindex];
+        query_row_panic(self.tx(), qry, args,
+                        || format!("Multiple keys at {},{} in {}", key_block_height, key_vtxindex, tip))
+    }
+
+    /// Find the VRF public keys consumed by each block candidate in the given list.
+    /// The burn DB should have a key for each candidate; otherwise the candidate would not have
+    /// been accepted.
+    pub fn get_consumed_leader_keys(&mut self, parent_tip: &BlockSnapshot, block_candidates: &Vec<LeaderBlockCommitOp>) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
+        // get the set of VRF keys consumed by these commits 
+        let mut leader_keys = vec![];
+        for i in 0..block_candidates.len() {
+            let leader_key_block_height = block_candidates[i].key_block_ptr as u64;
+            let leader_key_vtxindex = block_candidates[i].key_vtxindex as u32;
+            let leader_key = self.get_leader_key_at(leader_key_block_height, leader_key_vtxindex, &parent_tip.sortition_id)?
+                .expect(&format!("FATAL: no leader key for accepted block commit {} (at {},{})", &block_candidates[i].txid, leader_key_block_height, leader_key_vtxindex));
+
+            leader_keys.push(leader_key);
+        }
+
+        Ok(leader_keys)
+    }
+
+    /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
+    /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
+    /// construction.
+    pub fn get_block_commit(&self, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        SortitionDB::get_block_commit(self.tx(), txid, burn_header_hash)
+    }
+
+    pub fn get_consensus_at(&mut self, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
+        assert!(block_height < BLOCK_HEIGHT_MAX);
+        let chain_tip = self.context.chain_tip.clone();
+
+        match SortitionDB::get_ancestor_snapshot_tx(self, block_height, &chain_tip)? {
+            Some(sn) => Ok(Some(sn.consensus_hash)),
+            None => Ok(None)
+        }
+    }
+
+    /// Do we expect a stacks block in this particular fork?
+    /// i.e. is this block hash part of the fork history identified by tip_block_hash?
+    pub fn expects_stacks_block_in_fork(&mut self, block_hash: &BlockHeaderHash) -> Result<bool, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        self.get_indexed(&chain_tip, &db_keys::stacks_block_present(block_hash))
+            .map(|result| result.is_some())
+    }
+
+    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Search snapshots up to (but excluding) the given block height.
+    /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
+    pub fn get_last_snapshot_with_sortition(&mut self, burn_block_height: u64) -> Result<BlockSnapshot, db_error> {
+        assert!(burn_block_height < BLOCK_HEIGHT_MAX);
+        test_debug!("Get snapshot at from sortition tip {}, expect height {}", &self.context.chain_tip, burn_block_height);
+        let chain_tip = self.context.chain_tip.clone();
+
+        let get_from = match get_ancestor_sort_id_tx(self, burn_block_height, &chain_tip)? {
+            Some(sortition_id) => sortition_id,
+            None => {
+                error!("No blockheight {} ancestor at sortition identifier {}",
+                       burn_block_height, &self.context.chain_tip);
+                return Err(db_error::NotFoundError);
+            }
+        };
+
+        let ancestor_hash = match self.get_indexed(&get_from, &db_keys::last_sortition())? {
+            Some(hex_str) => {
+                BurnchainHeaderHash::from_hex(&hex_str)
+                    .expect(&format!("FATAL: corrupt database: failed to parse {} into a hex string", &hex_str))
+            },
+            None => {
+                // no prior sortitions, so get the first
+                return SortitionDB::get_first_block_snapshot(self.tx())
+            }
+        };
+        
+        self.get_block_snapshot(&ancestor_hash, &chain_tip)
+            .map(|snapshot_opt| {
+                snapshot_opt
+                    .expect(&format!("FATAL: corrupt index: no snapshot {}", ancestor_hash))
+            })
+    }
+
+    /// Determine whether or not a leader key has been consumed by a subsequent block commitment in
+    /// this fork's history.
+    /// Will return false if the leader key does not exist.
+    pub fn is_leader_key_consumed(&mut self, leader_key: &LeaderKeyRegisterOp) -> Result<bool, db_error> {
+        assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
+        let chain_tip = self.context.chain_tip.clone();
+
+        let key_status = match self.get_indexed(&chain_tip, &db_keys::vrf_key_status(&leader_key.public_key))? {
+            Some(status_str) => {
+                if status_str == "1" {
+                    // key is still available
+                    false
+                } else if status_str == "0" {
+                    // key is consumed
+                    true
+                } else {
+                    panic!("Invalid key status string {}", status_str);
+                }
+            },
+            None => {
+                // never before seen
+                false
+            }
+        };
+
+        Ok(key_status)
+    }
+
+    /// Get a parent block commit at a specific location in the burn chain on a particular fork.
+    /// Returns None if there is no block commit at this location.
+    pub fn get_block_commit_parent(&mut self, block_height: u64, vtxindex: u32, tip: &SortitionId) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        assert!(block_height < BLOCK_HEIGHT_MAX);
+        let ancestor_id = match get_ancestor_sort_id_tx(self, block_height, tip)? {
+            Some(id) => id,
+            None => {
+                return Ok(None);
+            }
+        };
+
+        SortitionDB::get_block_commit_of_sortition(self.tx(), &ancestor_id, block_height, vtxindex)
+    }
+
+    pub fn has_VRF_public_key(&mut self, key: &VRFPublicKey) -> Result<bool, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let key_status = self.get_indexed(&chain_tip, &db_keys::vrf_key_status(key))?
+            .is_some();
+        Ok(key_status)
+    }
+
+    fn check_fresh_consensus_hash<F>(&mut self, consensus_hash_lifetime: u64, check: F) -> Result<bool, db_error>
+    where F: Fn(&ConsensusHash) -> bool {
+        let chain_tip = self.context.chain_tip.clone();
+        let first_snapshot = SortitionDB::get_first_block_snapshot(self.tx())?;
+        let mut last_snapshot = SortitionDB::get_block_snapshot(self.tx(), &self.context.chain_tip)?
+            .ok_or_else(|| db_error::NotFoundError )?;
+        let current_block_height = last_snapshot.block_height;
+
+        let mut oldest_height = 
+            if current_block_height < consensus_hash_lifetime {
+                0
+            }
+            else {
+                current_block_height - consensus_hash_lifetime
+            };
+
+        if oldest_height < first_snapshot.block_height {
+            oldest_height = first_snapshot.block_height;
+        }
+
+        if check(&last_snapshot.consensus_hash) {
+            return Ok(true)
+        }
+
+        for _i in oldest_height..current_block_height {
+            let ancestor_snapshot = self.get_block_snapshot(&last_snapshot.parent_burn_header_hash, &chain_tip)?
+                .expect(&format!("Discontiguous index: missing block {}", last_snapshot.parent_burn_header_hash));
+            if check(&ancestor_snapshot.consensus_hash) {
+                return Ok(true)
+            }
+            last_snapshot = ancestor_snapshot;
+        }
+
+        return Ok(false)
+    }
+
+    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
+    pub fn is_fresh_consensus_hash(&mut self, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
+        self.check_fresh_consensus_hash(consensus_hash_lifetime,
+                                        |fresh_hash| { fresh_hash == consensus_hash })
+    }
+
+    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
+    /// This function only checks the first 19 bytes
+    pub fn is_fresh_consensus_hash_check_19b(&mut self, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
+        self.check_fresh_consensus_hash(consensus_hash_lifetime,
+                                        |fresh_hash| { fresh_hash.as_bytes()[0..19] == consensus_hash.as_bytes()[0..19] })
     }
 }
 
@@ -714,23 +929,9 @@ impl <'a> SortitionHandleConn <'a> {
         SortitionDB::get_block_snapshot(self.conn(), &self.context.chain_tip)
     }
 
-    pub fn has_VRF_public_key(&self, key: &VRFPublicKey) -> Result<bool, db_error> {
-        let key_status = self.get_tip_indexed(&db_keys::vrf_key_status(key))?
-            .is_some();
-        Ok(key_status)
-    }
-
     pub fn get_first_block_snapshot(&self) -> Result<BlockSnapshot, db_error> {
         SortitionDB::get_first_block_snapshot(self.conn())
     }
-
-    /// Do we expect a stacks block in this particular fork?
-    /// i.e. is this block hash part of the fork history identified by tip_block_hash?
-    pub fn expects_stacks_block_in_fork(&self, block_hash: &BlockHeaderHash) -> Result<bool, db_error> {
-        self.get_tip_indexed(&db_keys::stacks_block_present(block_hash))
-            .map(|result| result.is_some())
-    }
-
 
     /// Get consensus hash from a particular chain tip's history
     /// Returns None if the block height or block hash does not correspond to a
@@ -845,54 +1046,6 @@ impl <'a> SortitionHandleConn <'a> {
             })
     }
 
-    fn check_fresh_consensus_hash<F>(&self, consensus_hash_lifetime: u64, check: F) -> Result<bool, db_error>
-    where F: Fn(&ConsensusHash) -> bool {
-        let first_snapshot = self.get_first_block_snapshot()?;
-        let mut last_snapshot = self.get_tip_snapshot()?
-            .ok_or_else(|| db_error::NotFoundError )?;
-        let current_block_height = last_snapshot.block_height;
-
-        let mut oldest_height = 
-            if current_block_height < consensus_hash_lifetime {
-                0
-            }
-            else {
-                current_block_height - consensus_hash_lifetime
-            };
-
-        if oldest_height < first_snapshot.block_height {
-            oldest_height = first_snapshot.block_height;
-        }
-
-        if check(&last_snapshot.consensus_hash) {
-            return Ok(true)
-        }
-
-        for _i in oldest_height..current_block_height {
-            let ancestor_snapshot = self.get_block_snapshot(&last_snapshot.parent_burn_header_hash)?
-                .expect(&format!("Discontiguous index: missing block {}", last_snapshot.parent_burn_header_hash));
-            if check(&ancestor_snapshot.consensus_hash) {
-                return Ok(true)
-            }
-            last_snapshot = ancestor_snapshot;
-        }
-
-        return Ok(false)
-    }
-
-    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
-    pub fn is_fresh_consensus_hash(&self, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
-        self.check_fresh_consensus_hash(consensus_hash_lifetime,
-                                        |fresh_hash| { fresh_hash == consensus_hash })
-    }
-
-    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
-    /// This function only checks the first 19 bytes
-    pub fn is_fresh_consensus_hash_check_19b(&self, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
-        self.check_fresh_consensus_hash(consensus_hash_lifetime,
-                                        |fresh_hash| { fresh_hash.as_bytes()[0..19] == consensus_hash.as_bytes()[0..19] })
-    }
-
     pub fn get_leader_key_at(&self, key_block_height: u64, key_vtxindex: u32) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
         SortitionDB::get_leader_key_at(self, key_block_height, key_vtxindex, &self.context.chain_tip)
     }
@@ -900,49 +1053,6 @@ impl <'a> SortitionHandleConn <'a> {
     pub fn get_block_commit_parent(&self, block_height: u64, vtxindex: u32) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         SortitionDB::get_block_commit_parent(self, block_height, vtxindex, &self.context.chain_tip)
     }
-
-    /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
-    /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
-    /// construction.
-    pub fn get_block_commit(&self, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        // PoX TODO: note -- block_commits table will index on burn_header_hash: if a block_commit is reprocessed due to a PoX fork,
-        //                   it should be allowed to either overwrite the previous entry OR skip insertion (i.e., UNIQUE constraints
-        //                   should not be allowed to cause a panic)
-        let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND burn_header_hash = ?2";
-        let args: [&dyn ToSql; 2] = [&txid, &burn_header_hash];
-        query_row_panic(self.conn(), qry, &args,
-                        || format!("FATAL: multiple block commits for {},{}", &txid, &burn_header_hash))
-    }
-
-    /// Determine whether or not a leader key has been consumed by a subsequent block commitment in
-    /// this fork's history.
-    /// Will return false if the leader key does not exist.
-    pub fn is_leader_key_consumed(&self, leader_key: &LeaderKeyRegisterOp) -> Result<bool, db_error> {
-        assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
-
-        let key_status = match self.get_tip_indexed(&db_keys::vrf_key_status(&leader_key.public_key))? {
-            Some(status_str) => {
-                if status_str == "1" {
-                    // key is still available
-                    false
-                }
-                else if status_str == "0" {
-                    // key is consumed
-                    true
-                }
-                else {
-                    panic!("Invalid key status string {}", status_str);
-                }
-            },
-            None => {
-                // never before seen
-                false
-            }
-        };
-
-        Ok(key_status)
-    }
-
 }
 
 impl PoxId {
@@ -1004,7 +1114,7 @@ impl SortitionDB {
     }
 
     pub fn conn<'a>(&'a self) -> &'a Connection {
-        &self.conn
+        self.marf.sqlite_conn()
     }
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
@@ -1028,14 +1138,11 @@ impl SortitionDB {
         debug!("Open sortdb '{}' as '{}', with index as '{}'",
                db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
         
-        let conn = Connection::open_with_flags(&db_path, open_flags)?;
-        conn.busy_handler(Some(tx_busy_handler))?;
-
         let marf = SortitionDB::open_index(&index_path)?;
-        let first_snapshot = SortitionDB::get_first_block_snapshot(&conn)?;
+        let first_snapshot = SortitionDB::get_first_block_snapshot(marf.sqlite_conn())?;
 
         let db = SortitionDB {
-            conn, marf, readwrite,
+            marf, readwrite,
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
@@ -1074,16 +1181,14 @@ impl SortitionDB {
         };
 
         let (db_path, index_path) = db_mkdirs(path)?;
-        debug!("Connect/Open sortdb '{}' as '{}', with index as '{}'",
+        debug!("Connect/Open {} sortdb '{}' as '{}', with index as '{}'",
+               if create_flag { "(create)" } else { "" },
                db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
-
-        let conn = Connection::open_with_flags(&db_path, open_flags)?;
-        conn.busy_handler(Some(tx_busy_handler))?;
 
         let marf = SortitionDB::open_index(&index_path)?;
 
         let mut db = SortitionDB {
-            conn, marf, readwrite, first_block_height,
+            marf, readwrite, first_block_height,
             first_burn_header_hash: first_burn_hash.clone(),
         };
 
@@ -1093,7 +1198,7 @@ impl SortitionDB {
         }
         else {
             // validate -- must contain the given first block and first block hash 
-            let snapshot = SortitionDB::get_first_block_snapshot(&db.conn)?;
+            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
             if !snapshot.is_initial() || snapshot.block_height != first_block_height || snapshot.burn_header_hash != *first_burn_hash {
                 error!("Invalid genesis snapshot at {}", first_block_height);
                 return Err(db_error::Corruption);
@@ -1116,9 +1221,11 @@ impl SortitionDB {
     }
 
     fn instantiate(&mut self, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> Result<(), db_error> {
+        debug!("Instantiate SortDB");
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 
         // create first (sentinel) snapshot
+        debug!("Make first snapshot");
         let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash, first_burn_header_timestamp);
         
         assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
@@ -1308,7 +1415,7 @@ impl SortitionDB {
     pub fn is_sortition_processed(&self, burnchain_header_hash: &BurnchainHeaderHash, pox_id: &PoxId) -> Result<bool, BurnchainError> {
         let sort_id = SortitionId::new(burnchain_header_hash, pox_id);
 
-        match SortitionDB::get_block_snapshot(&self.conn, &sort_id) {
+        match SortitionDB::get_block_snapshot(self.conn(), &sort_id) {
             Ok(opt_sn) => Ok(opt_sn.is_some()),
             Err(e) => Err(BurnchainError::from(e))
         }
@@ -1325,7 +1432,7 @@ impl SortitionDB {
         }
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
-        let parent_snapshot = sortition_db_handle.get_block_snapshot(&burn_header.parent_block_hash)?
+        let parent_snapshot = sortition_db_handle.get_block_snapshot(&burn_header.parent_block_hash, &parent_sort_id)?
             .ok_or_else(|| {
                 warn!("Unknown block {:?}", burn_header.parent_block_hash);
                 BurnchainError::MissingParentBlock
@@ -1337,12 +1444,6 @@ impl SortitionDB {
         // commit everything!
         sortition_db_handle.commit()?;
         Ok(new_snapshot)
-    }
-
-    pub fn is_stacks_block_in_sortition_set(&self, sortition_id: &SortitionId, block_to_check: &BlockHeaderHash) -> Result<bool, BurnchainError> {
-        self.index_handle(sortition_id)
-            .expects_stacks_block_in_fork(block_to_check)
-            .map_err(|e| BurnchainError::from(e))
     }
 
     pub fn latest_stacks_blocks_processed(&self, sortition_id: &SortitionId) -> Result<u64, BurnchainError> {
@@ -1367,6 +1468,19 @@ impl SortitionDB {
         } else {
             Ok(opt_result)
         }
+    }
+
+    /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
+    /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
+    /// construction.
+    pub fn get_block_commit(c: &Connection, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        // PoX TODO: note -- block_commits table will index on burn_header_hash: if a block_commit is reprocessed due to a PoX fork,
+        //                   it should be allowed to either overwrite the previous entry OR skip insertion (i.e., UNIQUE constraints
+        //                   should not be allowed to cause a panic)
+        let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND burn_header_hash = ?2";
+        let args: [&dyn ToSql; 2] = [&txid, &burn_header_hash];
+        query_row_panic(c, qry, &args,
+                        || format!("FATAL: multiple block commits for {},{}", &txid, &burn_header_hash))
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
@@ -1543,21 +1657,43 @@ impl SortitionDB {
         SortitionDB::get_block_snapshot(ic, &ancestor)
     }
 
+    /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
+    /// block in this fork, find the snapshot of the block at that height.
+    pub fn get_ancestor_snapshot_tx<C: SortitionContext>(ic: &mut IndexDBTx<'_, C, SortitionId>, ancestor_block_height: u64, tip_block_hash: &SortitionId) -> Result<Option<BlockSnapshot>, db_error> {
+        assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
+
+        let ancestor = match get_ancestor_sort_id_tx(ic, ancestor_block_height, tip_block_hash)? {
+            Some(id) => id,
+            None => {
+                debug!("No ancestor block {} from {} in index", ancestor_block_height, tip_block_hash);
+                return Ok(None)
+            }
+        };
+
+        SortitionDB::get_block_snapshot(ic.tx(), &ancestor)
+    }
+
     /// Get a parent block commit at a specific location in the burn chain on a particular fork.
     /// Returns None if there is no block commit at this location.
     pub fn get_block_commit_parent<C: SortitionContext>(ic: &IndexDBConn<'_, C, SortitionId>, block_height: u64, vtxindex: u32, tip: &SortitionId) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        let ancestor_snapshot = match SortitionDB::get_ancestor_snapshot(ic, block_height, tip)? {
-            Some(sn) => sn,
+        let ancestor_id = match get_ancestor_sort_id(ic, block_height, tip)? {
+            Some(id) => id,
             None => {
                 return Ok(None);
             }
         };
 
+        SortitionDB::get_block_commit_of_sortition(ic, &ancestor_id, block_height, vtxindex)
+    }
+
+    fn get_block_commit_of_sortition(conn: &Connection, sortition: &SortitionId, block_height: u64, vtxindex: u32) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        assert!(block_height < BLOCK_HEIGHT_MAX);
+
         let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
-        let args: &[&dyn ToSql] = &[&ancestor_snapshot.sortition_id, &u64_to_sql(block_height)?, &vtxindex];
-        query_row_panic(ic, qry, args,
-                        || format!("Multiple parent blocks at {},{} in {}", block_height, vtxindex, tip))
+        let args: &[&dyn ToSql] = &[sortition, &u64_to_sql(block_height)?, &vtxindex];
+        query_row_panic(conn, qry, args,
+                        || format!("Multiple parent blocks at {},{} in {}", block_height, vtxindex, sortition))
     }
 
     /// Get a leader key at a specific location in the burn chain's fork history, given the
@@ -1580,24 +1716,6 @@ impl SortitionDB {
         let args : &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(key_block_height)?, &key_vtxindex];
         query_row_panic(ic, qry, args,
                         || format!("Multiple keys at {},{} in {}", key_block_height, key_vtxindex, tip))
-    }
-    
-    /// Find the VRF public keys consumed by each block candidate in the given list.
-    /// The burn DB should have a key for each candidate; otherwise the candidate would not have
-    /// been accepted.
-    pub fn get_consumed_leader_keys<C: SortitionContext>(ic: &IndexDBConn<'_, C, SortitionId>, parent_tip: &BlockSnapshot, block_candidates: &Vec<LeaderBlockCommitOp>) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
-        // get the set of VRF keys consumed by these commits 
-        let mut leader_keys = vec![];
-        for i in 0..block_candidates.len() {
-            let leader_key_block_height = block_candidates[i].key_block_ptr as u64;
-            let leader_key_vtxindex = block_candidates[i].key_vtxindex as u32;
-            let leader_key = SortitionDB::get_leader_key_at(ic, leader_key_block_height, leader_key_vtxindex, &parent_tip.sortition_id)?
-                .expect(&format!("FATAL: no leader key for accepted block commit {} (at {},{})", &block_candidates[i].txid, leader_key_block_height, leader_key_vtxindex));
-
-            leader_keys.push(leader_key);
-        }
-
-        Ok(leader_keys)
     }
 
     /// Get a block commit by its committed block
@@ -1930,44 +2048,39 @@ impl <'a> SortitionHandleTx <'a> {
     /// key/value pairs for the subset that arrived on ancestor blocks of the parent.  Update the
     /// given parent chain tip to have the correct memoized canonical chain tip present in the fork
     /// it represents.
-    fn process_new_block_arrivals(&self, parent_tip: &mut BlockSnapshot) -> Result<(Vec<String>, Vec<String>), db_error> {
+    fn process_new_block_arrivals(&mut self, parent_tip: &mut BlockSnapshot) -> Result<(Vec<String>, Vec<String>), db_error> {
         let mut keys = vec![];
         let mut values = vec![];
 
         let mut new_block_arrivals = vec![];
 
-        let max_arrival_index = self.with_conn::<_, _, db_error>(|db_handle| {
-            db_handle.context.chain_tip = parent_tip.sortition_id.clone();
+        let old_max_arrival_index = self.get_indexed(&parent_tip.sortition_id, &db_keys::stacks_block_max_arrival_index())?
+            .unwrap_or("0".into())
+            .parse::<u64>().expect("BUG: max arrival index is not a u64");
 
-            let old_max_arrival_index = db_handle.get_tip_indexed(&db_keys::stacks_block_max_arrival_index())?
-                .unwrap_or("0".into())
-                .parse::<u64>().expect("BUG: max arrival index is not a u64");
-            let max_arrival_index = SortitionDB::get_max_arrival_index(&db_handle)?;
+        let max_arrival_index = SortitionDB::get_max_arrival_index(self.tx())?;
 
-            // find all Stacks block hashes who arrived since this parent_tip was built.
-            for ari in old_max_arrival_index..(max_arrival_index+1) {
-                let arrival_sn = match SortitionDB::get_snapshot_by_arrival_index(&db_handle, ari)? {
-                    Some(sn) => sn,
-                    None => {
-                        continue;
-                    }
-                };
-
-                // must be an ancestor of this tip, or must be this tip
-                if let Some(sn) = db_handle.get_block_snapshot(&arrival_sn.burn_header_hash)? {
-                    // this block arrived on an ancestor block
-                    assert_eq!(sn, arrival_sn);
-
-                    debug!("New Stacks anchored block arrived since {}: block {} ({}) ari={} tip={}", parent_tip.burn_header_hash, sn.stacks_block_height, sn.winning_stacks_block_hash, ari, &parent_tip.burn_header_hash);
-                    new_block_arrivals.push((sn.burn_header_hash, sn.winning_stacks_block_hash, sn.stacks_block_height));
-                } else {
-                    // this block did not arrive on an ancestor block
+        // find all Stacks block hashes who arrived since this parent_tip was built.
+        for ari in old_max_arrival_index..(max_arrival_index+1) {
+            let arrival_sn = match SortitionDB::get_snapshot_by_arrival_index(self.tx(), ari)? {
+                Some(sn) => sn,
+                None => {
                     continue;
                 }
-            }
+            };
 
-            Ok(max_arrival_index)
-        })?;
+            // must be an ancestor of this tip, or must be this tip
+            if let Some(sn) = self.get_block_snapshot(&arrival_sn.burn_header_hash, &parent_tip.sortition_id)? {
+                // this block arrived on an ancestor block
+                assert_eq!(sn, arrival_sn);
+
+                debug!("New Stacks anchored block arrived since {}: block {} ({}) ari={} tip={}", parent_tip.burn_header_hash, sn.stacks_block_height, sn.winning_stacks_block_hash, ari, &parent_tip.burn_header_hash);
+                new_block_arrivals.push((sn.burn_header_hash, sn.winning_stacks_block_hash, sn.stacks_block_height));
+            } else {
+                // this block did not arrive on an ancestor block
+                continue;
+            }
+        }
 
         let mut best_tip_block_bhh = parent_tip.canonical_stacks_tip_hash.clone();
         let mut best_tip_burn_bhh = parent_tip.canonical_stacks_tip_burn_hash.clone();
@@ -2165,14 +2278,14 @@ mod tests {
 
         // test get_consumed_leader_keys()
         {
-            let ic = db.index_conn();
-            let keys = SortitionDB::get_consumed_leader_keys(&ic, &snapshot, &vec![block_commit.clone()]).unwrap();
+            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
+            let keys = ic.get_consumed_leader_keys(&snapshot, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
 
         // test is_leader_key_consumed()
         {
-            let ic = db.index_handle(&snapshot.sortition_id);
+            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(!is_consumed);
         }
@@ -2188,7 +2301,7 @@ mod tests {
         
         // test is_leader_key_consumed() now that the commit exists
         {
-            let ic = db.index_handle(&snapshot_consumed.sortition_id);
+            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot_consumed.sortition_id).unwrap();
             let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(is_consumed);
         }
@@ -2213,31 +2326,30 @@ mod tests {
 
         // test get_block_commit()
         {
-            let handle = db.index_handle(&empty_snapshot.sortition_id);
-            let commit = handle.get_block_commit(&block_commit.txid, &block_commit.burn_header_hash).unwrap();
+            let commit = SortitionDB::get_block_commit(db.conn(), &block_commit.txid, &block_commit.burn_header_hash).unwrap();
             assert!(commit.is_some());
             assert_eq!(commit.unwrap(), block_commit);
 
             let bad_txid = Txid::from_bytes_be(&hex_bytes("4c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap();
-            let commit = handle.get_block_commit(&bad_txid, &block_commit.burn_header_hash).unwrap();
+            let commit = SortitionDB::get_block_commit(db.conn(), &bad_txid, &block_commit.burn_header_hash).unwrap();
             assert!(commit.is_none());
         }
         
         // test get_consumed_leader_keys() (should be doable at any subsequent index root)
         {
-            let ic = db.index_conn();
-            let keys = SortitionDB::get_consumed_leader_keys(&ic, &empty_snapshot, &vec![block_commit.clone()]).unwrap();
+            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
+            let keys = ic.get_consumed_leader_keys(&empty_snapshot, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
         
         // test is_leader_key_consumed() (should be duable at any subsequent index root)
         {
-            let ic = db.index_handle(&empty_snapshot.sortition_id);
+            let mut ic = SortitionHandleTx::begin(&mut db, &empty_snapshot.sortition_id).unwrap();
             let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(is_consumed);
-            
-
-            let ic = db.index_handle(&snapshot.sortition_id);
+        }
+        {
+            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(!is_consumed);
         }
@@ -2266,14 +2378,14 @@ mod tests {
 
         // test get_consumed_leader_keys() and is_leader_key_consumed() against this new fork
         {
-            let ic = db.index_conn();
-            let keys = SortitionDB::get_consumed_leader_keys(&ic, &fork_snapshot, &vec![block_commit.clone()]).unwrap();
+            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
+            let keys = ic.get_consumed_leader_keys(&fork_snapshot, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
         
         // test is_leader_key_consumed() (should be duable at any subsequent index root)
         {
-            let ic = db.index_handle(&fork_snapshot.sortition_id);
+            let mut ic = SortitionHandleTx::begin(&mut db, &fork_snapshot.sortition_id).unwrap();
             let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
             assert!(!is_consumed);
         }
@@ -2356,7 +2468,7 @@ mod tests {
                                                    &vec![], &vec![]);
 
         let has_key_before = {
-            let ic = db.index_handle(&no_key_snapshot.sortition_id);
+            let mut ic = SortitionHandleTx::begin(&mut db, &no_key_snapshot.sortition_id).unwrap();
             ic.has_VRF_public_key(&public_key).unwrap()
         };
 
@@ -2366,7 +2478,7 @@ mod tests {
                                                 &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
 
         let has_key_after = {
-            let ic = db.index_handle(&key_snapshot.sortition_id);
+            let mut ic = SortitionHandleTx::begin(&mut db, &key_snapshot.sortition_id).unwrap();
             ic.has_VRF_public_key(&public_key).unwrap()
         };
 
@@ -2427,7 +2539,7 @@ mod tests {
         let ch_newest_stale = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - consensus_hash_lifetime - 1) as u8]).unwrap();
         let ch_missing = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,255]).unwrap();
 
-        let ic = db.index_handle(&tip.sortition_id);
+        let mut ic = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
         let fresh_check = ic.is_fresh_consensus_hash(consensus_hash_lifetime, &ch_fresh).unwrap();
 
         assert!(fresh_check);
@@ -2489,7 +2601,7 @@ mod tests {
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 // should succeed within the tx
-                let ch = tx.as_conn().get_consensus_at(i as u64 + 1).unwrap().unwrap();
+                let ch = tx.get_consensus_at(i as u64 + 1).unwrap().unwrap();
                 assert_eq!(ch, last_snapshot.consensus_hash);
 
                 tx.commit().unwrap();
@@ -2986,7 +3098,7 @@ mod tests {
                 last_snapshot.index_root = index_root;
 
                 // should succeed within the tx 
-                let ch = tx.as_conn().get_consensus_at(i + 1).unwrap().unwrap_or(ConsensusHash::empty());
+                let ch = tx.get_consensus_at(i + 1).unwrap().unwrap_or(ConsensusHash::empty());
                 assert_eq!(ch, last_snapshot.consensus_hash);
 
                 tx.commit().unwrap();

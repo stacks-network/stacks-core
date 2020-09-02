@@ -563,14 +563,6 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(())
     }
 
-    pub fn with_conn<F, R, E>(&self, exec: F) -> Result<R, E>
-    where F: FnOnce(&mut IndexDBConn<C, T>) -> Result<R, E>,
-          E: From<Error> {
-        let store = self.index.reopen_readonly().map_err(Error::from)?;
-        let mut db_conn = IndexDBConn { index: &store, context: self.context.clone() };
-        exec(&mut db_conn)
-    }
-
     /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
     pub fn get_ancestor_block_hash(&mut self, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
         self.index.get_block_at_height(block_height.try_into().expect("Height > u32::max()"), tip_block_hash)

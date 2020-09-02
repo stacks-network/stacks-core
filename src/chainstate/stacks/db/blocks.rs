@@ -3225,7 +3225,7 @@ impl StacksChainState {
     /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
     /// in.
     pub fn get_stacks_chain_tip(&self, sortdb: &SortitionDB) -> Result<Option<StagingBlock>, Error> {
-        let (burn_bhh, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(&sortdb.conn)?;
+        let (burn_bhh, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(sortdb.conn())?;
         let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND burn_header_hash = ?1 AND anchored_block_hash = ?2";
         let args : &[&dyn ToSql] = &[&burn_bhh, &block_bhh];
         query_row(&self.blocks_db, sql, args).map_err(Error::DBError)

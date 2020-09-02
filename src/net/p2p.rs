@@ -2383,7 +2383,7 @@ impl PeerNetwork {
 
         for (burn_header_hash, block) in new_blocks.blocks.iter() {
             let sortid = SortitionId::stubbed(burn_header_hash);
-            let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid) {
+            let sn = match SortitionDB::get_block_snapshot(sortdb.conn(), &sortid) {
                 Ok(Some(sn)) => sn,
                 Ok(None) => {
                     // ignore
@@ -2576,7 +2576,7 @@ impl PeerNetwork {
         }
 
         // update burnchain snapshot if we need to (careful -- it's expensive)
-        let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn)?;
+        let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn())?;
         if sn.block_height > self.chain_view.burn_block_height {
             debug!("{:?}: load chain view for burn block {}", &self.local_peer, sn.block_height);
             let new_chain_view = {

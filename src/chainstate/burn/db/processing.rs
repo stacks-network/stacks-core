@@ -46,38 +46,36 @@ use address::AddressHashMode;
 
 impl <'a> SortitionHandleTx <'a> {
     /// Run a blockstack operation's "check()" method and return the result.
-    fn check_transaction(&self, burnchain: &Burnchain, blockstack_op: &BlockstackOperationType) -> Result<(), BurnchainError> {
-        self.with_conn(|c| {
-            match blockstack_op {
-                BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                    op.check(burnchain, c)
-                        .map_err(|e| {
-                            warn!("REJECTED({}) leader key register {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
-                            BurnchainError::OpError(e)
-                        })
-                },
-                BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    op.check(burnchain, c)
-                        .map_err(|e| {
-                            warn!("REJECTED({}) leader block commit {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
-                            BurnchainError::OpError(e)
-                        })
-                },
-                BlockstackOperationType::UserBurnSupport(ref op) => {
-                    op.check(burnchain, c)
-                        .map_err(|e| {
-                            warn!("REJECTED({}) user burn support {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
-                            BurnchainError::OpError(e)
-                        })
-                }
+    fn check_transaction(&mut self, burnchain: &Burnchain, blockstack_op: &BlockstackOperationType) -> Result<(), BurnchainError> {
+        match blockstack_op {
+            BlockstackOperationType::LeaderKeyRegister(ref op) => {
+                op.check(burnchain, self)
+                    .map_err(|e| {
+                        warn!("REJECTED({}) leader key register {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
+                        BurnchainError::OpError(e)
+                    })
+            },
+            BlockstackOperationType::LeaderBlockCommit(ref op) => {
+                op.check(burnchain, self)
+                    .map_err(|e| {
+                        warn!("REJECTED({}) leader block commit {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
+                        BurnchainError::OpError(e)
+                    })
+            },
+            BlockstackOperationType::UserBurnSupport(ref op) => {
+                op.check(burnchain, self)
+                    .map_err(|e| {
+                        warn!("REJECTED({}) user burn support {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
+                        BurnchainError::OpError(e)
+                    })
             }
-        })
+        }
     }
 
     /// Generate the list of blockstack operations that will be snapshotted -- a subset of the
     /// blockstack operations extracted from get_blockstack_transactions.
     /// Return the list of parsed blockstack operations whose check() method has returned true.
-    fn check_block_ops(&self, burnchain: &Burnchain, mut block_ops: Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
+    fn check_block_ops(&mut self, burnchain: &Burnchain, mut block_ops: Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         debug!("Check Blockstack transactions from sortition_id: {}", &self.context.chain_tip);
 
         // classify and check each transaction
@@ -107,8 +105,7 @@ impl <'a> SortitionHandleTx <'a> {
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = self.with_conn(|conn| {
-            BurnchainStateTransition::from_block_ops(conn, parent_snapshot, this_block_ops) })
+        let state_transition = BurnchainStateTransition::from_block_ops(self, parent_snapshot, this_block_ops)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
@@ -120,9 +117,8 @@ impl <'a> SortitionHandleTx <'a> {
         let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox_id);
 
         // do the cryptographic sortition and pick the next winning block.
-        let mut snapshot = self.with_conn(|conn| {
-            BlockSnapshot::make_snapshot(conn, burnchain, &next_sortition_id, next_pox_id,
-                                         parent_snapshot, block_header, &state_transition.burn_dist, &txids)})
+        let mut snapshot = BlockSnapshot::make_snapshot(self, burnchain, &next_sortition_id, next_pox_id,
+                                                        parent_snapshot, block_header, &state_transition.burn_dist, &txids)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash, e);
                 BurnchainError::DBError(e)

@@ -35,7 +35,7 @@ use util::db::DBConn;
 use util::db::DBTx;
 
 use chainstate::burn::db::sortdb::{
-    SortitionHandleConn
+    SortitionHandleTx
 };
 use chainstate::stacks::index::TrieHash;
 
@@ -217,7 +217,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
-    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
+    fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
         /////////////////////////////////////////////////////////////////
         // Keys must be unique -- no one can register the same key twice
         /////////////////////////////////////////////////////////////////
@@ -590,8 +590,8 @@ pub mod tests {
                 num_txs: 1,
                 timestamp: get_epoch_time_secs()
             };
-            let ic = db.index_handle(&SortitionId::stubbed(&fixture.op.burn_header_hash));
-            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic)));
+            let mut ic = SortitionHandleTx::begin(&mut db, &SortitionId::stubbed(&fixture.op.burn_header_hash)).unwrap();
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &mut ic)));
         }
     }
 

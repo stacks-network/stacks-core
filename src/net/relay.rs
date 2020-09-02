@@ -817,7 +817,7 @@ impl Relayer {
         let mut ret = BlocksAvailableMap::new();
         for bhh in burn_header_hashes.into_iter() {
             let sortid = SortitionId::stubbed(&bhh);
-            let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid)? {
+            let sn = match SortitionDB::get_block_snapshot(sortdb.conn(), &sortid)? {
                 Some(sn) => sn,
                 None => {
                     continue;

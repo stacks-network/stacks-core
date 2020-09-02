@@ -146,7 +146,7 @@ impl fmt::Debug for ConversationHttp {
 
 impl RPCPeerInfoData {
     pub fn from_db(burnchain: &Burnchain, sortdb: &SortitionDB, chainstate: &StacksChainState, peerdb: &PeerDB, exit_at_block_height: &Option<&u64>) -> Result<RPCPeerInfoData, net_error> {
-        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn)?;
+        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn())?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn())?;
         let stable_burnchain_tip = {
             let ic = sortdb.index_conn();
