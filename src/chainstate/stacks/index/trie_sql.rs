@@ -276,11 +276,8 @@ pub fn tx_lock_bhh_for_extension<T: MarfTrieId>(tx: &Connection, bhh: &T, unconf
     Ok(true)
 }
 
-pub fn lock_bhh_for_extension<T: MarfTrieId>(conn: &Connection, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
-//  TX_TODO
-//    let mut tx = tx_begin_immediate(conn)?;
-    tx_lock_bhh_for_extension(conn, bhh, unconfirmed)?;
-//    tx.commit()?;
+pub fn lock_bhh_for_extension<T: MarfTrieId>(tx: &Transaction, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
+    tx_lock_bhh_for_extension(tx, bhh, unconfirmed)?;
     Ok(true)
 }
 
@@ -304,12 +301,9 @@ pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn clear_tables(conn: &Connection) -> Result<(), Error> {
-    // TX_TODO
-    //let tx = tx_begin_immediate(conn)?;
-    conn.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
-    conn.execute("DELETE FROM marf_data", NO_PARAMS)?;
-    conn.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
+pub fn clear_tables(tx: &Transaction) -> Result<(), Error> {
+    tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
+    tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
+    tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
     Ok(())
-    //tx.commit().map_err(|e| e.into())
 }

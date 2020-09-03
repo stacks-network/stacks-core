@@ -628,8 +628,19 @@ impl <'a, T: MarfTrieId> DerefMut for TrieStorageTransaction<'a, T> {
     }
 }
 
+///
+/// TrieStorageTransaction is a pointer to an open TrieFileStorage with an
+///   open SQLite transaction. Any storage methods which require a transaction
+///   are defined _only_ for this struct (e.g., the flush methods).
+///
 pub struct TrieStorageTransaction <'a, T: MarfTrieId>(TrieStorageConnection<'a, T>);
 
+///
+///  TrieStorageConnection is a pointer to an open TrieFileStorage,
+///    with either a SQLite &Connection (non-mut, so it cannot start a TX)
+///    or a Transaction. Mutations on TrieStorageConnection's `data` field
+///    propagate to the TrieFileStorage that created the connection.
+///
 pub struct TrieStorageConnection <'a, T: MarfTrieId> {
     pub db_path: &'a str,
     db: SqliteConnection<'a>,
@@ -641,6 +652,11 @@ pub struct TrieStorageConnection <'a, T: MarfTrieId> {
     pub test_genesis_block: &'a mut Option<T>,
 }
 
+///
+///  TrieStorageTransientData holds all the data that _isn't_ committed
+///   to the underlying SQL storage. Used internally to simplify
+///   the TrieStorageConnection/TrieFileStorage interactions
+///
 struct TrieStorageTransientData <T: MarfTrieId> {
     last_extended: Option<(T, TrieRAM<T>)>,
 
@@ -960,13 +976,8 @@ impl <'a, T: MarfTrieId> TrieStorageTransaction <'a, T> {
         self.clear_cached_ancestor_hashes_bytes();
         if !self.data.readonly {
             if let Some((ref bhh, _)) = self.data.last_extended.take() {
-                // TX_TODO
-//                let tx = tx_begin_immediate(self.db)
-//                    .expect("Corruption: Failed to obtain db transaction");
                 trie_sql::drop_lock(&self.db, bhh)
                     .expect("Corruption: Failed to drop the extended trie lock");
-//                tx.commit()
-//                    .expect("Corruption: Failed to drop the extended trie");
             }
             self.data.last_extended = None;
             self.data.cur_block_id = None;
@@ -977,15 +988,10 @@ impl <'a, T: MarfTrieId> TrieStorageTransaction <'a, T> {
     pub fn drop_unconfirmed_trie(&mut self, bhh: &T) {
         self.clear_cached_ancestor_hashes_bytes();
         if !self.data.readonly && self.data.unconfirmed {
-            // TX_TODO
-//            let tx = tx_begin_immediate(self.db)
-//                .expect("Corruption: Failed to obtain db transaction");
             trie_sql::drop_unconfirmed_trie(&self.db, bhh)
                 .expect("Corruption: Failed to drop unconfirmed trie");
             trie_sql::drop_lock(&self.db, bhh)
                 .expect("Corruption: Failed to drop the extended trie lock");
-//            tx.commit()
-//                .expect("Corruption: Failed to drop the extended trie");
             self.data.last_extended = None;
             self.data.cur_block_id = None;
             self.data.trie_ancestor_hash_bytes_cache = None;
@@ -1019,7 +1025,7 @@ impl <'a, T: MarfTrieId> TrieStorageTransaction <'a, T> {
         let trie_buf = TrieRAM::new(bhh, size_hint, &self.data.cur_block);
         
         // place a lock on this block, so we can't extend to it again
-        if !trie_sql::lock_bhh_for_extension(&self.db, bhh, false)? {
+        if !trie_sql::lock_bhh_for_extension(self.sqlite_tx(), bhh, false)? {
             warn!("Block already extended: {}", &bhh);
             return Err(Error::ExistsError);
         }
@@ -1040,8 +1046,6 @@ impl <'a, T: MarfTrieId> TrieStorageTransaction <'a, T> {
         self.flush()?;
 
         // try to load up the trie
-        // TX_TODO: this should be wrapped in a tx...
-        //    let mut tx = tx_begin_immediate(self.db)?;
         let (trie_buf, created) = 
             if let Some(block_id) = trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)? {
                 debug!("Reload unconfirmed trie {} ({})", bhh, block_id);
@@ -1068,10 +1072,31 @@ impl <'a, T: MarfTrieId> TrieStorageTransaction <'a, T> {
             return Err(Error::ExistsError);
         }
 
-        // tx.commit()?;
-
         self.switch_trie(bhh, trie_buf);
         Ok(created)
+    }
+
+    pub fn format(&mut self) -> Result<(), Error> {
+        if self.data.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
+        debug!("Format TrieFileStorage");
+
+        // blow away db
+        trie_sql::clear_tables(self.sqlite_tx())?;
+
+        match self.data.last_extended {
+            Some((_, ref mut trie_storage)) => trie_storage.format()?,
+            None => {}
+        };
+
+        self.data.cur_block = T::sentinel();
+        self.data.cur_block_id = None;
+        self.data.last_extended = None;
+        self.clear_cached_ancestor_hashes_bytes();
+
+        Ok(())
     }
 
     pub fn sqlite_tx(&self) -> &Transaction<'a> {
@@ -1359,29 +1384,6 @@ impl <'a, T: MarfTrieId> TrieStorageConnection <'a, T> {
         // first 32 bytes are the block parent hash 
         //   next 4 are the identifier
         (BLOCK_HEADER_HASH_ENCODED_SIZE as u32) + 4
-    }
-
-    pub fn format(&mut self) -> Result<(), Error> {
-        if self.data.readonly {
-            return Err(Error::ReadOnlyError);
-        }
-
-        debug!("Format TrieFileStorage");
-
-        // blow away db
-        trie_sql::clear_tables(&self.db)?;
-
-        match self.data.last_extended {
-            Some((_, ref mut trie_storage)) => trie_storage.format()?,
-            None => {}
-        };
-
-        self.data.cur_block = T::sentinel();
-        self.data.cur_block_id = None;
-        self.data.last_extended = None;
-        self.clear_cached_ancestor_hashes_bytes();
-
-        Ok(())
     }
 
     /// Read a node's children's hashes into the provided <Write> implementation.

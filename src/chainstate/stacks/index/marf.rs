@@ -108,6 +108,10 @@ struct WriteChainTip<T> {
     height: u32
 }
 
+///
+/// This trait defines functions that are defined for both
+///  MARF structs and MarfTransactions
+///
 pub trait MarfConnection<T: MarfTrieId> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where F: FnOnce(&mut TrieStorageConnection<T>) -> R;
@@ -160,6 +164,12 @@ impl <T: MarfTrieId> MarfConnection <T> for MARF <T> {
     }
 }
 
+///
+/// MarfTransaction represents a connection to a MARF index,
+///   with an open storage transaction. If this struct is
+///   dropped without calling commit(), the storage transaction is
+///   aborted
+///
 impl <'a, T: MarfTrieId> MarfTransaction <'a, T> {
     pub fn commit(mut self) -> Result<(), Error> {
         if self.storage.readonly() {
@@ -172,8 +182,9 @@ impl <'a, T: MarfTrieId> MarfTransaction <'a, T> {
         Ok(())
     }
 
-    /// deprecated!
-    ///  only used by Clarity MarfedKV and tests.
+    ///  This function commits the current MARF sqlite transaction
+    ///    without flushing the in-memory Trie. This only used by
+    ///    Clarity MarfedKV and tests.
     pub fn commit_tx(self) {
         self.storage.commit_tx()
     }
