@@ -167,8 +167,8 @@ impl <'a, T: MarfTrieId> MarfTransaction <'a, T> {
         }
         if let Some(_tip) = self.open_chain_tip.take() {
             self.storage.flush()?;
-            self.storage.commit_tx();
         }
+        self.storage.commit_tx();
         Ok(())
     }
 

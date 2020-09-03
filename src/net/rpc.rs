@@ -1420,12 +1420,12 @@ mod test {
         let (burn_ops, stacks_block, microblocks) = peer_1.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
             let parent_tip = match parent_opt {
                 None => {
-                    StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                    StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                 }
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                    StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                 }
             };
 

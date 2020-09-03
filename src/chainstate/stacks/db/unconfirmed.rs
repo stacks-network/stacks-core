@@ -111,7 +111,7 @@ impl UnconfirmedState {
         let mut all_receipts = vec![];
    
         {
-            let mut clarity_tx = StacksChainState::begin_unconfirmed(db_config, &chainstate.headers_db, &mut self.clarity_inst, &self.confirmed_chain_tip);
+            let mut clarity_tx = StacksChainState::begin_unconfirmed(db_config, chainstate.headers_db(), &mut self.clarity_inst, &self.confirmed_chain_tip);
 
             for mblock in mblocks.into_iter() {
                 if (last_mblock.is_some() && mblock.header.sequence <= last_mblock_seq) || (last_mblock.is_none() && mblock.header.sequence != 0) {
@@ -333,12 +333,12 @@ mod test {
             let (burn_ops, stacks_block, _) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
@@ -453,12 +453,12 @@ mod test {
             let (burn_ops, stacks_block, _) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 

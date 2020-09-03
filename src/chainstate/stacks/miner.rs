@@ -82,7 +82,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
         let mut clarity_tx = chainstate.block_begin(&anchor_block_bhh, &anchor_block,
                                                     &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
         let anchor_block_height = 
-            StacksChainState::get_anchored_block_header_info(&header_reader.headers_db, &anchor_block_bhh, &anchor_block)?
+            StacksChainState::get_anchored_block_header_info(header_reader.headers_db(), &anchor_block_bhh, &anchor_block)?
             .ok_or(Error::NoSuchBlockError)?
             .block_height;
 
@@ -1266,7 +1266,7 @@ pub mod test {
                         parent_stacks_block_snapshot
                     };
 
-                    let parent_chain_tip = StacksChainState::get_anchored_block_header_info(&self.chainstate.headers_db, &parent_stacks_block_snapshot.burn_header_hash, &parent_stacks_block.header.block_hash()).unwrap().unwrap();
+                    let parent_chain_tip = StacksChainState::get_anchored_block_header_info(self.chainstate.headers_db(), &parent_stacks_block_snapshot.burn_header_hash, &parent_stacks_block.header.block_hash()).unwrap().unwrap();
 
                     let new_work = StacksWorkScore {
                         burn: parent_stacks_block_snapshot.total_burn,
@@ -3480,12 +3480,12 @@ pub mod test {
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
@@ -3539,13 +3539,13 @@ pub mod test {
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                             &ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
@@ -3625,12 +3625,12 @@ pub mod test {
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
@@ -3732,12 +3732,12 @@ pub mod test {
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
@@ -3845,12 +3845,12 @@ pub mod test {
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
@@ -3939,12 +3939,12 @@ pub mod test {
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
@@ -4022,12 +4022,12 @@ pub mod test {
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
@@ -4160,7 +4160,7 @@ pub mod test {
                             assert!(tenure_id != bad_block_tenure + 1);
                             match parent_opt {
                                 None => {
-                                    StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                                    StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                                 }
                                 Some(ref block) => {
                                     let ic = sortdb.index_conn();
@@ -4173,7 +4173,7 @@ pub mod test {
                                         };
 
                                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &parent_block_hash).unwrap().unwrap();      // succeeds because we don't fork
-                                    StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                                    StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                                 }
                             }
                         }
@@ -4310,12 +4310,12 @@ pub mod test {
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
 
