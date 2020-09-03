@@ -1126,14 +1126,6 @@ impl SortitionDB {
     /// It's best not to call this if you are able to call connect().  If you must call this, do so
     /// after you call connect() somewhere else, since connect() performs additional validations.
     pub fn open(path: &str, readwrite: bool) -> Result<SortitionDB, db_error> {
-        let open_flags =
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            }
-            else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            };
-
         let (db_path, index_path) = db_mkdirs(path)?;
         debug!("Open sortdb '{}' as '{}', with index as '{}'",
                db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
@@ -1152,14 +1144,12 @@ impl SortitionDB {
     /// Open the burn database at the given path.  Open read-only or read/write.
     /// If opened for read/write and it doesn't exist, instantiate it.
     pub fn connect(path: &str, first_block_height: u64, first_burn_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64, readwrite: bool) -> Result<SortitionDB, db_error> {
-        let mut create_flag = false;
-        let open_flags = match fs::metadata(path) {
+        let create_flag = match fs::metadata(path) {
             Err(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
                     // need to create 
                     if readwrite {
-                        create_flag = true;
-                        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                        true
                     }
                     else {
                         return Err(db_error::NoDBError);
@@ -1169,15 +1159,7 @@ impl SortitionDB {
                     return Err(db_error::IOError(e));
                 }
             },
-            Ok(_md) => {
-                // can just open 
-                if readwrite {
-                    OpenFlags::SQLITE_OPEN_READ_WRITE
-                }
-                else {
-                    OpenFlags::SQLITE_OPEN_READ_ONLY
-                }
-            }
+            Ok(_md) => false,
         };
 
         let (db_path, index_path) = db_mkdirs(path)?;

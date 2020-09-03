@@ -766,7 +766,7 @@ impl InitializedNeonNode {
              parent_winning_vtxindex, coinbase_nonce) =
             if let Some(stacks_tip) = chain_state.get_stacks_chain_tip(burn_db).unwrap() {
                 let stacks_tip_header = match StacksChainState::get_anchored_block_header_info(
-                    &chain_state.headers_db, &stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash).unwrap() {
+                    chain_state.headers_db(), &stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash).unwrap() {
                     Some(x) => x,
                     None => {
                         error!("Could not mine new tenure, since could not find header for known chain tip.");
