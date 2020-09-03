@@ -95,7 +95,8 @@ use vm::{
     database::{ ClarityDatabase,
                 MarfedKV,
                 ClaritySerializable,
-                marf::ContractCommitment },
+                marf::ContractCommitment,
+                STXBalance },
 };
 
 use rand::prelude::*;
@@ -464,11 +465,11 @@ impl ConversationHttp {
 
         let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                // TODO: consolidate PoX unlock!
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
-                let (balance, balance_proof) = clarity_db.get_with_proof::<u128>(&key)
+                let block_height = clarity_db.get_current_burnchain_block_height() as u64;
+                let (balance, balance_proof) = clarity_db.get_with_proof::<STXBalance>(&key)
                     .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                    .unwrap_or_else(|| (0, "".into()));
+                    .unwrap_or_else(|| (STXBalance::zero(), "".into()));
                 let balance_proof = if with_proof {
                     Some(balance_proof)
                 } else {
@@ -484,7 +485,7 @@ impl ConversationHttp {
                     None
                 };
 
-                let balance = format!("0x{}", to_hex(&balance.to_be_bytes()));
+                let balance = format!("0x{}", to_hex(&balance.get_available_balance_at_block(block_height).to_be_bytes()));
                 AccountEntryResponse { balance, nonce, balance_proof, nonce_proof }
             })
         });
