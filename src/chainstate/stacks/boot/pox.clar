@@ -33,10 +33,10 @@
 
 ;; Valid values for burnchain address versions.
 ;; These correspond to address hash modes in Stacks 2.0.
-(define-constant ADDRESS-VERSION-P2PKH u0)
-(define-constant ADDRESS-VERSION-P2SH u1)
-(define-constant ADDRESS-VERSION-P2WPKH u2)
-(define-constant ADDRESS-VERSION-P2WSH u3)
+(define-constant ADDRESS-VERSION-P2PKH 0x00)
+(define-constant ADDRESS-VERSION-P2SH 0x01)
+(define-constant ADDRESS-VERSION-P2WPKH 0x02)
+(define-constant ADDRESS-VERSION-P2WSH 0x03)
 
 ;; Stacking thresholds
 (define-constant STACKING-THRESHOLD-25 u20000)
@@ -83,7 +83,7 @@
         ;; depends on the burnchain being used.  When Bitcoin is
         ;; the burnchain, this gets translated into a p2pkh, p2sh,
         ;; p2wpkh-p2sh, or p2wsh-p2sh UTXO, depending on the version.
-        (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+        (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
         ;; how long the uSTX are locked, in reward cycles.
         (lock-period uint)
         ;; reward cycle when rewards begin
@@ -108,7 +108,7 @@
 (define-map reward-cycle-pox-address-list
     ((reward-cycle uint) (index uint))
     (
-        (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+        (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
         (total-ustx uint)
     )
 )
@@ -122,7 +122,7 @@
 ;; Used to check of a PoX address is registered or not in a given
 ;; reward cycle.
 (define-map pox-addr-reward-cycles
-    ((pox-addr (tuple (version uint) (hashbytes (buff 20)))))
+    ((pox-addr (tuple (version (buff 1)) (hashbytes (buff 20)))))
     (
         (first-reward-cycle uint)
         (num-cycles uint)
@@ -151,7 +151,7 @@
         ;; Total number of uSTX locked to this delegate
         (total-ustx uint)
         ;; PoX address the delegate must use.
-        (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+        (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
         ;; Earliest time at which the delegate can Stack the delegated STX.
         (burn-block-height-start uint)
         ;; Beginning of this delegate's tenure
@@ -234,7 +234,7 @@
 ;; Checkes the integer range [reward-cycle-start, reward-cycle-start + num-cycles)
 ;; Returns true if it's registered in at least one reward cycle in the given range.
 ;; Returns false if it's not registered in any reward cycle in the given range.
-(define-private (is-pox-addr-registered (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+(define-private (is-pox-addr-registered (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                         (reward-cycle-start uint)
                                         (num-cycles uint))
     (let (
@@ -253,7 +253,7 @@
 ;; Add a single PoX address to a single reward cycle.
 ;; Used to build up a set of per-reward-cycle PoX addresses.
 ;; No checking will be done -- don't call if this PoX address is already registered in this reward cycle!
-(define-private (append-reward-cycle-pox-addr (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+(define-private (append-reward-cycle-pox-addr (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                               (reward-cycle uint)
                                               (amount-ustx uint))
     (let (
@@ -287,7 +287,7 @@
 ;; Returns 1 if added.
 ;; Returns 0 if not added.
 (define-private (add-pox-addr-to-ith-reward-cycle (cycle-index uint) (params (tuple 
-                                                            (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+                                                            (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                                             (first-reward-cycle uint)
                                                             (num-cycles uint)
                                                             (amount-ustx uint)
@@ -327,7 +327,7 @@
 ;; A PoX address can be added to at most 12 consecutive cycles.
 ;; No checking is done.
 ;; Returns the number of reward cycles added
-(define-private (add-pox-addr-to-reward-cycles (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+(define-private (add-pox-addr-to-reward-cycles (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                                (first-reward-cycle uint)
                                                (num-cycles uint)
                                                (amount-ustx uint))
@@ -365,9 +365,11 @@
 )
 
 ;; Is the address mode valid for a PoX burn address?
-(define-private (check-pox-addr-version (version uint))
-    (and (>= version ADDRESS-VERSION-P2PKH)
-         (<= version ADDRESS-VERSION-P2WSH)))
+(define-private (check-pox-addr-version (version (buff 1)))
+    (or (is-eq version ADDRESS-VERSION-P2PKH)
+        (is-eq version ADDRESS-VERSION-P2SH)
+        (is-eq version ADDRESS-VERSION-P2WPKH)
+        (is-eq version ADDRESS-VERSION-P2WSH)))
 
 ;; Is the given lock period valid?
 (define-private (check-pox-lock-period (lock-period uint)) 
@@ -377,7 +379,7 @@
 ;; Register a PoX address for one or more reward cycles, and set how many uSTX it locks up initially.
 ;; Will fail if the PoX address is already registered in one of the reward cycles.
 ;; Will fail if the number of uSTX is beneath the lowest allowed Stacking threshold at the time of the call.
-(define-private (register-pox-addr-checked (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+(define-private (register-pox-addr-checked (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                            (amount-ustx uint)
                                            (first-reward-cycle uint)
                                            (num-cycles uint)
@@ -424,7 +426,7 @@
 ;; other Stackers can delegate to it.  It also registers the duration
 ;; for which its clients' uSTX will be locked.
 ;; tx-sender is the delegate.
-(define-public (register-delegate (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+(define-public (register-delegate (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                   (tenure-burn-block-begin uint)
                                   (tenure-reward-num-cycles uint))
     (let (
@@ -583,7 +585,7 @@
 ;;
 ;; The tokens will unlock and be returned to the Stacker (tx-sender) automatically.
 (define-public (stack-stx (amount-ustx uint)
-                          (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+                          (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                           (lock-period uint))
     (let (
         (this-contract (as-contract tx-sender))

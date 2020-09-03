@@ -73,7 +73,7 @@ fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
     let version_value = tuple_data.get("version").expect("FATAL: no 'version' field in pox-addr").to_owned();
     let hashbytes_value = tuple_data.get("hashbytes").expect("FATAL: no 'hashbytes' field in pox-addr").to_owned();
 
-    let version_u8 : u8 = version_value.expect_u128().try_into().expect("FATAL: PoX version is not a supported version byte");
+    let version_u8 = version_value.expect_buff(1)[0];
     let version : AddressHashMode = version_u8.try_into().expect("FATAL: PoX version is not a supported version byte");
 
     let hashbytes_vec = hashbytes_value.expect_buff(20);
@@ -354,14 +354,14 @@ pub mod test {
 
     fn make_pox_addr(addr_version: AddressHashMode, addr_bytes: Hash160) -> Value {
         Value::Tuple(TupleData::from_data(vec![
-            (ClarityName::try_from("version".to_owned()).unwrap(), Value::UInt((addr_version as u8) as u128)),
+            (ClarityName::try_from("version".to_owned()).unwrap(), Value::buff_from_byte(addr_version as u8)),
             (ClarityName::try_from("hashbytes".to_owned()).unwrap(), Value::Sequence(SequenceData::Buffer(BuffData { data: addr_bytes.as_bytes().to_vec() })))
         ]).unwrap())
     }
 
     fn make_pox_lockup(key: &StacksPrivateKey, nonce: u64, amount: u128, addr_version: AddressHashMode, addr_bytes: Hash160, lock_period: u128) -> StacksTransaction {
         // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
         //                           (lock-period uint))
         
         let auth = TransactionAuth::from_p2pkh(key).unwrap();
@@ -561,7 +561,7 @@ pub mod test {
     
     fn make_pox_lockup_contract(key: &StacksPrivateKey, nonce: u64, name: &str) -> StacksTransaction {
         let contract = format!("
-        (define-public (do-contract-lockup (amount-ustx uint) (pox-addr (tuple (version uint) (hashbytes (buff 20)))) (lock-period uint))
+        (define-public (do-contract-lockup (amount-ustx uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20)))) (lock-period uint))
             (let (
                 (this-contract (as-contract tx-sender))
             )
@@ -576,7 +576,7 @@ pub mod test {
         )
 
         ;; register this contract as a delegate
-        (define-public (register-as-delegate (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+        (define-public (register-as-delegate (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                              (tenure-burn-block-height uint)
                                              (tenure-reward-cycles uint))
             (as-contract
@@ -691,7 +691,7 @@ pub mod test {
                               addr_version: AddressHashMode, addr_bytes: Hash160, 
                               tenure_burn_block_begin: u128, 
                               tenure_reward_cycles: u128) -> StacksTransaction {
-        // (define-public (register-delegate (pox-addr (tuple (version uint) (hashbytes (buff 20))))
+        // (define-public (register-delegate (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
         //                                   (tenure-burn-block-begin uint)
         //                                   (tenure-reward-cycles uint)))
         let auth = TransactionAuth::from_p2pkh(key).unwrap();
@@ -1430,7 +1430,7 @@ pub mod test {
                         "(define-data-var bob-test-run bool false)
                         (let (
                             (res
-                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
+                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 12) res)
@@ -1447,7 +1447,7 @@ pub mod test {
                         "(define-data-var alice-test-run bool false)
                         (let (
                             (res
-                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version u0) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12))
+                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 3) res)
@@ -1464,7 +1464,7 @@ pub mod test {
                         "(define-data-var charlie-test-run bool false)
                         (let (
                             (res
-                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version u0) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12))
+                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version 0x00) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 1) res)
@@ -1573,10 +1573,10 @@ pub mod test {
                         "(define-data-var danielle-test-run bool false)
                         (let (
                             (res-del
-                                (contract-call? '{}.pox register-delegate (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u100 u6))
+                                (contract-call? '{}.pox register-delegate (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u100 u6))
                             
                             (res-stx
-                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
+                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 8) res-stx)
@@ -1643,7 +1643,7 @@ pub mod test {
                             (err \"Danielle is a Stacker already\"))
 
                         ;; Danielle's PoX address is marked registered
-                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                        (asserts! (is-pox-addr-registered (tuple (version 0x00) (hashbytes danielle-addrbytes)) u0 u2000)
                             (err \"Danielle PoX address is not registered\"))
 
                         ;; Danielle's PoX address is _not_ in the reward cycles, though!
@@ -1677,7 +1677,7 @@ pub mod test {
                             (err \"Danielle is not a Stacker\"))
 
                         ;; Danielle's PoX address is registered somewhere between reward cycles 0 and 2000
-                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                        (asserts! (is-pox-addr-registered (tuple (version 0x00) (hashbytes danielle-addrbytes)) u0 u2000)
                             (err \"Danielle PoX address not registered\"))
 
                         ;; Danielle's PoX address is not currently active
@@ -1839,7 +1839,7 @@ pub mod test {
                             (err \"Danielle is a Stacker already\"))
 
                         ;; Danielle's PoX address is marked registered
-                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                        (asserts! (is-pox-addr-registered (tuple (version 0x00) (hashbytes danielle-addrbytes)) u0 u2000)
                             (err \"Danielle PoX address is not registered\"))
 
                         ;; Danielle's PoX address is _not_ in the reward cycles, though!
@@ -1877,7 +1877,7 @@ pub mod test {
                             (err \"Danielle is not a Stacker\"))
 
                         ;; Danielle's PoX address is registered somewhere between reward cycles 0 and 2000
-                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                        (asserts! (is-pox-addr-registered (tuple (version 0x00) (hashbytes danielle-addrbytes)) u0 u2000)
                             (err \"Danielle PoX address not registered\"))
 
                         ;; Danielle's PoX address is not currently active
@@ -1961,10 +1961,10 @@ pub mod test {
                         "(define-data-var danielle-test-run bool false)
                         (let (
                             (res-del
-                                (contract-call? '{}.do-lockup register-as-delegate (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u100 u6))
+                                (contract-call? '{}.do-lockup register-as-delegate (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u100 u6))
                             
                             (res-stx
-                                (contract-call? '{}.do-lockup do-contract-lockup u256000000 (tuple (version u0) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
+                                (contract-call? '{}.do-lockup do-contract-lockup u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
                         )
                         (begin
                             (asserts! (is-eq (err 8) res-stx)
@@ -2031,7 +2031,7 @@ pub mod test {
                             (err \"Danielle is a Stacker already\"))
 
                         ;; Danielle's contract's PoX address is marked registered
-                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                        (asserts! (is-pox-addr-registered (tuple (version 0x00) (hashbytes danielle-addrbytes)) u0 u2000)
                             (err \"Danielle PoX address is not registered\"))
 
                         ;; Danielle's contract's PoX address is _not_ in the reward cycles, though!
@@ -2065,7 +2065,7 @@ pub mod test {
                             (err \"Danielle is not a Stacker\"))
 
                         ;; Danielle's PoX address is registered somewhere between reward cycles 0 and 2000
-                        (asserts! (is-pox-addr-registered (tuple (version u0) (hashbytes danielle-addrbytes)) u0 u2000)
+                        (asserts! (is-pox-addr-registered (tuple (version 0x00) (hashbytes danielle-addrbytes)) u0 u2000)
                             (err \"Danielle PoX address not registered\"))
 
                         ;; Danielle's PoX address is not currently active
@@ -2111,7 +2111,7 @@ pub mod test {
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-single-tx-sender-unlock", 6012);
 
-        let num_blocks = 20;
+        let num_blocks = 2;
 
         let alice = keys.pop().unwrap();
         let bob = keys.pop().unwrap();
@@ -2162,7 +2162,10 @@ pub mod test {
                 }
                 else {
                     // stacking minimum should be floor(total-liquid-ustx / 5000)
+
+
                     let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
+
                     assert_eq!(min_ustx, total_liquid_ustx / 5000);
                 }
 
@@ -2847,7 +2850,7 @@ pub mod test {
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-delegate-lockup-unlock-on-spend", 6022);
 
-        let num_blocks = 20;
+        let num_blocks = 10;
 
         let alice = keys.pop().unwrap();
         let bob = keys.pop().unwrap();
@@ -3162,7 +3165,7 @@ pub mod test {
                     // If it's the case, then this tx will NOT be mined.
                     let charlie_stack = make_bare_contract(&charlie, 1, 0, "charlie-try-stack",
                         &format!(
-                            "(asserts! (not (is-eq (contract-call? '{}.pox stack-stx u1 {{ version: u1, hashbytes: 0x1111111111111111111111111111111111111111 }} u1) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (contract-call? '{}.pox stack-stx u1 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} u1) (err 17))) (err 1))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_stack);
