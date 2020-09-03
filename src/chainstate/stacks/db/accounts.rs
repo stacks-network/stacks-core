@@ -46,7 +46,7 @@ impl StacksAccount {
     }
 
     pub fn has_locked_tokens(&self, burn_block_height: u64) -> bool {
-        self.stx_balance.has_unavailable_locked_tokens(burn_block_height)
+        self.stx_balance.has_locked_tokens(burn_block_height)
     }
 }
 
@@ -231,7 +231,7 @@ impl StacksChainState {
         let mut balance = db.get_account_stx_balance(principal);
         let cur_burn_height = db.get_current_burnchain_block_height() as u64;
 
-        if balance.has_unavailable_locked_tokens(cur_burn_height) {
+        if balance.has_locked_tokens(cur_burn_height) {
             return Err(Error::PoxAlreadyLocked);
         }
 

@@ -135,7 +135,7 @@ impl STXBalance {
         }
 
         // todo(ludo): Also check that unlock_height > current_height
-        if !self.has_unavailable_locked_tokens(current_height) {
+        if self.has_locked_tokens(current_height) {
             return Err(STXBalanceError::LockActive)
         }
 
@@ -164,7 +164,7 @@ impl STXBalance {
             .expect("STX overflow")
     }
 
-    pub fn has_unavailable_locked_tokens(&self, block_height: u64) -> bool {
+    pub fn has_locked_tokens(&self, block_height: u64) -> bool {
         self.amount_locked > 0 && self.unlock_height > block_height
     }
 
