@@ -710,7 +710,7 @@
 
     ;; tx-sender can't be a delegate
     (asserts! (is-none (get-delegate-control-info tx-sender))
-        (err ERR_STACKING_DELEGATE_ALREADY-REGISTERED))
+        (err ERR_STACKING_DELEGATE_ALREADY_REGISTERED))
 
     ;; vote for rejection
     (map-set stacking-rejection
