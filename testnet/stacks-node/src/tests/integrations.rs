@@ -566,20 +566,19 @@ fn integration_test_get_info() {
                 assert_eq!(res, format!("{}", StacksTransaction::consensus_deserialize(&mut &tx_xfer[..]).unwrap().txid()));
 
                 // let's test a posttransaction call that fails to deserialize,
-                //   making sure we get a nicer error message
                 let tx_hex = "80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e80001031734446f0870af42bb0cafad27f405e5d9eba441375eada8607a802b875fbb7ba7c4da3474f2bfd76851fb6314a48fe98b57440b8ccec6c9b8362c843a89f303020000000001047465737400000007282b2031203129";
-                let tx_xfer = hex_bytes(tx_hex).unwrap();
+                let tx_xfer_invalid = hex_bytes(tx_hex).unwrap();
 
-                let res: String = client.post(&path)
+                let res = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer.clone())
+                    .body(tx_xfer_invalid.clone())
                     .send()
-                    .unwrap()
-                    .json()
-                    .unwrap();
+                    .unwrap().json::<serde_json::Value>().unwrap();
 
-                assert!(res.contains("contract name: too short"));
-                
+                eprintln!("{}", res);
+                assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
+                assert!(res.get("reason").is_some());
+                    
                 // let's submit an invalid transaction!
                 let path = format!("{}/v2/transactions", &http_origin);
                 eprintln!("Test: POST {} (invalid)", path);

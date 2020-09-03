@@ -3367,6 +3367,8 @@ impl StacksChainState {
                 return Err(MemPoolRejection::BadAddressVersionByte)
         }
 
+        // todo(ludo)
+
         // 5: the paying account must have enough funds
         if  !payer.stx_balance.can_transfer(fee as u128, 0) {
             match &tx.payload {
@@ -3394,7 +3396,7 @@ impl StacksChainState {
                     } else {
                         0
                     };
-                if origin.stx_balance.can_transfer(total_spent, 0) {
+                if !origin.stx_balance.can_transfer(total_spent, 0) {
                     return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance.get_available_balance_at_block(0)))
                 }
             },
