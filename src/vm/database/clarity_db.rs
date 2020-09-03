@@ -745,13 +745,6 @@ impl<'a> ClarityDatabase<'a> {
         ClarityDatabase::make_key_for_account(principal, StoreType::PoxUnlockHeight)
     }
 
-    pub fn get_account_stx_consolidated_balance(&mut self, principal: &PrincipalData) -> u128 {
-        let bal = self.get_account_stx_balance(principal);
-        let cur_burn_block_height = self.get_current_burnchain_block_height();
-        let total = bal.get_available_balance_at_block(cur_burn_block_height as u64);
-        total
-    }
-
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         let result = self.get(&key);
@@ -778,34 +771,6 @@ impl<'a> ClarityDatabase<'a> {
     pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
         self.put(&key, &nonce);
-    }
-
-    pub fn get_account_stx_locked(&mut self, principal: &PrincipalData) -> u128 {
-        let key = ClarityDatabase::make_key_for_account_stx_locked(principal);
-        let result: Option<STXBalance> = self.get(&key);
-        match result {
-            None => 0,
-            Some(balance) => balance.amount_locked
-        }
-    }
-
-    pub fn set_account_stx_locked(&mut self, principal: &PrincipalData, amount: u128) {
-        let key = ClarityDatabase::make_key_for_account_stx_locked(principal);
-        self.put(&key, &amount);
-    }
-
-    pub fn get_account_unlock_height(&mut self, principal: &PrincipalData) -> u64 {
-        let key = ClarityDatabase::make_key_for_account_unlock_height(principal);
-        let result = self.get(&key);
-        match result {
-            None => 0,
-            Some(unlock_height) => unlock_height
-        }
-    }
-
-    pub fn set_account_unlock_height(&mut self, principal: &PrincipalData, unlock_height: u64) {
-        let key = ClarityDatabase::make_key_for_account_unlock_height(principal);
-        self.put(&key, &(unlock_height as u128));
     }
 }
 
