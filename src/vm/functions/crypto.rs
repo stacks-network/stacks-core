@@ -54,7 +54,7 @@ pub fn special_principal_of(args: &[SymbolicExpression], env: &mut Environment, 
     if let Ok(pub_key) = Secp256k1PublicKey::from_slice(&pub_key) {
     	let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![pub_key]).unwrap();
     	let principal = addr.to_account_principal();
-    	return Ok(Value::Principal(principal))
+    	return Ok(Value::okay(Value::Principal(principal)).unwrap())
     } else {
     	return Ok(Value::err_uint(1))
     }
