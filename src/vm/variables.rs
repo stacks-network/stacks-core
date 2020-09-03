@@ -8,7 +8,7 @@ define_named_enum!(NativeVariables {
     ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),
     BurnBlockHeight("burn-block-height"), NativeNone("none"),
     NativeTrue("true"), NativeFalse("false"),
-    TotalLiquidMicroSTX("total-liquid-ustx"),
+    TotalLiquidMicroSTX("stx-liquid-supply"),
     Regtest("is-in-regtest"),
 });
 

@@ -185,9 +185,9 @@
                 u0
                 (get amount (map-get? stacking-rejection { reward-cycle: reward-cycle }))))
     )
-    ;; (100 * reject-votes) / total-liquid-ustx < pox-rejection-fraction    
+    ;; (100 * reject-votes) / stx-liquid-supply < pox-rejection-fraction    
     (< (* u100 reject-votes) 
-       (* (var-get pox-rejection-fraction) total-liquid-ustx)))
+       (* (var-get pox-rejection-fraction) stx-liquid-supply)))
 )
 
 ;; What's the reward cycle number of the burnchain block height?
@@ -357,11 +357,11 @@
     (let (
         (ustx-stacked-so-far (get-total-ustx-stacked reward-cycle))
     )
-    (if (< ustx-stacked-so-far (/ total-liquid-ustx u4))
+    (if (< ustx-stacked-so-far (/ stx-liquid-supply u4))
         ;; less than 25% of all liquid STX are stacked, so the threshold is smaller
-        (/ total-liquid-ustx STACKING-THRESHOLD-25)
+        (/ stx-liquid-supply STACKING-THRESHOLD-25)
         ;; at least 25% of all liquid STX are stacked, so the threshold is larger
-        (/ total-liquid-ustx STACKING-THRESHOLD-100)))
+        (/ stx-liquid-supply STACKING-THRESHOLD-100)))
 )
 
 ;; Is the address mode valid for a PoX burn address?

@@ -85,10 +85,10 @@ contract principal.",
 };
 
 const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
-    name: "total-liquid-ustx",
+    name: "stx-liquid-supply",
     output_type: "uint",
     description: "Returns the total number of micro-STX (uSTX) that are liquid in the system as of this block.",
-    example: "(print total-liquid-ustx) ;; Will print out the total number of liquid uSTX"
+    example: "(print stx-liquid-supply) ;; Will print out the total number of liquid uSTX"
 };
 
 const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {

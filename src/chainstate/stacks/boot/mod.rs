@@ -259,12 +259,12 @@ pub mod test {
     }
     
     fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
-        let value = eval_at_tip(peer, "pox", "total-liquid-ustx");
+        let value = eval_at_tip(peer, "pox", "stx-liquid-supply");
         if let Value::UInt(inner_uint) = value {
             return inner_uint;
         }
         else {
-            panic!("total-liquid-ustx isn't a uint");
+            panic!("stx-liquid-supply isn't a uint");
         }
     }
 
