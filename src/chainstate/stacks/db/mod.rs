@@ -643,7 +643,7 @@ impl StacksChainState {
             if let Some(ref initial_balances) = &initial_balances {
                 for (address, amount) in initial_balances {
                     clarity_tx.connection().as_transaction(|clarity| {
-                        StacksChainState::account_credit(clarity, address, *amount)
+                        StacksChainState::account_genesis_credit(clarity, address, *amount)
                     });
                     initial_liquid_ustx = initial_liquid_ustx.checked_add((*amount) as u128).expect("FATAL: liquid STX overflow");
                 }

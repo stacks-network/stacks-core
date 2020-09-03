@@ -200,7 +200,19 @@ impl StacksChainState {
             Ok(())
         }).expect("FATAL: failed to credit account")
     }
-   
+
+    /// Called during the genesis / boot sequence.
+    pub fn account_genesis_credit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
+        clarity_tx.with_clarity_db(|ref mut db| {
+            let mut balance = STXBalance::zero();
+            balance.credit(amount as u128, 0)
+                .expect("STX overflow");
+            db.set_account_stx_balance(principal, &balance);
+            info!("{} credited (genesis): {} uSTX", principal, balance.get_total_balance());
+            Ok(())
+        }).expect("FATAL: failed to credit account")
+    }
+
     /// Increment an account's nonce
     pub fn update_account_nonce(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, cur_nonce: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
