@@ -640,6 +640,8 @@ pub struct TrieStorageTransaction <'a, T: MarfTrieId>(TrieStorageConnection<'a, 
 ///    with either a SQLite &Connection (non-mut, so it cannot start a TX)
 ///    or a Transaction. Mutations on TrieStorageConnection's `data` field
 ///    propagate to the TrieFileStorage that created the connection.
+///  This is the main interface to the storage methods, and defines most
+///    of the storage functionality.
 ///
 pub struct TrieStorageConnection <'a, T: MarfTrieId> {
     pub db_path: &'a str,

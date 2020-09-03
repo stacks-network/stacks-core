@@ -436,7 +436,7 @@ impl <'a, C, T: MarfTrieId> Deref for IndexDBConn<'a, C, T> {
 }
 
 pub struct IndexDBTx<'a, C: Clone, T: MarfTrieId> {
-    pub index: MarfTransaction<'a, T>,
+    _index: Option<MarfTransaction<'a, T>>,
     pub context: C,
     block_linkage: Option<(T, T)>
 }
@@ -539,14 +539,24 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         let tx = index.begin_tx()
             .expect("BUG: failure to begin MARF transaction");
         IndexDBTx {
-            index: tx,
+            _index: Some(tx),
             block_linkage: None,
             context: context
         }
     }
 
+    fn index(&self) -> &MarfTransaction<'a, T> {
+        self._index.as_ref()
+            .expect("BUG: MarfTransaction lost, but IndexDBTx still exists")
+    }
+
+    fn index_mut(&mut self) -> &mut MarfTransaction<'a, T> {
+        self._index.as_mut()
+            .expect("BUG: MarfTransaction lost, but IndexDBTx still exists")
+    }
+
     pub fn tx(&self) -> &DBTx<'a> {
-        self.index.sqlite_tx()
+        self.index().sqlite_tx()
     }
 
     pub fn instantiate_index(&mut self) -> Result<(), Error> {
@@ -565,13 +575,13 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
 
     /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
     pub fn get_ancestor_block_hash(&mut self, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
-        self.index.get_block_at_height(block_height.try_into().expect("Height > u32::max()"), tip_block_hash)
+        self.index_mut().get_block_at_height(block_height.try_into().expect("Height > u32::max()"), tip_block_hash)
             .map_err(Error::from)
     }
 
     /// Get the height of an ancestor block, if it is indeed the ancestor.
     pub fn get_ancestor_block_height(&mut self, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
-        let height_opt = self.index.get_block_height(ancestor_block_hash, tip_block_hash)?
+        let height_opt = self.index_mut().get_block_height(ancestor_block_hash, tip_block_hash)?
             .map(|height| height as u64);
         Ok(height_opt)
     }
@@ -589,13 +599,13 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     /// read-only, the caller should make sure to only use the get_indexed() _before_ writing any
     /// MARF key/value pairs.  Doing so afterwards will clone all uncommitted trie state.
     pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        get_indexed(&mut self.index, header_hash, key)
+        get_indexed(self.index_mut(), header_hash, key)
     }
 
     pub fn put_indexed_begin(&mut self, parent_header_hash: &T, header_hash: &T) -> Result<(), Error> {
         match self.block_linkage {
             None => {
-                self.index.begin(parent_header_hash, header_hash)?;
+                self.index_mut().begin(parent_header_hash, header_hash)?;
                 self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
                 Ok(())
             },
@@ -617,8 +627,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
             marf_values.push(marf_value);
         }
 
-        self.index.insert_batch(&keys, marf_values)?;
-        let root_hash = self.index.get_root_hash()?;
+        self.index_mut().insert_batch(&keys, marf_values)?;
+        let root_hash = self.index_mut().get_root_hash()?;
         Ok(root_hash)
     }
 
@@ -626,25 +636,26 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     pub fn commit(mut self) -> Result<(), Error> {
         self.block_linkage = None;
         debug!("Indexed-commit: MARF index");
-        self.index.commit()?;
+        let index_tx = self._index.take()
+            .expect("BUG: MarfTransaction lost, but IndexDBTx still exists");
+        index_tx.commit()?;
         Ok(())
     }
 
     /// Get the root hash
     pub fn get_root_hash_at(&mut self, bhh: &T) -> Result<TrieHash, Error> {
-        let root_hash = self.index.get_root_hash_at(bhh)?;
+        let root_hash = self.index_mut().get_root_hash_at(bhh)?;
         Ok(root_hash)
     }
 }
 
-/*
 impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
     fn drop(&mut self) {
         if let Some((ref parent, ref child)) = self.block_linkage {
+            let index_tx = self._index.take()
+                .expect("BUG: MarfTransaction lost, but IndexDBTx still exists");
             debug!("Dropping MARF linkage ({},{})", parent, child);
-            panic!("Not implemented");
-            //            self.index.drop_current();
+            index_tx.drop_current();
         }
     }
 }
-*/

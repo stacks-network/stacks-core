@@ -358,6 +358,18 @@ impl <'a, T: MarfTrieId> MarfTransaction <'a, T> {
         self.inner_setup_extension(chain_tip, &unconfirmed_tip, block_height, created)?;
         Ok(unconfirmed_tip)
     }
+
+    /// Drop the current trie from the MARF. This rolls back all
+    ///   changes in the block, and closes the current chain tip.
+    pub fn drop_current(mut self) {
+        if !self.storage.readonly() {
+            self.storage.drop_extending_trie();
+            self.open_chain_tip.take();
+            self.storage.open_block(&T::sentinel())
+                .expect("BUG: should never fail to open the block sentinel");
+            self.storage.commit_tx()
+        }
+    }
 }
 
 // static methods
