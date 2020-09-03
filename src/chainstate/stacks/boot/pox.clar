@@ -185,8 +185,9 @@
                 u0
                 (get amount (map-get? stacking-rejection { reward-cycle: reward-cycle }))))
     )
-    ;; (100 * reject-votes) / total-liquid-ustx < pox-rejection-fraction
-    (< (/ (* u100 reject-votes) total-liquid-ustx) (var-get pox-rejection-fraction)))
+    ;; (100 * reject-votes) / total-liquid-ustx < pox-rejection-fraction    
+    (< (* u100 reject-votes) 
+       (* (var-get pox-rejection-fraction) total-liquid-ustx)))
 )
 
 ;; What's the reward cycle number of the burnchain block height?
