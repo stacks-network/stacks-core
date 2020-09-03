@@ -622,11 +622,13 @@ is supplied the hash is computed over the little-endian representation of the in
 const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
     input_type: "(buff 32), (buff 65)",
     output_type: "(response (buff 33) uint)",
-    signature: "(secp256k1-recover message-hash signature)",
-    description: "The `secp256k1-recover` function recovers the public key used to sign the message `message-hash`
-    with the provided `signature`. If the signature does not match, it will return the error code `(err u1)`.
+    signature: "(secp256k1-recover? message-hash signature)",
+    description: "The `secp256k1-recover?` function recovers the public key used to sign the message  which sha256 is `message-hash`
+    with the provided `signature`.
+    If the signature does not match, it will return the error code `(err u1).`.
+    If the signature is invalid, it will return the error code `(err u2).`.
     The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.",
-    example: "(secp256k1-recover 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+    example: "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)
  ;; Returns (ok 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)"
 };
@@ -637,6 +639,7 @@ const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
     signature: "(secp256k1-verify message-hash signature public-key)",
     description: "The `secp256k1-verify` function verifies that the provided signature of the message-hash
 was signed with the private key that generated the public key.
+The `message-hash` is the `sha256` of the message.
 The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.",
     example: "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
@@ -674,10 +677,12 @@ const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
 
 const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
     input_type: "(buff 33)",
-    output_type: "principal",
-    signature: "(principal-of public-key)",
-    description: "The `principal-of` function returns the principal derived from the provided public key",
-    example: "(principal-of 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP"
+    output_type: "(response principal uint)",
+    signature: "(principal-of? public-key)",
+    description: "The `principal-of?` function returns the principal derived from the provided public key.
+    If the `public-key` is invalid, it will return the error code `(err u1).`.
+    ",
+    example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)"
 };
 
 const AT_BLOCK: SpecialAPI = SpecialAPI {
