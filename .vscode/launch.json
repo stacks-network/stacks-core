@@ -20,7 +20,7 @@
                     "kind": "lib"
                 }
             },
-            "args": ["test_build_anchored_blocks_empty_chaintips"],
+            "args": [],
             "cwd": "${workspaceFolder}"
         },
         {
