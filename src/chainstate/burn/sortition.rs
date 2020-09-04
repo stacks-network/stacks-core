@@ -50,6 +50,7 @@ use chainstate::burn::operations::{
 };
 
 use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::StacksBlockId;
 
 use burnchains::Address;
 use burnchains::PublicKey;
@@ -88,14 +89,21 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            canonical_stacks_tip_burn_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            // Initial snapshot sets sortition_id = burn_header_hash,
+            //  we shouldn't need to update this to use PoxId::initial(),
+            //  but if we do, we need to update a lot of test cases.
             sortition_id: SortitionId::stubbed(first_burn_header_hash),
-            pox_id: PoxId([0; 32]),
+            pox_valid: true
         }
     }
 
     pub fn is_initial(&self) -> bool {
         self.sortition_hash == SortitionHash::initial()
+    }
+
+    pub fn get_canonical_stacks_block_id(&self) -> StacksBlockId {
+        StacksBlockId::new(&self.consensus_hash, &self.canonical_stacks_tip_hash)
     }
 
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
@@ -146,7 +154,7 @@ impl BlockSnapshot {
             }
             else {
                 // there may have been a prior winning block commit.  Use its VRF seed if possible
-                sort_tx.get_block_commit(&last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.burn_header_hash)?
+                sort_tx.get_block_commit(&last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.sortition_id)?
                     .expect("FATAL ERROR: no winning block commits in database (indicates corruption)")
                     .new_seed
             };
@@ -166,7 +174,9 @@ impl BlockSnapshot {
     }
 
     /// Make the snapshot struct for the case where _no sortition_ takes place
-    fn make_snapshot_no_sortition(sort_tx: &mut SortitionHandleTx, sortition_id: &SortitionId, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, first_block_height: u64, burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
+    fn make_snapshot_no_sortition(sort_tx: &mut SortitionHandleTx, sortition_id: &SortitionId, pox_id: &PoxId,
+                                  parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, first_block_height: u64,
+                                  burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
         let parent_block_hash = block_header.parent_block_hash.clone();
@@ -176,7 +186,7 @@ impl BlockSnapshot {
 
         let ops_hash = OpsHash::from_txids(txids);
         let ch = ConsensusHash::from_parent_block_data(
-            sort_tx, &ops_hash, block_height - 1, first_block_height, &block_hash, burn_total)?;
+            sort_tx, &ops_hash, block_height - 1, first_block_height, &block_hash, burn_total, pox_id)?;
 
         debug!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
@@ -186,7 +196,6 @@ impl BlockSnapshot {
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: ch,
-            pox_id: parent_snapshot.pox_id,
             ops_hash: ops_hash,
             total_burn: burn_total,
             sortition: false,
@@ -200,8 +209,9 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
             canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
-            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
-            sortition_id: sortition_id.clone()
+            canonical_stacks_tip_consensus_hash: parent_snapshot.canonical_stacks_tip_consensus_hash.clone(),
+            sortition_id: sortition_id.clone(),
+            pox_valid: true
         })
     }
     
@@ -233,6 +243,10 @@ impl BlockSnapshot {
         
         // next sortition hash
         let next_sortition_hash = last_sortition_hash.mix_burn_header(&block_hash);
+        let make_snapshot_no_sortition = || {
+            BlockSnapshot::make_snapshot_no_sortition(ic, my_sortition_id, my_pox_id, parent_snapshot, block_header,
+                                                      first_block_height, last_burn_total, &next_sortition_hash, &txids)
+        };
         
         let mut make_snapshot_no_sortition = || {
             BlockSnapshot::make_snapshot_no_sortition(sort_tx, my_sortition_id, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids)
@@ -287,7 +301,7 @@ impl BlockSnapshot {
         let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block.new_seed);
         let next_ops_hash = OpsHash::from_txids(&txids);
         let next_ch = ConsensusHash::from_parent_block_data(
-            sort_tx, &next_ops_hash, block_height - 1, first_block_height, &block_hash, next_burn_total)?;
+            sort_tx, &next_ops_hash, block_height - 1, first_block_height, &block_hash, next_burn_total, my_pox_id)?;
 
         debug!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, &winning_block.block_header_hash, &winning_block.txid);
 
@@ -296,7 +310,6 @@ impl BlockSnapshot {
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
-            pox_id: my_pox_id.clone(),
             consensus_hash: next_ch,
             ops_hash: next_ops_hash,
             total_burn: next_burn_total,
@@ -311,8 +324,9 @@ impl BlockSnapshot {
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
             canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
-            canonical_stacks_tip_burn_hash: parent_snapshot.canonical_stacks_tip_burn_hash.clone(),
-            sortition_id: my_sortition_id.clone()
+            canonical_stacks_tip_consensus_hash: parent_snapshot.canonical_stacks_tip_consensus_hash.clone(),
+            sortition_id: my_sortition_id.clone(),
+            pox_valid: true
         })
     }
 }
@@ -341,8 +355,9 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
         let first_block_height = 120;
-        
+
         let burnchain = Burnchain {
+            pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),

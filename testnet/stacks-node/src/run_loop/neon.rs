@@ -1,13 +1,13 @@
-use std::process;
 use std::thread;
 
-use crate::{Config, NeonGenesisNode, BurnchainController, 
-            BitcoinRegtestController, Keychain};
+use crate::{Config, NeonGenesisNode, BurnchainController, EventDispatcher,
+            BitcoinRegtestController, Keychain, neon_node};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::Address;
-use stacks::burnchains::bitcoin::{BitcoinNetworkType, 
-                                  address::{BitcoinAddressType}};
+use stacks::burnchains::{Address, Burnchain};
+use stacks::burnchains::bitcoin::{address::{BitcoinAddressType}};
+use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
+use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 
 use super::RunLoopCallbacks;
 
@@ -19,12 +19,14 @@ pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
     blocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>
 }
 
 #[cfg(not(test))]
 pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
+    coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>
 }
 
 impl RunLoop {
@@ -32,19 +34,27 @@ impl RunLoop {
     /// Sets up a runloop and node, given a config.
     #[cfg(not(test))]
     pub fn new(config: Config) -> Self {
+        let channels = CoordinatorCommunication::instantiate();
         Self {
             config,
+            coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
         }
     }
 
     #[cfg(test)]
     pub fn new(config: Config) -> Self {
+        let channels = CoordinatorCommunication::instantiate();
         Self {
             config,
+            coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             blocks_processed: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
+    }
+
+    pub fn get_coordinator_channel(&self) -> Option<CoordinatorChannels> {
+        self.coordinator_channels.as_ref().map(|x| x.1.clone())
     }
 
     #[cfg(test)]
@@ -73,13 +83,16 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, _expected_num_rounds: u64) {
 
+        let (coordinator_receivers, coordinator_senders) = self.coordinator_channels.take()
+            .expect("Run loop already started, can only start once after initialization.");
+
         // Initialize and start the burnchain.
-        let mut burnchain = BitcoinRegtestController::new(self.config.clone());
+        let mut burnchain = BitcoinRegtestController::new(self.config.clone(), Some(coordinator_senders.clone()));
 
         let is_miner = if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
             let btc_addr = BitcoinAddress::from_bytes(
-                BitcoinNetworkType::Regtest,
+                self.config.burnchain.get_bitcoin_network().1,
                 BitcoinAddressType::PublicKeyHash,
                 &Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer()).to_bytes())
                 .unwrap();
@@ -99,16 +112,52 @@ impl RunLoop {
             false
         };
 
-        let mut burnchain_tip = burnchain.start();
+        let _burnchain_tip = match burnchain.start() {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Burnchain controller stopped: {}", e);
+                return;
+            }
+        };
+
+        let mainnet = false;
+        let chainid = neon_node::TESTNET_CHAIN_ID;
+        let block_limit = self.config.block_limit.clone();
+        let initial_balances = self.config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
+
+        // setup dispatcher
+        let mut event_dispatcher = EventDispatcher::new();
+        for observer in self.config.events_observers.iter() {
+            event_dispatcher.register_observer(observer);
+        }
+
+        let coordinator_dispatcher = event_dispatcher.clone();
+        let burnchain_config = match Burnchain::new(&self.config.get_burn_db_path(), &self.config.burnchain.chain, "regtest") {
+            Ok(burnchain) => burnchain,
+            Err(e) => {
+                error!("Failed to instantiate burnchain: {}", e);
+                panic!()
+            }
+        };
+        let chainstate_path = self.config.get_chainstate_path();
+
+        thread::spawn(move || {
+            ChainsCoordinator::run(&chainstate_path, burnchain_config, mainnet, chainid,
+                                   Some(initial_balances),
+                                   block_limit, &coordinator_dispatcher,
+                                   coordinator_receivers, |_| {});
+        });        
+        
+        let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
         // setup genesis
-        let node = NeonGenesisNode::new(self.config.clone(), |_| {});
+        let node = NeonGenesisNode::new(self.config.clone(), event_dispatcher, |_| {});
         let mut node = if is_miner {
-            node.into_initialized_leader_node(burnchain_tip.clone(), self.get_blocks_processed_arc())
+            node.into_initialized_leader_node(burnchain_tip.clone(), self.get_blocks_processed_arc(), coordinator_senders)
         } else {
-            node.into_initialized_node(burnchain_tip.clone(), self.get_blocks_processed_arc())
+            node.into_initialized_node(burnchain_tip.clone(), self.get_blocks_processed_arc(), coordinator_senders)
         };
 
         // TODO (hack) instantiate the sortdb in the burnchain
@@ -126,7 +175,13 @@ impl RunLoop {
         }
 
         loop {
-            burnchain_tip = burnchain.sync();
+            burnchain_tip = match burnchain.sync() {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Burnchain controller stopped: {}", e);
+                    return;
+                }
+            };
 
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
@@ -155,18 +210,17 @@ impl RunLoop {
                 if !node.relayer_sortition_notify() {
                     // relayer hung up, exit.
                     error!("Block relayer and miner hung up, exiting.");
-                    process::exit(1);
+                    return
                 }
             }
             // now, let's tell the miner to try and mine.
             if !node.relayer_issue_tenure() {
                 // relayer hung up, exit.
                 error!("Block relayer and miner hung up, exiting.");
-                process::exit(1);
+                return
             }
 
             block_height = next_height;
-
         }
     }
 }

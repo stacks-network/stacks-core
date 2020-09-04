@@ -27,6 +27,7 @@ pub mod sortition;
 pub const CONSENSUS_HASH_LIFETIME : u32 = 24;
 
 use std::fmt;
+use std::io::Write;
 
 use burnchains::Txid;
 use burnchains::Address;
@@ -38,7 +39,6 @@ use util::hash::{Hash160, to_hex};
 
 use sha2::Sha256;
 use ripemd160::Ripemd160;
-
 use rusqlite::Connection;
 use rusqlite::Transaction;
 
@@ -135,9 +135,9 @@ pub struct BlockSnapshot {
     pub arrival_index: u64,             // this is the $(arrival_index)-th block to be accepted
     pub canonical_stacks_tip_height: u64,               // memoized canonical stacks chain tip
     pub canonical_stacks_tip_hash: BlockHeaderHash,     // memoized canonical stacks chain tip
-    pub canonical_stacks_tip_burn_hash: BurnchainHeaderHash,    // memoized canonical stacks chain tip
+    pub canonical_stacks_tip_consensus_hash: ConsensusHash, // memoized canonical stacks chain tip
     pub sortition_id: SortitionId,
-    pub pox_id: PoxId,
+    pub pox_valid: bool
 }
 
 impl BlockHeaderHash {
@@ -226,7 +226,7 @@ impl ConsensusHash {
     /// for the resulting consensus hash, and the geometric series of previous consensus
     /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
     /// least-recent.
-    pub fn from_ops(burn_header_hash: &BurnchainHeaderHash, opshash: &OpsHash, total_burn: u64, prev_consensus_hashes: &Vec<ConsensusHash>) -> ConsensusHash {
+    pub fn from_ops(burn_header_hash: &BurnchainHeaderHash, opshash: &OpsHash, total_burn: u64, prev_consensus_hashes: &Vec<ConsensusHash>, pox_id: &PoxId) -> ConsensusHash {
         // NOTE: unlike stacks v1, we calculate the next consensus hash
         // simply as a hash-chain of the new ops hash, the sequence of 
         // previous consensus hashes, and the total burn that went into this
@@ -252,6 +252,9 @@ impl ConsensusHash {
             
             // total burn amount on this fork...
             hasher.input(&burn_bytes);
+
+            // pox-fork bit vector
+            write!(hasher, "{}", pox_id).unwrap();
 
             // previous consensus hashes...
             for ch in prev_consensus_hashes {
@@ -298,9 +301,11 @@ impl ConsensusHash {
     }
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    pub fn from_parent_block_data(sort_tx: &mut SortitionHandleTx, opshash: &OpsHash, parent_block_height: u64, first_block_height: u64, this_block_hash: &BurnchainHeaderHash, total_burn: u64) -> Result<ConsensusHash, db_error> {
+    pub fn from_parent_block_data(sort_tx: &mut SortitionHandleTx, opshash: &OpsHash, parent_block_height: u64,
+                                  first_block_height: u64, this_block_hash: &BurnchainHeaderHash,
+                                  total_burn: u64, pox_id: &PoxId) -> Result<ConsensusHash, db_error> {
         let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(sort_tx, parent_block_height, first_block_height)?;
-        Ok(ConsensusHash::from_ops(this_block_hash, opshash, total_burn, &prev_consensus_hashes))
+        Ok(ConsensusHash::from_ops(this_block_hash, opshash, total_burn, &prev_consensus_hashes, pox_id))
     }
 
     /// raw consensus hash
@@ -353,11 +358,11 @@ mod tests {
             burn_block_hashes.push(prev_snapshot.sortition_id.clone());
             for i in 1..256 {
                 let snapshot_row = BlockSnapshot {
+                    pox_valid: true,
                     block_height: i,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     sortition_id: SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]),
-                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i-1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -373,10 +378,10 @@ mod tests {
                     arrival_index: 0,
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
-                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32]),
+                    canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], &vec![], None).unwrap();
                 burn_block_hashes.push(snapshot_row.sortition_id.clone());
                 tx.commit().unwrap();
                 prev_snapshot = snapshot_row;

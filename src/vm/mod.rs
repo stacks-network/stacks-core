@@ -192,12 +192,15 @@ fn eval_all (expressions: &[SymbolicExpression],
     let context = LocalContext::new();
     let mut total_memory_use = 0;
 
+    let publisher = Value::Principal(
+        PrincipalData::Standard(contract_context.contract_identifier.issuer.clone()));
+
     finally_drop_memory!(global_context, total_memory_use; {
         for exp in expressions {
             let try_define = global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    context, contract_context, &mut call_stack, None, None);
+                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()));
                 functions::define::evaluate_define(exp, &mut env)
             })?;
             match try_define {
@@ -269,7 +272,7 @@ fn eval_all (expressions: &[SymbolicExpression],
                     global_context.execute(|global_context| {
                         let mut call_stack = CallStack::new();
                         let mut env = Environment::new(
-                            global_context, contract_context, &mut call_stack, None, None);
+                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()));
 
                         let result = eval(exp, &mut env, &context)?;
                         last_executed = Some(result);

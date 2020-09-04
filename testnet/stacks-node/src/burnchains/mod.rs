@@ -7,16 +7,30 @@ pub use self::bitcoin_regtest_controller::{BitcoinRegtestController};
 use super::operations::BurnchainOpSigner;
 
 use std::time::Instant;
+use std::fmt;
 
-use stacks::burnchains::BurnchainStateTransition;
+use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 
+#[derive(Debug)]
+pub enum Error {
+    CoordinatorClosed
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
+        }
+    }
+}
+
 pub trait BurnchainController {
-    fn start(&mut self) -> BurnchainTip;
+    fn start(&mut self) -> Result<BurnchainTip, Error>;
     fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) -> bool;
-    fn sync(&mut self) -> BurnchainTip;
+    fn sync(&mut self) -> Result<BurnchainTip, Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
     fn get_chain_tip(&mut self) -> BurnchainTip;
@@ -28,7 +42,7 @@ pub trait BurnchainController {
 #[derive(Debug, Clone)]
 pub struct BurnchainTip {
     pub block_snapshot: BlockSnapshot,
-    pub state_transition: BurnchainStateTransition,
+    pub state_transition: BurnchainStateTransitionOps,
     pub received_at: Instant,
 }
 

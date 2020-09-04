@@ -30,6 +30,7 @@ use std::io;
 use std::default::Default;
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 use self::bitcoin::Error as btc_error;
 
@@ -268,7 +269,41 @@ pub struct Burnchain {
     pub consensus_hash_lifetime: u32,
     pub stable_confirmations: u32,
     pub first_block_height: u64,
-    pub first_block_hash: BurnchainHeaderHash
+    pub first_block_hash: BurnchainHeaderHash,
+    pub pox_constants: PoxConstants,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct PoxConstants {
+    /// the length (in burn blocks) of the reward cycle
+    pub reward_cycle_length: u32,
+    /// the length (in burn blocks) of the prepare phase
+    pub prepare_length: u32,
+    /// the number of confirmations a PoX anchor block must
+    ///  receive in order to become the anchor. must be at least > prepare_length/2
+    pub anchor_threshold: u32,
+    _shadow: PhantomData<()>,
+}
+
+impl PoxConstants {
+    pub fn new(reward_cycle_length: u32, prepare_length: u32, anchor_threshold: u32) -> PoxConstants {
+        assert!(anchor_threshold > (prepare_length / 2));
+
+        PoxConstants {
+            reward_cycle_length,
+            prepare_length,
+            anchor_threshold,
+            _shadow: PhantomData,
+        }
+    }
+    #[cfg(test)]
+    pub fn test_default() -> PoxConstants {
+        PoxConstants::new(10, 5, 3)
+    }
+
+    pub fn mainnet_default() -> PoxConstants {
+        PoxConstants::new(1000, 240, 192)
+    }
 }
 
 /// Structure for encoding our view of the network 
@@ -288,6 +323,16 @@ pub struct BurnchainView {
 #[derive(Debug, Clone)]
 pub struct BurnchainStateTransition {
     pub burn_dist: Vec<BurnSamplePoint>,
+    pub accepted_ops: Vec<BlockstackOperationType>,
+    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
+}
+
+/// The burnchain block's state transition's ops:
+/// -- the new burn distribution
+/// -- the sequence of valid blockstack operations that went into it
+/// -- the set of previously-accepted leader VRF keys consumed
+#[derive(Debug, Clone)]
+pub struct BurnchainStateTransitionOps {
     pub accepted_ops: Vec<BlockstackOperationType>,
     pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
 }
@@ -320,11 +365,12 @@ pub enum Error {
     TrySyncAgain,
     UnknownBlock(BurnchainHeaderHash),
     NonCanonicalPoxId(PoxId, PoxId),
+    CoordinatorClosed,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Error::UnsupportedBurnchain => write!(f, "Unsupported burnchain"),
             Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
@@ -340,6 +386,7 @@ impl fmt::Display for Error {
             Error::UnknownBlock(block) => write!(f, "Unknown burnchain block {}", block),
             Error::NonCanonicalPoxId(parent, child) => write!(f, "{} is not a descendant of the canonical parent PoXId: {}",
                                                               parent, child),
+            Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
         }
     }
 }
@@ -361,6 +408,7 @@ impl error::Error for Error {
             Error::TrySyncAgain => None,
             Error::UnknownBlock(_) => None,
             Error::NonCanonicalPoxId(_, _) => None,
+            Error::CoordinatorClosed => None,
         }
     }
 }
@@ -756,7 +804,7 @@ pub mod test {
             
             let last_snapshot = match fork_snapshot {
                 Some(sn) => sn.clone(),
-                None => SortitionDB::get_canonical_burn_chain_tip_stubbed(ic).unwrap()
+                None => SortitionDB::get_canonical_burn_chain_tip(ic).unwrap()
             };
 
             let last_snapshot_with_sortition = match parent_block_snapshot {
@@ -770,9 +818,9 @@ pub mod test {
 
             let new_seed = VRFSeed::from_proof(&proof);
 
-            let get_commit_res = SortitionDB::get_block_commit(ic.conn(),
-                                                               &last_snapshot_with_sortition.winning_block_txid,
-                                                               &last_snapshot_with_sortition.burn_header_hash)
+            let get_commit_res = ic.as_handle(&last_snapshot_with_sortition.sortition_id)
+                .get_block_commit(&last_snapshot_with_sortition.winning_block_txid,
+                                  &last_snapshot_with_sortition.sortition_id)
                 .expect("FATAL: failed to read block commit");
             let mut txop = match get_commit_res {
                 Some(parent) => {
@@ -837,7 +885,7 @@ pub mod test {
 
             let blockstack_txs = self.txs.clone();
 
-            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)
+            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs, None, PoxId::stubbed())
                 .unwrap();
             sortition_db_handle.commit().unwrap();
 

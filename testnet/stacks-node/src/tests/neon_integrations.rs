@@ -1,8 +1,9 @@
 use super::{make_stacks_transfer_mblock_only, SK_1, ADDR_4, to_addr, make_microblock,
             make_contract_publish, make_contract_publish_microblock_only};
-use stacks::burnchains::{ Address, PublicKey, BurnchainHeaderHash };
+use stacks::burnchains::{ Address, PublicKey };
 use stacks::chainstate::stacks::{
     StacksTransaction, StacksPrivateKey, StacksPublicKey, StacksAddress, db::StacksChainState, StacksBlock, StacksBlockHeader };
+use stacks::chainstate::burn::ConsensusHash;
 use stacks::net::StacksMessageCodec;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::costs::ExecutionCost;
@@ -26,7 +27,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let keychain = Keychain::default(conf.node.seed.clone());
 
     conf.node.miner = true;
-
+    conf.burnchain.mode = "neon".into(); 
     conf.burnchain.username = Some("neon-tester".into());
     conf.burnchain.password = Some("neon-tester-pass".into());
     conf.burnchain.peer_host = "127.0.0.1".into();
@@ -124,7 +125,7 @@ fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
-fn get_tip_anchored_block(conf: &Config) -> (BurnchainHeaderHash, StacksBlock) {
+fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
@@ -132,16 +133,16 @@ fn get_tip_anchored_block(conf: &Config) -> (BurnchainHeaderHash, StacksBlock) {
     let path = format!("{}/v2/info", &http_origin);
     let tip_info = client.get(&path).send().unwrap().json::<RPCPeerInfoData>().unwrap();
     let stacks_tip = tip_info.stacks_tip;
-    let stacks_tip_burn_hash = BurnchainHeaderHash::from_hex(&tip_info.stacks_tip_burn_block).unwrap();
+    let stacks_tip_consensus_hash = ConsensusHash::from_hex(&tip_info.stacks_tip_consensus_hash).unwrap();
 
-    let stacks_id_tip = StacksBlockHeader::make_index_block_hash(&stacks_tip_burn_hash, &stacks_tip);
+    let stacks_id_tip = StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
     // get the associated anchored block
     let path = format!("{}/v2/blocks/{}", &http_origin, &stacks_id_tip);
     let block_bytes = client.get(&path).send().unwrap().bytes().unwrap();
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
 
-    (stacks_tip_burn_hash, block)
+    (stacks_tip_consensus_hash, block)
 }
 
 fn find_microblock_privkey(conf: &Config, pubkey_hash: &Hash160, max_tries: u64) -> Option<StacksPrivateKey> {
@@ -168,7 +169,7 @@ fn bitcoind_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller.start_bitcoind().map_err(|_e| ()).expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone());
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -178,6 +179,8 @@ fn bitcoind_integration_test() {
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || {
         run_loop.start(0)
@@ -206,6 +209,8 @@ fn bitcoind_integration_test() {
     eprintln!("Response: {:#?}", res);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
     assert_eq!(res.nonce, 1);
+
+    channel.stop_chains_coordinator();
 }
 
 #[test]
@@ -238,7 +243,7 @@ fn microblock_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller.start_bitcoind().map_err(|_e| ()).expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone());
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -248,6 +253,8 @@ fn microblock_integration_test() {
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let client = reqwest::blocking::Client::new();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || {
         run_loop.start(0)
@@ -322,13 +329,13 @@ fn microblock_integration_test() {
 
     // put it into a microblock
     let microblock = {
-        let (burn_header_hash, stacks_block) = get_tip_anchored_block(&conf);
+        let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
         let privk = find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024).unwrap();
         let mut chainstate = StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
 
         // NOTE: it's not a zero execution cost, but there's currently not an easy way to get the
         // block's cost (and it's not like we're going to overflow the block budget in this test).
-        make_microblock(&privk, &mut chainstate, burn_header_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
+        make_microblock(&privk, &mut chainstate, consensus_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
     };
 
     let mut microblock_bytes = vec![];
@@ -393,6 +400,8 @@ fn microblock_integration_test() {
     eprintln!("{:#?}", res);
     assert_eq!(res.nonce, 2);
     assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 96300);
+
+    channel.stop_chains_coordinator();
 }
 
 #[test]
@@ -440,7 +449,7 @@ fn size_check_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller.start_bitcoind().map_err(|_e| ()).expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone());
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -450,6 +459,7 @@ fn size_check_integration_test() {
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || {
         run_loop.start(0)
@@ -543,4 +553,6 @@ fn size_check_integration_test() {
 
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 1);
+
+    channel.stop_chains_coordinator();
 }

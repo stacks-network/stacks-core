@@ -795,7 +795,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         // give the spending account some stx
         let _account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -937,7 +937,7 @@ pub mod test {
             "Bad nonce".to_string(),
         ];
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
         conn.connection().as_transaction(
             |tx| StacksChainState::account_credit(tx, &addr.to_account_principal(), 123));
 
@@ -1008,7 +1008,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         let account_sponsor = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
@@ -1069,7 +1069,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
         let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -1111,7 +1111,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let contracts = vec![
             contract_correct.clone(),
@@ -1204,7 +1204,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let contracts = vec![
             contract_correct,
@@ -1291,7 +1291,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
         let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -1364,7 +1364,7 @@ pub mod test {
         let signed_tx_2 = signer_2.get_tx().unwrap();
 
         // process both
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account.nonce, 0);
@@ -1432,7 +1432,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
         let (_fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
@@ -1516,7 +1516,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
         let (_fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
 
         // invalid contract-calls
@@ -1618,7 +1618,7 @@ pub mod test {
         let signed_tx_2 = signer_2.get_tx().unwrap();
 
         // process both
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
         assert_eq!(account_publisher.nonce, 0);
@@ -1989,7 +1989,7 @@ pub mod test {
         }
 
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens");
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
         assert_eq!(account_publisher.nonce, 0);
@@ -2391,7 +2391,7 @@ pub mod test {
         }
 
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens-deny");
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
 
         let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
         assert_eq!(account_publisher.nonce, 0);
@@ -3286,9 +3286,10 @@ pub mod test {
 
         let signed_contract_call_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &ConsensusHash([1u8; 20]), &BlockHeaderHash([1u8; 32]));
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();
         let err = StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false).unwrap_err();
+        
         conn.commit_block();
 
         eprintln!("{:?}", &err);

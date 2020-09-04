@@ -27,6 +27,7 @@
 extern crate blockstack_lib;
 extern crate rusqlite;
 
+use blockstack_lib::burnchains::db::BurnchainBlockData;
 use blockstack_lib::*;
 
 use std::fs;
@@ -45,6 +46,7 @@ use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::burn::BlockHeaderHash;
+use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::burnchains::BurnchainHeaderHash;
 
 use blockstack_lib::burnchains::bitcoin::spv;
@@ -255,8 +257,8 @@ fn main() {
     if argv[1] == "marf-get" {
         let path = &argv[2];
         let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
-        let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
-        let itip = StacksBlockHeader::make_index_block_hash(&burntip, &tip);
+        let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
+        let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
         let key = &argv[5];
         let mut marf = MARF::from_path(path).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
@@ -314,7 +316,8 @@ fn main() {
         let sort_path = &argv[3];
         let mut chainstate = StacksChainState::open(false, 0x80000000, path).unwrap();
         let mut sortition_db = SortitionDB::open(sort_path, true).unwrap();
-        let mut tx = sortition_db.tx_begin().unwrap();
+        let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap().sortition_id;
+        let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
         chainstate.process_next_staging_block(&mut tx).unwrap();
         return
     }
@@ -324,7 +327,7 @@ fn main() {
         use chainstate::stacks::db::StacksChainState;
         use chainstate::stacks::db::blocks::StagingBlock;
         use chainstate::stacks::StacksBlockHeader;
-        use chainstate::burn::db::sortdb::{SortitionDB, PoxId, PoxDB};
+        use chainstate::burn::db::sortdb::{SortitionDB, PoxId};
         use chainstate::stacks::StacksAddress;
         use burnchains::Address;
         use burnchains::Burnchain;
@@ -391,7 +394,7 @@ fn main() {
             if snapshot.arrival_index == 0 {
                 continue;
             }
-            let index_hash = StacksBlockHeader::make_index_block_hash(&snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash);
+            let index_hash = StacksBlockHeader::make_index_block_hash(&snapshot.consensus_hash, &snapshot.winning_stacks_block_hash);
             stacks_blocks_arrival_indexes.push((index_hash, snapshot.arrival_index));
         }
         stacks_blocks_arrival_indexes.sort_by(|ref a, ref b| a.1.partial_cmp(&b.1).unwrap());
@@ -401,8 +404,8 @@ fn main() {
         let num_staging_blocks = all_stacks_blocks.len();
         for staging_block in all_stacks_blocks.into_iter() {
             if !staging_block.orphaned {
-                let index_hash = StacksBlockHeader::make_index_block_hash(&staging_block.burn_header_hash, &staging_block.anchored_block_hash);
-                eprintln!("Will consider {}/{}", &staging_block.burn_header_hash, &staging_block.anchored_block_hash);
+                let index_hash = StacksBlockHeader::make_index_block_hash(&staging_block.consensus_hash, &staging_block.anchored_block_hash);
+                eprintln!("Will consider {}/{}", &staging_block.consensus_hash, &staging_block.anchored_block_hash);
                 stacks_blocks_available.insert(index_hash, staging_block);
             }
         }
@@ -419,7 +422,7 @@ fn main() {
             loop {
                 // simulate the p2p refreshing itself
                 // update p2p's read-only view of the unconfirmed state
-                let (canonical_burn_tip, canonical_block_tip) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(p2p_new_sortition_db.conn())
+                let (canonical_burn_tip, canonical_block_tip) = SortitionDB::get_canonical_stacks_chain_tip_hash(p2p_new_sortition_db.conn())
                     .expect("Failed to read canonical stacks chain tip");
                 let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_burn_tip, &canonical_block_tip);
                 p2p_chainstate.refresh_unconfirmed_state_readonly(canonical_tip)
@@ -431,16 +434,16 @@ fn main() {
 
         for old_snapshot in all_snapshots.into_iter() {
             // replay this burnchain block
-            let (burn_block_header, blockstack_txs) = old_burnchaindb.get_burnchain_block(&old_snapshot.burn_header_hash).unwrap();
+            let BurnchainBlockData { header: burn_block_header, ops: blockstack_txs } = old_burnchaindb
+                .get_burnchain_block(&old_snapshot.burn_header_hash).unwrap();
             if old_snapshot.parent_burn_header_hash == BurnchainHeaderHash::sentinel() {
                 // skip initial snapshot -- it's a placeholder
                 continue;
             }
             
             let (new_snapshot, _) = {
-                let pox_id = PoxId::stubbed();
-                let pox_db = PoxDB::stubbed();
-                new_sortition_db.evaluate_sortition(&burn_block_header, blockstack_txs, &burnchain, &pox_id, &pox_db).unwrap()
+                let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
+                new_sortition_db.evaluate_sortition(&burn_block_header, blockstack_txs, &burnchain, &sortition_tip.sortition_id, None).unwrap()
             };
 
             // importantly, the burnchain linkage must all match
@@ -456,7 +459,7 @@ fn main() {
 
             // "discover" the stacks blocks
             if new_snapshot.sortition {
-                let mut stacks_block_id = StacksBlockHeader::make_index_block_hash(&new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash);
+                let mut stacks_block_id = StacksBlockHeader::make_index_block_hash(&new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash);
                 known_stacks_blocks.insert(stacks_block_id.clone());
 
                 if next_arrival >= stacks_blocks_arrival_order.len() {
@@ -468,18 +471,18 @@ fn main() {
                     while next_arrival < stacks_blocks_arrival_order.len() && known_stacks_blocks.contains(&stacks_block_id) {
                         if let Some(_) = stacks_blocks_available.get(&stacks_block_id) {
                             // load up the block
-                            let stacks_block_opt = StacksChainState::load_block(&old_chainstate.blocks_path, &new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash).unwrap();
+                            let stacks_block_opt = StacksChainState::load_block(&old_chainstate.blocks_path, &new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash).unwrap();
                             if let Some(stacks_block) = stacks_block_opt {
                                 // insert it into the new chainstate
                                 let ic = new_sortition_db.index_conn();
-                                Relayer::process_new_anchored_block(&ic, &mut new_chainstate, &new_snapshot.burn_header_hash, &stacks_block).unwrap();
+                                Relayer::process_new_anchored_block(&ic, &mut new_chainstate, &new_snapshot.consensus_hash, &stacks_block).unwrap();
                             }
                             else {
-                                warn!("No such stacks block {}/{}", &new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash);
+                                warn!("No such stacks block {}/{}", &new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash);
                             }
                         }
                         else {
-                            warn!("Missing stacks block {}/{}", &new_snapshot.burn_header_hash, &new_snapshot.winning_stacks_block_hash);
+                            warn!("Missing stacks block {}/{}", &new_snapshot.consensus_hash, &new_snapshot.winning_stacks_block_hash);
                         }
 
                         next_arrival += 1;
@@ -497,7 +500,9 @@ fn main() {
             // process all new blocks
             let mut epoch_receipts = vec![];
             loop {
-                let receipts = new_chainstate.process_blocks(&mut new_sortition_db, 1).unwrap();
+                let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap().sortition_id;
+                let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
+                let receipts = new_chainstate.process_blocks(sortition_tx, 1).unwrap();
                 if receipts.len() == 0 {
                     break;
                 }
@@ -508,7 +513,7 @@ fn main() {
                 }
             }
            
-            Relayer::setup_unconfirmed_state(&mut new_chainstate, &mut new_sortition_db, &epoch_receipts).unwrap();
+            Relayer::setup_unconfirmed_state(&mut new_chainstate, &mut new_sortition_db).unwrap();
         }
 
         eprintln!("Final arrival index is {} out of {}", next_arrival, stacks_blocks_arrival_order.len());

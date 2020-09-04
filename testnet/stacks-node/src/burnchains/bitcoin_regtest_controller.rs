@@ -12,14 +12,14 @@ use serde_json::value::RawValue;
 
 use secp256k1::{Secp256k1};
 
-use super::{BurnchainController, BurnchainTip};
+use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 
+use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Burnchain;
-use stacks::burnchains::BurnchainStateTransition;
+use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::Error as burnchain_error;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
 use stacks::burnchains::bitcoin::spv::SpvClient; 
@@ -41,6 +41,7 @@ use stacks::net::StacksMessageCodec;
 use stacks::util::hash::{Hash160, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 
 use stacks::monitoring::{
     increment_btc_blocks_received_counter, 
@@ -51,23 +52,19 @@ pub struct BitcoinRegtestController {
     config: Config,
     indexer_config: BitcoinIndexerConfig,
     db: Option<SortitionDB>,
+    burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
+    use_coordinator: Option<CoordinatorChannels>,
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
 
 impl BitcoinRegtestController {
-
-    pub fn generic(config: Config) -> Box<dyn BurnchainController> {
-        Box::new(Self::new(config))
-    }
-
-    pub fn new(config: Config) -> Self {
-        
+    pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
     
-        let res = SpvClient::new(&config.burnchain.spv_headers_path, 0, None, BitcoinNetworkType::Regtest, true, false);
+        let res = SpvClient::new(&config.burnchain.spv_headers_path, 0, None, config.burnchain.get_bitcoin_network().1, true, false);
         if let Err(err) = res {
             error!("Unable to init block headers: {}", err);
             panic!()
@@ -90,9 +87,11 @@ impl BitcoinRegtestController {
         };
                 
         Self {
+            use_coordinator: coordinator_channel,
             config: config,
             indexer_config,
             db: None,
+            burnchain_db: None,
             chain_tip: None,
         }
     }
@@ -117,17 +116,19 @@ impl BitcoinRegtestController {
         };
                 
         Self {
+            use_coordinator: None,
             config: config,
             indexer_config,
             db: None,
+            burnchain_db: None,
             chain_tip: None,
         }        
     }
 
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
-        let network = "regtest".to_string();
+        let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
         let working_dir = self.config.get_burn_db_path();
-        let burnchain = match Burnchain::new(&working_dir,  &self.config.burnchain.chain, &network) {
+        let burnchain = match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
             Ok(burnchain) => burnchain,
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);
@@ -135,7 +136,7 @@ impl BitcoinRegtestController {
             }
         };
 
-        let indexer_runtime = BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest);
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
             config: self.indexer_config.clone(),
             runtime: indexer_runtime
@@ -143,13 +144,12 @@ impl BitcoinRegtestController {
         (burnchain, burnchain_indexer)
     }
 
-    fn receive_blocks(&mut self) -> BurnchainTip {
+    fn receive_blocks_helium(&mut self) -> BurnchainTip {
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
 
         let (block_snapshot, state_transition) = loop {
-            match burnchain.sync_with_indexer(&mut burnchain_indexer) {
+            match burnchain.sync_with_indexer_deprecated(&mut burnchain_indexer) {
                 Ok(x) => {
-                    increment_btc_blocks_received_counter();
                     break x;
                 }
                 Err(e) => {
@@ -176,12 +176,12 @@ impl BitcoinRegtestController {
             }
         };
 
-        let rest = match (&state_transition, &self.chain_tip) {
+        let rest = match (state_transition, &self.chain_tip) {
             (None, Some(chain_tip)) => chain_tip.clone(),
             (Some(state_transition), _) => {
                 let burnchain_tip = BurnchainTip {
                     block_snapshot: block_snapshot,
-                    state_transition: state_transition.clone(),
+                    state_transition: BurnchainStateTransitionOps::from(state_transition),
                     received_at: Instant::now()
                 };
                 self.chain_tip = Some(burnchain_tip.clone());
@@ -191,7 +191,7 @@ impl BitcoinRegtestController {
                 // can happen at genesis
                 let burnchain_tip = BurnchainTip {
                     block_snapshot: block_snapshot,
-                    state_transition: BurnchainStateTransition::noop(),
+                    state_transition: BurnchainStateTransitionOps::noop(),
                     received_at: Instant::now()
                 };
                 self.chain_tip = Some(burnchain_tip.clone());
@@ -203,11 +203,74 @@ impl BitcoinRegtestController {
         rest
     }
 
+    fn receive_blocks(&mut self, sync: bool) -> Result<BurnchainTip, BurnchainControllerError> {
+        let coordinator_comms = match self.use_coordinator.as_ref() {
+            Some(x) => x.clone(),
+            None => return Ok(self.receive_blocks_helium())
+        };
+
+        let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
+        let (block_snapshot, state_transition) = loop {
+            match burnchain.sync_with_indexer(&mut burnchain_indexer, coordinator_comms.clone()) {
+                Ok(x) => {
+                    increment_btc_blocks_received_counter();
+                    // initialize the dbs...
+                    self.sortdb_mut();
+                    if sync {
+                        self.wait_for_sortitions(Some(x.block_height));
+                    }
+                    let sort_tip = SortitionDB::get_canonical_sortition_tip(self.sortdb_ref().conn())
+                        .expect("Sortition DB error.");
+                    let x = self.sortdb_ref().get_sortition_result(&sort_tip)
+                        .expect("Sortition DB error.")
+                        .expect("BUG: no data for the canonical chain tip");
+                    break x;
+                }
+                Err(e) => {
+                    // keep trying
+                    error!("Unable to sync with burnchain: {}", e);
+                    match e {
+                        burnchain_error::CoordinatorClosed => {
+                            return Err(BurnchainControllerError::CoordinatorClosed)
+                        },
+                        burnchain_error::TrySyncAgain => {
+                            // try again immediately
+                            continue;
+                        },
+                        burnchain_error::BurnchainPeerBroken => {
+                            // remote burnchain peer broke, and produced a shorter blockchain fork.
+                            // just keep trying
+                            sleep_ms(5000);
+                            continue;
+                        },
+                        _ => {
+                            // delay and try again
+                            sleep_ms(5000);
+                            continue;
+                        }
+                    }
+                }
+            }
+        };
+
+        let burnchain_tip = BurnchainTip {
+            block_snapshot: block_snapshot,
+            state_transition: state_transition,
+            received_at: Instant::now()
+        };
+
+        self.chain_tip = Some(burnchain_tip.clone());
+        debug!("Done receiving blocks");
+
+        Ok(burnchain_tip)
+    }
+
     pub fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");        
@@ -500,6 +563,41 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// wait until the ChainsCoordinator has processed sortitions up to the
+    ///   canonical chain tip, or has processed up to height_to_wait
+    pub fn wait_for_sortitions(&self, height_to_wait: Option<u64>) -> BurnchainTip {
+        loop {
+            let canonical_burnchain_tip = self.burnchain_db.as_ref()
+                .expect("BurnchainDB not opened")
+                .get_canonical_chain_tip().unwrap();
+            let canonical_sortition_tip = SortitionDB::get_canonical_burn_chain_tip(
+                self.sortdb_ref().conn()).unwrap();
+            if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height {
+                let (_, state_transition) = self.sortdb_ref().get_sortition_result(&canonical_sortition_tip.sortition_id)
+                        .expect("Sortition DB error.")
+                        .expect("BUG: no data for the canonical chain tip");
+
+                return BurnchainTip {
+                    block_snapshot: canonical_sortition_tip,
+                    received_at: Instant::now(),
+                    state_transition
+                }
+            } else if let Some(height_to_wait) = height_to_wait {
+                if canonical_sortition_tip.block_height >= height_to_wait {
+                    let (_, state_transition) = self.sortdb_ref().get_sortition_result(&canonical_sortition_tip.sortition_id)
+                        .expect("Sortition DB error.")
+                        .expect("BUG: no data for the canonical chain tip");
+
+                    return BurnchainTip {
+                        block_snapshot: canonical_sortition_tip,
+                        received_at: Instant::now(),
+                        state_transition
+                    }
+                }
+            }
+        }
+    }
+
     pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
@@ -508,8 +606,9 @@ impl BitcoinRegtestController {
         };
         
         let pkh = Hash160::from_data(&public_key).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");
@@ -546,8 +645,9 @@ impl BurnchainController for BitcoinRegtestController {
             }
         };
 
-        let (db, _) = burnchain.open_db(true).unwrap();
+        let (db, burnchain_db) = burnchain.open_db(true).unwrap();
         self.db = Some(db);
+        self.burnchain_db = Some(burnchain_db);
 
         match self.db {
             Some(ref mut sortdb) => sortdb,
@@ -567,20 +667,20 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
 
-    fn start(&mut self) -> BurnchainTip {
-        self.receive_blocks()
+    fn start(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
+        self.receive_blocks(false)
     }
 
-    fn sync(&mut self) -> BurnchainTip {        
+    fn sync(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
         let burnchain_tip = if self.config.burnchain.mode == "helium" {
             // Helium: this node is responsible for mining new burnchain blocks
             self.build_next_block(1);
-            self.receive_blocks()
+            self.receive_blocks(true)?
         } else {
             // Neon: this node is waiting on a block to be produced
             let current_height = self.get_chain_tip().block_snapshot.block_height;
             loop {
-                let burnchain_tip = self.receive_blocks();
+                let burnchain_tip = self.receive_blocks(true)?;
                 if burnchain_tip.block_snapshot.block_height > current_height {
                     break burnchain_tip;
                 }
@@ -595,9 +695,9 @@ impl BurnchainController for BitcoinRegtestController {
                 info!("This process will automatically terminate in 30s, restart your node for participating in the next epoch.");
                 sleep_ms(30000);
                 std::process::exit(0);
-            }    
+            }
         }
-        burnchain_tip
+        Ok(burnchain_tip)
     }
 
     // returns true if the operation was submitted successfully, false otherwise 
@@ -628,8 +728,9 @@ impl BurnchainController for BitcoinRegtestController {
 
             let pk = hex_bytes(&local_mining_pubkey).expect("Invalid byte sequence");
             let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
+            let (_, network_id) = self.config.burnchain.get_bitcoin_network();
             let address = BitcoinAddress::from_bytes(
-                BitcoinNetworkType::Regtest,
+                network_id,
                 BitcoinAddressType::PublicKeyHash,
                 &pkh)
                 .expect("Public key incorrect");
@@ -914,8 +1015,9 @@ impl BitcoinRPCRequest {
         let label = "";
 
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let (_, network_id) = config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");        

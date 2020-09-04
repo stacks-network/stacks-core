@@ -36,6 +36,10 @@ use std::io::prelude::*;
 use std::io;
 use std::io::{Read, Write};
 
+use sha2::{
+    Sha512Trunc256,
+    Digest
+};
 use util::secp256k1;
 use util::db::Error as db_error;
 use util::db::DBConn;
@@ -49,8 +53,10 @@ use util::secp256k1::MessageSignature;
 use address::AddressHashMode;
 use burnchains::Txid;
 use burnchains::BurnchainHeaderHash;
-
-use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::{
+    ConsensusHash,
+    BlockHeaderHash
+};
 use chainstate::burn::operations::LeaderBlockCommitOp;
 
 use chainstate::stacks::index::{TrieHash, TRIEHASH_ENCODED_SIZE};
@@ -100,6 +106,17 @@ impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
 impl_byte_array_from_column!(StacksBlockId);
 impl_byte_array_serde!(StacksBlockId);
+
+impl StacksBlockId {
+    pub fn new(sortition_consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> StacksBlockId {
+        let mut hasher = Sha512Trunc256::new();
+        hasher.input(block_hash);
+        hasher.input(sortition_consensus_hash);
+
+        let h = Sha512Trunc256Sum::from_hasher(hasher);
+        StacksBlockId(h.0)
+    }
+}
 
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
@@ -152,6 +169,12 @@ pub enum Error {
     ReadError(io::Error),
     WriteError(io::Error),
     MemPoolError(String),
+}
+
+impl From<marf_error> for Error {
+    fn from(e: marf_error) -> Error {
+        Error::MARFError(e)
+    }
 }
 
 impl fmt::Display for Error {
@@ -764,7 +787,7 @@ pub struct StacksMicroblock {
 }
 
 // values a miner uses to produce the next block
-pub const MINER_BLOCK_BURN_HEADER_HASH : BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
+pub const MINER_BLOCK_CONSENSUS_HASH : ConsensusHash = ConsensusHash([1u8; 20]);
 pub const MINER_BLOCK_HEADER_HASH : BlockHeaderHash = BlockHeaderHash([1u8; 32]);
 
 /// A structure for incrementially building up a block
