@@ -25,7 +25,7 @@ use util::hash::Sha512Trunc256Sum;
 use vm::ast::{build_ast};
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteConnection, HeadersDB,
-                   MarfedKV, MemoryBackingStore, NULL_HEADER_DB, NULL_BURN_STATE_DB};
+                   MarfedKV, MemoryBackingStore, NULL_HEADER_DB, NULL_BURN_STATE_DB, STXBalance};
 use vm::errors::{InterpreterResult, RuntimeErrorType, Error};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value, execute as vm_execute};
 use vm::analysis;
@@ -425,9 +425,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     db.initialize();
                     db.begin();
                     for (principal, amount) in allocations.iter() {
-                        let mut balance = db.get_account_stx_balance(principal);
-                        let block_height = db.get_current_burnchain_block_height();
-                        balance.credit(*amount as u128, block_height as u64)
+                        let mut balance = STXBalance::zero();
+                        balance.credit(*amount as u128, 0)
                             .expect("STX overflow");
                         db.set_account_stx_balance(principal, &balance);
                         println!("{} credited: {} uSTX", principal, balance.get_total_balance());
