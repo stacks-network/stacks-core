@@ -1097,7 +1097,7 @@ impl StacksChainState {
     /// stacks_block _must_ have been committed, or this will return an error
     pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
         let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?";
-        self.headers_db.query_row(sql, &[stacks_block], |row| row.get(0))
+        self.headers_db().query_row(sql, &[stacks_block], |row| row.get(0))
             .map_err(|e| Error::from(db_error::from(e)))
     }
 

@@ -266,7 +266,7 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices> ChainsCoordinator <'a,
             if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
                 info!("Anchor block selected: {}", stacks_block_hash);
                 let anchor_block_known = StacksChainState::is_stacks_block_processed(
-                    &self.chain_state_db.headers_db, &consensus_hash, &stacks_block_hash)?;
+                    self.chain_state_db.headers_db(), &consensus_hash, &stacks_block_hash)?;
                 Ok(Some(RewardCycleInfo {
                     anchor_block: Some(stacks_block_hash),
                     anchor_block_known

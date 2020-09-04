@@ -243,13 +243,9 @@ impl BlockSnapshot {
         
         // next sortition hash
         let next_sortition_hash = last_sortition_hash.mix_burn_header(&block_hash);
-        let make_snapshot_no_sortition = || {
-            BlockSnapshot::make_snapshot_no_sortition(ic, my_sortition_id, my_pox_id, parent_snapshot, block_header,
-                                                      first_block_height, last_burn_total, &next_sortition_hash, &txids)
-        };
-        
         let mut make_snapshot_no_sortition = || {
-            BlockSnapshot::make_snapshot_no_sortition(sort_tx, my_sortition_id, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids)
+            BlockSnapshot::make_snapshot_no_sortition(sort_tx, my_sortition_id, my_pox_id, parent_snapshot, block_header,
+                                                      first_block_height, last_burn_total, &next_sortition_hash, &txids)
         };
 
         if burn_dist.len() == 0 {

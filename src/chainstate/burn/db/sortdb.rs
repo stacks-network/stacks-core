@@ -670,11 +670,9 @@ impl <'a> SortitionHandleTx <'a> {
         Ok(leader_keys)
     }
 
-    /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
-    /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
-    /// construction.
-    pub fn get_block_commit(&self, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        SortitionDB::get_block_commit(self.tx(), txid, burn_header_hash)
+    /// Get a block commit by its content-addressed location in a specific sortition.
+    pub fn get_block_commit(&self, txid: &Txid, sortition_id: &SortitionId) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        SortitionDB::get_block_commit(self.tx(), txid, sortition_id)
     }
 
     pub fn get_consensus_at(&mut self, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
@@ -931,7 +929,7 @@ impl <'a> SortitionHandleTx <'a> {
 impl <'a> SortitionHandleConn <'a> {
     /// open a reader handle from a consensus hash
     pub fn open_reader_consensus(connection: &'a SortitionDBConn<'a>, chain_tip: &ConsensusHash) -> Result<SortitionHandleConn<'a>, db_error> {
-        let sn = match SortitionDB::get_block_snapshot_consensus(&connection.conn, chain_tip)? {
+        let sn = match SortitionDB::get_block_snapshot_consensus(connection.conn(), chain_tip)? {
             Some(sn) => sn,
             None => {
                 test_debug!("No such chain tip consensus hash {}", chain_tip);
@@ -1135,26 +1133,6 @@ impl <'a> SortitionHandleConn <'a> {
         query_row(self.conn(), qry, &[&txid])
     }
 
-    /// Get a block commit by its content-addressed location in a specific sortition.
-    pub fn get_block_commit(&self, txid: &Txid, sortition_id: &SortitionId) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND sortition_id = ?2";
-        let args: [&dyn ToSql; 2] = [&txid, &sortition_id];
-        query_row(self.conn(), qry, &args)
-    }
-
-    /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
-    /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
-    /// construction.
-    #[cfg(test)]
-    pub fn get_block_committ(&self, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND burn_header_hash = ?2";
-        let args: [&dyn ToSql; 2] = [&txid, &burn_header_hash];
-        // note: it's okay just grab the first result if there are multiple entries (because of PoX forks)
-        //       because all the content in the LeaderBlockCommitOp is content-addresses (i.e., the sortition_id isn't
-        //       included in that struct)
-        query_row(self.conn(), qry, &args)
-    }
-
     /// Return a vec of sortition winner's burn header hash and stacks header hash, ordered by
     ///   increasing block height in the range (block_height_begin, block_height_end]
     fn get_sortition_winners_in_fork(&self, block_height_begin: u32, block_height_end: u32) -> Result<Vec<(Txid, u64)>,  BurnchainError> {
@@ -1246,7 +1224,6 @@ impl <'a> SortitionHandleConn <'a> {
 
         Ok(result)
     }
->>>>>>> next
 }
 
 impl PoxId {
@@ -1342,8 +1319,7 @@ impl SortitionDB {
             return Err(db_error::ReadOnly);
         }
 
-        let tx = tx_begin_immediate(&mut self.conn)?;
-        Ok(SortitionHandleTx::new(tx, &mut self.marf,
+        Ok(SortitionHandleTx::new(&mut self.marf,
                                   SortitionHandleContext {
                                       first_block_height: self.first_block_height,
                                       chain_tip: chain_tip.clone() }))
@@ -1472,6 +1448,13 @@ impl SortitionDB {
         Ok(())
     }
 
+    /// Get a block commit by its content-addressed location in a specific sortition.
+    pub fn get_block_commit(conn: &Connection, txid: &Txid, sortition_id: &SortitionId) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND sortition_id = ?2";
+        let args: [&dyn ToSql; 2] = [&txid, &sortition_id];
+        query_row(conn, qry, &args)
+    }
+
     /// Load up all snapshots, in ascending order by block height.  Great for testing!
     pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
@@ -1527,7 +1510,7 @@ impl <'a> SortitionDBConn <'a> {
             }
 
             // cache miss
-            let ancestor_snapshot = SortitionDB::get_block_snapshot_consensus(&db_handle.conn, &ancestor_consensus_hash)?
+            let ancestor_snapshot = SortitionDB::get_block_snapshot_consensus(db_handle.conn(), &ancestor_consensus_hash)?
                 .expect(&format!("Discontiguous index: missing block for consensus hash {}", ancestor_consensus_hash));
             let header_hash_opt = 
                 if ancestor_snapshot.sortition {
@@ -1637,11 +1620,11 @@ impl SortitionDB {
     }
 
     pub fn invalidate_descendants_of(&mut self, burn_block: &BurnchainHeaderHash) -> Result<(), BurnchainError> {
-        let db_tx = self.conn.transaction()?;
+        let db_tx = self.tx_begin()?;
         let mut queue = vec![burn_block.clone()];
 
         while let Some(header) = queue.pop() {
-            db_tx.execute("UPDATE snapshots SET pox_valid = 0 WHERE parent_burn_header_hash = ?", &[&header])?;
+            db_tx.tx().execute("UPDATE snapshots SET pox_valid = 0 WHERE parent_burn_header_hash = ?", &[&header])?;
             let mut stmt = db_tx.prepare("SELECT DISTINCT burn_header_hash FROM snapshots WHERE parent_burn_header_hash = ?")?;
             for next_header in stmt.query_map(&[&header], |row| row.get(0))? {
                 queue.push(next_header?);
@@ -1661,7 +1644,7 @@ impl SortitionDB {
                 .expect("CORRUPTION: DB stored bad sortition ID"),
             None => return Ok(None)
         };
-        let snapshot = SortitionDB::get_block_snapshot(&self.conn, &prepare_end_sortid)?
+        let snapshot = SortitionDB::get_block_snapshot(self.conn(), &prepare_end_sortid)?
             .expect(&format!("BUG: Sortition ID for prepare phase end is known, but no BlockSnapshot is stored: {}",
                             &prepare_end_sortid));
         Ok(Some(snapshot))
@@ -1731,6 +1714,12 @@ impl SortitionDB {
         Ok(new_snapshot)
     }
 
+    pub fn is_stacks_block_in_sortition_set(&self, sortition_id: &SortitionId, block_to_check: &BlockHeaderHash) -> Result<bool, BurnchainError> {
+        let result = self.index_handle(sortition_id)
+            .get_tip_indexed(&db_keys::stacks_block_present(block_to_check))?;
+        Ok(result.is_some())
+    }
+
     pub fn latest_stacks_blocks_processed(&self, sortition_id: &SortitionId) -> Result<u64, BurnchainError> {
         let db_handle = self.index_handle(sortition_id);
         SortitionDB::get_max_arrival_index(&db_handle)
@@ -1746,19 +1735,6 @@ impl SortitionDB {
         let qry = "SELECT * FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         query_row(conn, qry, NO_PARAMS)
             .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
-    }
-
-    /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
-    /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
-    /// construction.
-    pub fn get_block_commit(c: &Connection, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        // PoX TODO: note -- block_commits table will index on burn_header_hash: if a block_commit is reprocessed due to a PoX fork,
-        //                   it should be allowed to either overwrite the previous entry OR skip insertion (i.e., UNIQUE constraints
-        //                   should not be allowed to cause a panic)
-        let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND burn_header_hash = ?2";
-        let args: [&dyn ToSql; 2] = [&txid, &burn_header_hash];
-        query_row_panic(c, qry, &args,
-                        || format!("FATAL: multiple block commits for {},{}", &txid, &burn_header_hash))
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
@@ -2145,8 +2121,9 @@ impl <'a> SortitionHandleTx <'a> {
         Ok(())
     }
 
-    fn get_pox_id(&self) -> Result<PoxId, db_error> {
-        let pox_id = self.get_indexed(&self.context.chain_tip, db_keys::pox_identifier())?
+    fn get_pox_id(&mut self) -> Result<PoxId, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let pox_id = self.get_indexed(&chain_tip, db_keys::pox_identifier())?
             .map(|s| s.parse().expect("BUG: Bad PoX identifier stored in DB"))
             .expect("BUG: No PoX identifier stored.");
         Ok(pox_id)

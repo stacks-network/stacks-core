@@ -818,9 +818,9 @@ pub mod test {
 
             let new_seed = VRFSeed::from_proof(&proof);
 
-            let get_commit_res = ic.as_handle(&last_snapshot_with_sortition.sortition_id)
-                .get_block_commit(&last_snapshot_with_sortition.winning_block_txid,
-                                  &last_snapshot_with_sortition.sortition_id)
+            let get_commit_res = SortitionDB::get_block_commit(ic.conn(),
+                                                               &last_snapshot_with_sortition.winning_block_txid,
+                                                               &last_snapshot_with_sortition.sortition_id)
                 .expect("FATAL: failed to read block commit");
             let mut txop = match get_commit_res {
                 Some(parent) => {

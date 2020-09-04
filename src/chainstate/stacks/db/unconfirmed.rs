@@ -217,7 +217,7 @@ impl StacksChainState {
             }
         }
 
-        let block_cost = StacksChainState::get_stacks_block_anchored_cost(&self.headers_db, &canonical_tip)?
+        let block_cost = StacksChainState::get_stacks_block_anchored_cost(self.headers_db(), &canonical_tip)?
             .ok_or_else(|| Error::NoSuchBlockError)?;
 
         // tip changed, or we don't have unconfirmed state yet

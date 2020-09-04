@@ -613,7 +613,7 @@ impl Relayer {
                     // TODO(PoX): blocks_data will contain consensus hashes instead of burn header
                     // hashes in the near future, so this translation step can be removed then.
                     let sort_id = SortitionId::stubbed(burn_header_hash);
-                    let consensus_hash = match SortitionDB::get_block_snapshot(sort_ic.conn, &sort_id)? {
+                    let consensus_hash = match SortitionDB::get_block_snapshot(sort_ic.conn(), &sort_id)? {
                         Some(sn) => sn.consensus_hash,
                         None => {
                             warn!("Burnchain block {} not known to this node", burn_header_hash);

@@ -274,7 +274,7 @@ fn make_stacks_block(sort_db: &SortitionDB, state: &mut StacksChainState,
         .unwrap().unwrap();
 
     eprintln!("Find parents stacks header: {} in sortition {}", &parent_block, &parents_sortition.sortition_id); 
-    let parent_stacks_header = StacksChainState::get_anchored_block_header_info(&state.headers_db,
+    let parent_stacks_header = StacksChainState::get_anchored_block_header_info(state.headers_db(),
                                                                                 &parents_sortition.consensus_hash,
                                                                                 parent_block).unwrap().unwrap();
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
