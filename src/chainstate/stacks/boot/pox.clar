@@ -359,23 +359,10 @@
     (ok true))
 )
 
-;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
-;; The STX will be locked for the given number of reward cycles (lock-period).
-;; This is the self-service interface.  tx-sender will be the Stacker.
-;;
-;; * The given stacker cannot currently be stacking.
-;; * You will need the minimum uSTX threshold.  This will be determined by (get-stacking-minimum)
-;; at the time this method is called.
-;; * You may need to increase the amount of uSTX locked up later, since the minimum uSTX threshold
-;; may increase between reward cycles.
-;;
-;; The tokens will unlock and be returned to the Stacker (tx-sender) automatically.
-(define-public (stack-stx (amount-ustx uint)
-                          (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-                          (lock-period uint))
-    (let (
-        (this-contract (as-contract tx-sender))
-        
+(define-read-only (can-stacks-stx (amount-ustx uint)
+                                  (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                                  (lock-period uint))
+    (let (        
         ;; this stacker's first reward cycle is the _next_ reward cycle
         (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
     )
@@ -394,7 +381,36 @@
     ;; the Stacker must have sufficient unlocked funds
     (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
-    
+
+    (ok {
+        amount-ustx: amount-ustx,
+        pox-addr: pox-addr,
+        first-reward-cycle: first-reward-cycle,
+        lock-period: lock-period
+    }))
+)
+
+;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
+;; The STX will be locked for the given number of reward cycles (lock-period).
+;; This is the self-service interface.  tx-sender will be the Stacker.
+;;
+;; * The given stacker cannot currently be stacking.
+;; * You will need the minimum uSTX threshold.  This will be determined by (get-stacking-minimum)
+;; at the time this method is called.
+;; * You may need to increase the amount of uSTX locked up later, since the minimum uSTX threshold
+;; may increase between reward cycles.
+;;
+;; The tokens will unlock and be returned to the Stacker (tx-sender) automatically.
+(define-public (stack-stx (amount-ustx uint)
+                          (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                          (lock-period uint))
+    (let (
+        ;; this stacker's first reward cycle is the _next_ reward cycle
+        (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
+    )
+    ;; ensure that stacking can be performed
+    (try! (can-stacks-stx amount-ustx pox-addr lock-period))
+
     ;; register the PoX address with the amount stacked
     (try!
         (register-pox-addr-checked pox-addr amount-ustx first-reward-cycle lock-period))
