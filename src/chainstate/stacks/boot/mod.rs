@@ -107,7 +107,7 @@ impl StacksChainState {
     /// reward cycle
     #[cfg(test)]
     pub fn get_stacking_minimum(&mut self, sortdb: &SortitionDB, stacks_block_id: &StacksBlockId) -> Result<u128, Error> {
-        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(at-block 0x{} (get-stacking-minimum (+ u1 (current-pox-reward-cycle))))", &stacks_block_id))
+        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(at-block 0x{} (get-stacking-minimum))", &stacks_block_id))
             .map(|value| value.expect_u128())
     }
     
@@ -706,16 +706,10 @@ pub mod test {
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_account.stx_balance.amount_unlocked, 1024 * 1000000);
                     assert_eq!(alice_account.stx_balance.amount_locked, 0);
-                    assert_eq!(alice_account.stx_balance.unlock_height, 0);
-                
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
+                    assert_eq!(alice_account.stx_balance.unlock_height, 0);                
                 }
-                else {
-                    // stacking minimum should be floor(total-liquid-ustx / 5000), since 25% is stacked
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
-                }
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
+                assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                 // no reward addresses
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
@@ -832,16 +826,10 @@ pub mod test {
                     // Alice has not locked up STX
                     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_balance, 1024 * 1000000);
-
-                    // stacking minimum should be floor(total-liquid-ustx / 20000)
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
                 }
-                else {
-                    // stacking minimum should be floor(total-liquid-ustx / 5000) now
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
-                }
+                // stacking minimum should be floor(total-liquid-ustx / 20000)
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
+                assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                 // no reward addresses
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
@@ -997,17 +985,12 @@ pub mod test {
                     // Bob has not locked up STX
                     let bob_balance = get_balance(&mut peer, &key_to_stacks_addr(&bob).into());
                     assert_eq!(bob_balance, 1024 * 1000000);
-                
-                    // stacking minimum should be floor(total-liquid-ustx / 20000)
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
-                }
-                else {
-                    // stacking minimum should be floor(total-liquid-ustx / 5000)
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
                 }
 
+                // stacking minimum should be floor(total-liquid-ustx / 20000)
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
+                assert_eq!(min_ustx, total_liquid_ustx / 20000);
+                
                 // no reward addresses
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
@@ -1047,7 +1030,7 @@ pub mod test {
                     }
                     
                     // well over 25% locked, so this is always true
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
+                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                     // two reward addresses, and they're Alice's and Bob's.
                     // They are present in insertion order
@@ -1263,20 +1246,12 @@ pub mod test {
                     // Alice has not locked up STX
                     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_balance, 1024 * 1000000);
-
-                    // stacking minimum should be floor(total-liquid-ustx / 20000)
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
-                }
-                else {
-                    // stacking minimum should be floor(total-liquid-ustx / 5000)
-
-
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
                 }
 
+                // stacking minimum should be floor(total-liquid-ustx / 20000)
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
+                assert_eq!(min_ustx, total_liquid_ustx / 20000);
+                
                 // no reward addresses
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
@@ -1445,17 +1420,12 @@ pub mod test {
 
                     // Charlie's contract has not locked up STX
                     assert_eq!(charlie_balance, 0);
+                }
 
-                    // stacking minimum should be floor(total-liquid-ustx / 20000), because we haven't
-                    // stacked yet.
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
-                }
-                else {
-                    // stacking minimum should be floor(total-liquid-ustx / 5000)
-                    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
-                }
+                // stacking minimum should be floor(total-liquid-ustx / 20000)
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
+                assert_eq!(min_ustx, total_liquid_ustx / 20000);
+
 
                 // no reward addresses
                 assert_eq!(reward_addrs.len(), 0);
@@ -1835,13 +1805,9 @@ pub mod test {
                         assert_eq!(balance, expected_balance);
                     }
 
-                    // stacking minimum should be floor(total-liquid-ustx / 20000), because we haven't
-                    // stacked yet.
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
                 }
-                else {
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
-                }
+                // stacking minimum should be floor(total-liquid-ustx / 20000)
+                assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                 // no reward addresses
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
@@ -2062,12 +2028,9 @@ pub mod test {
                     assert_eq!(alice_account.stx_balance.amount_locked, 0);
                     assert_eq!(alice_account.stx_balance.unlock_height, 0);
                 
-                    // stacking minimum should be floor(total-liquid-ustx / 20000)
-                    assert_eq!(min_ustx, total_liquid_ustx / 20000);
                 }
-                else {
-                    assert_eq!(min_ustx, total_liquid_ustx / 5000);
-                }
+
+                assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                 // no reward addresses
                 assert_eq!(reward_addrs.len(), 0);

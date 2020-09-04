@@ -311,15 +311,8 @@
 
 ;; What is the minimum number of uSTX to be stacked in the given reward cycle?
 ;; Used internally by the Stacks node, and visible publicly.
-(define-read-only (get-stacking-minimum (reward-cycle uint))
-    (let (
-        (ustx-stacked-so-far (get-total-ustx-stacked reward-cycle))
-    )
-    (if (< ustx-stacked-so-far (/ stx-liquid-supply u4))
-        ;; less than 25% of all liquid STX are stacked, so the threshold is smaller
-        (/ stx-liquid-supply STACKING-THRESHOLD-25)
-        ;; at least 25% of all liquid STX are stacked, so the threshold is larger
-        (/ stx-liquid-supply STACKING-THRESHOLD-100)))
+(define-read-only (get-stacking-minimum)
+    (/ stx-liquid-supply u20000)
 )
 
 ;; Is the address mode valid for a PoX burn address?
@@ -342,7 +335,7 @@
                                            (first-reward-cycle uint)
                                            (num-cycles uint))
     (let (
-        (ustx-min (get-stacking-minimum first-reward-cycle))
+        (ustx-min (get-stacking-minimum))
         (is-registered (is-pox-addr-registered pox-addr first-reward-cycle num-cycles))
     )
     ;; can't be registered yet
