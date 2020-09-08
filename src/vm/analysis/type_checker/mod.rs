@@ -127,8 +127,10 @@ impl FunctionType {
                 }
                 Err(CheckErrors::UnionTypeError(arg_types.clone(), found_type.clone()).into())
             },
-            FunctionType::ArithmeticVariadic | FunctionType::ArithmeticBinary => {
-                if self == &FunctionType::ArithmeticBinary {
+            FunctionType::ArithmeticVariadic | FunctionType::ArithmeticBinary | FunctionType::ArithmeticUnary => {
+                if self == &FunctionType::ArithmeticUnary {
+                    check_argument_count(1, args)?;
+                }                if self == &FunctionType::ArithmeticBinary {
                     check_argument_count(2, args)?;
                 }
                 let (first, rest) = args.split_first()
