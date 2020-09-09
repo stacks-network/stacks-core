@@ -584,13 +584,14 @@ impl InitializedNeonNode {
         }
 
         if let Some(burnchain_tip) = self.last_burn_block.clone() {
-            if let Some(key) = self.active_keys.pop() {
+            if let Some(key) = self.active_keys.first() {
+                debug!("Using key {:?}", &key.vrf_public_key);
                 // sleep a little before building the anchor block, to give any broadcasted 
                 //   microblocks time to propagate.
                 info!("Sleeping {} before issuing tenure", self.sleep_before_tenure);
                 thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
                 self.relay_channel
-                    .send(RelayerDirective::RunTenure(key, burnchain_tip))
+                    .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
                     .is_ok()
             } else {
                 warn!("Skipped tenure because no active VRF key. Trying to register one.");
@@ -762,8 +763,6 @@ impl InitializedNeonNode {
             VRFSeed::from_proof(&vrf_proof));
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer);
-
-        rotate_vrf_and_register(keychain, &burn_block, bitcoin_controller);
 
         Some(AssembledAnchorBlock {
             parent_consensus_hash: parent_consensus_hash,
