@@ -7,6 +7,7 @@ use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle};
+use std::time::{ Duration, Instant };
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, PublicKey, Txid};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
@@ -27,6 +28,8 @@ use stacks::chainstate::stacks::{
     TransactionVersion,
 };
 use stacks::core::mempool::MemPoolDB;
+use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks::util::db::DBConn;
 use stacks::net::{
     db::{LocalPeer, PeerDB},
     dns::DNSResolver,
@@ -79,6 +82,8 @@ pub struct InitializedNeonNode {
     active_keys: Vec<RegisteredKey>,
     sleep_before_tenure: u64,
     is_miner: bool,
+    blocks_db: DBConn,
+    blocks_path: String,
 }
 
 pub struct NeonGenesisNode {
@@ -86,6 +91,8 @@ pub struct NeonGenesisNode {
     keychain: Keychain,
     event_dispatcher: EventDispatcher,
     burnchain: Burnchain,
+    blocks_db: DBConn,
+    blocks_path: String,
 }
 
 #[cfg(test)]
@@ -594,6 +601,8 @@ impl InitializedNeonNode {
         keychain: Keychain,
         event_dispatcher: EventDispatcher,
         last_burn_block: Option<BurnchainTip>,
+        blocks_db: DBConn,
+        blocks_path: String,
         miner: bool,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
@@ -726,6 +735,8 @@ impl InitializedNeonNode {
             is_miner,
             sleep_before_tenure,
             active_keys,
+            blocks_db,
+            blocks_path,
         }
     }
 
@@ -746,9 +757,41 @@ impl InitializedNeonNode {
                     self.sleep_before_tenure
                 );
                 thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
-                self.relay_channel
-                    .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
-                    .is_ok()
+
+                const MAX_WAIT_FOR_STACKS_BLOCK: u64 = 15_000;  // TODO(psq): make it a configuration option, next to wait_time_for_microblocks
+                const RUN_TENURE_NO_MATTER_WHAT: bool = false;  // TODO(psq): make it a configuration option, set to true if you'd rather 
+
+                // wait till we have the Stacks block for the last burnblock
+                // TODO(psq): also consider not mining if previous block was a fork off an older block?
+                let mut done = false;
+                let start = Instant::now();
+                let mut has_block = false;
+
+                while !done {
+                    has_block = burnchain_tip.winning_stacks_block_hash == BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap() || match StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, &burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash) {
+                        Ok(has_block) => {
+                            has_block
+                        },
+                        _ => {
+                            // TODO(psq): panic instead?
+                            warn!("block not found in storage");
+                            false
+                        }
+                    };
+                    println!("has_block [{:?}] {:?}", thread::current().id(), has_block);
+                    thread::sleep(Duration::from_millis(1_000));
+                    done = has_block || start.elapsed() > Duration::from_millis(MAX_WAIT_FOR_STACKS_BLOCK);
+                }
+                println!("has_block - final [{:?}] {:?} {:?} ms", thread::current().id(), has_block, start.elapsed().as_millis());
+                debug_assert!(has_block, "did not get Stacks block in time");
+                if has_block || RUN_TENURE_NO_MATTER_WHAT {
+                    self.relay_channel
+                        .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
+                        .is_ok()
+                } else {
+                    println!("skiping block [{:?}]", thread::current().id());
+                    true
+                }
             } else {
                 warn!("Skipped tenure because no active VRF key. Trying to register one.");
                 self.relay_channel
@@ -1130,7 +1173,7 @@ impl NeonGenesisNode {
             .collect();
 
         // do the initial open!
-        let (_chain_state, receipts) = match StacksChainState::open_and_exec(
+        let (chain_state, receipts) = match StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
@@ -1147,12 +1190,16 @@ impl NeonGenesisNode {
         };
 
         event_dispatcher.process_boot_receipts(receipts);
+        let blocks_db = chain_state.blocks_db;
+        let blocks_path = chain_state.blocks_path;
 
         Self {
             keychain,
             config,
             event_dispatcher,
             burnchain,
+            blocks_db,
+            blocks_path,
         }
     }
 
@@ -1171,6 +1218,8 @@ impl NeonGenesisNode {
             keychain,
             event_dispatcher,
             Some(burnchain_tip),
+            self.blocks_db,
+            self.blocks_path,
             true,
             blocks_processed,
             coord_comms,
@@ -1193,6 +1242,8 @@ impl NeonGenesisNode {
             keychain,
             event_dispatcher,
             Some(burnchain_tip),
+            self.blocks_db,
+            self.blocks_path,
             false,
             blocks_processed,
             coord_comms,

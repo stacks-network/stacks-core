@@ -45,6 +45,8 @@ pub trait BurnchainController {
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, blocks_count: u64);
+    #[cfg(test)]
+    fn generate_to_address(&mut self, local_mining_pubkey: &str, num_blocks: u64);
 }
 
 #[derive(Debug, Clone)]

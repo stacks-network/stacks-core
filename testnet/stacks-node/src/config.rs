@@ -849,7 +849,7 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
-            wait_time_for_microblocks: 15000,
+            wait_time_for_microblocks: 15_000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
         }

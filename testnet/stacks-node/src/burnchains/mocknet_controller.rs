@@ -241,4 +241,6 @@ impl BurnchainController for MocknetController {
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, _num_blocks: u64) {}
+    #[cfg(test)]
+    fn generate_to_address(&mut self, _local_mining_pubkey: &str, _num_blocks: u64) {}
 }

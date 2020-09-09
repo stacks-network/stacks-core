@@ -910,14 +910,21 @@ impl BurnchainController for BitcoinRegtestController {
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, num_blocks: u64) {
-        if let Some(local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
-            let pk = hex_bytes(&local_mining_pubkey).expect("Invalid byte sequence");
-            let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
-            let (_, network_id) = self.config.burnchain.get_bitcoin_network();
-            let address =
-                BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
-                    .expect("Public key incorrect");
+        if let Some(local_mining_pubkey) = &self.config.burnchain.local_mining_public_key.clone() {
+            self.generate_to_address(local_mining_pubkey, num_blocks);
+        }
+    }
 
+    #[cfg(test)]
+    fn generate_to_address(&mut self, local_mining_pubkey: &str, num_blocks: u64) {
+        let pk = hex_bytes(&local_mining_pubkey).expect("Invalid byte sequence");
+        let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
+        let address =
+            BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
+                .expect("Public key incorrect");
+
+        println!("Generating BTC for {:?}", address.to_b58());
             let _result = BitcoinRPCRequest::import_public_key(
                 &self.config,
                 &Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap(),
@@ -926,12 +933,11 @@ impl BurnchainController for BitcoinRegtestController {
             let result =
                 BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, address.to_b58());
 
-            match result {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Bitcoin RPC failure: error generating block {:?}", e);
-                    panic!();
-                }
+        match result {
+            Ok(_) => {},
+            Err(e) => {
+                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                panic!();
             }
         }
     }
