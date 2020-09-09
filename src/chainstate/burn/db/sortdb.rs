@@ -2183,8 +2183,7 @@ impl <'a> SortitionHandleTx <'a> {
         for block_op in block_ops {
             if let BlockstackOperationType::LeaderKeyRegister(ref data) = block_op {
                 keys.push(db_keys::vrf_key_status(&data.public_key));
-                values.push("1".to_string());       // indicates "available"
-                // TODO(psq): now that keys can be reused, does it matter what the value is?  As long as the key (of the key) exists
+                values.push("1".to_string()); // the value is no longer used, but the key needs to exist to figure whether a key was registered
             }
         }
 
