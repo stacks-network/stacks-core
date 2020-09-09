@@ -425,9 +425,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     db.initialize();
                     db.begin();
                     for (principal, amount) in allocations.iter() {
-                        let mut balance = STXBalance::zero();
-                        balance.credit(*amount as u128, 0)
-                            .expect("STX overflow");
+                        let balance = STXBalance::initial(*amount as u128);
                         db.set_account_stx_balance(principal, &balance);
                         println!("{} credited: {} uSTX", principal, balance.get_total_balance());
                     }

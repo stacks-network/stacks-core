@@ -1609,8 +1609,7 @@ mod test {
             let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
             let mut env = OwnedEnvironment::new(conn);
-            let mut balance = STXBalance::zero();
-            balance.credit(10000, 0).unwrap();
+            let balance = STXBalance::initial(1000);
             env.execute_in_env(QualifiedContractIdentifier::local("tokens").unwrap().into(),
                                |e| {
                                    e.global_context.database.set_account_stx_balance(

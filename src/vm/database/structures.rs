@@ -121,6 +121,14 @@ impl STXBalance {
         }
     }
 
+    pub fn initial(amount_unlocked: u128) -> STXBalance {
+        STXBalance {
+            amount_unlocked,
+            amount_locked: 0,
+            unlock_height: 0,
+        }
+    }
+
     pub fn get_available_balance_at_block(&self, block_height: u64) -> u128 {
         match self.has_locked_tokens_unlockable(block_height) {
             true => self.get_total_balance(),
