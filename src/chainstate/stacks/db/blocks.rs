@@ -3367,10 +3367,12 @@ impl StacksChainState {
                 return Err(MemPoolRejection::BadAddressVersionByte)
         }
 
-        // todo(ludo)
+        let block_height = clarity_connection.with_clarity_db_readonly(|ref mut db| {
+            db.get_current_burnchain_block_height() as u64
+        });
 
         // 5: the paying account must have enough funds
-        if  !payer.stx_balance.can_transfer(fee as u128, 0) {
+        if  !payer.stx_balance.can_transfer(fee as u128, block_height) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
                     // pass: we'll return a total_spent failure below.
@@ -3396,8 +3398,8 @@ impl StacksChainState {
                     } else {
                         0
                     };
-                if !origin.stx_balance.can_transfer(total_spent, 0) {
-                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance.get_available_balance_at_block(0)))
+                if !origin.stx_balance.can_transfer(total_spent, block_height) {
+                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance.get_available_balance_at_block(block_height)))
                 }
             },
             TransactionPayload::ContractCall(TransactionContractCall {
