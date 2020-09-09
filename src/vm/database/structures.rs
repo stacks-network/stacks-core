@@ -134,7 +134,10 @@ impl STXBalance {
             debug!("Consolidated after account-token-lock");
         }
 
-        // todo(ludo): Also check that unlock_height > current_height
+        if unlock_height <= current_height {
+            panic!("FATAL: Can't set a lock with expired unlock_height");
+        }
+
         if self.has_locked_tokens(current_height) {
             return Err(STXBalanceError::LockActive)
         }
