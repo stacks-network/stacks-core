@@ -249,7 +249,8 @@ fn make_genesis_block_with_recipients(sort_db: &SortitionDB, state: &mut StacksC
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
-        recipients.recipients.iter().map(|(a, _)| a.clone()).collect()
+        let (addr, _) = recipients.recipient;
+        vec![addr]
     } else {
         vec![]
     };
@@ -331,7 +332,8 @@ fn make_stacks_block_with_recipients(sort_db: &SortitionDB, state: &mut StacksCh
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
-        recipients.recipients.iter().map(|(a, _)| a.clone()).collect()
+        let (addr, _) = recipients.recipient;
+        vec![addr]
     } else {
         vec![]
     };
@@ -519,7 +521,7 @@ fn test_sortition_with_reward_set() {
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
     let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
 
-    let reward_set_size = 15;
+    let reward_set_size = 5;
     let reward_set: Vec<_> = (0..reward_set_size).map(|_| p2pkh_from(&StacksPrivateKey::new())).collect();
 
     setup_states(&[path], &vrf_keys, &committers);
@@ -601,11 +603,10 @@ fn test_sortition_with_reward_set() {
         }
         let next_block_recipients = get_rw_sortdb(path).test_get_next_block_recipients(reward_cycle_info.as_ref()).unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
-            for (addr, _) in next_block_recipients.recipients.iter() {
-                assert!(!reward_recipients.contains(addr), "Reward set should not already contain address {}", addr);
-                eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
-                reward_recipients.insert(addr.clone());
-            }
+            let (addr, _) = next_block_recipients.recipient;
+            assert!(!reward_recipients.contains(&addr), "Reward set should not already contain address {}", addr);
+            eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
+            reward_recipients.insert(addr.clone());
         }
 
         let (good_op, mut block) =
@@ -638,14 +639,14 @@ fn test_sortition_with_reward_set() {
 
             // sometime have the wrong _number_ of recipients,
             //   other times just have the wrong set of recipients
-            let recipients = if ix % 2 == 0 {
-                vec![(p2pkh_from(miner_wrong_out), 0)]
+            let recipient = if ix % 2 == 0 {
+                (p2pkh_from(miner_wrong_out), 0)
             } else {
-                (0..OUTPUTS_PER_COMMIT).map(|ix| (p2pkh_from(&StacksPrivateKey::new()), ix as u16)).collect()
+                (p2pkh_from(&StacksPrivateKey::new()), 0)
             };
             let bad_block_recipipients = Some(RewardSetInfo {
                 anchor_block: BlockHeaderHash([0; 32]),
-                recipients
+                recipient
             });
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db, &mut chainstate, &parent, miner_wrong_out, 10000, vrf_burner, (ix + WRONG_OUTS_OFFSET) as u32,

@@ -339,7 +339,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
 
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
-    pub recipients: Vec<(StacksAddress, u16)>
+    pub recipient: (StacksAddress, u16)
 }
 
 impl LeaderBlockCommitOp {
@@ -372,17 +372,16 @@ impl LeaderBlockCommitOp {
             let expect_pox_descendant = if self.commit_outs.len() == 0 {
                 false
             } else {
-                if self.commit_outs.len() != reward_set_info.recipients.len() {
+                if self.commit_outs.len() != 1 {
                     warn!("Invalid block commit: expected {} PoX transfers, but commit has {}",
-                          reward_set_info.recipients.len(), self.commit_outs.len());
+                          1, self.commit_outs.len());
                     return Err(op_error::BlockCommitBadOutputs)
                 }
-                for (expected_commit, _) in reward_set_info.recipients.iter() {
-                    if !self.commit_outs.contains(expected_commit) {
-                        warn!("Invalid block commit: expected to send funds to {}, but that address is not in the committed output set",
-                              expected_commit);
-                        return Err(op_error::BlockCommitBadOutputs)
-                    }
+                let (expected_commit, _) = reward_set_info.recipient;
+                if !self.commit_outs.contains(&expected_commit) {
+                    warn!("Invalid block commit: expected to send funds to {}, but that address is not in the committed output set",
+                          expected_commit);
+                    return Err(op_error::BlockCommitBadOutputs)
                 }
                 true
             };
