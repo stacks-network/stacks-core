@@ -453,7 +453,8 @@ impl <'a> OwnedEnvironment <'a> {
         self.execute_in_env(recipient.clone().into(),
                             |env| {
                                 let mut balance = env.global_context.database.get_account_stx_balance(recipient);
-                                balance.credit(amount, 0).unwrap();
+                                let block_height = env.global_context.database.get_current_burnchain_block_height();
+                                balance.credit(amount, block_height as u64).unwrap();
                                 env.global_context.database.set_account_stx_balance(recipient, &balance);
                                 Ok(())
                             }).unwrap();
