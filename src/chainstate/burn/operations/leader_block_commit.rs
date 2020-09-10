@@ -573,43 +573,6 @@ mod tests {
         assert_eq!(op.commit_outs.len(), 1);
         assert_eq!(op.burn_fee, 10);
 
-        // let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
-        //     txid: Txid([0; 32]), vtxindex: 0,
-        //     opcode: Opcodes::LeaderBlockCommit as u8,
-        //     data: vec![1; 80],
-        //     inputs: vec![BitcoinTxInput {
-        //         keys: vec![],
-        //         num_required: 0,
-        //         in_type: BitcoinInputType::Standard
-        //     }],
-        //     outputs: vec![
-        //         BitcoinTxOutput {
-        //             units: 10,
-        //             address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
-        //                                       network_id: BitcoinNetworkType::Mainnet,
-        //                                       bytes: Hash160([1; 20]) }
-        //         },
-        //         BitcoinTxOutput {
-        //             units: 10,
-        //             address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
-        //                                       network_id: BitcoinNetworkType::Mainnet,
-        //                                       bytes: Hash160([2; 20]) }
-        //         },
-        //         BitcoinTxOutput {
-        //             units: 29,
-        //             address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
-        //                                       network_id: BitcoinNetworkType::Mainnet,
-        //                                       bytes: Hash160([0; 20]) }
-        //         },
-        //     ],
-        // });
-
-        // // burn amount should have been 30, not 29
-        // match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
-        //     op_error::ParseError => {},
-        //     _ => unreachable!(),
-        // };
-
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             txid: Txid([0; 32]), vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
