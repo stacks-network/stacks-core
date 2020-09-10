@@ -528,11 +528,9 @@ impl BitcoinRegtestController {
                     .to_standard()
                     .serialize_der()
             };
-            // sig1_der.push(sig_hash_all as u8);
     
             tx.input[i].script_sig = Builder::new()
-                .push_slice(&sig1_der)
-                .push_slice(&[sig_hash_all as u8])
+                .push_slice(&[&*sig1_der, &[sig_hash_all as u8][..]].concat())
                 .push_slice(&public_key.to_bytes())
                 .into_script();   
         }
