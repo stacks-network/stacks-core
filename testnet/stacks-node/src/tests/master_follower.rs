@@ -17,7 +17,9 @@ fn neon_integration_test_conf_master() -> Config {
     conf.node.p2p_bind = "127.0.0.1:20544".into();
     conf.node.p2p_address = "127.0.0.1:20544".into();
     conf.node.data_url = "http://127.0.0.1:20543".into();
-    conf.node.wait_time_for_microblocks = 15_000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.wait_time_for_stacks_block = 15_000;
+    conf.node.run_tenure_with_missing_block = true;
 
     let keychain = Keychain::default(conf.node.seed.clone());
 
@@ -46,6 +48,8 @@ fn neon_integration_test_conf_miner() -> Config {
     conf.node.set_bootstrap_node(Some("047464c40a958bed5db5053fb79c331b8b430acd495dffe09ba43373bc9303604b84f26a305e1d9260de96f3b63e51d2d2213ae782be38992b3084cf01ad76a242@127.0.0.1:20544".to_string()));
     conf.node.seed = hex_bytes("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
     conf.node.wait_time_for_microblocks = 0;
+    conf.node.wait_time_for_stacks_block = 15_000;
+    conf.node.run_tenure_with_missing_block = true;
 
     let keychain = Keychain::default(conf.node.seed.clone());
 

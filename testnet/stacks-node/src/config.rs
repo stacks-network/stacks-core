@@ -354,6 +354,12 @@ impl Config {
                     wait_time_for_microblocks: node
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
+                    wait_time_for_stacks_block: node
+                        .wait_time_for_stacks_block
+                        .unwrap_or(default_node_config.wait_time_for_stacks_block),
+                    run_tenure_with_missing_block: node
+                        .run_tenure_with_missing_block
+                        .unwrap_or(default_node_config.run_tenure_with_missing_block),
                     prometheus_bind: node.prometheus_bind,
                     pox_sync_sample_secs: node
                         .pox_sync_sample_secs
@@ -816,6 +822,8 @@ pub struct NodeConfig {
     pub miner: bool,
     pub mine_microblocks: bool,
     pub wait_time_for_microblocks: u64,
+    pub wait_time_for_stacks_block: u64,
+    pub run_tenure_with_missing_block: bool,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: u64,
 }
@@ -850,6 +858,8 @@ impl NodeConfig {
             miner: false,
             mine_microblocks: false,
             wait_time_for_microblocks: 15_000,
+            wait_time_for_stacks_block: 15_000,
+            run_tenure_with_missing_block: true,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
         }
@@ -949,6 +959,8 @@ pub struct NodeConfigFile {
     pub miner: Option<bool>,
     pub mine_microblocks: Option<bool>,
     pub wait_time_for_microblocks: Option<u64>,
+    pub wait_time_for_stacks_block: Option<u64>,
+    pub run_tenure_with_missing_block: Option<bool>,
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
 }

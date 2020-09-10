@@ -81,6 +81,8 @@ pub struct InitializedNeonNode {
     last_burn_block: Option<BlockSnapshot>,
     active_keys: Vec<RegisteredKey>,
     sleep_before_tenure: u64,
+    wait_time_for_stacks_block: u64,
+    run_tenure_with_missing_block: bool,
     is_miner: bool,
     blocks_db: DBConn,
     blocks_path: String,
@@ -727,6 +729,8 @@ impl InitializedNeonNode {
         let is_miner = miner;
 
         let active_keys = vec![];
+        let wait_time_for_stacks_block = config.node.wait_time_for_stacks_block;
+        let run_tenure_with_missing_block = config.node.run_tenure_with_missing_block;
 
         InitializedNeonNode {
             relay_channel: relay_send,
@@ -734,6 +738,8 @@ impl InitializedNeonNode {
             burnchain_signer,
             is_miner,
             sleep_before_tenure,
+            wait_time_for_stacks_block,
+            run_tenure_with_missing_block,
             active_keys,
             blocks_db,
             blocks_path,
@@ -758,9 +764,6 @@ impl InitializedNeonNode {
                 );
                 thread::sleep(std::time::Duration::from_millis(self.sleep_before_tenure));
 
-                const MAX_WAIT_FOR_STACKS_BLOCK: u64 = 15_000;  // TODO(psq): make it a configuration option, next to wait_time_for_microblocks
-                const RUN_TENURE_NO_MATTER_WHAT: bool = false;  // TODO(psq): make it a configuration option, set to true if you'd rather 
-
                 // wait till we have the Stacks block for the last burnblock
                 // TODO(psq): also consider not mining if previous block was a fork off an older block?
                 let mut done = false;
@@ -780,11 +783,11 @@ impl InitializedNeonNode {
                     };
                     println!("has_block [{:?}] {:?}", thread::current().id(), has_block);
                     thread::sleep(Duration::from_millis(1_000));
-                    done = has_block || start.elapsed() > Duration::from_millis(MAX_WAIT_FOR_STACKS_BLOCK);
+                    done = has_block || start.elapsed() > Duration::from_millis(self.wait_time_for_stacks_block);
                 }
                 println!("has_block - final [{:?}] {:?} {:?} ms", thread::current().id(), has_block, start.elapsed().as_millis());
                 debug_assert!(has_block, "did not get Stacks block in time");
-                if has_block || RUN_TENURE_NO_MATTER_WHAT {
+                if has_block || self.run_tenure_with_missing_block {
                     self.relay_channel
                         .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
                         .is_ok()
