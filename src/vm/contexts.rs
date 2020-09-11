@@ -13,6 +13,8 @@ use vm::ast::ContractAST;
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, cost_functions, CostErrors};
 use vm::ast;
 use vm::{eval, is_reserved};
+use vm::functions::handle_contract_call_special_cases;
+use vm::stx_transfer_consolidated;
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use chainstate::stacks::events::*;
@@ -441,12 +443,19 @@ impl <'a> OwnedEnvironment <'a> {
                             |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args, false))
     }
 
+    pub fn stx_transfer(&mut self, from: &PrincipalData, to: &PrincipalData, amount: u128) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+        self.execute_in_env(Value::Principal(from.clone()),
+                            |exec_env| exec_env.stx_transfer(from, to, amount))
+    }
+
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
         self.execute_in_env(recipient.clone().into(),
                             |env| {
-                                let bal = env.global_context.database.get_account_stx_balance(recipient);
-                                env.global_context.database.set_account_stx_balance(recipient, bal + amount);
+                                let mut balance = env.global_context.database.get_account_stx_balance(recipient);
+                                let block_height = env.global_context.database.get_current_burnchain_block_height();
+                                balance.credit(amount, block_height as u64).unwrap();
+                                env.global_context.database.set_account_stx_balance(recipient, &balance);
                                 Ok(())
                             }).unwrap();
     }
@@ -656,10 +665,20 @@ impl <'a,'b> Environment <'a,'b> {
 
         if make_read_only {
             self.global_context.roll_back();
-            result
-        } else {
-            self.global_context.handle_tx_result(result)
+            return result
         }
+
+        let result = self.global_context.handle_tx_result(result);
+        if let Ok(ref value) = result {
+            let sender_principal = self.sender.clone().map(|v| v.expect_principal());
+            handle_contract_call_special_cases(
+                &mut self.global_context.database, 
+                sender_principal.as_ref(),
+                &next_contract_context.contract_identifier,
+                &function.name, 
+                value)?;
+        }
+        result
     }
 
     pub fn evaluate_at_block(&mut self, bhh: StacksBlockId, closure: &SymbolicExpression, local: &LocalContext) -> Result<Value> {
@@ -719,6 +738,33 @@ impl <'a,'b> Environment <'a,'b> {
 
                 self.global_context.commit()?;
                 Ok(())
+            },
+            Err(e) => {
+                self.global_context.roll_back();
+                Err(e)
+            }
+        }
+    }
+
+    /// Top-level STX-transfer, invoked by TokenTransfer transactions.
+    /// Only commits if the inner stx_transfer_consolidated() returns an (ok true) value.
+    /// Rolls back if it returns an (err ..) value, or if the method itself fails for some reason
+    /// (miners should never build blocks that spend non-existent STX in a top-level token-transfer)
+    pub fn stx_transfer(&mut self, from: &PrincipalData, to: &PrincipalData, amount: u128) -> Result<Value> {
+        self.global_context.begin();
+        let result = stx_transfer_consolidated(self, from, to, amount);
+        match result {
+            Ok(value) => {
+                match value.clone().expect_result() {
+                    Ok(_) => {
+                        self.global_context.commit()?;
+                        Ok(value)
+                    },
+                    Err(_) => {
+                        self.global_context.roll_back();
+                        Err(InterpreterError::InsufficientBalance.into())
+                    }
+                }
             },
             Err(e) => {
                 self.global_context.roll_back();

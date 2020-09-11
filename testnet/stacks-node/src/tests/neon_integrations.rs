@@ -327,6 +327,9 @@ fn microblock_integration_test() {
     let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(&spender_sk, 1, 1000, &recipient.into(), 1000);
     let unconfirmed_tx = StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..]).unwrap();
 
+    // TODO (hack) instantiate the sortdb in the burnchain
+    let _ = btc_regtest_controller.sortdb_mut();
+
     // put it into a microblock
     let microblock = {
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
@@ -335,7 +338,7 @@ fn microblock_integration_test() {
 
         // NOTE: it's not a zero execution cost, but there's currently not an easy way to get the
         // block's cost (and it's not like we're going to overflow the block budget in this test).
-        make_microblock(&privk, &mut chainstate, consensus_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
+        make_microblock(&privk, &mut chainstate, &btc_regtest_controller.sortdb_ref().index_conn(), consensus_hash, stacks_block, ExecutionCost::zero(), vec![unconfirmed_tx])
     };
 
     let mut microblock_bytes = vec![];

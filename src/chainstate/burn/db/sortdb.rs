@@ -378,6 +378,8 @@ const BURNDB_SETUP : &'static [&'static str]= &[
     r#"
     CREATE UNIQUE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);
     CREATE UNIQUE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);
+    CREATE UNIQUE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);
+    CREATE UNIQUE INDEX snapshots_burn_hashes ON snapshots(block_height,burn_header_hash)
     CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);
     CREATE INDEX arrival_indexes ON snapshots(arrival_index);
     "#,
@@ -784,8 +786,7 @@ impl <'a> SortitionHandleTx <'a> {
                     SortitionDB::insert_accepted_stacks_block_pointer(self, &burn_tip.consensus_hash, consensus_hash, stacks_block_hash, stacks_block_height)?;
                 },
                 None => {
-                    debug!("Accepted Stacks block {}/{} does NOT build on a Stacks tip in this burnchain fork ({}) -- no parent {} in this fork", 
-                           consensus_hash, stacks_block_hash, &burn_tip.burn_header_hash, parent_stacks_block_hash);
+                    debug!("Accepted Stacks block {}/{} does NOT build on a Stacks tip in this burnchain fork ({}) -- no parent {} in this fork", consensus_hash, stacks_block_hash, &burn_tip.burn_header_hash, parent_stacks_block_hash);
                 }
             }
         }
@@ -857,6 +858,17 @@ impl <'a> SortitionHandleConn <'a> {
             },
             index: &connection.index,
         })
+    }
+
+    /// Represent the inner tipless database connection
+    pub fn as_tipless_conn(&self) -> SortitionDBConn<'a> {
+        SortitionDBConn {
+            conn: &self.conn,
+            context: SortitionDBTxContext {
+                first_block_height: self.context.first_block_height
+            },
+            index: &self.index
+        }
     }
 
     fn get_tip_indexed(&self, key: &str) -> Result<Option<String>, db_error> {
@@ -1464,7 +1476,6 @@ impl SortitionDB {
         db_tx.insert_block_snapshot(&first_snapshot)?;
         db_tx.store_transition_ops(&first_snapshot.sortition_id, &BurnchainStateTransition::noop())?;
 
-
         db_tx.commit()?;
         Ok(())
     }
@@ -1601,6 +1612,20 @@ impl <'a> SortitionDBConn <'a> {
             burn_stable_consensus_hash: stable_snapshot.consensus_hash,
             last_consensus_hashes: last_consensus_hashes
         })
+    }
+
+    /// Get the height of a burnchain block
+    pub fn inner_get_burn_block_height(&self, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, db_error> {
+        let qry = "SELECT block_height FROM snapshots WHERE burn_header_hash = ?1 LIMIT 1";
+        query_row(&self.conn, qry, &[burn_header_hash])
+    }
+
+    /// Get the burnchain hash given a height
+    pub fn inner_get_burn_header_hash(&self, height: u32) -> Result<Option<BurnchainHeaderHash>, db_error> {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&self.conn)?;
+        let ancestor_opt = SortitionDB::get_ancestor_snapshot(&self, height as u64, &tip.sortition_id)?
+            .map(|snapshot| snapshot.burn_header_hash);
+        Ok(ancestor_opt)
     }
 }
 

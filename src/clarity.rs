@@ -20,10 +20,12 @@ use rusqlite::Transaction;
 
 use util::db::FromColumn;
 
+use util::hash::Sha512Trunc256Sum;
+
 use vm::ast::{build_ast};
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ClarityDatabase, SqliteConnection,
-                   MarfedKV, MemoryBackingStore, NULL_HEADER_DB};
+use vm::database::{ClarityDatabase, SqliteConnection, HeadersDB,
+                   MarfedKV, MemoryBackingStore, NULL_HEADER_DB, NULL_BURN_STATE_DB, STXBalance};
 use vm::errors::{InterpreterResult, RuntimeErrorType, Error};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value, execute as vm_execute};
 use vm::analysis;
@@ -33,6 +35,10 @@ use vm::types::{QualifiedContractIdentifier, PrincipalData};
 use vm::costs::LimitedCostTracker;
 
 use address::c32::c32_address;
+
+use burnchains::BurnchainHeaderHash;
+use chainstate::burn::VRFSeed;
+use chainstate::stacks::StacksAddress;
 
 use serde::Serialize;
 
@@ -145,6 +151,25 @@ fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
     }
 }
 
+fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u64> {
+    let mut stmt = friendly_expect(conn.prepare("SELECT id FROM cli_chain_tips WHERE block_hash = ?1"), "FATAL: could not prepare query");
+    let mut rows = friendly_expect(stmt.query(&[block_id]), "FATAL: could not fetch rows");
+    let mut row_opt = None;
+    while let Some(row_res) = rows.next() {
+        match row_res {
+            Ok(row) => {
+                let rowid = friendly_expect(u64::from_column(&row, "id"), "FATAL: could not parse row ID");
+                row_opt = Some(rowid);
+                break;
+            },
+            Err(e) => {
+                panic!("FATAL: could not read block hash: {:?}", e);
+            }
+        }
+    }
+    row_opt
+}
+
 fn advance_cli_chain_tip(path: &String) -> (StacksBlockId, StacksBlockId) {
     let mut conn = create_or_open_db(path);
     let tx = friendly_expect(conn.transaction(), &format!("FATAL: failed to begin transaction on '{}'", path));
@@ -224,6 +249,94 @@ where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
     result
 }
 
+struct CLIHeadersDB {
+    db_path: String
+}
+
+impl CLIHeadersDB {
+    pub fn new(db_path: &str) -> CLIHeadersDB {
+        CLIHeadersDB {
+            db_path: db_path.to_string()
+        }
+    }
+
+    pub fn open(&self) -> Connection {
+        let mut cli_db_path_buf = PathBuf::from(&self.db_path);
+        cli_db_path_buf.push("cli.sqlite");
+        let cli_db_path = cli_db_path_buf
+            .to_str()
+            .expect(&format!("FATAL: failed to convert '{}' to a string", &self.db_path))
+            .to_string();
+
+        let cli_db_conn = create_or_open_db(&cli_db_path);
+        cli_db_conn
+    }
+}
+
+impl HeadersDB for CLIHeadersDB {
+    fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
+        // mock it
+        let conn = self.open();
+        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+            let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
+            Some(BurnchainHeaderHash(hash_bytes.0))
+        }
+        else {
+            None
+        }
+    }
+
+    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
+        let conn = self.open();
+        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+            // mock it, but make it unique
+            let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
+            let hash_bytes_2 = Sha512Trunc256Sum::from_data(&hash_bytes.0);
+            Some(VRFSeed(hash_bytes_2.0))
+        }
+        else {
+            None
+        }
+    }
+
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
+        let conn = self.open();
+        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+            // mock it, but make it unique
+            let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
+            let hash_bytes_2 = Sha512Trunc256Sum::from_data(&hash_bytes.0);
+            let hash_bytes_3 = Sha512Trunc256Sum::from_data(&hash_bytes_2.0);
+            Some(BlockHeaderHash(hash_bytes_3.0))
+        }
+        else {
+            None
+        }
+    }
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        let conn = self.open();
+        if let Some(height) = get_cli_block_height(&conn, id_bhh) {
+            Some((height * 600 + 1231006505) as u64)
+        }
+        else {
+            None
+        }
+    }
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        let conn = self.open();
+        if let Some(height) = get_cli_block_height(&conn, id_bhh) {
+            Some(height as u32)
+        }
+        else {
+            None
+        }
+    }
+    fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
+        None
+    }
+    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
+        0
+    }
+}
 
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
@@ -305,16 +418,16 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 };
 
             let marf_kv = friendly_expect(MarfedKV::open(db_name, None), "Failed to open VM database.");
+            let header_db = CLIHeadersDB::new(&db_name);
             in_block(db_name, marf_kv, |mut kv| {
                 {
-                    let mut db = kv.as_clarity_db(&NULL_HEADER_DB);
+                    let mut db = kv.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     db.initialize();
                     db.begin();
                     for (principal, amount) in allocations.iter() {
-                        let cur_balance = db.get_account_stx_balance(principal);
-                        let final_balance = cur_balance.checked_add(*amount as u128).expect("FATAL: account balance overflow");
-                        db.set_account_stx_balance(principal, final_balance as u128);
-                        println!("{} credited: {} uSTX", principal, final_balance);
+                        let balance = STXBalance::initial(*amount as u128);
+                        db.set_account_stx_balance(principal, &balance);
+                        println!("{} credited: {} uSTX", principal, balance.get_total_balance());
                     }
                     db.commit();
                 };
@@ -476,9 +589,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     &args[3]
                 };
             let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let header_db = CLIHeadersDB::new(&vm_filename);
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
+                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
@@ -505,9 +619,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     &args[3]
                 };
             let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let header_db = CLIHeadersDB::new(&vm_filename);
             let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
+                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
@@ -543,9 +658,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let vm_filename = &args[3];
             let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let header_db = CLIHeadersDB::new(&vm_filename);
             let result = at_block(chain_tip, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
+                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
@@ -577,6 +693,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let mut ast = friendly_expect(parse(&contract_identifier, &contract_content), "Failed to parse program.");
             let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let header_db = CLIHeadersDB::new(&vm_filename);
             let result = in_block(
                 vm_filename,
                 marf_kv,
@@ -591,7 +708,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Err(e) => (marf, Err(e)),
                         Ok(analysis) => {
                             let result = {
-                                let db = marf.as_clarity_db(&NULL_HEADER_DB);
+                                let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                                 let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                                 vm_env.initialize_contract(contract_identifier, &contract_content)
                             };
@@ -628,6 +745,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
             let vm_filename = &args[1];
             let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let header_db = CLIHeadersDB::new(&vm_filename);
 
             let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[2]), "Failed to parse contract identifier.");
 
@@ -658,7 +776,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
+                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
                 (marf, result)

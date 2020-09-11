@@ -350,7 +350,8 @@ impl Burnchain {
         if block_height <= (self.first_block_height + 1) {
             // not a reward cycle start if we're the first block after genesis.
             false
-        } else {
+        }
+        else {
             let effective_height = block_height - self.first_block_height;
             // first block of the new reward cycle
             (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
@@ -1072,7 +1073,7 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone()
+            first_block_hash: first_burn_hash.clone(),
         };
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();        
         let block_121_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000012").unwrap();
@@ -1712,7 +1713,7 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone()
+            first_block_hash: first_burn_hash.clone(),
         };
 
         let mut leader_private_keys = vec![];

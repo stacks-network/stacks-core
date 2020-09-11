@@ -30,7 +30,7 @@ pub enum DefineType {
 #[derive(Clone,Serialize, Deserialize)]
 pub struct DefinedFunction {
     identifier: FunctionIdentifier,
-    name: ClarityName,
+    pub name: ClarityName,
     arg_types: Vec<TypeSignature>,
     pub define_type: DefineType,
     arguments: Vec<ClarityName>,

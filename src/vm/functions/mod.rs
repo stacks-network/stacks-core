@@ -6,6 +6,7 @@ mod boolean;
 mod database;
 mod options;
 mod assets;
+mod special;
 
 use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{Value, SequenceData, CharType, PrincipalData, ResponseData, TypeSignature};
@@ -15,6 +16,10 @@ use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 use vm::costs::{cost_functions, MemoryConsumer, CostTracker, constants as cost_constants};
 use util::hash;
+
+pub use vm::functions::assets::{get_stx_balance_snapshot, stx_transfer_consolidated};
+
+pub use vm::functions::special::handle_contract_call_special_cases;
 
 define_named_enum!(NativeFunctions {
     Add("+"),

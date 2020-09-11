@@ -450,7 +450,7 @@ mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone()
+            first_block_hash: first_burn_hash.clone(),
         };
         
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
