@@ -124,7 +124,10 @@ pub fn special_secp256k1_verify(args: &[SymbolicExpression], env: &mut Environme
             if data.len() > 65 {
                 return Err(CheckErrors::TypeValueError(BUFF_65, param1).into())
             }
-            if data.len() < 65 || data[64] > 3 {
+            if data.len() < 64 {
+                return Ok(Value::Bool(false))
+            }
+            if data.len() == 65 && data[64] > 3 {
                 return Ok(Value::Bool(false))
             }
             data

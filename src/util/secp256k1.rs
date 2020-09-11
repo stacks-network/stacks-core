@@ -407,7 +407,7 @@ pub fn secp256k1_recover(message_arr: &[u8], serialized_signature_arr: &[u8]) ->
 pub fn secp256k1_verify(message_arr: &[u8], serialized_signature_arr: &[u8], pubkey_arr: &[u8]) -> Result<(), LibSecp256k1Error> {
     _secp256k1.with(|ctx| {
         let message = LibSecp256k1Message::from_slice(message_arr)?;
-        let expanded_sig = LibSecp256k1Signature::from_compact(&serialized_signature_arr[..64])?;  // strip 65th byte
+        let expanded_sig = LibSecp256k1Signature::from_compact(&serialized_signature_arr[..64])?;  // ignore 65th byte if present
         let pubkey = LibSecp256k1PublicKey::from_slice(pubkey_arr)?;
 
         ctx.verify(&message, &expanded_sig, &pubkey)
