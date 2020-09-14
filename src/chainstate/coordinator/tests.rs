@@ -164,15 +164,15 @@ impl BlockEventDispatcher for NullEventDispatcher {
     }
 }
 
-pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, (), PlaceholderRewardSetProvider> {
-    ChainsCoordinator::test_new(&get_burnchain(path), path, PlaceholderRewardSetProvider())
+pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
+    ChainsCoordinator::test_new(&get_burnchain(path), path, OnChainRewardSetProvider::new())
 }
 
 struct StubbedRewardSetProvider(Vec<StacksAddress>);
 
 impl RewardSetProvider for StubbedRewardSetProvider {
-    fn get_reward_set(&self, chainstate: &StacksChainState,
-                      pox_anchor_hash: &BlockHeaderHash, pox_anchor_consensus: &ConsensusHash) -> Result<Vec<StacksAddress>, CoordError> {
+    fn get_reward_set(&self, chainstate: &mut StacksChainState,
+        burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<StacksAddress>, chainstate::coordinator::Error> {
         Ok(self.0.clone())
     }
 }

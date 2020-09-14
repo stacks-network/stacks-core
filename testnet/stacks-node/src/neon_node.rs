@@ -50,7 +50,7 @@ use stacks::vm::costs::ExecutionCost;
 
 use stacks::vm::database::BurnStateDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::coordinator::{get_next_recipients, PlaceholderRewardSetProvider};
+use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 
 use stacks::monitoring::{
     increment_stx_blocks_mined_counter,
@@ -769,8 +769,8 @@ impl InitializedNeonNode {
               anchored_block.block_hash(), anchored_block.txs.len() );
 
         // let's figure out the recipient set!
-        let recipients = match get_next_recipients(&burn_block, chain_state, burn_db,
-                                                   burnchain, &PlaceholderRewardSetProvider()) {
+        let recipients = match get_next_recipients(&burn_block, &mut chain_state, burn_db,
+                                                   burnchain, &OnChainRewardSetProvider()) {
             Ok(x) => x,
             Err(e) => {
                 error!("Failure fetching recipient set: {:?}", e);
