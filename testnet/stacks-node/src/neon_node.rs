@@ -461,7 +461,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
                     debug!("Relayer: Run tenure");
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
-                        &config, registered_key, &mut chainstate, &sortdb, last_burn_block,
+                        &config, registered_key, &mut chainstate, &mut sortdb, &burnchain, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller);
                     bump_processed_counter(&blocks_processed);
                 },
@@ -769,8 +769,8 @@ impl InitializedNeonNode {
               anchored_block.block_hash(), anchored_block.txs.len() );
 
         // let's figure out the recipient set!
-        let recipients = match get_next_recipients(&burn_block, &mut chain_state, burn_db,
-                                                   burnchain, &OnChainRewardSetProvider()) {
+        let recipients = match get_next_recipients(&burn_block, chain_state, burn_db,
+                                                   burnchain, &OnChainRewardSetProvider::new()) {
             Ok(x) => x,
             Err(e) => {
                 error!("Failure fetching recipient set: {:?}", e);
