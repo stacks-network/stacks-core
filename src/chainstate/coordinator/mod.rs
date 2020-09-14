@@ -153,13 +153,9 @@ pub struct OnChainRewardSetProvider {
 impl RewardSetProvider for OnChainRewardSetProvider {
     fn get_reward_set(&self, chainstate: &mut StacksChainState,
                       burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<StacksAddress>, Error> {
-        let btc_addresses = chainstate.get_reward_addresses(burnchain, sortdb, block_id)?;
-        let mut stx_addresses = vec![];
-        for ((version, hash), _) in btc_addresses {
-            stx_addresses.push(StacksAddress::new(version as u8, hash));
-        }
-        
-        Ok(stx_addresses)
+        let res = chainstate.get_reward_addresses(burnchain, sortdb, block_id)?;
+        let addresses = res.iter().map(|a| a.0).collect::<Vec<StacksAddress>>();
+        Ok(addresses)
     }
 }
 
