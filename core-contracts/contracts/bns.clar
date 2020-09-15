@@ -311,7 +311,7 @@
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
-    (unwrap! (ft-transfer? stx stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
+    (unwrap! (stx-transfer? stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
     ;; Register the preorder
     (map-set namespace-preorders
       ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller))
@@ -532,7 +532,7 @@
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-name-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
-    (unwrap! (ft-transfer? stx stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
+    (unwrap! (stx-transfer? stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
     ;; Register the pre-order
     (map-set name-preorders
       ((hashed-salted-fqn hashed-salted-fqn) (buyer contract-caller))
@@ -946,10 +946,9 @@
     ;; Get the zonefile
     (ok zonefile-content)))
 
-;; todo(ludo): to be removed
-(begin
-  (ft-mint? stx u10000000000 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)
-  (ft-mint? stx u10000000 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE)
-  (ft-mint? stx u10000000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-  (ft-mint? stx u10000000 'SPMQEKN07D1VHAB8XQV835E3PTY3QWZRZ5H0DM36))
+;; (begin
+;;   (ft-mint? stx u10000000000 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)
+;;   (ft-mint? stx u10000000 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE)
+;;   (ft-mint? stx u10000000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+;;   (ft-mint? stx u10000000 'SPMQEKN07D1VHAB8XQV835E3PTY3QWZRZ5H0DM36))
 
