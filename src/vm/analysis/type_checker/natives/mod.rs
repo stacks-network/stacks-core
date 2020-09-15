@@ -1,7 +1,7 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{NativeFunctions, handle_binding_list};
 use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{BUFF_32, BUFF_20, BUFF_64, TypeSignature, TupleTypeSignature,
+use vm::types::{BUFF_32, BUFF_33, BUFF_20, BUFF_64, BUFF_65, TypeSignature, TupleTypeSignature,
                 BlockInfoProperty, Value, PrincipalData, MAX_VALUE_SIZE, FunctionArg,
                 FunctionType, FixedFunction, FunctionSignature};
 use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count,
@@ -288,6 +288,27 @@ fn check_contract_of(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     Ok(TypeSignature::PrincipalType)
 }
 
+fn check_principal_of(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(1, args)?;
+    checker.type_check_expects(&args[0], context, &BUFF_33)?;
+    Ok(TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType).unwrap())
+}
+
+fn check_secp256k1_recover(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(2, args)?;
+    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check_expects(&args[1], context, &BUFF_65)?;
+    Ok(TypeSignature::new_response(BUFF_33, TypeSignature::UIntType).unwrap())
+}
+
+fn check_secp256k1_verify(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(3, args)?;
+    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check_expects(&args[1], context, &BUFF_65)?;
+    checker.type_check_expects(&args[2], context, &BUFF_33)?;
+    Ok(TypeSignature::BoolType)
+}
+
 fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
 
@@ -373,6 +394,8 @@ impl TypedNativeFunction {
                          TypeSignature::UIntType,
                          TypeSignature::IntType],
                     BUFF_32.clone()))),
+            Secp256k1Recover => Special(SpecialNativeFunction(&check_secp256k1_recover)),
+            Secp256k1Verify => Special(SpecialNativeFunction(&check_secp256k1_verify)),
             GetStxBalance =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![
@@ -436,6 +459,7 @@ impl TypedNativeFunction {
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
             ContractOf => Special(SpecialNativeFunction(&check_contract_of)),
+            PrincipalOf => Special(SpecialNativeFunction(&check_principal_of)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
             ConsSome => Special(SpecialNativeFunction(&options::check_special_some)),
             ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
