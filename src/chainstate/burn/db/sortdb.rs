@@ -1437,7 +1437,7 @@ impl SortitionDB {
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
         let index_root = db_tx.index_add_fork_info(
-            &mut first_sn, &first_snapshot, &vec![], &vec![], None)?;
+            &mut first_sn, &first_snapshot, &vec![], None)?;
         first_snapshot.index_root = index_root;
 
         db_tx.insert_block_snapshot(&first_snapshot)?;
@@ -2081,7 +2081,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// Append a snapshot to a chain tip, and update various chain tip statistics.
     /// Returns the new state root of this fork.
     pub fn append_chain_tip_snapshot(&mut self, parent_snapshot: &BlockSnapshot, snapshot: &BlockSnapshot,
-                                     block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>,
+                                     block_ops: &Vec<BlockstackOperationType>,
                                      next_pox_info: Option<RewardCycleInfo>) -> Result<TrieHash, db_error> {
         assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
         assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
@@ -2093,7 +2093,7 @@ impl <'a> SortitionHandleTx <'a> {
         }
 
         let mut parent_sn = parent_snapshot.clone();
-        let root_hash = self.index_add_fork_info(&mut parent_sn, snapshot, block_ops, consumed_leader_keys, next_pox_info)?;
+        let root_hash = self.index_add_fork_info(&mut parent_sn, snapshot, block_ops, next_pox_info)?;
 
         let mut sn = snapshot.clone();
         sn.index_root = root_hash.clone();
@@ -2294,7 +2294,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// burn block hash is unique, no matter what fork it's on (and this index uses burn block
     /// hashes as its index's block hash data).
     fn index_add_fork_info(&mut self, parent_snapshot: &mut BlockSnapshot, snapshot: &BlockSnapshot,
-                           block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>,
+                           block_ops: &Vec<BlockstackOperationType>,
                            next_pox_info: Option<RewardCycleInfo>) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {
             assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
@@ -2309,14 +2309,8 @@ impl <'a> SortitionHandleTx <'a> {
         for block_op in block_ops {
             if let BlockstackOperationType::LeaderKeyRegister(ref data) = block_op {
                 keys.push(db_keys::vrf_key_status(&data.public_key));
-                values.push("1".to_string());       // indicates "available"
+                values.push("1".to_string()); // the value is no longer used, but the key needs to exist to figure whether a key was registered
             }
-        }
-
-        // record each consumed VRF key as consumed
-        for consumed_leader_key in consumed_leader_keys {
-            keys.push(db_keys::vrf_key_status(&consumed_leader_key.public_key));
-            values.push("0".to_string());
         }
 
         // map burnchain header hashes to sortition ids
@@ -2498,7 +2492,7 @@ mod tests {
         tx.commit().unwrap();
     }
 
-    fn test_append_snapshot(db: &mut SortitionDB, next_hash: BurnchainHeaderHash, block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>) -> BlockSnapshot {
+    fn test_append_snapshot(db: &mut SortitionDB, next_hash: BurnchainHeaderHash, block_ops: &Vec<BlockstackOperationType>) -> BlockSnapshot {
         let mut sn = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         let mut tx = SortitionHandleTx::begin(db, &sn.sortition_id).unwrap();
 
@@ -2510,7 +2504,7 @@ mod tests {
         sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
-        let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, block_ops, consumed_leader_keys, None).unwrap();
+        let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, block_ops, None).unwrap();
         sn.index_root = index_root;
 
         tx.commit().unwrap();
@@ -2539,7 +2533,7 @@ mod tests {
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
         let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
-                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
+                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())]);
 
         {
             let ic = db.index_conn();
@@ -2549,7 +2543,7 @@ mod tests {
         }
 
         let new_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x02; 32]),
-                                            &vec![], &vec![]);
+                                            &vec![]);
 
         {
             let ic = db.index_conn();
@@ -2607,7 +2601,7 @@ mod tests {
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
         let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
-                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
+                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())]);
 
         // test get_consumed_leader_keys()
         {
@@ -2616,32 +2610,18 @@ mod tests {
             assert_eq!(keys, vec![leader_key.clone()]);
         }
 
-        // test is_leader_key_consumed()
-        {
-            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
-            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
-            assert!(!is_consumed);
-        }
-
         let snapshot_consumed = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
-                                                     &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone())], &vec![leader_key.clone()]);
+                                                     &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone())]);
 
         {
             let res_block_commits = SortitionDB::get_block_commits_by_block(db.conn(), &snapshot_consumed.sortition_id).unwrap();
             assert_eq!(res_block_commits.len(), 1);
             assert_eq!(res_block_commits[0], block_commit);
         }
-        
-        // test is_leader_key_consumed() now that the commit exists
-        {
-            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot_consumed.sortition_id).unwrap();
-            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
-            assert!(is_consumed);
-        }
 
         // advance and get parent
         let empty_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x05; 32]),
-                                                  &vec![], &vec![]);
+                                                  &vec![]);
 
         // test get_block_commit_parent()
         {
@@ -2676,18 +2656,6 @@ mod tests {
             assert_eq!(keys, vec![leader_key.clone()]);
         }
         
-        // test is_leader_key_consumed() (should be duable at any subsequent index root)
-        {
-            let mut ic = SortitionHandleTx::begin(&mut db, &empty_snapshot.sortition_id).unwrap();
-            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
-            assert!(is_consumed);
-        }
-        {
-            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
-            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
-            assert!(!is_consumed);
-        }
-
         // make a fork between the leader key and block commit, and verify that the key is
         // unconsumed
         let fork_snapshot = {
@@ -2703,7 +2671,7 @@ mod tests {
             sn.num_sortitions += 1;
             sn.consensus_hash = ConsensusHash([0x23; 20]);
 
-            let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, &vec![], &vec![], None).unwrap();
+            let index_root = tx.append_chain_tip_snapshot(&sn_parent, &sn, &vec![], None).unwrap();
             sn.index_root = index_root;
             
             tx.commit().unwrap();
@@ -2716,13 +2684,6 @@ mod tests {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic.get_consumed_leader_keys(&fork_snapshot, &vec![block_commit.clone()]).unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
-        }
-        
-        // test is_leader_key_consumed() (should be duable at any subsequent index root)
-        {
-            let mut ic = SortitionHandleTx::begin(&mut db, &fork_snapshot.sortition_id).unwrap();
-            let is_consumed = ic.is_leader_key_consumed(&leader_key).unwrap();
-            assert!(!is_consumed);
         }
     }
     
@@ -2763,10 +2724,10 @@ mod tests {
         
 
         let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
-                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
+                                            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())]);
 
         let user_burn_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
-                                                      &vec![BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![]);
+                                                      &vec![BlockstackOperationType::UserBurnSupport(user_burn.clone())]);
 
         {
             let res_user_burns = SortitionDB::get_user_burns_by_block(db.conn(), &user_burn_snapshot.sortition_id).unwrap();
@@ -2800,7 +2761,7 @@ mod tests {
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
         
         let no_key_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
-                                                   &vec![], &vec![]);
+                                                   &vec![]);
 
         let has_key_before = {
             let mut ic = SortitionHandleTx::begin(&mut db, &no_key_snapshot.sortition_id).unwrap();
@@ -2810,7 +2771,7 @@ mod tests {
         assert!(!has_key_before);
 
         let key_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
-                                                &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
+                                                &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())]);
 
         let has_key_after = {
             let mut ic = SortitionHandleTx::begin(&mut db, &key_snapshot.sortition_id).unwrap();
@@ -2860,7 +2821,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20])
                 };
                 let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row,
-                                                              &vec![], &vec![], None).unwrap();
+                                                              &vec![], None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 tx.commit().unwrap();
@@ -2932,7 +2893,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row,
-                                                              &vec![], &vec![], None).unwrap();
+                                                              &vec![], None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 // should succeed within the tx
@@ -3014,10 +2975,10 @@ mod tests {
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
         let key_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]),
-                                                &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]);
+                                                &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())]);
 
         let commit_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x03; 32]),
-                                                   &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone()), BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![leader_key.clone()]);
+                                                   &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone()), BlockstackOperationType::UserBurnSupport(user_burn.clone())]);
     
         {
             let burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &commit_snapshot).unwrap();
@@ -3124,7 +3085,7 @@ mod tests {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
-            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_without_sortition, &vec![], &vec![], None).unwrap();
+            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_without_sortition, &vec![], None).unwrap();
             tx.commit().unwrap();
         }
         
@@ -3143,7 +3104,7 @@ mod tests {
             let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
 
-            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], &vec![], None).unwrap();
+            tx.append_chain_tip_snapshot(&chain_tip, &snapshot_with_sortition, &vec![], None).unwrap();
             tx.commit().unwrap();
         }
         
@@ -3227,7 +3188,7 @@ mod tests {
             next_snapshot.consensus_hash = ConsensusHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             
             let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+            tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None).unwrap();
             tx.commit().unwrap();
 
             last_snapshot = next_snapshot.clone();
@@ -3270,7 +3231,7 @@ mod tests {
                 next_snapshot.consensus_hash = ConsensusHash([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None).unwrap();
                 tx.commit().unwrap();
 
                 next_snapshot.index_root = next_index_root;
@@ -3315,7 +3276,7 @@ mod tests {
 
                 let next_index_root = {
                     let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                    let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+                    let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None).unwrap();
                     tx.commit().unwrap();
                     next_index_root
                 };
@@ -3340,7 +3301,7 @@ mod tests {
 
             let next_index_root = {
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], &vec![], None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&last_snapshot, &next_snapshot, &vec![], None).unwrap();
                 tx.commit().unwrap();
                 next_index_root
             };
@@ -3429,7 +3390,7 @@ mod tests {
 
                 let mut tx = SortitionHandleTx::begin(&mut db, &last_snapshot.sortition_id).unwrap();
 
-                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], &vec![], None).unwrap();
+                let index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot_row, &vec![], None).unwrap();
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
 
@@ -3606,7 +3567,7 @@ mod tests {
             };
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
-                let _index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], &vec![], None).unwrap();
+                let _index_root = tx.append_chain_tip_snapshot(&last_snapshot, &snapshot, &vec![], None).unwrap();
                 tx.commit().unwrap();
             }
             last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id).unwrap().unwrap();

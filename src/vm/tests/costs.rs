@@ -34,6 +34,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         CmpGreater => "(> 2 1)",
         Modulo => "(mod 2 1)",
         Power => "(pow 2 3)",
+        Sqrti => "(sqrti 81)",
         BitwiseXOR => "(xor 1 2)",
         And => "(and true false)",
         Or => "(or true false)",

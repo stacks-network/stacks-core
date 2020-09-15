@@ -328,11 +328,7 @@ impl Node {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
                         last_sortitioned_block = Some(burnchain_tip.clone());
-
-                        // Release current registered key if leader won the sortition
-                        // This will trigger a new registration
                         if op.input == self.keychain.get_burnchain_signer() {
-                            self.active_registered_key = None;
                             won_sortition = true;
                         }    
                     }
@@ -456,15 +452,6 @@ impl Node {
                 let mut op_signer = self.keychain.generate_op_signer();
                 burnchain_controller.submit_operation(op, &mut op_signer);
         }
-        
-        // Naive implementation: we keep registering new keys
-        let burnchain_tip = burnchain_controller.get_chain_tip();
-        let vrf_pk = self.keychain.rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
-        let burnchain_tip_consensus_hash = self.burnchain_tip.as_ref().unwrap().block_snapshot.consensus_hash;
-        let op = self.generate_leader_key_register_op(vrf_pk, &burnchain_tip_consensus_hash);
-
-        let mut one_off_signer = self.keychain.generate_op_signer();
-        burnchain_controller.submit_operation(op, &mut one_off_signer);
     }
 
     /// Process artifacts from the tenure.

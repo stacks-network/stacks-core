@@ -210,6 +210,7 @@ dependencies = [
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
+ "integer-sqrt",
  "lazy_static",
  "libc",
  "mio",
@@ -915,6 +916,12 @@ checksum = "19a8a95243d5a0398cae618ec29477c6e3cb631152be5c19481f80bc71559754"
 dependencies = [
  "bytes",
 ]
+
+[[package]]
+name = "integer-sqrt"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f65877bf7d44897a473350b1046277941cee20b263397e90869c50b6e766088b"
 
 [[package]]
 name = "iovec"

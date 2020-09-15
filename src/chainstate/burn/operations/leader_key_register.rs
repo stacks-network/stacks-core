@@ -524,7 +524,7 @@ pub mod tests {
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
 
-                let next_tip_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![], None).unwrap();
+                let next_tip_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], None).unwrap();
                 snapshot_row.index_root = next_tip_root;
 
                 tx.commit().unwrap();

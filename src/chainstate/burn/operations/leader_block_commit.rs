@@ -323,7 +323,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
-        // There must exist a previously-accepted *unused* key from a LeaderKeyRegister
+        // There must exist a previously-accepted key from a LeaderKeyRegister
         /////////////////////////////////////////////////////////////////////////////////////
 
         if leader_key_block_height >= self.block_height {
@@ -336,13 +336,6 @@ impl BlockstackOperation for LeaderBlockCommitOp {
                 warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, &tx.context.chain_tip);
                 op_error::BlockCommitNoLeaderKey
             })?;
-
-        let is_key_consumed = tx.is_leader_key_consumed(&register_key)?;
-
-        if is_key_consumed {
-            warn!("Invalid block commit: leader key at ({},{}) is already used as in fork {}", register_key.block_height, register_key.vtxindex, &tx.context.chain_tip);
-            return Err(op_error::BlockCommitLeaderKeyAlreadyUsed);
-        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // There must exist a previously-accepted block from a LeaderBlockCommit, or this
@@ -698,7 +691,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i], None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], None).unwrap();
                 
                 snapshot_row.index_root = next_index_root;
                 tx.commit().unwrap();
@@ -765,33 +758,6 @@ mod tests {
                     burn_header_hash: block_126_hash.clone(),
                 },
                 res: Err(op_error::BlockCommitNoLeaderKey),
-            },
-            CheckFixture {
-                // reject -- leader key consumed already
-                op: LeaderBlockCommitOp {
-                    block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-                    new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_ptr: 124,
-                    parent_vtxindex: 444,
-                    key_block_ptr: 124,
-                    key_vtxindex: 456,
-                    memo: vec![0x80],
-
-                    burn_fee: 12345,
-                    input: BurnchainSigner {
-                        public_keys: vec![
-                            StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                        ],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH
-                    },
-
-                    txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
-                    vtxindex: 445,
-                    block_height: 126,
-                    burn_header_hash: block_126_hash.clone(),
-                },
-                res: Err(op_error::BlockCommitLeaderKeyAlreadyUsed),
             },
             CheckFixture {
                 // reject -- previous block must exist 
