@@ -643,11 +643,8 @@ impl <'a> SortitionHandleTx <'a> {
             }
         };
 
-        // PoX TODO: note -- leader_keys table will index on burn_header_hash: if a leader key is reprocessed due to a PoX fork,
-        //                   it should be allowed to either overwrite the previous entry OR skip insertion (i.e., UNIQUE constraints
-        //                   should not be allowed to cause a panic)
-        let qry = "SELECT * FROM leader_keys WHERE burn_header_hash = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
-        let args : &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(key_block_height)?, &key_vtxindex];
+        let qry = "SELECT * FROM leader_keys WHERE sortition_id = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
+        let args : &[&dyn ToSql] = &[&ancestor_snapshot.sortition_id, &u64_to_sql(key_block_height)?, &key_vtxindex];
         query_row_panic(self.tx(), qry, args,
                         || format!("Multiple keys at {},{} in {}", key_block_height, key_vtxindex, tip))
     }
