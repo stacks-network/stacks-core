@@ -87,15 +87,11 @@ pub fn stx_transfer_consolidated(env: &mut Environment, from: &PrincipalData, to
     // loading from/to principals and balances
     env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
     env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-    env.add_memory(TypeSignature::UIntType.size() as u64)?;
-    env.add_memory(TypeSignature::UIntType.size() as u64)?;
-
     // loading from's locked amount and height
     // TODO: this does not count the inner stacks block header load, but arguably,
     // this could be optimized away, so it shouldn't penalize the caller.
-    // todo(ludo): double check this
-    env.add_memory(TypeSignature::UIntType.size() as u64)?;
-    env.add_memory(TypeSignature::UIntType.size() as u64)?;
+    env.add_memory(STXBalance::size_of as u64)?;
+    env.add_memory(STXBalance::size_of as u64)?;
 
     // NOTE: this updates the balance with the unlocked tokens, if we did an unlock.
     env.global_context.database.set_account_stx_balance(from, &sender);
@@ -154,11 +150,7 @@ pub fn special_stx_burn(args: &[SymbolicExpression],
             .expect("STX underflow");
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(TypeSignature::UIntType.size() as u64)?;
-
-        // for unlock-handling
-        env.add_memory(TypeSignature::UIntType.size() as u64)?;
-        env.add_memory(TypeSignature::UIntType.size() as u64)?;
+        env.add_memory(STXBalance::size_of as u64)?;
 
         env.global_context.database.set_account_stx_balance(from, &burner_balance);
 

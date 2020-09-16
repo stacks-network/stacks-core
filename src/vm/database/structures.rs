@@ -1,6 +1,9 @@
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, InterpreterResult, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, NONE};
+use util::hash::{hex_bytes, to_hex};
+use std::convert::TryInto;
+use std::io::Write;
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
@@ -100,7 +103,6 @@ pub struct STXBalance {
     pub amount_locked: u128,
     pub unlock_height: u64,
 }
-clarity_serializable!(STXBalance);
 
 #[derive(Debug)]
 pub enum STXBalanceError {
@@ -111,7 +113,42 @@ pub enum STXBalanceError {
 
 type Result<T> = std::result::Result<T, STXBalanceError>;
 
+impl ClaritySerializable for STXBalance {
+    fn serialize(&self) -> String {
+        let mut buffer = Vec::new();
+        buffer.write_all(&self.amount_unlocked.to_be_bytes())
+            .expect("STXBalance serialization: failed writing amount_unlocked.");
+        buffer.write_all(&self.amount_locked.to_be_bytes())
+            .expect("STXBalance serialization: failed writing amount_locked.");
+        buffer.write_all(&self.unlock_height.to_be_bytes())
+            .expect("STXBalance serialization: failed writing unlock_height.");
+        to_hex(buffer.as_slice())
+    }
+}
+
+impl ClarityDeserializable<STXBalance> for STXBalance {
+    fn deserialize(input: &str) -> Self {
+        let bytes = hex_bytes(&input).expect("STXBalance deserialization: failed decoding bytes.");
+        assert_eq!(bytes.len(), STXBalance::size_of);
+
+        let amount_unlocked = u128::from_be_bytes(bytes[0..16].try_into()
+            .expect("STXBalance deserialization: failed reading amount_unlocked."));
+        let amount_locked = u128::from_be_bytes(bytes[16..32].try_into()
+            .expect("STXBalance deserialization: failed reading amount_locked."));
+        let unlock_height = u64::from_be_bytes(bytes[32..40].try_into()
+            .expect("STXBalance deserialization: failed reading unlock_height."));
+
+        STXBalance { 
+            amount_unlocked,
+            amount_locked,
+            unlock_height
+        }
+    }
+}
+
 impl STXBalance {
+
+    pub const size_of: usize = 40;
 
     pub fn zero() -> STXBalance {
         STXBalance {
