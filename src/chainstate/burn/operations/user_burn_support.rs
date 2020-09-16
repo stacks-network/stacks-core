@@ -205,8 +205,10 @@ impl BlockstackOperation for UserBurnSupportOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<UserBurnSupportOp, op_error> {
         UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
+}
 
-    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
+impl UserBurnSupportOp {
+    pub fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
 
         /////////////////////////////////////////////////////////////////
@@ -519,7 +521,7 @@ mod tests {
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
 
-                let tip_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], None).unwrap();
+                let tip_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], None, None).unwrap();
                 snapshot_row.index_root = tip_index_root;
 
                 tx.commit().unwrap();

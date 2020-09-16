@@ -51,6 +51,7 @@ use burnchains::BurnchainBlockHeader;
 
 use chainstate::burn::Opcodes;
 use chainstate::burn::VRFSeed;
+use burnchains::Error as BurnchainError;
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::index::TrieHash;
 
@@ -71,9 +72,11 @@ pub enum Error {
     BlockCommitPredatesGenesis,
     BlockCommitAlreadyExists,
     BlockCommitNoLeaderKey,
-    BlockCommitLeaderKeyAlreadyUsed,
     BlockCommitNoParent,
     BlockCommitBadInput,
+    BlockCommitBadOutputs,
+
+    BlockCommitAnchorCheck,
     
     // all the things that can go wrong with leader key register
     LeaderKeyAlreadyRegistered,
@@ -94,9 +97,10 @@ impl fmt::Display for Error {
             Error::BlockCommitPredatesGenesis => write!(f, "Block commit predates genesis block"),
             Error::BlockCommitAlreadyExists => write!(f, "Block commit commits to an already-seen block"),
             Error::BlockCommitNoLeaderKey => write!(f, "Block commit has no matching register key"),
-            Error::BlockCommitLeaderKeyAlreadyUsed => write!(f, "Block commit register key already used"),
             Error::BlockCommitNoParent => write!(f, "Block commit parent does not exist"),
             Error::BlockCommitBadInput => write!(f, "Block commit tx input does not match register key tx output"),
+            Error::BlockCommitAnchorCheck  => write!(f, "Failure checking PoX anchor block for commit"),
+            Error::BlockCommitBadOutputs  => write!(f, "Block commit included a bad commitment output"),
 
             Error::LeaderKeyAlreadyRegistered => write!(f, "Leader key has already been registered"),
             Error::LeaderKeyBadConsensusHash => write!(f, "Leader key has an invalid consensus hash"),
@@ -110,22 +114,8 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
-            Error::ParseError => None,
-            Error::InvalidInput => None,
             Error::DBError(ref e) => Some(e),
-
-            Error::BlockCommitPredatesGenesis => None,
-            Error::BlockCommitAlreadyExists => None,
-            Error::BlockCommitNoLeaderKey => None,
-            Error::BlockCommitLeaderKeyAlreadyUsed => None,
-            Error::BlockCommitNoParent => None,
-            Error::BlockCommitBadInput => None,
-
-            Error::LeaderKeyAlreadyRegistered => None,
-            Error::LeaderKeyBadConsensusHash => None,
-
-            Error::UserBurnSupportBadConsensusHash => None,
-            Error::UserBurnSupportNoLeaderKey => None,
+            _ => None
         }
     }
 }
@@ -141,7 +131,7 @@ pub struct LeaderBlockCommitOp {
     pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (double-sha256)
     
     pub new_seed: VRFSeed,                  // new seed for this block
-    pub parent_block_ptr: u32,              // pointer to the block that contains the parent block hash 
+    pub parent_block_ptr: u32,              // block height of the block that contains the parent block hash 
     pub parent_vtxindex: u16,               // offset in the parent block where the parent block hash can be found
     pub key_block_ptr: u32,                 // pointer to the block that contains the leader key registration 
     pub key_vtxindex: u16,                  // offset in the block where the leader key can be found
@@ -149,6 +139,9 @@ pub struct LeaderBlockCommitOp {
 
     pub burn_fee: u64,                      // how many burn tokens (e.g. satoshis) were destroyed to produce this block
     pub input: BurnchainSigner,             // burn chain keys that must match the key registration
+
+    /// PoX/Burn outputs
+    pub commit_outs: Vec<StacksAddress>,
 
     // common to all transactions
     pub txid: Txid,                         // transaction ID
@@ -189,7 +182,6 @@ pub struct UserBurnSupportOp {
 }
 
 pub trait BlockstackOperation {
-    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), Error>;
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<Self, Error>
         where Self: Sized;
 }

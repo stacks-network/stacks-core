@@ -1218,6 +1218,7 @@ mod test {
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
             memo: vec![0x80],
+            commit_outs: vec![],
 
             burn_fee: 12345,
             input: BurnchainSigner {

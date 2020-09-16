@@ -129,6 +129,11 @@ impl MessageSignature {
 }
 
 impl Secp256k1PublicKey {
+    #[cfg(test)]
+    pub fn new() -> Secp256k1PublicKey {
+        Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new())
+    }
+
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PublicKey, &'static str> {
         let data = hex_bytes(hex_string)
             .map_err(|_e| "Failed to decode hex public key")?;
