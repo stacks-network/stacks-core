@@ -2,6 +2,8 @@ use std::convert::TryFrom;
 use vm::types::{Value, TypeSignature};
 use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult, check_argument_count};
 
+use integer_sqrt::IntegerSquareRoot;
+
 struct U128Ops();
 struct I128Ops();
 
@@ -27,6 +29,16 @@ macro_rules! type_force_binary_arithmetic { ($function: ident, $x: expr, $y: exp
         (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
         (x, _) => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType],
                                                        x).into())
+    }
+}
+}}
+
+macro_rules! type_force_unary_arithmetic { ($function: ident, $x: expr) => {
+{
+    match $x {
+        Value::Int(x) => I128Ops::$function(x),
+        Value::UInt(x) => U128Ops::$function(x),
+        x => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType], x).into())
     }
 }
 }}
@@ -126,6 +138,21 @@ macro_rules! make_arithmetic_ops { ($struct_name: ident, $type:ty) => {
         }
         #[allow(unused_comparisons)]
         fn pow(base: $type, power: $type) -> InterpreterResult<Value> {
+            if base == 0 && power == 0 {  // Note that 0⁰ (pow(0, 0)) returns 1. Mathematically this is undefined (https://docs.rs/num-traits/0.2.10/num_traits/pow/fn.pow.html)
+                return Self::make_value(1)
+            }
+            if base == 1 {
+                return Self::make_value(1)
+            }
+
+            if base == 0 {
+                return Self::make_value(0)
+            }
+
+            if power == 1 {
+                return Self::make_value(base)
+            }
+
             if power < 0 || power > (u32::max_value() as $type) {
                 return Err(RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into())
             }
@@ -135,6 +162,12 @@ macro_rules! make_arithmetic_ops { ($struct_name: ident, $type:ty) => {
             let result = base.checked_pow(power_u32)
                 .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
             Self::make_value(result)
+        }
+        fn sqrti(n: $type) -> InterpreterResult<Value> {
+            match n.integer_sqrt_checked() {
+                Some(result) => Self::make_value(result),
+                None => return Err(RuntimeErrorType::Arithmetic("sqrti must be passed a positive number".to_string()).into()),
+            }
         }
     }
 }}
@@ -171,6 +204,9 @@ pub fn native_div(mut args: Vec<Value>) -> InterpreterResult<Value> {
 }
 pub fn native_pow(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(pow, a, b)
+}
+pub fn native_sqrti(n: Value) -> InterpreterResult<Value> {
+    type_force_unary_arithmetic!(sqrti, n)
 }
 pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(modulo, a, b)

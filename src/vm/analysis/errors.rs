@@ -151,6 +151,9 @@ pub enum CheckErrors {
     // strings
     InvalidCharactersDetected,
 
+    // secp256k1 signature
+    InvalidSecp65k1Signature,
+
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
 }
@@ -374,6 +377,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
             CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
+            CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },

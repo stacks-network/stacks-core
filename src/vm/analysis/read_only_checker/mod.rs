@@ -159,12 +159,12 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
 
         match function {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
-            Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
-            Sha512 | Sha512Trunc256 |
+            Modulo | Power | Sqrti | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
+            Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify |
             ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay | IsNone | Asserts |
             Unwrap | UnwrapErr | Match | IsErr | IsSome | TryRet |
             ToUInt | ToInt | Append | Concat | AsMaxLen |
-            ContractOf |
+            ContractOf | PrincipalOf |
             ListCons | GetBlockInfo | TupleGet | Len | Print | AsContract | Begin | FetchVar | GetStxBalance | GetTokenBalance | GetAssetOwner => {
                 self.check_all_read_only(args)
             },

@@ -3,18 +3,22 @@ pub mod tuples;
 mod sequences;
 mod arithmetic;
 mod boolean;
+mod crypto;
 mod database;
 mod options;
 mod assets;
 
 use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
-use vm::types::{Value, SequenceData, CharType, PrincipalData, ResponseData, TypeSignature};
+use vm::types::{BUFF_32, BUFF_33, BUFF_65, BuffData, Value, SequenceData, CharType, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::{CallableType, NativeHandle};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 use vm::costs::{cost_functions, MemoryConsumer, CostTracker, constants as cost_constants};
 use util::hash;
+
+use chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksAddress};
+use address::AddressHashMode;
 
 define_named_enum!(NativeFunctions {
     Add("+"),
@@ -29,6 +33,7 @@ define_named_enum!(NativeFunctions {
     ToUInt("to-uint"),
     Modulo("mod"),
     Power("pow"),
+    Sqrti("sqrti"),
     BitwiseXOR("xor"),
     And("and"),
     Or("or"),
@@ -57,10 +62,13 @@ define_named_enum!(NativeFunctions {
     Sha512("sha512"),
     Sha512Trunc256("sha512/256"),
     Keccak256("keccak256"),
+    Secp256k1Recover("secp256k1-recover?"),
+    Secp256k1Verify("secp256k1-verify"),
     Print("print"),
     ContractCall("contract-call?"),
     AsContract("as-contract"),
     ContractOf("contract-of"),
+    PrincipalOf("principal-of?"),
     AtBlock("at-block"),
     GetBlockInfo("get-block-info?"),
     ConsError("err"),
@@ -107,6 +115,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ToInt => NativeFunction("native_to_int", NativeHandle::SingleArg(&arithmetic::native_to_int), cost_functions::INT_CAST),
             Modulo => NativeFunction("native_mod", NativeHandle::DoubleArg(&arithmetic::native_mod), cost_functions::MOD),
             Power => NativeFunction("native_pow", NativeHandle::DoubleArg(&arithmetic::native_pow), cost_functions::POW),
+            Sqrti => NativeFunction("native_sqrti", NativeHandle::SingleArg(&arithmetic::native_sqrti), cost_functions::SQRTI),
             BitwiseXOR => NativeFunction("native_xor", NativeHandle::DoubleArg(&arithmetic::native_xor), cost_functions::XOR),
             And => SpecialFunction("special_and", &boolean::special_and),
             Or => SpecialFunction("special_or", &boolean::special_or),
@@ -131,15 +140,18 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             TupleCons => SpecialFunction("special_tuple", &tuples::tuple_cons),
             TupleGet => SpecialFunction("special_get-tuple", &tuples::tuple_get),
             Begin => NativeFunction("native_begin", NativeHandle::MoreArg(&native_begin), cost_functions::BEGIN),
-            Hash160 => NativeFunction("native_hash160", NativeHandle::SingleArg(&native_hash160), cost_functions::HASH160),
-            Sha256 => NativeFunction("native_sha256", NativeHandle::SingleArg(&native_sha256), cost_functions::SHA256),
-            Sha512 => NativeFunction("native_sha512", NativeHandle::SingleArg(&native_sha512), cost_functions::SHA512),
-            Sha512Trunc256 => NativeFunction("native_sha512trunc256", NativeHandle::SingleArg(&native_sha512trunc256), cost_functions::SHA512T256),
-            Keccak256 => NativeFunction("native_keccak256", NativeHandle::SingleArg(&native_keccak256), cost_functions::KECCAK256),
+            Hash160 => NativeFunction("native_hash160", NativeHandle::SingleArg(&crypto::native_hash160), cost_functions::HASH160),
+            Sha256 => NativeFunction("native_sha256", NativeHandle::SingleArg(&crypto::native_sha256), cost_functions::SHA256),
+            Sha512 => NativeFunction("native_sha512", NativeHandle::SingleArg(&crypto::native_sha512), cost_functions::SHA512),
+            Sha512Trunc256 => NativeFunction("native_sha512trunc256", NativeHandle::SingleArg(&crypto::native_sha512trunc256), cost_functions::SHA512T256),
+            Keccak256 => NativeFunction("native_keccak256", NativeHandle::SingleArg(&crypto::native_keccak256), cost_functions::KECCAK256),
+            Secp256k1Recover => SpecialFunction("native_secp256k1-recover", &crypto::special_secp256k1_recover),
+            Secp256k1Verify => SpecialFunction("native_secp256k1-verify", &crypto::special_secp256k1_verify),
             Print => SpecialFunction("special_print", &special_print),
             ContractCall => SpecialFunction("special_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
             ContractOf => SpecialFunction("special_contract-of", &special_contract_of),
+            PrincipalOf => SpecialFunction("special_principal-of", &crypto::special_principal_of),
             GetBlockInfo => SpecialFunction("special_get_block_info", &database::special_get_block_info),
             ConsSome => NativeFunction("native_some", NativeHandle::SingleArg(&options::native_some), cost_functions::SOME_CONS),
             ConsOkay => NativeFunction("native_okay", NativeHandle::SingleArg(&options::native_okay), cost_functions::OK_CONS),
@@ -193,27 +205,6 @@ fn native_eq(args: Vec<Value>) -> Result<Value> {
         Ok(Value::Bool(true))
     }
 }
-
-macro_rules! native_hash_func {
-    ($name:ident, $module:ty) => {
-        fn $name(input: Value) -> Result<Value> {
-            let bytes = match input {
-                Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
-                Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
-                Value::Sequence(SequenceData::Buffer(value)) => Ok(value.data),
-                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], input))
-            }?;
-            let hash = <$module>::from_data(&bytes);
-            Value::buff_from(hash.as_bytes().to_vec())
-        }
-    }
-}
-
-native_hash_func!(native_hash160, hash::Hash160);
-native_hash_func!(native_sha256, hash::Sha256Sum);
-native_hash_func!(native_sha512, hash::Sha512Sum);
-native_hash_func!(native_sha512trunc256, hash::Sha512Trunc256Sum);
-native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
 fn native_begin(mut args: Vec<Value>) -> Result<Value> {
     match args.pop() {

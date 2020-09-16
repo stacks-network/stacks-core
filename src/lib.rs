@@ -41,6 +41,7 @@ extern crate time;
 extern crate mio;
 extern crate url;
 extern crate percent_encoding;
+extern crate integer_sqrt;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;

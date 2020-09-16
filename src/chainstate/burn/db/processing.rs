@@ -144,7 +144,7 @@ impl <'a> SortitionHandleTx <'a> {
         // store the snapshot
         let index_root = self.append_chain_tip_snapshot(
             parent_snapshot, &snapshot, &state_transition.accepted_ops,
-            &state_transition.consumed_leader_keys, next_pox_info, reward_info)?;
+            next_pox_info, reward_info)?;
 
         snapshot.index_root = index_root;
 

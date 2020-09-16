@@ -430,7 +430,7 @@ impl LeaderBlockCommitOp {
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
-        // There must exist a previously-accepted *unused* key from a LeaderKeyRegister
+        // There must exist a previously-accepted key from a LeaderKeyRegister
         /////////////////////////////////////////////////////////////////////////////////////
 
         if leader_key_block_height >= self.block_height {
@@ -443,13 +443,6 @@ impl LeaderBlockCommitOp {
                 warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, &tx.context.chain_tip);
                 op_error::BlockCommitNoLeaderKey
             })?;
-
-        let is_key_consumed = tx.is_leader_key_consumed(&register_key)?;
-
-        if is_key_consumed {
-            warn!("Invalid block commit: leader key at ({},{}) is already used as in fork {}", register_key.block_height, register_key.vtxindex, &tx.context.chain_tip);
-            return Err(op_error::BlockCommitLeaderKeyAlreadyUsed);
-        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // There must exist a previously-accepted block from a LeaderBlockCommit, or this
@@ -898,7 +891,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i], None, None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], None, None).unwrap();
                 
                 snapshot_row.index_root = next_index_root;
                 tx.commit().unwrap();

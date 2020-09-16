@@ -328,7 +328,7 @@ impl CostFunctions {
             CostFunctions::Linear(a, b) => { a.cost_overflow_mul(input)?
                                              .cost_overflow_add(*b) }
             CostFunctions::LogN(a, b) => {
-                // a*input*log(input)) + b
+                // a*log(input)) + b
                 //  and don't do log(0).
                 int_log2(cmp::max(input, 1))
                     .ok_or_else(|| CostErrors::CostOverflow)?
