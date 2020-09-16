@@ -962,34 +962,6 @@ mod tests {
                 res: Err(op_error::BlockCommitNoLeaderKey),
             },
             CheckFixture {
-                // reject -- leader key consumed already
-                op: LeaderBlockCommitOp {
-                    block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-                    new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_ptr: 124,
-                    parent_vtxindex: 444,
-                    key_block_ptr: 124,
-                    key_vtxindex: 456,
-                    memo: vec![0x80],
-                    commit_outs: vec![],
-
-                    burn_fee: 12345,
-                    input: BurnchainSigner {
-                        public_keys: vec![
-                            StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                        ],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH
-                    },
-
-                    txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
-                    vtxindex: 445,
-                    block_height: 126,
-                    burn_header_hash: block_126_hash.clone(),
-                },
-                res: Err(op_error::BlockCommitLeaderKeyAlreadyUsed),
-            },
-            CheckFixture {
                 // reject -- previous block must exist 
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
