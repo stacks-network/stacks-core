@@ -185,10 +185,11 @@ impl SortitionHash {
         SortitionHash(ret)
     }
 
-    /// Choose 1 indice from the range [0, max).
+    /// Choose 1 index from the range [0, max).
     pub fn choose(&self, max: u32) -> u32 {
         let mut rng = ChaCha20Rng::from_seed(self.0.clone());
         let index: u32 = rng.gen_range(0, max);
+        assert!(index <  max);
         index
     }
 

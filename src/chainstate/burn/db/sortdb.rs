@@ -2437,36 +2437,19 @@ impl <'a> SortitionHandleTx <'a> {
                 if let Some(reward_info) = recipient_info {
                     let mut current_len = self.get_reward_set_size()?;
                     let (_, recipient_index) = reward_info.recipient;
-                    let mut remapped_entries = HashMap::new();
-                    // sort in decrementing order
 
                     if recipient_index >= current_len {
                         unreachable!("Supplied index should never be greater than recipient set size");
-                    } else if recipient_index + 1 == current_len {
-                        // selected index is the last element: no need to swap, just decrement len
-                        current_len -= 1;
-                    } else {
-                        let replacement = current_len - 1; // if current_len were 0, we would already have panicked.
-                        let replace_with =
-                            if let Some((_prior_ix, replace_with)) = remapped_entries.remove_entry(&replacement) {
-                                // the entry to swap in was itself swapped, so let's use the new value instead
-                                replace_with
-                            } else {
-                                self.get_reward_set_entry(replacement)?
-                            };
-
-                        // swap and decrement to remove from set
-                        remapped_entries.insert(recipient_index, replace_with);
-                        current_len -= 1;
-                    }
+                    } 
+                    
+                    current_len -= 1;
+                    let recipient = self.get_reward_set_entry(current_len)?;
 
                     // store the changes in the new trie
                     keys.push(db_keys::pox_reward_set_size().to_string());
                     values.push(db_keys::reward_set_size_to_string(current_len as usize));
-                    for (index, new_address) in remapped_entries.into_iter() {
-                        keys.push(db_keys::pox_reward_set_entry(index));
-                        values.push(new_address.to_string())
-                    }
+                    keys.push(db_keys::pox_reward_set_entry(recipient_index));
+                    values.push(recipient.to_string())
                 }
             }
         } else {
