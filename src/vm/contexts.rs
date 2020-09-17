@@ -640,7 +640,15 @@ impl <'a,'b> Environment <'a,'b> {
             self.call_stack.insert(&func_identifier, true);
             let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
             self.call_stack.remove(&func_identifier, true)?;
-            res
+
+            match res {
+                Ok(value) => {
+                    let sender_principal = self.sender.clone().map(|v| v.expect_principal());
+                    handle_contract_call_special_cases(&mut self.global_context.database, sender_principal.as_ref(), contract_identifier, tx_name, &value)?;
+                    Ok(value)
+                },
+                Err(e) => Err(e)
+            }
         })
     }
 
@@ -665,20 +673,10 @@ impl <'a,'b> Environment <'a,'b> {
 
         if make_read_only {
             self.global_context.roll_back();
-            return result
+            result
+        } else {
+            self.global_context.handle_tx_result(result)
         }
-
-        let result = self.global_context.handle_tx_result(result);
-        if let Ok(ref value) = result {
-            let sender_principal = self.sender.clone().map(|v| v.expect_principal());
-            handle_contract_call_special_cases(
-                &mut self.global_context.database, 
-                sender_principal.as_ref(),
-                &next_contract_context.contract_identifier,
-                &function.name, 
-                value)?;
-        }
-        result
     }
 
     pub fn evaluate_at_block(&mut self, bhh: StacksBlockId, closure: &SymbolicExpression, local: &LocalContext) -> Result<Value> {
