@@ -216,6 +216,7 @@ dependencies = [
  "percent-encoding",
  "prometheus",
  "rand 0.7.2",
+ "rand_chacha 0.2.2",
  "regex",
  "ripemd160",
  "rusqlite",
@@ -1794,6 +1795,7 @@ dependencies = [
  "byteorder",
  "libsqlite3-sys",
  "lru-cache",
+ "serde_json",
  "time 0.1.43",
 ]
 

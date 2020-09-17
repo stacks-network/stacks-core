@@ -488,3 +488,39 @@ holders must continuously vote to disable it.
 Due to the costs of remaining vigilent, this proposal recomments _R = 0.25_.
 At the time of this writing, this is higher than any single STX allocation, but
 not so high that large-scale cooperation is needed to stop a mining cartel.
+
+
+# Bitcoin Wire Formats
+
+Supporting PoX in the Stacks blockchain requires modifications to the
+wire format for leader block commitments, and the introduction of new
+wire formats for burnchain PoX participation (e.g., performing the STX
+lockup on the burnchain).
+
+
+## Leader Block Commits
+
+For PoX, leader block commitments are similar to PoB block commits: the constraints on the
+BTC transaction's inputs are the same, and the `OP_RETURN` output is identical. However,
+the _burn output_ is no longer the same. For PoX, the following constraints are applied to
+the second through nth outputs:
+
+1. If the block commitment is in a reward cycle, with a chosen anchor block, and this block
+   commitment builds off a descendant of the PoX anchor block (or the anchor block itself),
+   then the commitment must use the chosen PoX recipients for the current block.
+    a. PoX recipients are chosen as described in "Stacking Consensus Algorithm": addresses
+       are chosen without replacement, by using the previous burn block's sortition hash,
+       mixed with the previous burn block's burn header hash as the seed for the ChaCha12
+       pseudorandom function to select M addresses.
+    b. The leader block commit transaction must use the selected M addresses as outputs [1, M]
+       That is, the second through (M+1)th output correspond to the select PoX addresses.
+       The order of these addresses does not matter. Each of these outputs must receive the
+       same amount of BTC.
+    c. If the number of remaining addresses in the reward set N is less than M, then the leader
+       block commit transaction must burn BTC:
+          i. If N > 0, then the (N+2)nd output must be a burn output, and it must burn
+             (M-N) * (the amount of BTC transfered to each of the first N outputs)
+         ii. If N == 0, then the 2nd output must be a burn output, and the amount burned
+             by this output will be counted as the amount committed to by the block commit.
+2. Otherwise, the 2nd output must be a burn output, and the amount burned by this output will be
+   counted as the amount committed to by the block commit.

@@ -31,6 +31,7 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp,
     UserBurnSupportOp,
     BlockstackOperationType,
+    leader_block_commit::OUTPUTS_PER_COMMIT,
 };
 use stacks::deps::bitcoin::blockdata::transaction::{Transaction, TxIn, TxOut, OutPoint};
 use stacks::deps::bitcoin::blockdata::opcodes;
@@ -65,7 +66,7 @@ impl BitcoinRegtestController {
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
     
-        let res = SpvClient::new(&config.burnchain.spv_headers_path, 0, None, BitcoinNetworkType::Regtest, true, false);
+        let res = SpvClient::new(&config.burnchain.spv_headers_path, 0, None, config.burnchain.get_bitcoin_network().1, true, false);
         if let Err(err) = res {
             error!("Unable to init block headers: {}", err);
             panic!()
@@ -126,18 +127,22 @@ impl BitcoinRegtestController {
         }        
     }
 
-    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
-        let network = "regtest".to_string();
+    fn setup_burnchain(&self) -> (Burnchain, BitcoinNetworkType) {
+        let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
         let working_dir = self.config.get_burn_db_path();
-        let burnchain = match Burnchain::new(&working_dir,  &self.config.burnchain.chain, &network) {
-            Ok(burnchain) => burnchain,
+        match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
+            Ok(burnchain) => (burnchain, network_type),
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);
                 panic!()    
             }
-        };
+        }
+    }
 
-        let indexer_runtime = BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest);
+    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
+        let (burnchain, network_type) = self.setup_burnchain();
+
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
             config: self.indexer_config.clone(),
             runtime: indexer_runtime
@@ -269,8 +274,9 @@ impl BitcoinRegtestController {
     pub fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");        
@@ -366,17 +372,8 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
-        let address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
-        let identifier_output = TxOut {
-            value: DUST_UTXO_LIMIT,
-            script_pubkey: Builder::new()
-                .push_opcode(opcodes::All::OP_DUP)
-                .push_opcode(opcodes::All::OP_HASH160)
-                .push_slice(&address_hash)
-                .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                .push_opcode(opcodes::All::OP_CHECKSIG)
-                .into_script()
-        };
+        let address_hash = Hash160::from_data(&public_key.to_bytes());
+        let identifier_output = BitcoinAddress::to_p2pkh_tx_out(&address_hash, DUST_UTXO_LIMIT);
 
         tx.output.push(identifier_output);
 
@@ -416,19 +413,35 @@ impl BitcoinRegtestController {
                 .into_script(),
         };
 
-        let burn_address_hash = Hash160([0u8; 20]).as_bytes();
-        let burn_output = TxOut {
-            value: payload.burn_fee,
-            script_pubkey: Builder::new()
-                .push_opcode(opcodes::All::OP_DUP)
-                .push_opcode(opcodes::All::OP_HASH160)
-                .push_slice(burn_address_hash)
-                .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                .push_opcode(opcodes::All::OP_CHECKSIG)
-                .into_script()
+        tx.output = vec![consensus_output];
+
+        if OUTPUTS_PER_COMMIT < payload.commit_outs.len() {
+            error!("Generated block commit with more commit outputs than OUTPUTS_PER_COMMIT");
+            return None;
+        }
+
+        let burned = if payload.commit_outs.len() > 0 {
+            let pox_transfers = payload.commit_outs.len() as u64;
+            let burn_remainder = (OUTPUTS_PER_COMMIT as u64) - pox_transfers;
+            let value_per_transfer = payload.burn_fee / (OUTPUTS_PER_COMMIT as u64);
+            if value_per_transfer < 5500 {
+                error!("Total burn fee not enough for number of outputs");
+                return None;
+            }
+            for commit_to in payload.commit_outs.iter() {
+                tx.output.push(commit_to.to_bitcoin_tx_out(value_per_transfer));
+            }
+            value_per_transfer * burn_remainder
+        } else {
+            payload.burn_fee
         };
 
-        tx.output = vec![consensus_output, burn_output];
+        if burned > 0 {
+            let burn_address_hash = Hash160([0u8; 20]);
+            let burn_output = BitcoinAddress::to_p2pkh_tx_out(&burn_address_hash, burned);
+            tx.output.push(burn_output);
+        }
+
 
         self.finalize_tx(
             &mut tx,
@@ -493,7 +506,7 @@ impl BitcoinRegtestController {
         // Append the change output
         let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
         let public_key = signer.get_public_key();
-        let change_address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
+        let change_address_hash = Hash160::from_data(&public_key.to_bytes());
         if total_unspent < total_spent + tx_fee {
             warn!("Unspent total {} is less than intended spend: {}",
                   total_unspent, total_spent + tx_fee);
@@ -501,16 +514,7 @@ impl BitcoinRegtestController {
         }
         let value = total_unspent - total_spent - tx_fee;
         if value >= DUST_UTXO_LIMIT {
-            let change_output = TxOut {
-                value,
-                script_pubkey: Builder::new()
-                    .push_opcode(opcodes::All::OP_DUP)
-                    .push_opcode(opcodes::All::OP_HASH160)
-                    .push_slice(&change_address_hash)
-                    .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                    .push_opcode(opcodes::All::OP_CHECKSIG)
-                    .into_script()
-            };
+            let change_output = BitcoinAddress::to_p2pkh_tx_out(&change_address_hash, value);
             tx.output.push(change_output);
         } else {
             debug!("Not enough change to clear dust limit. Not adding change address.");
@@ -606,8 +610,9 @@ impl BitcoinRegtestController {
         };
         
         let pkh = Hash160::from_data(&public_key).to_bytes().to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");
@@ -727,8 +732,9 @@ impl BurnchainController for BitcoinRegtestController {
 
             let pk = hex_bytes(&local_mining_pubkey).expect("Invalid byte sequence");
             let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
+            let (_, network_id) = self.config.burnchain.get_bitcoin_network();
             let address = BitcoinAddress::from_bytes(
-                BitcoinNetworkType::Regtest,
+                network_id,
                 BitcoinAddressType::PublicKeyHash,
                 &pkh)
                 .expect("Public key incorrect");
@@ -1013,8 +1019,9 @@ impl BitcoinRPCRequest {
         let label = "";
 
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let (_, network_id) = config.burnchain.get_bitcoin_network();
         let address = BitcoinAddress::from_bytes(
-            BitcoinNetworkType::Regtest,
+            network_id,
             BitcoinAddressType::PublicKeyHash,
             &pkh)
             .expect("Public key incorrect");        

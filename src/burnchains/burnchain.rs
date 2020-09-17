@@ -1210,6 +1210,7 @@ pub mod tests {
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
+            commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
             parent_block_ptr: 0,
@@ -1234,6 +1235,7 @@ pub mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333334").unwrap()).unwrap(),
             parent_block_ptr: 0,
@@ -1258,6 +1260,7 @@ pub mod tests {
         };        
         
         let block_commit_3 = LeaderBlockCommitOp {
+            commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222224").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333335").unwrap()).unwrap(),
             parent_block_ptr: 0,
@@ -1429,7 +1432,7 @@ pub mod tests {
             let header = block121.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &initial_snapshot.sortition_id).unwrap();
 
-            let (sn121, _) = tx.process_block_ops(&burnchain, &initial_snapshot, &header, block_ops_121, None, PoxId::stubbed()).unwrap();
+            let (sn121, _) = tx.process_block_ops(&burnchain, &initial_snapshot, &header, block_ops_121, None, PoxId::stubbed(), None).unwrap();
             tx.commit().unwrap();
            
             block_121_snapshot.index_root = sn121.index_root.clone();
@@ -1439,7 +1442,7 @@ pub mod tests {
             let header = block122.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &block_121_snapshot.sortition_id).unwrap();
 
-            let (sn122, _) = tx.process_block_ops(&burnchain, &block_121_snapshot, &header, block_ops_122, None, PoxId::stubbed()).unwrap();
+            let (sn122, _) = tx.process_block_ops(&burnchain, &block_121_snapshot, &header, block_ops_122, None, PoxId::stubbed(), None).unwrap();
             tx.commit().unwrap();
             
             block_122_snapshot.index_root = sn122.index_root.clone();
@@ -1448,7 +1451,7 @@ pub mod tests {
         {
             let header = block123.header();
             let mut tx = SortitionHandleTx::begin(&mut db, &block_122_snapshot.sortition_id).unwrap();
-            let (sn123, _) = tx.process_block_ops(&burnchain, &block_122_snapshot, &header, block_ops_123, None, PoxId::stubbed()).unwrap();
+            let (sn123, _) = tx.process_block_ops(&burnchain, &block_122_snapshot, &header, block_ops_123, None, PoxId::stubbed(), None).unwrap();
             tx.commit().unwrap();
             
             block_123_snapshot.index_root = sn123.index_root.clone();
@@ -1546,7 +1549,7 @@ pub mod tests {
             let sn124 = {
                 let header = block124.header();
                 let mut tx = SortitionHandleTx::begin(&mut db, &block_123_snapshot.sortition_id).unwrap();
-                let (sn124, _) = tx.process_block_ops(&burnchain, &block_123_snapshot, &header, block_ops_124, None, PoxId::stubbed()).unwrap();
+                let (sn124, _) = tx.process_block_ops(&burnchain, &block_123_snapshot, &header, block_ops_124, None, PoxId::stubbed(), None).unwrap();
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
@@ -1585,6 +1588,7 @@ pub mod tests {
 
         for i in 0..10 {
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                commit_outs: vec![],
                 block_header_hash: BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                 new_seed: VRFSeed::from_bytes(&vec![i,i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                 parent_block_ptr: 3,
@@ -1611,6 +1615,7 @@ pub mod tests {
         }
 
         let noncolliding_op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            commit_outs: vec![],
             block_header_hash: BlockHeaderHash([0xbb; 32]),
             new_seed: VRFSeed([0xcc; 32]),
             parent_block_ptr: 3,
@@ -1757,6 +1762,7 @@ pub mod tests {
             // insert block commit paired to previous round's leader key, as well as a user burn
             if i > 0 {
                 let next_block_commit = LeaderBlockCommitOp {
+                    commit_outs: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     new_seed: VRFSeed::from_bytes(&vec![i,i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     parent_block_ptr: (if i == 1 { 0 } else { first_block_height + (i as u64) }) as u32,
@@ -1809,7 +1815,7 @@ pub mod tests {
             let snapshot = {
                 let header = block.header();
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let (sn, _) = tx.process_block_ops(&burnchain, &prev_snapshot, &header, block_ops, None, PoxId::stubbed()).unwrap();
+                let (sn, _) = tx.process_block_ops(&burnchain, &prev_snapshot, &header, block_ops, None, PoxId::stubbed(), None).unwrap();
                 tx.commit().unwrap();
                 sn
             };

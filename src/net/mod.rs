@@ -2120,7 +2120,7 @@ pub mod test {
                     }
                 }
 
-                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops, None, PoxId::stubbed()).unwrap();
+                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops, None, PoxId::stubbed(), None).unwrap();
                 tx.commit().unwrap();
                 (block_header.block_height, block_header_hash)
             };

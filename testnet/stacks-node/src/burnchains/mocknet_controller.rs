@@ -148,6 +148,7 @@ impl BurnchainController for MocknetController {
                         memo: payload.memo,
                         burn_fee: payload.burn_fee,
                         input: payload.input,
+                        commit_outs: payload.commit_outs,
                         txid,
                         vtxindex: vtxindex,
                         block_height: next_block_header.block_height,
@@ -184,7 +185,7 @@ impl BurnchainController for MocknetController {
                     let mut burn_tx = SortitionHandleTx::begin(
                         burn_db, &chain_tip.block_snapshot.sortition_id).unwrap();
                     let new_chain_tip = burn_tx.process_block_ops(
-                        &self.burnchain, &chain_tip.block_snapshot, &next_block_header, ops, None, PoxId::stubbed()).unwrap();
+                        &self.burnchain, &chain_tip.block_snapshot, &next_block_header, ops, None, PoxId::stubbed(), None).unwrap();
                     burn_tx.commit().unwrap();
                     new_chain_tip
                 }

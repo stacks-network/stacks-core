@@ -126,7 +126,7 @@ impl StacksChainState {
 
     /// List all PoX addresses and amount of uSTX stacked, at a particular block.
     /// Each address will have at least (get-stacking-minimum) tokens.
-    pub fn get_reward_addresses(&mut self, burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<((AddressHashMode, Hash160), u128)>, Error> {
+    pub fn get_reward_addresses(&mut self, burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<(StacksAddress, u128)>, Error> {
         let reward_cycle = self.get_reward_cycle(burnchain, block_id)?;
         if !self.is_pox_active(sortdb, block_id, reward_cycle)? {
             debug!("PoX was voted disabled in block {} (reward cycle {})", block_id, reward_cycle);
@@ -154,7 +154,7 @@ impl StacksChainState {
                 .to_owned()
                 .expect_tuple();
 
-            let pox_addr = tuple_to_pox_addr(pox_addr_tuple);
+            let (hash_mode, hash) = tuple_to_pox_addr(pox_addr_tuple);
 
             let total_ustx = tuple_data
                 .get("total-ustx")
@@ -162,7 +162,12 @@ impl StacksChainState {
                 .to_owned()
                 .expect_u128();
 
-            ret.push((pox_addr, total_ustx));
+            let version = match self.mainnet {
+                true => hash_mode.to_version_mainnet(),
+                false => hash_mode.to_version_testnet(),
+            };
+
+            ret.push((StacksAddress::new(version, hash), total_ustx));
         }
 
         Ok(ret)
@@ -846,8 +851,8 @@ pub mod test {
                     // one reward address, and it's Alice's
                     // either way, there's a single reward address
                     assert_eq!(reward_addrs.len(), 1);
-                    assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
-                    assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
                     assert_eq!(reward_addrs[0].1, 1024 * 1000000);
 
                     // Lock-up is consistent with stacker state
@@ -982,8 +987,8 @@ pub mod test {
                         // one reward address, and it's Alice's
                         // either way, there's a single reward address
                         assert_eq!(reward_addrs.len(), 1);
-                        assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
-                        assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&alice).bytes);
+                        assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                        assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
                         assert_eq!(reward_addrs[0].1, 1024 * 1000000);
 
                         // contract's address's tokens are locked
@@ -1127,12 +1132,12 @@ pub mod test {
                     // two reward addresses, and they're Alice's and Bob's.
                     // They are present in insertion order
                     assert_eq!(reward_addrs.len(), 2);
-                    assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
-                    assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
                     assert_eq!(reward_addrs[0].1, 1024 * 1000000);
                     
-                    assert_eq!((reward_addrs[1].0).0, AddressHashMode::SerializeP2PKH);
-                    assert_eq!((reward_addrs[1].0).1, key_to_stacks_addr(&bob).bytes);
+                    assert_eq!((reward_addrs[1].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&bob).bytes);
                     assert_eq!(reward_addrs[1].1, (4 * 1024 * 1000000) / 5);
                 }
                 else {
@@ -1385,8 +1390,8 @@ pub mod test {
                         // one reward address, and it's Alice's
                         // either way, there's a single reward address
                         assert_eq!(reward_addrs.len(), 1);
-                        assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
-                        assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&alice).bytes);
+                        assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                        assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
                         assert_eq!(reward_addrs[0].1, 1024 * 1000000);
                    
                         // All of Alice's tokens are locked
@@ -1590,12 +1595,12 @@ pub mod test {
 
                     // two reward address, and it's Alice's and Charlie's
                     assert_eq!(reward_addrs.len(), 2);
-                    assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
-                    assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
                     assert_eq!(reward_addrs[0].1, 1024 * 1000000);
                     
-                    assert_eq!((reward_addrs[1].0).0, AddressHashMode::SerializeP2PKH);
-                    assert_eq!((reward_addrs[1].0).1, key_to_stacks_addr(&charlie).bytes);
+                    assert_eq!((reward_addrs[1].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&charlie).bytes);
                     assert_eq!(reward_addrs[1].1, 1024 * 1000000);
                
                     // All of Alice's and Charlie's tokens are locked
@@ -1666,12 +1671,12 @@ pub mod test {
                     // one reward address, and it's Alice's
                     // either way, there's a single reward address
                     assert_eq!(reward_addrs.len(), 2);
-                    assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
-                    assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
                     assert_eq!(reward_addrs[0].1, 512 * 1000000);
 
-                    assert_eq!((reward_addrs[1].0).0, AddressHashMode::SerializeP2PKH);
-                    assert_eq!((reward_addrs[1].0).1, key_to_stacks_addr(&charlie).bytes);
+                    assert_eq!((reward_addrs[1].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&charlie).bytes);
                     assert_eq!(reward_addrs[1].1, 512 * 1000000);
                
                     // Half of Alice's tokens are locked
@@ -1831,12 +1836,12 @@ pub mod test {
                 make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
             ];
 
-            let expected_pox_addrs : Vec<(AddressHashMode, Hash160)> = vec![
-                (AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes),
-                (AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&bob).bytes),
-                (AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&charlie).bytes),
-                (AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&danielle).bytes),
-                (AddressHashMode::SerializeP2SH, key_to_stacks_addr(&alice).bytes)
+            let expected_pox_addrs : Vec<(u8, Hash160)> = vec![
+                (AddressHashMode::SerializeP2PKH.to_version_testnet(), key_to_stacks_addr(&alice).bytes),
+                (AddressHashMode::SerializeP2PKH.to_version_testnet(), key_to_stacks_addr(&bob).bytes),
+                (AddressHashMode::SerializeP2PKH.to_version_testnet(), key_to_stacks_addr(&charlie).bytes),
+                (AddressHashMode::SerializeP2PKH.to_version_testnet(), key_to_stacks_addr(&danielle).bytes),
+                (AddressHashMode::SerializeP2SH.to_version_testnet(), key_to_stacks_addr(&alice).bytes)
             ];
 
             let balances : Vec<u128> = stacker_addrs
@@ -1926,8 +1931,8 @@ pub mod test {
 
                     // in stacker order
                     for ((i, pox_addr), expected_stacked) in expected_pox_addrs.iter().enumerate().zip(balances_stacked.iter()) {
-                        assert_eq!((reward_addrs[i].0).0, pox_addr.0);
-                        assert_eq!((reward_addrs[i].0).1, pox_addr.1);
+                        assert_eq!((reward_addrs[i].0).version, pox_addr.0);
+                        assert_eq!((reward_addrs[i].0).bytes, pox_addr.1);
                         assert_eq!(reward_addrs[i].1, *expected_stacked);
                     }
 
@@ -2172,8 +2177,8 @@ pub mod test {
                         // charlie didn't reject this cycle, so Alice's reward address should be
                         // present
                         assert_eq!(reward_addrs.len(), 1);
-                        assert_eq!((reward_addrs[0].0).0, AddressHashMode::SerializeP2PKH);
-                        assert_eq!((reward_addrs[0].0).1, key_to_stacks_addr(&alice).bytes);
+                        assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                        assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
                         assert_eq!(reward_addrs[0].1, 1024 * 1000000);
                     }
 

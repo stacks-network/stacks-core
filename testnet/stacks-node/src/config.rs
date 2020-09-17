@@ -8,6 +8,7 @@ use rand::RngCore;
 use stacks::burnchains::{
     MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::secp256k1::Secp256k1PublicKey;
@@ -97,6 +98,91 @@ impl ConfigFile {
 
         let node = NodeConfigFile {
             bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@argon.blockstack.org:20444".to_string()),
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
+        let balances = vec![
+            InitialBalanceFile {
+                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                amount: 10000000000000000,
+            },
+        ];
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            mstx_balance: Some(balances),
+            ..ConfigFile::default()
+        }
+    }
+
+    pub fn krypton() -> ConfigFile {    
+        let burnchain = BurnchainConfigFile {
+            mode: Some("krypton".to_string()),
+            rpc_port: Some(18443),
+            peer_port: Some(18444),
+            peer_host: Some("krypton.blockstack.org".to_string()),
+            process_exit_at_block_height: Some(5130), // 1 block every 2m, 24 hours * 7 + 300 blocks initially mined for seeding faucet / miner
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@argon.blockstack.org:20444".to_string()),
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
+        let balances = vec![
+            InitialBalanceFile {
+                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                amount: 10000000000000000,
+            },
+        ];
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            mstx_balance: Some(balances),
+            ..ConfigFile::default()
+        }
+    }
+
+    pub fn xenon() -> ConfigFile {    
+        let burnchain = BurnchainConfigFile {
+            mode: Some("xenon".to_string()),
+            rpc_port: Some(18332),
+            peer_port: Some(18333),
+            peer_host: Some("xenon.blockstack.org".to_string()),
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@xenon.blockstack.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -307,7 +393,7 @@ impl Config {
             None => default_burnchain_config
         };
 
-        let supported_modes = vec!["mocknet", "helium", "neon", "argon"];
+        let supported_modes = vec!["mocknet", "helium", "neon", "argon", "krypton", "xenon"];
 
         if !supported_modes.contains(&burnchain.mode.as_str())  {
             panic!("Setting burnchain.network not supported (should be: {})", supported_modes.join(", "))
@@ -545,6 +631,15 @@ impl BurnchainConfig {
         let mut addrs_iter = format!("{}:{}", self.peer_host, self.rpc_port).to_socket_addrs().unwrap();
         let sock_addr = addrs_iter.next().unwrap();
         sock_addr
+    }
+
+    pub fn get_bitcoin_network(&self) -> (String, BitcoinNetworkType) {
+        match self.mode.as_str() {
+            "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
+            "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
+            "helium" | "neon" | "argon" | "krypton" => ("regtest".to_string(), BitcoinNetworkType::Regtest),
+            _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest")
+        }
     }
 }
 

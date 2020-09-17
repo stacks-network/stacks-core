@@ -45,6 +45,7 @@ harness = false
 [dependencies]
 tini = "0.2"
 rand = "=0.7.2"
+rand_chacha = "=0.2.2"
 serde = "1"
 serde_derive = "1"
 sha3 = "0.8.2"
@@ -67,7 +68,7 @@ features = ["serde"]
 
 [dependencies.rusqlite]
 version = "=0.16.0"
-features = ["blob", "i128_blob", "bundled", "trace"]
+features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.ed25519-dalek]
 version = "=1.0.0-pre.3"

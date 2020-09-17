@@ -889,7 +889,7 @@ pub mod test {
 
             let blockstack_txs = self.txs.clone();
 
-            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs, None, PoxId::stubbed())
+            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs, None, PoxId::stubbed(), None)
                 .unwrap();
             sortition_db_handle.commit().unwrap();
 
