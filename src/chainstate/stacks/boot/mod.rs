@@ -603,6 +603,98 @@ pub mod test {
     }
     
     #[test]
+    fn test_hook_special_contract_call() {
+        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
+        burnchain.pox_constants.reward_cycle_length = 3;
+        burnchain.pox_constants.prepare_length = 1;
+
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-hook-special-contract-call", 6007);
+
+        let num_blocks = 15;
+
+        let alice = keys.pop().unwrap();
+
+        for tenure_id in 0..num_blocks {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut block_txs = vec![
+                    coinbase_tx
+                ];
+
+                if tenure_id == 1 {
+                    // Alice locks up exactly 12.5% of the liquid STX supply, twice.
+                    // Only the first one succeeds.
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1);
+                    block_txs.push(alice_lockup_1);
+                }
+                if tenure_id == 2 {
+                    let alice_test_tx = make_bare_contract(&alice, 1, 0, "nested-stacker", &format!(
+                        "(define-public (nested-stacks-stx)
+                            (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+
+                    block_txs.push(alice_test_tx);   
+                }
+                if tenure_id == 8 {
+                    let auth = TransactionAuth::from_p2pkh(&alice).unwrap();
+                    let addr = auth.origin().address_testnet();
+                    let mut contract_call = StacksTransaction::new(TransactionVersion::Testnet, auth,
+                                                                TransactionPayload::new_contract_call(key_to_stacks_addr(&alice),
+                                                                                                     "nested-stacker",
+                                                                                                     "nested-stacks-stx",
+                                                                                                     vec![]).unwrap());
+                    contract_call.chain_id = 0x80000000;
+                    contract_call.auth.set_origin_nonce(2);
+                    contract_call.set_post_condition_mode(TransactionPostConditionMode::Allow);
+                    contract_call.set_fee_rate(0);
+            
+                    let mut tx_signer = StacksTransactionSigner::new(&contract_call);
+                    tx_signer.sign_origin(&alice).unwrap();
+                    let tx = tx_signer.get_tx().unwrap();
+
+                    block_txs.push(tx);
+                }
+
+                let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
+                (anchored_block, vec![])
+            });
+
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            let total_liquid_ustx = get_liquid_ustx(&mut peer);
+            let tip_index_block = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
+
+            if tenure_id == 0 {
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+                assert_eq!(alice_balance, 1024 * 1000000);
+            }
+            else if tenure_id == 4 {
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+                assert_eq!(alice_balance, 512 * 1000000);
+            }
+            else if tenure_id == 7 {
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+                assert_eq!(alice_balance, 1024 * 1000000);
+            }
+            else if tenure_id == 8 {
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+                assert_eq!(alice_balance, 512 * 1000000);
+            }
+            else if tenure_id == 13 {
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+                assert_eq!(alice_balance, 1024 * 1000000);
+            }
+        }
+    }
+
+    #[test]
     fn test_liquid_ustx_burns() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash([0u8; 32]));
         burnchain.pox_constants.reward_cycle_length = 5;
