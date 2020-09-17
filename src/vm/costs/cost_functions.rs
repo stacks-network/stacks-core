@@ -103,6 +103,7 @@ def_runtime_cost!(GE  { Constant(1) });
 def_runtime_cost!(INT_CAST { Constant(1) });
 def_runtime_cost!(MOD { Constant(1) });
 def_runtime_cost!(POW { Constant(1) });
+def_runtime_cost!(SQRTI { Constant(1) });
 def_runtime_cost!(XOR { Constant(1) });
 def_runtime_cost!(NOT { Constant(1) });
 def_runtime_cost!(EQ { Linear(1, 1) });
@@ -112,6 +113,8 @@ def_runtime_cost!(SHA256 { Constant(1) });
 def_runtime_cost!(SHA512 { Constant(1) });
 def_runtime_cost!(SHA512T256 { Constant(1) });
 def_runtime_cost!(KECCAK256 { Constant(1) });
+def_runtime_cost!(SECP256K1RECOVER { Constant(1) });
+def_runtime_cost!(SECP256K1VERIFY { Constant(1) });
 def_runtime_cost!(PRINT { Linear(1, 1) });
 def_runtime_cost!(SOME_CONS { Constant(1) });
 def_runtime_cost!(OK_CONS { Constant(1) });
@@ -136,6 +139,7 @@ def_runtime_cost!(AS_MAX_LEN { Constant(1) });
 
 def_runtime_cost!(CONTRACT_CALL { Constant(1) });
 def_runtime_cost!(CONTRACT_OF { Constant(1) });
+def_runtime_cost!(PRINCIPAL_OF { Constant(1) });
 
 pub const AT_BLOCK: SimpleCostSpecification = SimpleCostSpecification {
     write_length: Constant(0),

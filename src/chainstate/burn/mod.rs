@@ -185,10 +185,11 @@ impl SortitionHash {
         SortitionHash(ret)
     }
 
-    /// Choose 1 indice from the range [0, max).
+    /// Choose 1 index from the range [0, max).
     pub fn choose(&self, max: u32) -> u32 {
         let mut rng = ChaCha20Rng::from_seed(self.0.clone());
         let index: u32 = rng.gen_range(0, max);
+        assert!(index <  max);
         index
     }
 
@@ -392,7 +393,7 @@ mod tests {
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], &vec![], None, None).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], None, None).unwrap();
                 burn_block_hashes.push(snapshot_row.sortition_id.clone());
                 tx.commit().unwrap();
                 prev_snapshot = snapshot_row;
