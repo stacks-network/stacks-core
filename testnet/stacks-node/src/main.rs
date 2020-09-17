@@ -47,14 +47,17 @@ fn main() {
         eprintln!("{:?}", &bt);
 
         // force a core dump
-        let pid = process::id();
-        eprintln!("Dumping core for pid {}", std::process::id());
+        #[cfg(unix)]
+        {
+            let pid = process::id();
+            eprintln!("Dumping core for pid {}", std::process::id());
 
-        use libc::kill;
-        use libc::SIGQUIT;
+            use libc::kill;
+            use libc::SIGQUIT;
 
-        // *should* trigger a core dump, if you run `ulimit -c unlimited` first!
-        unsafe { kill(pid.try_into().unwrap(), SIGQUIT) };
+            // *should* trigger a core dump, if you run `ulimit -c unlimited` first!
+            unsafe { kill(pid.try_into().unwrap(), SIGQUIT) };
+        }
 
         // just in case
         process::exit(1);
