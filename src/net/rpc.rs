@@ -1607,6 +1607,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_unconfirmed_getblock() {
         let server_block_cell = RefCell::new(None);
 
