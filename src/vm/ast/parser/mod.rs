@@ -8,7 +8,7 @@ use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName, ClarityName, MAX_STRING_LEN};
 use vm::types::{Value, PrincipalData, TraitIdentifier, QualifiedContractIdentifier};
 
-pub const CONTRACT_MIN_NAME_LENGTH : usize = 5;
+pub const CONTRACT_MIN_NAME_LENGTH : usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH : usize = 40;
 
 pub enum LexItem {
@@ -411,10 +411,13 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                             handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         },
                         ParseContext::CollectTuple => {
-                            return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
+                            let mut error = ParseError::new(ParseErrors::ClosingTupleLiteralExpected);
+                            error.diagnostic.add_span(start_line, start_column, line_pos, column_pos);
+                            return Err(error)
                         }
                     }
                 } else {
+                    debug!("Closing parenthesis expected ({}, {})", line_pos, column_pos);
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
                 }
             },
@@ -460,10 +463,13 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                             handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         },
                         ParseContext::CollectList => {
-                            return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                            let mut error = ParseError::new(ParseErrors::ClosingParenthesisExpected);
+                            error.diagnostic.add_span(start_line, start_column, line_pos, column_pos);
+                            return Err(error)
                         }
                     }
                 } else {
+                    debug!("Closing tuple literal unexpected ({}, {})", line_pos, column_pos);
                     return Err(ParseError::new(ParseErrors::ClosingTupleLiteralUnexpected))
                 }
             },
@@ -545,7 +551,12 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
     // check unfinished stack:
     if parse_stack.len() > 0 {
-        Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+        let mut error = ParseError::new(ParseErrors::ClosingParenthesisExpected);
+        if let Some((_list, start_line, start_column, _parse_context)) = parse_stack.pop() {
+            error.diagnostic.add_span(start_line, start_column, 0, 0); 
+            debug!("Unfinished stack: {} items remaining starting at ({}, {})", parse_stack.len() + 1, start_line, start_column);
+        }
+        Err(error)
     } else {
         Ok(output_list)
     }
@@ -670,6 +681,19 @@ r#"z (let ((x 1) (y 2))
             },
             _ => false
         });
+
+        let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.a";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match x1.match_atom_value() {
+            Some(Value::Principal(PrincipalData::Contract(identifier))) => {
+                format!("{}", 
+                    PrincipalData::Standard(identifier.issuer.clone())) == "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    identifier.name == "a".into()
+            },
+            _ => false
+        });
     }
 
     #[test]
@@ -776,7 +800,7 @@ r#"z (let ((x 1) (y 2))
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err {
-            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+            ParseErrors::SeparatorExpected(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&wrong_tuple_literal_close).unwrap_err().err {
             ParseErrors::ClosingTupleLiteralExpected => true, _ => false });

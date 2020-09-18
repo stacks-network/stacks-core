@@ -84,6 +84,20 @@ contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
 };
 
+const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "stx-liquid-supply",
+    output_type: "uint",
+    description: "Returns the total number of micro-STX (uSTX) that are liquid in the system as of this block.",
+    example: "(print stx-liquid-supply) ;; Will print out the total number of liquid uSTX"
+};
+
+const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "is-in-regtest",
+    output_type: "bool",
+    description: "Returns whether or not the code is running in a regression test",
+    example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test"
+};
+
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "none",
     output_type: "(optional ?)",
@@ -691,7 +705,7 @@ const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
 const AT_BLOCK: SpecialAPI = SpecialAPI {
     input_type: "(buff 32), A",
     output_type: "A",
-    signature: "(at-block block-hash expr)",
+    signature: "(at-block id-block-hash expr)",
     description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
 block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
 
@@ -1456,6 +1470,8 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
         NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
+        NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
+        NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
     }
 }
 
@@ -1531,10 +1547,11 @@ mod test {
     use super::make_all_api_reference;
     use chainstate::stacks::{StacksAddress, StacksBlockId, index::MarfTrieId};
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
+    use chainstate::burn::db::sortdb::SortitionId;
     use burnchains::BurnchainHeaderHash;
 
     use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext,
-              database::{ MarfedKV, HeadersDB },
+              database::{ MarfedKV, HeadersDB, BurnStateDB, STXBalance },
               LimitedCostTracker, GlobalContext, Error, contexts::OwnedEnvironment };
 
     struct DocHeadersDB {}
@@ -1559,8 +1576,22 @@ mod test {
         fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
             None
         }
+        fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
+            1592653589333333u128
+        }
     }
 
+    struct DocBurnStateDB {}
+    const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
+
+    impl BurnStateDB for DocBurnStateDB {
+        fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+            Some(5678)
+        }
+        fn get_burn_header_hash(&self, height: u32, _sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+            Some(BurnchainHeaderHash::from_hex("e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8").unwrap())
+        }
+    }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
         // start the next block,
@@ -1584,7 +1615,7 @@ mod test {
             segments.push(current_segment);
         }
 
-        let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+        let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
         let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
@@ -1634,14 +1665,15 @@ mod test {
         // first, load the samples for contract-call
         // and give the doc environment's contract some STX
         {
-            let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+            let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
             let mut env = OwnedEnvironment::new(conn);
+            let balance = STXBalance::initial(1000);
             env.execute_in_env(QualifiedContractIdentifier::local("tokens").unwrap().into(),
                                |e| {
                                    e.global_context.database.set_account_stx_balance(
                                        &QualifiedContractIdentifier::local("docs-test").unwrap().into(),
-                                       10000);
+                                       &balance);
                                    Ok(())
                                }).unwrap();
             env.initialize_contract(contract_id, 

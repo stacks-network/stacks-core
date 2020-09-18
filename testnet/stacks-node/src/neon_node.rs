@@ -48,8 +48,9 @@ use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::vm::costs::ExecutionCost;
 
+use stacks::vm::database::BurnStateDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::coordinator::{get_next_recipients, PlaceholderRewardSetProvider};
+use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 
 use stacks::monitoring::{
     increment_stx_blocks_mined_counter,
@@ -141,7 +142,7 @@ fn inner_process_tenure(
 
     let canonical_tip = StacksBlockId::new(&canonical_consensus_hash, &canonical_block_hash);
     debug!("Reload unconfirmed state");
-    chain_state.reload_unconfirmed_state(canonical_tip)?;
+    chain_state.reload_unconfirmed_state(&burn_db.index_conn(), canonical_tip)?;
 
     Ok(true)
 }
@@ -347,7 +348,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     let burn_fee_cap = config.burnchain.burn_fee_cap;
     let mine_microblocks = config.node.mine_microblocks;
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config);
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
 
     let _relayer_handle = thread::spawn(move || {
         while let Ok(mut directive) = relay_channel.recv() {
@@ -416,7 +417,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                             // should we broadcast microblocks?
                             if mine_microblocks {
                                 let mint_result = InitializedNeonNode::relayer_mint_microblocks(
-                                    &consensus_hash, &block_header_hash, &mut chainstate, &keychain,
+                                    &consensus_hash, &block_header_hash, &mut chainstate, &sortdb.index_conn(), &keychain,
                                     consumed_execution, bytes_so_far, &mem_pool);
                                 let mined_microblock = match mint_result {
                                     Ok(mined_microblock) => mined_microblock,
@@ -441,7 +442,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                     },
                                 }
                                 // update unconfirmed state
-                                if let Err(e) = chainstate.refresh_unconfirmed_state() {
+                                if let Err(e) = chainstate.refresh_unconfirmed_state(&sortdb.index_conn()) {
                                     warn!("Failed to refresh unconfirmed state after processing microblock {}/{}-{}: {:?}", &mined_burn_hash, &block_header_hash, mined_microblock.block_hash(), &e);
                                 }
                                 // broadcast to peers
@@ -460,7 +461,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
                     debug!("Relayer: Run tenure");
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
-                        registered_key, &mut chainstate, &mut sortdb, &burnchain, last_burn_block,
+                        &config, registered_key, &mut chainstate, &mut sortdb, &burnchain, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller);
                     bump_processed_counter(&blocks_processed);
                 },
@@ -643,6 +644,7 @@ impl InitializedNeonNode {
     fn relayer_mint_microblocks(mined_block_consensus_hash: &ConsensusHash,
                                 mined_block_shh: &BlockHeaderHash,
                                 chain_state: &mut StacksChainState,
+                                burn_dbconn: &dyn BurnStateDB,
                                 keychain: &Keychain,
                                 consumed_execution: ExecutionCost,
                                 bytes_so_far: u64,
@@ -650,6 +652,7 @@ impl InitializedNeonNode {
         let mut microblock_miner = StacksMicroblockBuilder::new(mined_block_shh.clone(),
                                                                 mined_block_consensus_hash.clone(),
                                                                 chain_state,
+                                                                burn_dbconn,
                                                                 consumed_execution,
                                                                 bytes_so_far)?;
         let mblock_key = keychain.get_microblock_key()
@@ -665,7 +668,8 @@ impl InitializedNeonNode {
     // return stack's parent's burn header hash,
     //        the anchored block,
     //        the burn header hash of the burnchain tip
-    fn relayer_run_tenure(registered_key: RegisteredKey,
+    fn relayer_run_tenure(config: &Config,
+                          registered_key: RegisteredKey,
                           chain_state: &mut StacksChainState,
                           burn_db: &mut SortitionDB,
                           burnchain: &Burnchain,
@@ -735,7 +739,7 @@ impl InitializedNeonNode {
 
                 let coinbase_nonce = {
                     let principal = keychain.origin_address().unwrap().into();
-                    let account = chain_state.with_read_only_clarity_tx(&StacksBlockHeader::make_index_block_hash(&stacks_tip.consensus_hash, &stacks_tip.anchored_block_hash), |conn| {
+                    let account = chain_state.with_read_only_clarity_tx(&burn_db.index_conn(), &StacksBlockHeader::make_index_block_hash(&stacks_tip.consensus_hash, &stacks_tip.anchored_block_hash), |conn| {
                         StacksChainState::get_account(conn, &principal)
                     });
                     account.nonce
@@ -744,7 +748,7 @@ impl InitializedNeonNode {
                 (stacks_tip_header, parent_consensus_hash, parent_block.block_height, parent_block.total_burn, parent_winning_vtxindex, coinbase_nonce)
             } else {
                 warn!("No Stacks chain tip known, attempting to mine a genesis block");
-                let chain_tip = ChainTip::genesis();
+                let chain_tip = ChainTip::genesis(config.get_initial_liquid_ustx());
 
                 (chain_tip.metadata, FIRST_BURNCHAIN_CONSENSUS_HASH.clone(), 0, 0, 0, 0)
             };
@@ -752,7 +756,7 @@ impl InitializedNeonNode {
         let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
         let (anchored_block, consumed_execution, bytes_so_far) = match StacksBlockBuilder::build_anchored_block(
-            chain_state, mem_pool, &stacks_parent_header, parent_block_total_burn,
+            chain_state, &burn_db.index_conn(), mem_pool, &stacks_parent_header, parent_block_total_burn,
             vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()) {
             Ok(block) => block,
             Err(e) => {
@@ -767,7 +771,7 @@ impl InitializedNeonNode {
 
         // let's figure out the recipient set!
         let recipients = match get_next_recipients(&burn_block, chain_state, burn_db,
-                                                   burnchain, &PlaceholderRewardSetProvider()) {
+                                                   burnchain, &OnChainRewardSetProvider::new()) {
             Ok(x) => x,
             Err(e) => {
                 error!("Failure fetching recipient set: {:?}", e);

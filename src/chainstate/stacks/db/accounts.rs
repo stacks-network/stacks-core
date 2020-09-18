@@ -36,7 +36,19 @@ use vm::types::*;
 use util::db::*;
 use util::db::Error as db_error;
 
+use vm::{get_stx_balance_snapshot};
+
 pub type MinerPaymentCache = HashMap<StacksBlockId, Vec<MinerPaymentSchedule>>;
+
+impl StacksAccount {
+    pub fn get_available_balance_at_block(&self, burn_block_height: u64) -> u128 {
+        self.stx_balance.get_available_balance_at_block(burn_block_height)
+    }
+
+    pub fn has_locked_tokens(&self, burn_block_height: u64) -> bool {
+        self.stx_balance.has_locked_tokens(burn_block_height)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -133,7 +145,7 @@ impl StacksChainState {
             StacksAccount {
                 principal: principal.clone(),
                 stx_balance,
-                nonce
+                nonce,
             }
         })
     }
@@ -156,19 +168,22 @@ impl StacksChainState {
 
     /// Called each time a transaction is invoked from this principal, to e.g.
     /// debit the STX-denominated tx fee or transfer/burn STX.
+    /// Will consolidate unlocked STX.
     /// DOES NOT UPDATE THE NONCE
     pub fn account_debit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
-            let cur_balance = db.get_account_stx_balance(principal);
-            
+            let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
+
             // last line of defense: if we don't have sufficient funds, panic.
             // This should be checked by the block validation logic.
-            if cur_balance < (amount as u128) {
-                panic!("Tried to debit {} from account {} (which only has {})", amount, principal, cur_balance);
+            if !balance.can_transfer(amount as u128, block_height) {
+                panic!("Tried to debit {} from account {} (which only has {})", amount, principal, balance.get_available_balance_at_block(block_height));
             }
 
-            let final_balance = cur_balance - (amount as u128);
-            db.set_account_stx_balance(principal, final_balance);
+            balance.debit(amount as u128, block_height)
+                .expect("STX underflow");
+            db.set_account_stx_balance(principal, &balance);
+
             Ok(())
         }).expect("FATAL: failed to debit account")
     }
@@ -177,21 +192,59 @@ impl StacksChainState {
     /// No nonce update is needed, since the transfer action is not taken by the principal.
     pub fn account_credit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
-            let cur_balance = db.get_account_stx_balance(principal);
-            let final_balance = cur_balance.checked_add(amount as u128).expect("FATAL: account balance overflow");
-            db.set_account_stx_balance(principal, final_balance as u128);
-            info!("{} credited: {} uSTX", principal, final_balance);
+            let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
+            balance.credit(amount as u128, block_height)
+                .expect("STX overflow");
+            db.set_account_stx_balance(principal, &balance);
+            info!("{} credited: {} uSTX", principal, balance.get_available_balance_at_block(block_height));
             Ok(())
         }).expect("FATAL: failed to credit account")
     }
-   
-    /// Increment an account's nonce
-    pub fn update_account_nonce(clarity_tx: &mut ClarityTransactionConnection, account: &StacksAccount) {
+
+    /// Called during the genesis / boot sequence.
+    pub fn account_genesis_credit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
-            let next_nonce = account.nonce.checked_add(1).expect("OUT OF NONCES");
-            db.set_account_nonce(&account.principal, next_nonce);
+            let balance = STXBalance::initial(amount as u128);
+            db.set_account_stx_balance(principal, &balance);
+            info!("{} credited (genesis): {} uSTX", principal, balance.get_total_balance());
+            Ok(())
+        }).expect("FATAL: failed to credit account")
+    }
+
+    /// Increment an account's nonce
+    pub fn update_account_nonce(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, cur_nonce: u64) {
+        clarity_tx.with_clarity_db(|ref mut db| {
+            let next_nonce = cur_nonce.checked_add(1).expect("OUT OF NONCES");
+            db.set_account_nonce(&principal, next_nonce);
             Ok(())
         }).expect("FATAL: failed to set account nonce")
+    }
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock(db: &mut ClarityDatabase, principal: &PrincipalData, lock_amount: u128, unlock_burn_height: u64) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        // consolidate if we need to, since the last tx sent could have been for a PoX lockup.
+        let mut balance = db.get_account_stx_balance(principal);
+        let cur_burn_height = db.get_current_burnchain_block_height() as u64;
+
+        if balance.has_locked_tokens(cur_burn_height) {
+            return Err(Error::PoxAlreadyLocked);
+        }
+
+        if !balance.can_transfer(lock_amount, cur_burn_height) {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        balance.lock_tokens(lock_amount, unlock_burn_height, cur_burn_height)
+            .expect("Unable to lock tokens");
+        // set the locks
+        debug!("PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}", balance.amount_locked, balance.amount_unlocked, unlock_burn_height, principal);
+
+        db.set_account_stx_balance(principal, &balance);
+
+        Ok(())
     }
 
     /// Schedule a miner payment in the future.
@@ -586,6 +639,7 @@ mod test {
         new_tip.consensus_hash = ConsensusHash(Hash160::from_data(&Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0).0);
         new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0);
         new_tip.burn_header_height = parent_header_info.burn_header_height + 1;
+        new_tip.total_liquid_ustx = parent_header_info.total_liquid_ustx + block_reward.coinbase;
 
         block_reward.parent_consensus_hash = parent_header_info.consensus_hash.clone();
         block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
@@ -609,6 +663,7 @@ mod test {
                                                 new_tip.microblock_tail.clone(), 
                                                 &block_reward, 
                                                 &user_burns,
+                                                new_tip.total_liquid_ustx,
                                                 &ExecutionCost::zero()).unwrap();
         tx.commit().unwrap();
         tip
@@ -630,11 +685,11 @@ mod test {
 
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
-            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), 0).unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), 0).unwrap();
             assert!(ancestor_0.is_some());
         }
 
-        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), &mut miner_reward, &mut user_supports);
 
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
@@ -673,12 +728,12 @@ mod test {
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
-        let initial_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+        let initial_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
         
         let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
         let mut user_supports = vec![user_support];
 
-        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), &mut miner_reward, &mut user_supports);
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(&StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 0, 0, 0, 0, 0);
@@ -759,7 +814,7 @@ mod test {
         let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
         let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
 
-        let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+        let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
 
         let mut cache = MinerPaymentCache::new();
         let mut matured_miners = vec![];

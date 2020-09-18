@@ -164,15 +164,15 @@ impl BlockEventDispatcher for NullEventDispatcher {
     }
 }
 
-pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, (), PlaceholderRewardSetProvider> {
-    ChainsCoordinator::test_new(&get_burnchain(path), path, PlaceholderRewardSetProvider())
+pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
+    ChainsCoordinator::test_new(&get_burnchain(path), path, OnChainRewardSetProvider::new())
 }
 
 struct StubbedRewardSetProvider(Vec<StacksAddress>);
 
 impl RewardSetProvider for StubbedRewardSetProvider {
-    fn get_reward_set(&self, chainstate: &StacksChainState,
-                      pox_anchor_hash: &BlockHeaderHash, pox_anchor_consensus: &ConsensusHash) -> Result<Vec<StacksAddress>, CoordError> {
+    fn get_reward_set(&self, chainstate: &mut StacksChainState,
+        burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<StacksAddress>, chainstate::coordinator::Error> {
         Ok(self.0.clone())
     }
 }
@@ -183,7 +183,7 @@ fn make_reward_set_coordinator<'a>(path: &str, addrs: Vec<StacksAddress>) -> Cha
 
 fn get_burnchain(path: &str) -> Burnchain {
     let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
-    b.pox_constants = PoxConstants::new(5, 3, 3);
+    b.pox_constants = PoxConstants::new(5, 3, 3, 25);
     b
 }
 
@@ -235,14 +235,15 @@ fn make_genesis_block_with_recipients(sort_db: &SortitionDB, state: &mut StacksC
 
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
 
-    let parent_stacks_header = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+    let parent_stacks_header = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
 
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
     let mut builder = StacksBlockBuilder::make_block_builder(
         &parent_stacks_header, proof.clone(), 0, next_hash160()).unwrap();
 
-    let mut epoch_tx = builder.epoch_begin(state).unwrap();
+    let iconn = sort_db.index_conn();
+    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap();
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -322,10 +323,12 @@ fn make_stacks_block_with_recipients(sort_db: &SortitionDB, state: &mut StacksCh
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 
     let total_burn = parents_sortition.total_burn;
+    
+    let iconn = sort_db.index_conn();
 
     let mut builder = StacksBlockBuilder::make_block_builder(
         &parent_stacks_header, proof.clone(), total_burn, next_hash160()).unwrap();
-    let mut epoch_tx = builder.epoch_begin(state).unwrap();
+    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap();
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -466,6 +469,7 @@ fn test_simple_setup() {
     let mut chainstate = get_chainstate(path);
     assert_eq!(
         chainstate.with_read_only_clarity_tx(
+            &sort_db.index_conn(),
             &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
             |conn| conn.with_readonly_clarity_env(
                 PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
@@ -690,6 +694,7 @@ fn test_sortition_with_reward_set() {
     let mut chainstate = get_chainstate(path);
     assert_eq!(
         chainstate.with_read_only_clarity_tx(
+            &sort_db.index_conn(),
             &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
             |conn| conn.with_readonly_clarity_env(
                 PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
@@ -1300,6 +1305,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let mut chainstate = get_chainstate(chainstate_path);
     chainstate.with_read_only_clarity_tx(
+        &sort_db.index_conn(),
         &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
         |conn| conn.with_readonly_clarity_env(
             PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),

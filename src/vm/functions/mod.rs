@@ -7,6 +7,7 @@ mod crypto;
 mod database;
 mod options;
 mod assets;
+mod special;
 
 use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{BUFF_32, BUFF_33, BUFF_65, BuffData, Value, SequenceData, CharType, PrincipalData, ResponseData, TypeSignature};
@@ -17,6 +18,8 @@ use vm::{LocalContext, Environment, eval};
 use vm::costs::{cost_functions, MemoryConsumer, CostTracker, constants as cost_constants};
 use util::hash;
 
+pub use vm::functions::assets::{get_stx_balance_snapshot, stx_transfer_consolidated};
+pub use vm::functions::special::handle_contract_call_special_cases;
 use chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksAddress};
 use address::AddressHashMode;
 

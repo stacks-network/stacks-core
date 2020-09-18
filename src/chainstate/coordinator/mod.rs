@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
-use std::time::{
-    Duration
-};
+use std::time::Duration;
+use std::convert::TryInto;
 
 use burnchains::{
     Error as BurnchainError,
@@ -18,7 +17,7 @@ use chainstate::burn::{
     operations::leader_block_commit::RewardSetInfo,
 };
 use chainstate::stacks::{
-    StacksBlock, StacksBlockId, StacksAddress,
+    StacksBlock, StacksBlockId, StacksAddress, StacksBlockHeader,
     Error as ChainstateError, events::StacksTransactionReceipt,
     db::{
         StacksHeaderInfo, StacksChainState, ClarityTx
@@ -36,6 +35,7 @@ use util::db::{
 };
 
 pub mod comm;
+use chainstate::stacks::index::MarfTrieId;
 
 #[cfg(test)]
 mod tests;
@@ -142,19 +142,31 @@ impl From<DBError> for Error {
 }
 
 pub trait RewardSetProvider {
-    fn get_reward_set(&self, chainstate: &StacksChainState,
-                      pox_anchor_hash: &BlockHeaderHash, pox_anchor_consensus: &ConsensusHash) -> Result<Vec<StacksAddress>, Error>;
+    fn get_reward_set(&self, chainstate: &mut StacksChainState,
+                      burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<StacksAddress>, Error>;
 }
 
-pub struct PlaceholderRewardSetProvider();
-impl RewardSetProvider for PlaceholderRewardSetProvider {
-    fn get_reward_set(&self, _chainstate: &StacksChainState,
-                      _pox_anchor_hash: &BlockHeaderHash, _pox_anchor_consensus: &ConsensusHash) -> Result<Vec<StacksAddress>, Error> {
-        Ok(vec![])
+pub struct OnChainRewardSetProvider {
+
+}
+
+impl RewardSetProvider for OnChainRewardSetProvider {
+    fn get_reward_set(&self, chainstate: &mut StacksChainState,
+                      burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<StacksAddress>, Error> {
+        let res = chainstate.get_reward_addresses(burnchain, sortdb, block_id)?;
+        let addresses = res.iter().map(|a| a.0).collect::<Vec<StacksAddress>>();
+        Ok(addresses)
     }
 }
 
-impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinatorNotices, PlaceholderRewardSetProvider> {
+impl OnChainRewardSetProvider {
+
+    pub fn new() -> OnChainRewardSetProvider {
+        OnChainRewardSetProvider {}
+    }
+}
+
+impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider> {
     pub fn run<F>(chain_state_path: &str, burnchain: Burnchain, stacks_mainnet: bool, stacks_chain_id: u32,
                   initial_balances: Option<Vec<(PrincipalData, u64)>>,
                   block_limit: ExecutionCost, dispatcher: &T, comms: CoordinatorReceivers,
@@ -184,7 +196,7 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
             burnchain,
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
-            reward_set_provider: PlaceholderRewardSetProvider(),
+            reward_set_provider: OnChainRewardSetProvider::new(),
         };
 
         loop {
@@ -240,7 +252,7 @@ impl <'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator <'a, 
 }
 
 pub fn get_next_recipients<U: RewardSetProvider>(
-    sortition_tip: &BlockSnapshot, chain_state: &StacksChainState,
+    sortition_tip: &BlockSnapshot, chain_state: &mut StacksChainState,
     sort_db: &mut SortitionDB, burnchain: &Burnchain, provider: &U) -> Result<Option<RewardSetInfo>, Error> {
 
     let reward_cycle_info = get_reward_cycle_info(
@@ -257,7 +269,7 @@ pub fn get_next_recipients<U: RewardSetProvider>(
 ///           * Was PoX anchor block known?
 pub fn get_reward_cycle_info<U: RewardSetProvider>(
     burn_height: u64, parent_bhh: &BurnchainHeaderHash, sortition_tip: &SortitionId, burnchain: &Burnchain,
-    chain_state: &StacksChainState, sort_db: &SortitionDB, provider: &U) -> Result<Option<RewardCycleInfo>, Error> {
+    chain_state: &mut StacksChainState, sort_db: &SortitionDB, provider: &U) -> Result<Option<RewardCycleInfo>, Error> {
 
     if burnchain.is_reward_cycle_start(burn_height) {
         info!("Beginning reward cycle. block_height={}", burn_height);
@@ -270,8 +282,9 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             let anchor_block_known = StacksChainState::is_stacks_block_processed(
                 &chain_state.headers_db, &consensus_hash, &stacks_block_hash)?;
             let anchor_status = if anchor_block_known {
+                let block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block_hash);
                 let reward_set = provider.get_reward_set(
-                    &chain_state, &stacks_block_hash, &consensus_hash)?;
+                    chain_state, burnchain, sort_db, &block_id)?;
                 PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, reward_set)
             } else {
                 PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash)
@@ -362,11 +375,11 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider> 
     ///                     in our current sortition view:
     ///           * PoX anchor block
     ///           * Was PoX anchor block known?
-    pub fn get_reward_cycle_info(&self, burn_header: &BurnchainBlockHeader) -> Result<Option<RewardCycleInfo>, Error> {
+    pub fn get_reward_cycle_info(&mut self, burn_header: &BurnchainBlockHeader) -> Result<Option<RewardCycleInfo>, Error> {
         let sortition_tip = self.canonical_sortition_tip.as_ref()
             .expect("FATAL: Processing anchor block, but no known sortition tip");
         get_reward_cycle_info(burn_header.block_height, &burn_header.parent_block_hash, sortition_tip,
-                              &self.burnchain, &self.chain_state_db, &self.sortition_db, &self.reward_set_provider)
+                              &self.burnchain, &mut self.chain_state_db, &self.sortition_db, &self.reward_set_provider)
     }
 
     ///

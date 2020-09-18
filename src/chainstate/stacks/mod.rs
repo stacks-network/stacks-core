@@ -20,6 +20,7 @@
 pub mod address;
 pub mod auth;
 pub mod block;
+pub mod boot;
 pub mod db;
 pub mod events;
 pub mod index;
@@ -169,6 +170,9 @@ pub enum Error {
     ReadError(io::Error),
     WriteError(io::Error),
     MemPoolError(String),
+    PoxAlreadyLocked,
+    PoxInsufficientBalance,
+    PoxNoRewardCycle
 }
 
 impl From<marf_error> for Error {
@@ -200,6 +204,9 @@ impl fmt::Display for Error {
             Error::WriteError(ref e) => fmt::Display::fmt(e, f),
             Error::MemPoolError(ref s) => fmt::Display::fmt(s, f),
             Error::NoTransactionsToMine => write!(f, "No transactions to mine"),
+            Error::PoxAlreadyLocked => write!(f, "Account has already locked STX for PoX"),
+            Error::PoxInsufficientBalance => write!(f, "Not enough STX to lock"),
+            Error::PoxNoRewardCycle => write!(f, "No such reward cycle"),
         }
     }
 }
@@ -227,6 +234,9 @@ impl error::Error for Error {
             Error::WriteError(ref e) => Some(e),
             Error::MemPoolError(ref _s) => None,
             Error::NoTransactionsToMine => None,
+            Error::PoxAlreadyLocked => None,
+            Error::PoxInsufficientBalance => None,
+            Error::PoxNoRewardCycle => None,
         }
     }
 }
@@ -254,6 +264,9 @@ impl Error {
             Error::WriteError(ref _e) => "WriteError",
             Error::MemPoolError(ref _s) => "MemPoolError",
             Error::NoTransactionsToMine => "NoTransactionsToMine",
+            Error::PoxAlreadyLocked => "PoxAlreadyLocked",
+            Error::PoxInsufficientBalance => "PoxInsufficientBalance",
+            Error::PoxNoRewardCycle => "PoxNoRewardCycle"
         }
     }
 
