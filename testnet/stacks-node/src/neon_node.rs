@@ -410,7 +410,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                 .expect("Failed to obtain snapshot for block")
                                 .expect("Failed to obtain snapshot for block");
 
-                            if let Err(e) = relayer.broadcast_block(snapshot.burn_header_hash, mined_block) {
+                            if let Err(e) = relayer.broadcast_block(snapshot.consensus_hash, mined_block) {
                                 warn!("Failed to push new block: {}", e);
                             }
 
