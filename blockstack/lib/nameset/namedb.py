@@ -99,6 +99,8 @@ class BlockstackDB(virtualchain.StateEngine):
         else:
             self.db = namedb_create(db_filename, genesis_block)
 
+        namedb_patch_v2_upgrade_signal(self.db)
+
         self.disposition = disposition
 
         #self.genesis_block = copy.deepcopy(genesis_block)
@@ -1120,7 +1122,55 @@ class BlockstackDB(virtualchain.StateEngine):
         cur = self.db.cursor()
         return namedb_get_num_names_in_namespace( cur, namespace_id, self.lastblock )
     
+    def get_num_names_in_namespace_at_block( self, namespace_id, block_id ):
+        """
+        Get the number of names in a namespace
+        """
+        cur = self.db.cursor()
+        return namedb_get_num_names_in_namespace( cur, namespace_id, block_id )
     
+    def get_v2_upgrade_threshold_block( self ):
+        """
+        Get the block ID (int) of when the name registration signal threshold was reached.
+        Returns `None` if the threshold has not been reached.
+        """
+        return namedb_get_v2_upgrade_threshold_block(self.db)
+
+    def set_v2_upgrade_threshold_block( self, block_id ):
+        """
+        Set the block ID of when the name registration signal threshold is reached.
+        """
+        namedb_set_v2_upgrade_threshold_block(self.db, block_id)
+
+    def get_v2_import_block_reached( self ):
+        """
+        Get the block ID of when the import block threshold is reached.
+        Returns `None` if the threshold has not been reached.
+        """
+        namedb_get_v2_import_block_reached(self.db)
+
+    def set_v2_import_block_reached( self, block_id ):
+        """
+        Set the block ID of when the name block import threshold is reached.
+        """
+        namedb_set_v2_import_block_reached(self.db, block_id)
+
+    def perform_v2_upgrade_datafile_export( self ):
+        """
+        Export a datafile used for the v2 upgrade.
+        """
+        # TODO: is this called in a way where db locking isn't an issue?
+        export_file_path = os.path.join( self.working_dir, 'v2_migration_data')
+
+        block_id = self.get_current_block()
+
+        self.make_backups(block_id)
+
+        from ..fast_sync import fast_sync_snapshot
+        snapshot_success = fast_sync_snapshot(self.working_dir, export_file_path, None, block_id - 1)
+        if not snapshot_success:
+            raise Exception('failed to export v2 datafile')
+
     def get_names_in_namespace( self, namespace_id, offset=None, count=None ):
         """
         Get the set of all registered names in a particular namespace.

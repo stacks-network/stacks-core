@@ -317,6 +317,8 @@ def db_scan_block( block_id, op_list, db_state=None ):
     # get collision information for this block
     collisions = db_state.find_collisions( checked_ops )
 
+    # TODO: should the threshold check func be called here instead?
+
     # reject all operations that will collide 
     db_state.put_collisions( block_id, collisions )
     log.debug("SCAN END: {} ops at block {} ({} collisions)".format(len(op_list), block_id, len(collisions)))

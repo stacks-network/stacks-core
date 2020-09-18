@@ -14,13 +14,19 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/integration_tests/bin/blockstack-test-scenario",
-            "args": ["blockstack_integration_tests.scenarios.name_pre_reg_up"],
-            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/integration_tests",
+            //"args": ["blockstack_integration_tests.scenarios.name_pre_reg_up"],
+            "args": ["blockstack_integration_tests.scenarios.name_pre_reg_v2_upgrade_migration"],
+            "console": "internalConsole",
             "env": {
+                "BLOCKSTACK_DEBUG": "1",
                 "BLOCKSTACK_TEST_START_GAIA": "0",
                 "BLOCKSTACK_TEST_START_BROADCASTER": "0",
-                "BLOCKSTACK_TEST_CHECK_SUBDOMAIN_REGISTRAR": "0"
-            }
+                "BLOCKSTACK_TEST_CHECK_SUBDOMAIN_REGISTRAR": "0",
+                "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/integration_tests",
+                "BLOCKSTACK_RPC_MAX_THREADS": "1000"
+            },
+            "preLaunchTask": "killbitcoind"
         }
     ]
 }
