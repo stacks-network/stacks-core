@@ -834,7 +834,7 @@ impl StacksChainState {
 
     pub fn clarity_eval_read_only_checked(&mut self, burn_dbconn: &dyn BurnStateDB, parent_id_bhh: &StacksBlockId,
                                           contract: &QualifiedContractIdentifier, code: &str) -> Result<Value, Error> {
-        self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_state_index.sqlite_conn(), burn_dbconn, contract, code)
+        self.clarity_state.eval_read_only(parent_id_bhh, self.headers_state_index.sqlite_conn(), burn_dbconn, contract, code)
             .map_err(Error::ClarityError)
     }
 

@@ -33,7 +33,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 
 use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_row, query_row_columns, query_count, IndexDBTx,
-               IndexDBConn, db_mkdirs, query_row_panic, IndexDBGetter};
+               IndexDBConn, db_mkdirs, query_row_panic};
 use util::db::Error as db_error;
 use util::db::tx_begin_immediate;
 use util::get_epoch_time_secs;
@@ -519,6 +519,11 @@ impl SortitionContext for SortitionDBTxContext {
     }
 }
 
+fn get_block_commit_by_txid(conn: &Connection, txid: &Txid) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    let qry = "SELECT * FROM block_commits WHERE txid = ?1 LIMIT 1";
+    query_row(conn, qry, &[&txid])
+}
+
 fn get_ancestor_sort_id<C: SortitionContext>(ic: &IndexDBConn<'_, C, SortitionId>, block_height: u64, tip_block_hash: &SortitionId) -> Result<Option<SortitionId>, db_error> {
     let adjusted_height = match get_adjusted_block_height(&ic.context, block_height) {
         Some(x) => x,
@@ -872,7 +877,7 @@ impl <'a> SortitionHandleTx <'a> {
     ///   * The reward cycle had an anchor block, but it isn't known by this node.
     ///   * The reward cycle did not have anchor block
     ///   * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
-    fn pick_recipient(&self, reward_set_vrf_seed: &SortitionHash, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
+    fn pick_recipient(&mut self, reward_set_vrf_seed: &SortitionHash, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
         if let Some(next_pox_info) = next_pox_info {
             if let PoxAnchorBlockStatus::SelectedAndKnown(ref anchor_block, ref reward_set) = next_pox_info.anchor_status {
                 if reward_set.len() == 0 {
@@ -890,7 +895,7 @@ impl <'a> SortitionHandleTx <'a> {
                 Ok(None)
             }
         } else {
-            let last_anchor = SortitionDB::get_last_anchor_block_hash(self, &self.context.chain_tip)?;
+            let last_anchor = self.get_last_anchor_block_hash()?;
             if let Some(anchor_block) = last_anchor {
                 // known 
                 // get the reward set size
@@ -912,18 +917,61 @@ impl <'a> SortitionHandleTx <'a> {
         }
     }
 
-    fn get_reward_set_entry(&self, entry_ix: u16) -> Result<StacksAddress, db_error> {
-        let entry_str = self.get_indexed(&self.context.chain_tip, &db_keys::pox_reward_set_entry(entry_ix))?
+    fn get_reward_set_entry(&mut self, entry_ix: u16) -> Result<StacksAddress, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let entry_str = self.get_indexed(&chain_tip, &db_keys::pox_reward_set_entry(entry_ix))?
             .expect(&format!("CORRUPTION: expected reward set entry at index={}, but not found", entry_ix));
         Ok(StacksAddress::from_string(&entry_str)
             .expect(&format!("CORRUPTION: bad address formatting in database: {}", &entry_str)))
     }
 
-    fn get_reward_set_size(&self) -> Result<u16, db_error> {
-        self.get_indexed(&self.context.chain_tip, db_keys::pox_reward_set_size())
+    fn get_reward_set_size(&mut self) -> Result<u16, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        self.get_indexed(&chain_tip, db_keys::pox_reward_set_size())
             .map(|x|
                  db_keys::reward_set_size_from_string(
                      &x.expect("CORRUPTION: no current reward set size written")))
+    }
+
+    /// is the given block a descendant of `potential_ancestor`?
+    ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
+    ///  * potential_ancestor: the stacks block hash of the potential ancestor
+    pub fn descended_from(&mut self, block_at_burn_height: u64, potential_ancestor: &BlockHeaderHash) -> Result<bool, db_error> {
+        let earliest_block_height = self.tx().query_row(
+            "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
+            &[potential_ancestor],
+            |row| u64::from_row(row))??;
+
+        let mut sn = self.get_block_snapshot_by_height(block_at_burn_height)?
+            .ok_or_else(|| db_error::NotFoundError)?;
+        while sn.block_height >= earliest_block_height {
+            if !sn.sortition {
+                return Ok(false)
+            }
+            if &sn.winning_stacks_block_hash == potential_ancestor {
+                return Ok(true)
+            }
+
+            // step back to the parent
+            let block_commit = get_block_commit_by_txid(&self.tx(), &sn.winning_block_txid)?
+                .expect("CORRUPTION: winning block commit for snapshot not found");
+            sn = self.get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
+                .ok_or_else(|| db_error::NotFoundError)?;
+        }
+        return Ok(false)
+    }
+
+    fn get_block_snapshot_by_height(&mut self, block_height: u64) -> Result<Option<BlockSnapshot>, db_error> {
+        assert!(block_height < BLOCK_HEIGHT_MAX);
+        let chain_tip = self.context.chain_tip.clone();
+        SortitionDB::get_ancestor_snapshot_tx(self, block_height, &chain_tip)
+    }
+
+    pub fn get_last_anchor_block_hash(&mut self) -> Result<Option<BlockHeaderHash>, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let anchor_block_hash = SortitionDB::parse_last_anchor_block_hash(
+            self.get_indexed(&chain_tip, &db_keys::pox_last_anchor())?);
+        Ok(anchor_block_hash)
     }
 
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
@@ -1026,36 +1074,11 @@ impl <'a> SortitionHandleConn <'a> {
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
     }
 
-    /// is the given block a descendant of `potential_ancestor`?
-    ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
-    ///  * potential_ancestor: the stacks block hash of the potential ancestor
-    pub fn descended_from(&self, block_at_burn_height: u64, potential_ancestor: &BlockHeaderHash) -> Result<bool, db_error> {
-        let earliest_block_height = self.conn.query_row(
-            "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
-            &[potential_ancestor],
-            |row| u64::from_row(row))??;
-
-        let mut sn = self.get_block_snapshot_by_height(block_at_burn_height)?
-            .ok_or_else(|| db_error::NotFoundError)?;
-        while sn.block_height >= earliest_block_height {
-            if !sn.sortition {
-                return Ok(false)
-            }
-            if &sn.winning_stacks_block_hash == potential_ancestor {
-                return Ok(true)
-            }
-
-            // step back to the parent
-            let block_commit = self.get_block_commit_by_txid(&sn.winning_block_txid)?
-                .expect("CORRUPTION: winning block commit for snapshot not found");
-            sn = self.get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
-                .ok_or_else(|| db_error::NotFoundError)?;
-        }
-        return Ok(false)
-    }
-
+    #[cfg(test)]
     pub fn get_last_anchor_block_hash(&self) -> Result<Option<BlockHeaderHash>, db_error> {
-        SortitionDB::get_last_anchor_block_hash(self, &self.context.chain_tip)
+        let anchor_block_hash = SortitionDB::parse_last_anchor_block_hash(
+            self.get_indexed(&self.context.chain_tip, &db_keys::pox_last_anchor())?);
+        Ok(anchor_block_hash)
     }
 
     pub fn get_pox_id(&self) -> Result<PoxId, db_error> {
@@ -1074,17 +1097,6 @@ impl <'a> SortitionHandleConn <'a> {
             },
             index: &connection.index,
         })
-    }
-
-    /// Represent the inner tipless database connection
-    pub fn as_tipless_conn(&self) -> SortitionDBConn<'a> {
-        SortitionDBConn {
-            conn: &self.conn,
-            context: SortitionDBTxContext {
-                first_block_height: self.context.first_block_height
-            },
-            index: &self.index
-        }
     }
 
     fn get_tip_indexed(&self, key: &str) -> Result<Option<String>, db_error> {
@@ -1244,8 +1256,7 @@ impl <'a> SortitionHandleConn <'a> {
     ///   this function simply returns one of those block commits: only use data that is
     ///   immutable across burnchain/pox forks, e.g., parent block ptr,  
     pub fn get_block_commit_by_txid(&self, txid: &Txid) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let qry = "SELECT * FROM block_commits WHERE txid = ?1 LIMIT 1";
-        query_row(self.conn(), qry, &[&txid])
+        get_block_commit_by_txid(self.conn(), txid)
     }
 
     /// Return a vec of sortition winner's burn header hash and stacks header hash, ordered by
@@ -1706,12 +1717,12 @@ impl <'a> SortitionDBConn <'a> {
     /// Get the height of a burnchain block
     pub fn inner_get_burn_block_height(&self, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<u64>, db_error> {
         let qry = "SELECT block_height FROM snapshots WHERE burn_header_hash = ?1 LIMIT 1";
-        query_row(&self.conn, qry, &[burn_header_hash])
+        query_row(self.conn(), qry, &[burn_header_hash])
     }
 
     /// Get the burnchain hash given a height
     pub fn inner_get_burn_header_hash(&self, height: u32) -> Result<Option<BurnchainHeaderHash>, db_error> {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&self.conn)?;
+        let tip = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
         let ancestor_opt = SortitionDB::get_ancestor_snapshot(&self, height as u64, &tip.sortition_id)?
             .map(|snapshot| snapshot.burn_header_hash);
         Ok(ancestor_opt)
@@ -1747,18 +1758,15 @@ impl SortitionDB {
         return Ok(expects_block_as_anchor)
     }
 
-    fn get_last_anchor_block_hash<I: IndexDBGetter<SortitionId>>(ic: &I, at_tip: &SortitionId) -> Result<Option<BlockHeaderHash>, db_error> {
-        let anchor_block_hash = ic.get_from_trie(at_tip, &db_keys::pox_last_anchor())?
-            .map(|s| {
-                if s == "" {
-                    None
-                } else {
-                    Some(BlockHeaderHash::from_hex(&s)
-                         .expect("BUG: Bad BlockHeaderHash stored in DB"))
-                }
-            })
-            .flatten();
-        Ok(anchor_block_hash)
+    fn parse_last_anchor_block_hash(s: Option<String>) -> Option<BlockHeaderHash> {
+        s.map(|s| {
+            if s == "" {
+                None
+            } else {
+                Some(BlockHeaderHash::from_hex(&s)
+                     .expect("BUG: Bad BlockHeaderHash stored in DB"))
+            }
+        }).flatten()
     }
 
     pub fn invalidate_descendants_of(&mut self, burn_block: &BurnchainHeaderHash) -> Result<(), BurnchainError> {
@@ -1862,14 +1870,14 @@ impl SortitionDB {
 
     #[cfg(test)]
     pub fn test_get_next_block_recipients(&mut self, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
-        let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(&self.conn)?;
+        let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
         self.get_next_block_recipients(&parent_snapshot, next_pox_info)
     }
 
     pub fn get_next_block_recipients(&mut self, parent_snapshot: &BlockSnapshot, next_pox_info: Option<&RewardCycleInfo>) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let reward_set_vrf_hash = parent_snapshot.sortition_hash.mix_burn_header(&parent_snapshot.burn_header_hash);
 
-        let sortition_db_handle = SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
+        let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
         sortition_db_handle.pick_recipient(&reward_set_vrf_hash, next_pox_info)
     }
 

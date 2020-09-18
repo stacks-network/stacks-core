@@ -3089,7 +3089,7 @@ impl StacksChainState {
         let epoch_receipt = 
             match StacksChainState::append_block(&mut chainstate_tx, 
                                                  clarity_instance, 
-                                                 &sort_tx.as_conn().as_tipless_conn(),
+                                                 sort_tx,
                                                  &parent_block_header_info, 
                                                  &next_staging_block.consensus_hash, 
                                                  &burn_header_hash,

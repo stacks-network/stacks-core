@@ -347,7 +347,7 @@ pub struct RewardSetInfo {
 }
 
 impl LeaderBlockCommitOp {
-    pub fn check(&self, _burnchain: &Burnchain, tx: &SortitionHandleTx, reward_set_info: Option<&RewardSetInfo>) -> Result<(), op_error> {
+    pub fn check(&self, _burnchain: &Burnchain, tx: &mut SortitionHandleTx, reward_set_info: Option<&RewardSetInfo>) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
 

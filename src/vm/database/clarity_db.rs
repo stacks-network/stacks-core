@@ -26,7 +26,7 @@ use vm::database::RollbackWrapper;
 use util::db::{DBConn, FromRow};
 use vm::costs::CostOverflowingMath;
 
-use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleConn, SortitionDB, SortitionId};
+use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleTx, SortitionHandleConn, SortitionDB, SortitionId};
 
 use core::{
     FIRST_BURNCHAIN_BLOCK_HEIGHT,
@@ -158,9 +158,26 @@ impl HeadersDB for &dyn HeadersDB {
     }
 }
 
+impl BurnStateDB for SortitionHandleTx<'_> {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
+            Ok(Some(x)) => Some(x.block_height as u32),
+            _ => return None
+        }
+    }
+
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        panic!();
+/*        match SortitionDB::get_ancestor_snapshot_tx(self, height as u64, sortition_id) {
+            Ok(Some(x)) => Some(x.burn_header_hash),
+            _ => return None
+        }*/
+    }
+}
+
 impl BurnStateDB for SortitionDBConn<'_> {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
-        match SortitionDB::get_block_snapshot(self.conn, sortition_id) {
+        match SortitionDB::get_block_snapshot(self.conn(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
             _ => return None
         }

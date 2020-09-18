@@ -399,29 +399,6 @@ pub struct IndexDBConn<'a, C, T: MarfTrieId> {
     pub context: C
 }
 
-pub trait IndexDBGetter <T: MarfTrieId> {
-    fn get_from_trie(&self, trie_identifier: &T, key: &str) -> Result<Option<String>, Error>;
-    fn as_conn(&self) -> &Connection;
-}
-
-impl <'a, C: Clone, T: MarfTrieId> IndexDBGetter <T> for IndexDBConn <'a, C, T> {
-    fn get_from_trie(&self, trie_identifier: &T, key: &str) -> Result<Option<String>, Error> {
-        self.get_indexed(trie_identifier, key)
-    }
-    fn as_conn(&self) -> &Connection {
-        &self.conn
-    }
-}
-
-impl <'a, C: Clone, T: MarfTrieId> IndexDBGetter <T> for IndexDBTx <'a, C, T> {
-    fn get_from_trie(&self, trie_identifier: &T, key: &str) -> Result<Option<String>, Error> {
-        self.get_indexed(trie_identifier, key)
-    }
-    fn as_conn(&self) -> &Connection {
-        &self.tx()
-    }
-}
-
 impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     pub fn new(index: &'a MARF<T>, context: C) -> IndexDBConn<'a, C, T> {
         IndexDBConn {
@@ -617,10 +594,6 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Get a value from the fork index
-    /// NOTE: until the TrieFileStorage implementation of reopen_readonly() is made zero-copy --
-    /// namely, made so it doesn't just naively clone the underlying TrieRAM when reopening
-    /// read-only, the caller should make sure to only use the get_indexed() _before_ writing any
-    /// MARF key/value pairs.  Doing so afterwards will clone all uncommitted trie state.
     pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.index_mut(), header_hash, key)
     }

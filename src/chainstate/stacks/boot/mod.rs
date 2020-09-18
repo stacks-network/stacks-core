@@ -93,10 +93,10 @@ impl StacksChainState {
 
     /// Determine which reward cycle this particular block lives in.
     pub fn get_reward_cycle(&mut self, burnchain: &Burnchain, block_id: &StacksBlockId) -> Result<u128, Error> {
-        let parent_block_id = StacksChainState::get_parent_block_id(&self.headers_db, block_id)?
+        let parent_block_id = StacksChainState::get_parent_block_id(self.headers_db(), block_id)?
             .ok_or(Error::PoxNoRewardCycle)?;
 
-        let parent_header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(&self.headers_db, &parent_block_id)?
+        let parent_header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(self.headers_db(), &parent_block_id)?
             .ok_or(Error::PoxNoRewardCycle)?;
 
         // NOTE: the parent's burn block height is what's exposed as burn-block-height in the VM
@@ -554,12 +554,12 @@ pub mod test {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
             None => {
-                StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
             }
             Some(block) => {
                 let ic = sortdb.index_conn();
                 let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
             }
         };
         parent_tip
