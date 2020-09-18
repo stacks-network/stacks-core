@@ -545,7 +545,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         }
     }
 
-    fn index(&self) -> &MarfTransaction<'a, T> {
+    pub fn index(&self) -> &MarfTransaction<'a, T> {
         self._index.as_ref()
             .expect("BUG: MarfTransaction lost, but IndexDBTx still exists")
     }

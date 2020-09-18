@@ -193,6 +193,22 @@ impl <'a, T: MarfTrieId> MarfTransaction <'a, T> {
         self.storage.sqlite_tx()
     }
 
+    /// Reopen this MARF transaction with readonly storage.
+    ///   NOTE: any pending operations in the SQLite transaction _will not_
+    ///         have materialized in the reopened view.
+    pub fn reopen_readonly(&self) -> Result<MARF<T>, Error> {
+        if self.open_chain_tip.is_some() {
+            error!("MARF at {} is already in the process of writing", &self.storage.db_path);
+            return Err(Error::InProgressError);
+        }
+
+        let ro_storage = self.storage.reopen_readonly()?;
+        Ok(MARF {
+            storage: ro_storage,
+            open_chain_tip: None,
+        })
+    }
+
     /// Begin writing the next trie in the MARF, given the block header hash that will contain the
     /// associated block's new state.  Call commit() or commit_to() to persist the changes.
     /// Fails if the block already exists.

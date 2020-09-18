@@ -167,11 +167,15 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     }
 
     fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
-        panic!();
-/*        match SortitionDB::get_ancestor_snapshot_tx(self, height as u64, sortition_id) {
+        let readonly_marf = self.index().reopen_readonly()
+            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
+        let mut context = self.context.clone();
+        context.chain_tip = sortition_id.clone();
+        let db_handle = SortitionHandleConn::new(&readonly_marf, context);
+        match db_handle.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
             _ => return None
-        }*/
+        }
     }
 }
 

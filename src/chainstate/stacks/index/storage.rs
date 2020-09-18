@@ -886,7 +886,50 @@ impl <T: MarfTrieId> TrieFileStorage <T> {
 }
 
 impl <'a, T: MarfTrieId> TrieStorageTransaction <'a, T> {
-   fn inner_flush(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
+    /// reopen this transaction as a read-only marf.
+    ///  _does not_ preserve the cur_block/open tip
+    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
+        let db = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        db.busy_handler(Some(tx_busy_handler))?;
+
+        trace!("Make read-only view of TrieStorageTransaction: {}", &self.db_path);
+
+        // TODO: borrow self.last_extended and self.block_hash_cache; don't copy them
+        let ret = TrieFileStorage {
+            db_path: self.db_path.to_string(),
+            db: db,
+
+            data: TrieStorageTransientData {
+                last_extended: None,
+                cur_block: T::sentinel(),
+                cur_block_id: None,
+
+                read_count: 0,
+                read_backptr_count: 0,
+                read_node_count: 0,
+                read_leaf_count: 0,
+
+                write_count: 0,
+                write_node_count: 0,
+                write_leaf_count: 0,
+
+                trie_ancestor_hash_bytes_cache: None,
+                block_hash_cache: HashMap::new(),
+
+                readonly: true,
+                unconfirmed: true,
+            },
+
+            // used in testing in order to short-circuit block-height lookups
+            //   when the trie struct is tested outside of marf.rs usage
+            #[cfg(test)]
+            test_genesis_block: self.test_genesis_block.clone()
+        };
+
+        Ok(ret)
+    }
+
+    fn inner_flush(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
         // save the currently-bufferred Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.
