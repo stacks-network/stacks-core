@@ -1364,14 +1364,14 @@ pub mod test {
     fn codec_GetPoxInv() {
         let getpoxinv = GetPoxInv {
             consensus_hash: ConsensusHash([0x55; 20]),
-            num_cycles: 32
+            num_cycles: GETPOXINV_MAX_BITLEN as u16
         };
 
         let getpoxinv_bytes : Vec<u8> = vec![
             // consensus hash
             0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
             // num reward cycles
-            0x00, 0x20
+            0x00, GETPOXINV_MAX_BITLEN as u8,
         ];
 
         check_codec_and_corruption::<GetPoxInv>(&getpoxinv, &getpoxinv_bytes);
@@ -1402,11 +1402,8 @@ pub mod test {
         let mut maximal_poxinvdata_bytes : Vec<u8> = vec![];
         // bitlen 
         maximal_poxinvdata_bytes.append(&mut (GETPOXINV_MAX_BITLEN as u16).to_be_bytes().to_vec());
-        // block bitvec
-        maximal_poxinvdata_bytes.append(&mut (GETPOXINV_MAX_BITLEN / 8).to_be_bytes().to_vec());
-        maximal_poxinvdata_bytes.append(&mut maximal_bitvec.clone());
-        // microblock bitvec
-        maximal_poxinvdata_bytes.append(&mut (GETPOXINV_MAX_BITLEN / 8).to_be_bytes().to_vec());
+        // pox bitvec
+        maximal_poxinvdata_bytes.append(&mut ((GETPOXINV_MAX_BITLEN / 8) as u32).to_be_bytes().to_vec());
         maximal_poxinvdata_bytes.append(&mut maximal_bitvec.clone());
 
         assert!((maximal_poxinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
@@ -1760,7 +1757,7 @@ pub mod test {
             }),
             StacksMessageType::GetPoxInv(GetPoxInv {
                 consensus_hash: ConsensusHash([0x55; 20]),
-                num_cycles: 32
+                num_cycles: GETPOXINV_MAX_BITLEN as u16
             }),
             StacksMessageType::PoxInv(PoxInvData {
                 bitlen: 2,
