@@ -207,7 +207,7 @@ pub mod test {
         StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(key)]).unwrap()
     }
     
-    fn instantiate_pox_peer(burnchain: &Burnchain, test_name: &str, port: u16) -> (TestPeer, Vec<StacksPrivateKey>) {
+    fn instantiate_pox_peer<'a>(burnchain: &Burnchain, test_name: &str, port: u16) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
         peer_config.burnchain = burnchain.clone();
         peer_config.setup_code = format!("(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
