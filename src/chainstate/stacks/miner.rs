@@ -55,6 +55,8 @@ use util::vrf::*;
 use core::*;
 use core::mempool::*;
 
+use vm::database::BurnStateDB;
+
 ///
 ///    Independent structure for building microblocks:
 ///       StacksBlockBuilder cannot be used, since microblocks should only be broadcasted
@@ -77,7 +79,7 @@ pub struct StacksMicroblockBuilder<'a> {
 
 impl <'a> StacksMicroblockBuilder <'a> {
     pub fn new(anchor_block: BlockHeaderHash, anchor_block_consensus_hash: ConsensusHash,
-               chainstate: &'a mut StacksChainState, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
+               chainstate: &'a mut StacksChainState, burn_dbconn: &'a dyn BurnStateDB, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let header_reader = chainstate.reopen()?;
         let anchor_block_height = 
             StacksChainState::get_anchored_block_header_info(header_reader.headers_db(), &anchor_block_consensus_hash, &anchor_block)?
@@ -87,7 +89,7 @@ impl <'a> StacksMicroblockBuilder <'a> {
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
         //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
         //  could take over.
-        let mut clarity_tx = chainstate.block_begin(&anchor_block_consensus_hash, &anchor_block,
+        let mut clarity_tx = chainstate.block_begin(burn_dbconn, &anchor_block_consensus_hash, &anchor_block,
                                                     &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
         clarity_tx.reset_cost(initial_cost);
@@ -325,6 +327,7 @@ impl StacksBlockBuilder {
             burn_header_hash: genesis_burn_header_hash.clone(),
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
+            total_liquid_ustx: 0,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(miner_id, &genesis_chain_tip, &StacksWorkScore::initial(), proof, pubkh);
@@ -548,7 +551,7 @@ impl StacksBlockBuilder {
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
     /// yet known).
-    pub fn epoch_begin<'a>(&mut self, chainstate: &'a mut StacksChainState) -> Result<ClarityTx<'a>, Error> {
+    pub fn epoch_begin<'a>(&mut self, chainstate: &'a mut StacksChainState, burn_dbconn: &'a dyn BurnStateDB) -> Result<ClarityTx<'a>, Error> {
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
             let mut tx = chainstate.headers_tx_begin()?;
@@ -559,7 +562,7 @@ impl StacksBlockBuilder {
         
         // there's no way the miner can learn either the burn block hash or the stacks block hash,
         // so use a sentinel hash value for each that will never occur in practice.
-        let new_burn_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
+        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
         test_debug!("\n\nMiner {} epoch begin off of {}/{}\n", self.miner_id, self.chain_tip.consensus_hash, self.header.parent_block);
@@ -577,7 +580,7 @@ impl StacksBlockBuilder {
             None => vec![]
         };
 
-        let mut tx = chainstate.block_begin(&parent_consensus_hash, &parent_header_hash, &new_burn_hash, &new_block_hash);
+        let mut tx = chainstate.block_begin(burn_dbconn, &parent_consensus_hash, &parent_header_hash, &new_consensus_hash, &new_block_hash);
 
         test_debug!("Miner {}: Apply {} parent microblocks", self.miner_id, parent_microblocks.len());
 
@@ -608,10 +611,10 @@ impl StacksBlockBuilder {
 
     /// Finish up mining an epoch's transactions
     pub fn epoch_finish(self, tx: ClarityTx) -> ExecutionCost {
-        let new_burn_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
+        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(&new_burn_hash, &new_block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
 
         // clear out the block trie we just created, so the block validator logic doesn't step all
         // over it.
@@ -627,11 +630,30 @@ impl StacksBlockBuilder {
     
     /// Unconditionally build an anchored block from a list of transactions.
     /// Used when we are re-building a valid block after we exceed budget
-    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate: &mut StacksChainState, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
+    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate_handle: &StacksChainState, burn_dbconn: &dyn BurnStateDB, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
-        let mut epoch_tx = builder.epoch_begin(chainstate)?;
+        let mut chainstate = chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?;  // used for processing a block up to the given limit
+        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         for tx in txs.drain(..) {
-            builder.try_mine_tx(&mut epoch_tx, &tx)?;
+            match builder.try_mine_tx(&mut epoch_tx, &tx) {
+                Ok(_) => {
+                    test_debug!("Included {}", &tx.txid());
+                },
+                Err(Error::BlockTooBigError) => {
+                    // done mining -- our execution budget is exceeded.
+                    // Make the block from the transactions we did manage to get
+                    debug!("Block budget exceeded on tx {}", &tx.txid());
+                },
+                Err(Error::InvalidStacksTransaction(_emsg, true)) => {
+                    // if we have an invalid transaction that was quietly ignored, don't warn here either
+                    test_debug!("Failed to apply tx {}: InvalidStacksTransaction '{:?}'", &tx.txid(), &_emsg);
+                    continue;
+                },
+                Err(e) => {
+                    warn!("Failed to apply tx {}: {:?}", &tx.txid(), &e);
+                    continue;
+                }
+            }
         }
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
@@ -665,6 +687,7 @@ impl StacksBlockBuilder {
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(chainstate_handle: &StacksChainState,       // not directly used; used as a handle to open other chainstates
+                                burn_dbconn: &dyn BurnStateDB,
                                 mempool: &MemPoolDB,
                                 parent_stacks_header: &StacksHeaderInfo,    // Stacks header we're building off of
                                 total_burn: u64,                            // the burn so far on the burnchain (i.e. from the last burnchain block)
@@ -686,7 +709,7 @@ impl StacksBlockBuilder {
 
         let mut builder = StacksBlockBuilder::make_block_builder(parent_stacks_header, proof, total_burn, pubkey_hash)?;
 
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate)?;
+        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         let mut considered = HashSet::new();        // txids of all transactions we looked at
@@ -1096,7 +1119,7 @@ pub mod test {
             self.key_ops.insert(op.public_key.clone(), self.prev_keys.len()-1);
         }
 
-        pub fn add_block_commit(sortdb: &mut SortitionDB, burn_block: &mut TestBurnchainBlock, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_amount: u64, key_op: &LeaderKeyRegisterOp, parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
+        pub fn add_block_commit(sortdb: &SortitionDB, burn_block: &mut TestBurnchainBlock, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_amount: u64, key_op: &LeaderKeyRegisterOp, parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
             let block_commit_op = {
                 let ic = sortdb.index_conn();
                 let parent_snapshot = burn_block.parent_snapshot.clone();
@@ -1173,12 +1196,12 @@ pub mod test {
 
         pub fn get_miner_balance<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> u128 {
             clarity_tx.with_clarity_db_readonly(|db| {
-                db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
+                db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into()).amount_unlocked
             })
         }
 
         pub fn make_tenure_commitment(&mut self, 
-                                      sortdb: &mut SortitionDB, 
+                                      sortdb: &SortitionDB, 
                                       burn_block: &mut TestBurnchainBlock, 
                                       miner: &mut TestMiner, 
                                       stacks_block: &StacksBlock,
@@ -1201,7 +1224,7 @@ pub mod test {
         }
 
         pub fn mine_stacks_block<F>(&mut self,
-                                    sortdb: &mut SortitionDB,
+                                    sortdb: &SortitionDB,
                                     miner: &mut TestMiner, 
                                     burn_block: &mut TestBurnchainBlock, 
                                     miner_key: &LeaderKeyRegisterOp, 
@@ -1209,7 +1232,7 @@ pub mod test {
                                     burn_amount: u64,
                                     block_assembler: F) -> (StacksBlock, Vec<StacksMicroblock>, LeaderBlockCommitOp) 
         where
-            F: FnOnce(StacksBlockBuilder, &mut TestMiner) -> (StacksBlock, Vec<StacksMicroblock>)
+            F: FnOnce(StacksBlockBuilder, &mut TestMiner, &SortitionDB) -> (StacksBlock, Vec<StacksMicroblock>)
         {
             let proof = miner.make_proof(&miner_key.public_key, &burn_block.parent_snapshot.sortition_hash)
                 .expect(&format!("FATAL: no private key for {}", miner_key.public_key.to_hex()));
@@ -1250,7 +1273,7 @@ pub mod test {
 
             test_debug!("Miner {}: Assemble stacks block from {}", miner.id, miner.origin_address().unwrap().to_string());
 
-            let (stacks_block, microblocks) = block_assembler(builder, miner);
+            let (stacks_block, microblocks) = block_assembler(builder, miner, sortdb);
             let block_commit_op = self.make_tenure_commitment(sortdb, burn_block, miner, &stacks_block, &microblocks, burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
 
             (stacks_block, microblocks, block_commit_op)
@@ -1442,13 +1465,14 @@ pub mod test {
             // next key
             node.add_key_register(&mut burn_block, &mut miner);
 
-            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -1539,13 +1563,14 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -1617,13 +1642,14 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -1632,13 +1658,14 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -1786,13 +1813,14 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
                 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -1801,13 +1829,14 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -1924,13 +1953,14 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node_2.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Miner {}: Produce anchored stacks block in stacks fork 1 via {}", miner.id, miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_1.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -1939,13 +1969,14 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node_2.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node_2.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Miner {}: Produce anchored stacks block in stacks fork 2 via {}", miner.id, miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name_2);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_2.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -2088,13 +2119,14 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block from miner 1");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -2103,13 +2135,14 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block from miner 2");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -2209,13 +2242,14 @@ pub mod test {
             let last_microblock_header_opt_1 = get_last_microblock_header(&node, &miner_1, parent_block_opt_1.as_ref());
             let last_microblock_header_opt_2 = get_last_microblock_header(&node, &miner_2, parent_block_opt_2.as_ref());
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_1.as_ref());
                 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -2224,13 +2258,14 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_2.as_ref());
                 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -2371,13 +2406,14 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_1.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -2386,13 +2422,14 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_2.as_ref());
 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -2494,13 +2531,14 @@ pub mod test {
             let last_microblock_header_opt_1 = get_last_microblock_header(&node, &miner_1, parent_block_opt_1.as_ref());
             let last_microblock_header_opt_2 = get_last_microblock_header(&node, &miner_2, parent_block_opt_2.as_ref());
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_1.as_ref());
                 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -2509,13 +2547,14 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.sortdb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
 
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_2.as_ref());
                 
                 assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
@@ -3464,7 +3503,7 @@ pub mod test {
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block.0, vec![])
             });
 
@@ -3531,7 +3570,7 @@ pub mod test {
 
                     mempool.submit(&parent_consensus_hash, &parent_header_hash, stx_transfer).unwrap();
                 } 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block.0, vec![])
             });
             
@@ -3628,7 +3667,7 @@ pub mod test {
                     sender_nonce += 1;
                 }
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block.0, vec![])
             });
             
@@ -3753,7 +3792,7 @@ pub mod test {
                     runtime: 3350
                 };
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
                 (anchored_block.0, vec![])
             });
             
@@ -3854,7 +3893,7 @@ pub mod test {
                         ExecutionCost::max_value()
                     };
                 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
                 (anchored_block.0, vec![])
             });
             
@@ -3921,7 +3960,7 @@ pub mod test {
 
                 let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
 
                 // submit a transaction for the _next_ block to pick up
                 if tenure_id > 0 {
@@ -4032,7 +4071,7 @@ pub mod test {
                     sleep_ms(2000);
                 }
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
 
                 (anchored_block.0, vec![])
             });
@@ -4181,7 +4220,7 @@ pub mod test {
 
                 let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
-                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
 
                 if tenure_id == bad_block_tenure {
                     // corrupt the block
@@ -4349,7 +4388,7 @@ pub mod test {
                     sleep_ms(2000);
                 }
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
 
                 (anchored_block.0, vec![])
             });

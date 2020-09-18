@@ -31,7 +31,8 @@ use chainstate::coordinator::{
 
 use chainstate::burn::operations::{
     BlockstackOperation,
-    BlockstackOperationType
+    BlockstackOperationType,
+    leader_block_commit::RewardSetInfo,
 };
 
 use burnchains::{
@@ -50,7 +51,7 @@ use address::AddressHashMode;
 
 impl <'a> SortitionHandleTx <'a> {
     /// Run a blockstack operation's "check()" method and return the result.
-    fn check_transaction(&mut self, burnchain: &Burnchain, blockstack_op: &BlockstackOperationType) -> Result<(), BurnchainError> {
+    fn check_transaction(&mut self, burnchain: &Burnchain, blockstack_op: &BlockstackOperationType, reward_info: Option<&RewardSetInfo>) -> Result<(), BurnchainError> {
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 op.check(burnchain, self)
@@ -60,7 +61,7 @@ impl <'a> SortitionHandleTx <'a> {
                     })
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                op.check(burnchain, self)
+                op.check(burnchain, self, reward_info)
                     .map_err(|e| {
                         warn!("REJECTED({}) leader block commit {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                         BurnchainError::OpError(e)
@@ -79,12 +80,12 @@ impl <'a> SortitionHandleTx <'a> {
     /// Generate the list of blockstack operations that will be snapshotted -- a subset of the
     /// blockstack operations extracted from get_blockstack_transactions.
     /// Return the list of parsed blockstack operations whose check() method has returned true.
-    fn check_block_ops(&mut self, burnchain: &Burnchain, mut block_ops: Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
+    fn check_block_ops(&mut self, burnchain: &Burnchain, mut block_ops: Vec<BlockstackOperationType>, reward_info: Option<&RewardSetInfo>) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         debug!("Check Blockstack transactions from sortition_id: {}", &self.context.chain_tip);
 
         // classify and check each transaction
         block_ops.retain(|blockstack_op| {
-            self.check_transaction(burnchain, blockstack_op)
+            self.check_transaction(burnchain, blockstack_op, reward_info)
                 .is_ok()
         });
 
@@ -106,7 +107,7 @@ impl <'a> SortitionHandleTx <'a> {
     /// * return the snapshot (and sortition results)
     fn process_checked_block_ops(&mut self, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot,
                                  block_header: &BurnchainBlockHeader, this_block_ops: &Vec<BlockstackOperationType>,
-                                 next_pox_info: Option<RewardCycleInfo>, parent_pox: PoxId) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+                                 next_pox_info: Option<RewardCycleInfo>, parent_pox: PoxId, reward_info: Option<&RewardSetInfo>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let this_block_height = block_header.block_height;
         let this_block_hash = block_header.block_hash.clone();
 
@@ -121,11 +122,11 @@ impl <'a> SortitionHandleTx <'a> {
 
         let mut next_pox = parent_pox;
         if let Some(ref next_pox_info) = next_pox_info {
-            if next_pox_info.anchor_block_known {
-                info!("Begin reward-cycle sortition with present anchor block={:?}", &next_pox_info.anchor_block);
+            if next_pox_info.is_reward_info_known() {
+                info!("Begin reward-cycle sortition with present anchor block={:?}", &next_pox_info.selected_anchor_block());
                 next_pox.extend_with_present_block();
             } else {
-                info!("Begin reward-cycle sortition with absent anchor block={:?}", &next_pox_info.anchor_block);
+                info!("Begin reward-cycle sortition with absent anchor block={:?}", &next_pox_info.selected_anchor_block());
                 next_pox.extend_with_not_present_block();
             }
         };
@@ -142,7 +143,8 @@ impl <'a> SortitionHandleTx <'a> {
         
         // store the snapshot
         let index_root = self.append_chain_tip_snapshot(
-            parent_snapshot, &snapshot, &state_transition.accepted_ops, next_pox_info)?;
+            parent_snapshot, &snapshot, &state_transition.accepted_ops,
+            next_pox_info, reward_info)?;
 
         snapshot.index_root = index_root;
 
@@ -161,7 +163,8 @@ impl <'a> SortitionHandleTx <'a> {
     /// * commit the results of the sortition
     /// Returns the BlockSnapshot created from this block.
     pub fn process_block_ops(&mut self, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader,
-                             mut blockstack_txs: Vec<BlockstackOperationType>, next_pox_info: Option<RewardCycleInfo>, parent_pox: PoxId) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+                             mut blockstack_txs: Vec<BlockstackOperationType>, next_pox_info: Option<RewardCycleInfo>,
+                             parent_pox: PoxId, reward_set_info: Option<&RewardSetInfo>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         debug!("BEGIN({}) block ({},{}) with sortition_id: {}", block_header.block_height, block_header.block_hash,
                block_header.parent_block_hash, &self.context.chain_tip);
         debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
@@ -169,14 +172,15 @@ impl <'a> SortitionHandleTx <'a> {
         blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
         // check each transaction, and filter out only the ones that are valid 
-        let block_ops = self.check_block_ops(burnchain, blockstack_txs)
+        let block_ops = self.check_block_ops(burnchain, blockstack_txs, reward_set_info)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when checking block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
                 e
             })?;
 
         // process them 
-        let res = self.process_checked_block_ops(burnchain, parent_snapshot, block_header, &block_ops, next_pox_info, parent_pox)
+        let res = self.process_checked_block_ops(burnchain, parent_snapshot, block_header,
+                                                 &block_ops, next_pox_info, parent_pox, reward_set_info)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when snapshotting block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
                 e
@@ -190,11 +194,11 @@ impl <'a> SortitionHandleTx <'a> {
     /// list of blockstack transactions.
     pub fn process_block_txs(&mut self, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader,
                              burnchain: &Burnchain, blockstack_txs: Vec<BlockstackOperationType>,
-                             next_pox_info: Option<RewardCycleInfo>, parent_pox: PoxId) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
+                             next_pox_info: Option<RewardCycleInfo>, parent_pox: PoxId, reward_set_info: Option<&RewardSetInfo>) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         assert_eq!(parent_snapshot.block_height + 1, this_block_header.block_height);
         assert_eq!(parent_snapshot.burn_header_hash, this_block_header.parent_block_hash);
 
-        let new_snapshot = self.process_block_ops(burnchain, &parent_snapshot, &this_block_header, blockstack_txs, next_pox_info, parent_pox)?;
+        let new_snapshot = self.process_block_ops(burnchain, &parent_snapshot, &this_block_header, blockstack_txs, next_pox_info, parent_pox, reward_set_info)?;
         Ok(new_snapshot)
     }
 }

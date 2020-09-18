@@ -43,6 +43,7 @@ pub enum InterpreterError {
     MarfFailure(IncomparableError<MarfError>),
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
+    InsufficientBalance
 }
 
 

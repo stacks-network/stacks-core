@@ -13,6 +13,8 @@ use vm::{eval, LocalContext, Environment};
 use vm::callables::{DefineType};
 use chainstate::stacks::StacksBlockId;
 
+use vm::functions::special::handle_contract_call_special_cases;
+
 pub fn special_contract_call(args: &[SymbolicExpression],
                              env: &mut Environment,
                              context: &LocalContext) -> Result<Value> {
@@ -95,7 +97,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
     let contract_principal = Value::Principal(PrincipalData::Contract(
         env.contract_context.contract_identifier.clone()));
-    let mut nested_env = env.nest_with_caller(contract_principal);
+    let mut nested_env = env.nest_with_caller(contract_principal.clone());
 
     let result = nested_env.execute_contract(&contract_identifier, 
                                              function_name, 
@@ -110,6 +112,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
             return Err(CheckErrors::ReturnTypesMustMatch(returns_type_signature.clone(), actual_returns.clone()).into())
         }
     }
+    
     Ok(result)
 }
 

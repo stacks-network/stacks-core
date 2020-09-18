@@ -1545,6 +1545,8 @@ pub mod test {
     use chainstate::stacks::miner::*;
     use chainstate::stacks::miner::test::*;
     use chainstate::stacks::*;
+    use chainstate::stacks::db::*;
+    use chainstate::stacks::boot::*;
 
     use chainstate::stacks::db::StacksChainState;
 
@@ -1584,7 +1586,11 @@ pub mod test {
 
     use mio;
 
+    use util::strings::*;
     use util::vrf::*;
+
+    use vm::types::*;
+    use vm::database::STXBalance;
 
     // emulate a socket
     pub struct NetCursor<T> {
@@ -1772,6 +1778,7 @@ pub mod test {
         pub test_name: String,
         pub initial_balances: Vec<(PrincipalData, u64)>,
         pub spending_account: TestMiner,
+        pub setup_code: String,
     }
 
     impl TestPeerConfig {
@@ -1800,7 +1807,8 @@ pub mod test {
                 data_url: "".into(),
                 test_name: "".into(),
                 initial_balances: vec![],
-                spending_account: spending_account
+                spending_account: spending_account,
+                setup_code: "".into()
             }
         }
 
@@ -1904,7 +1912,41 @@ pub mod test {
                                              &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
 
             let mut sortdb = SortitionDB::connect(&sortdb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
-            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}, ExecutionCost::max_value()).unwrap();
+            let init_code = config.setup_code.clone();
+            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), 
+                |ref mut clarity_tx| {
+                    if init_code.len() > 0 {
+                        clarity_tx.connection().as_transaction(|clarity| {
+                            let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
+                            let boot_code_account = StacksAccount {
+                                principal: PrincipalData::Standard(StandardPrincipalData::from(boot_code_address.clone())),
+                                nonce: 0,
+                                stx_balance: STXBalance::zero(),
+                            };
+                            let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                                signer: boot_code_address.bytes.clone(),
+                                hash_mode: SinglesigHashMode::P2PKH,
+                                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                                nonce: 0,
+                                fee_rate: 0,
+                                signature: MessageSignature::empty()
+                            }));
+
+                            debug!("Instantiate test-specific boot code contract '{}.{}' ({} bytes)...", &STACKS_BOOT_CODE_CONTRACT_ADDRESS, &config.test_name, init_code.len());
+                            
+                            let smart_contract = TransactionPayload::SmartContract(
+                                TransactionSmartContract {
+                                    name: ContractName::try_from(config.test_name.as_str()).expect("FATAL: invalid boot-code contract name"),
+                                    code_body: StacksString::from_str(&init_code).expect("FATAL: invalid boot code body"),
+                                }
+                            );
+
+                            let boot_code_smart_contract = StacksTransaction::new(TransactionVersion::Testnet, boot_code_auth.clone(), smart_contract);
+                            StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account).unwrap();
+                        });
+                    }
+                },
+                ExecutionCost::max_value()).unwrap();
             
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
@@ -2078,7 +2120,7 @@ pub mod test {
                     }
                 }
 
-                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops, None, PoxId::stubbed()).unwrap();
+                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops, None, PoxId::stubbed(), None).unwrap();
                 tx.commit().unwrap();
                 (block_header.block_height, block_header_hash)
             };
@@ -2305,9 +2347,10 @@ pub mod test {
             let chainstate_path = self.chainstate_path.clone();
             let burn_block_height = burn_block.block_height;
 
-            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut sortdb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut sortdb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 let mut miner_chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
 
                 let (stacks_block, microblocks) = mine_smart_contract_block_contract_call_microblock(&mut epoch, &mut builder, miner, burn_block_height as usize, parent_microblock_header_opt.as_ref());
 

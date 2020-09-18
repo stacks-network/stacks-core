@@ -748,7 +748,7 @@ impl Relayer {
         let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_consensus_hash, &canonical_block_hash);
         // setup unconfirmed state off of this tip
         debug!("Reload unconfirmed state");
-        chainstate.reload_unconfirmed_state(canonical_tip)?;
+        chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
         Ok(())
     }
 
@@ -1856,7 +1856,7 @@ mod test {
                                                          TransactionPayload::new_smart_contract(&name.to_string(), &contract.to_string()).unwrap());
 
             let chain_tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
-            let cur_nonce = stacks_node.chainstate.with_read_only_clarity_tx(&chain_tip, |clarity_tx| {
+            let cur_nonce = stacks_node.chainstate.with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     clarity_db.get_account_nonce(&spending_account.origin_address().unwrap().into())
                 })

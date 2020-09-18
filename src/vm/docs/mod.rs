@@ -84,6 +84,20 @@ contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
 };
 
+const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "stx-liquid-supply",
+    output_type: "uint",
+    description: "Returns the total number of micro-STX (uSTX) that are liquid in the system as of this block.",
+    example: "(print stx-liquid-supply) ;; Will print out the total number of liquid uSTX"
+};
+
+const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "is-in-regtest",
+    output_type: "bool",
+    description: "Returns whether or not the code is running in a regression test",
+    example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test"
+};
+
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "none",
     output_type: "(optional ?)",
@@ -619,6 +633,39 @@ is supplied the hash is computed over the little-endian representation of the in
     example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
 };
 
+const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 65)",
+    output_type: "(response (buff 33) uint)",
+    signature: "(secp256k1-recover? message-hash signature)",
+    description: "The `secp256k1-recover?` function recovers the public key used to sign the message  which sha256 is `message-hash`
+    with the provided `signature`.
+    If the signature does not match, it will return the error code `(err u1).`.
+    If the signature is invalid, it will return the error code `(err u2).`.
+    The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.",
+    example: "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)
+ ;; Returns (ok 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)"
+};
+
+const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 64) | (buff 65), (buff 33)",
+    output_type: "bool",
+    signature: "(secp256k1-verify message-hash signature public-key)",
+    description: "The `secp256k1-verify` function verifies that the provided signature of the message-hash
+was signed with the private key that generated the public key.
+The `message-hash` is the `sha256` of the message.
+The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.",
+    example: "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
+(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a13
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
+(secp256k1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
+ 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns false"
+};
+
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     output_type: "(response A B)",
@@ -645,10 +692,20 @@ const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
 "
 };
 
+const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 33)",
+    output_type: "(response principal uint)",
+    signature: "(principal-of? public-key)",
+    description: "The `principal-of?` function returns the principal derived from the provided public key.
+    If the `public-key` is invalid, it will return the error code `(err u1).`.
+    ",
+    example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)"
+};
+
 const AT_BLOCK: SpecialAPI = SpecialAPI {
     input_type: "(buff 32), A",
     output_type: "A",
-    signature: "(at-block block-hash expr)",
+    signature: "(at-block id-block-hash expr)",
     description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
 block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
 
@@ -1159,7 +1216,7 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
     signature: "(ft-mint? token-name amount recipient)",
     description: "`ft-mint?` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
-rather minted.
+rather minted.  
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
 returns `(ok true)`.
@@ -1368,9 +1425,12 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Sha512 => make_for_special(&SHA512_API, name),
         Sha512Trunc256 => make_for_special(&SHA512T256_API, name),
         Keccak256 => make_for_special(&KECCAK256_API, name),
+        Secp256k1Recover => make_for_special(&SECP256K1RECOVER_API, name),
+        Secp256k1Verify => make_for_special(&SECP256K1VERIFY_API, name),
         Print => make_for_special(&PRINT_API, name),
         ContractCall => make_for_special(&CONTRACT_CALL_API, name),
         ContractOf => make_for_special(&CONTRACT_OF_API, name),
+        PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
         AsContract => make_for_special(&AS_CONTRACT_API, name),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, name),
         ConsOkay => make_for_special(&CONS_OK_API, name),
@@ -1410,6 +1470,8 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
         NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
+        NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
+        NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
     }
 }
 
@@ -1485,10 +1547,11 @@ mod test {
     use super::make_all_api_reference;
     use chainstate::stacks::{StacksAddress, StacksBlockId, index::MarfTrieId};
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
+    use chainstate::burn::db::sortdb::SortitionId;
     use burnchains::BurnchainHeaderHash;
 
     use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext,
-              database::{ MarfedKV, HeadersDB },
+              database::{ MarfedKV, HeadersDB, BurnStateDB, STXBalance },
               LimitedCostTracker, GlobalContext, Error, contexts::OwnedEnvironment };
 
     struct DocHeadersDB {}
@@ -1513,8 +1576,22 @@ mod test {
         fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
             None
         }
+        fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
+            1592653589333333u128
+        }
     }
 
+    struct DocBurnStateDB {}
+    const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
+
+    impl BurnStateDB for DocBurnStateDB {
+        fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+            Some(5678)
+        }
+        fn get_burn_header_hash(&self, height: u32, _sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+            Some(BurnchainHeaderHash::from_hex("e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8").unwrap())
+        }
+    }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
         // start the next block,
@@ -1538,7 +1615,7 @@ mod test {
             segments.push(current_segment);
         }
 
-        let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+        let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
         let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
@@ -1588,14 +1665,15 @@ mod test {
         // first, load the samples for contract-call
         // and give the doc environment's contract some STX
         {
-            let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+            let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
             let mut env = OwnedEnvironment::new(conn);
+            let balance = STXBalance::initial(1000);
             env.execute_in_env(QualifiedContractIdentifier::local("tokens").unwrap().into(),
                                |e| {
                                    e.global_context.database.set_account_stx_balance(
                                        &QualifiedContractIdentifier::local("docs-test").unwrap().into(),
-                                       10000);
+                                       &balance);
                                    Ok(())
                                }).unwrap();
             env.initialize_contract(contract_id, 

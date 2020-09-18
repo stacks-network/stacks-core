@@ -128,6 +128,7 @@ impl StacksChainState {
 
         let total_work_str = format!("{}", header.total_work.work);
         let total_burn_str = format!("{}", header.total_work.burn);
+        let total_liquid_stx_str = format!("{}", tip_info.total_liquid_ustx);
         let block_hash = header.block_hash();
 
         let index_block_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
@@ -138,30 +139,31 @@ impl StacksChainState {
             &header.version, &total_burn_str, &total_work_str, &header.proof, &header.parent_block, &header.parent_microblock, &header.parent_microblock_sequence,
             &header.tx_merkle_root, &header.state_index_root, &header.microblock_pubkey_hash,
             &block_hash, &index_block_hash, &consensus_hash, &burn_header_hash, &(burn_header_height as i64),
-            &(burn_header_timestamp as i64), &(block_height as i64), &index_root, anchored_block_cost, parent_id];
+            &(burn_header_timestamp as i64), &total_liquid_stx_str, &(block_height as i64), &index_root, anchored_block_cost, parent_id];
 
-        tx.execute("INSERT INTO block_headers
-                    (version,
-                    total_burn,
-                    total_work,
-                    proof,
-                    parent_block,
-                    parent_microblock,
-                    parent_microblock_sequence,
-                    tx_merkle_root,
-                    state_index_root,
-                    microblock_pubkey_hash,
-                    block_hash,
-                    index_block_hash,
-                    consensus_hash,
-                    burn_header_hash,
-                    burn_header_height,
-                    burn_header_timestamp,
-                    block_height,
+        tx.execute("INSERT INTO block_headers \
+                    (version, \
+                    total_burn, \
+                    total_work, \
+                    proof, \
+                    parent_block, \
+                    parent_microblock, \
+                    parent_microblock_sequence, \
+                    tx_merkle_root, \
+                    state_index_root, \
+                    microblock_pubkey_hash, \
+                    block_hash, \
+                    index_block_hash, \
+                    consensus_hash, \
+                    burn_header_hash, \
+                    burn_header_height, \
+                    burn_header_timestamp, \
+                    total_liquid_ustx, \
+                    block_height, \
                     index_root,
                     cost,
-                    parent_block_id)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)", args)
+                    parent_block_id) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -257,5 +259,13 @@ impl StacksChainState {
         let args : &[&dyn ToSql] = &[&FIRST_BURNCHAIN_CONSENSUS_HASH];
         let row_opt = query_row(conn, sql, args)?;
         Ok(row_opt.expect("BUG: no genesis header info"))
+    }
+
+    /// Get the parent block ID for this block
+    pub fn get_parent_block_id(conn: &Connection, block_id: &StacksBlockId) -> Result<Option<StacksBlockId>, Error> {
+        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?1 LIMIT 1".to_string();
+        let args : &[&dyn ToSql] = &[block_id];
+        let mut rows = query_row_columns::<StacksBlockId, _>(conn, &sql, args, "parent_block_id")?;
+        Ok(rows.pop())
     }
 }

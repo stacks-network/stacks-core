@@ -13,7 +13,7 @@ use vm::clarity::ClarityInstance;
 use vm::contexts::{Environment};
 use vm::costs::{ExecutionCost};
 use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
-                   NULL_HEADER_DB};
+                   NULL_BURN_STATE_DB, NULL_HEADER_DB};
 
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
@@ -57,7 +57,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     {
         let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                     &StacksBlockId([0 as u8; 32]),
-                                                    &NULL_HEADER_DB);
+                                                    &NULL_HEADER_DB,
+                                                    &NULL_BURN_STATE_DB);
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&trait_contract_id, contract_trait).unwrap();
             conn.initialize_smart_contract(
@@ -71,7 +72,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     {
         let mut conn = clarity_instance.begin_block(&StacksBlockId([0 as u8; 32]),
                                                     &StacksBlockId([1 as u8; 32]),
-                                                    &NULL_HEADER_DB);
+                                                    &NULL_HEADER_DB,
+                                                    &NULL_BURN_STATE_DB);
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&other_contract_id, contract_other).unwrap();
             conn.initialize_smart_contract(
@@ -85,7 +87,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     {
         let mut conn = clarity_instance.begin_block(&StacksBlockId([1 as u8; 32]),
                                                     &StacksBlockId([2 as u8; 32]),
-                                                    &NULL_HEADER_DB);
+                                                    &NULL_HEADER_DB,
+                                                    &NULL_BURN_STATE_DB);
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&self_contract_id, &contract_self).unwrap();

@@ -16,7 +16,7 @@ use util::hash;
 pub use vm::types::signatures::{
     TupleTypeSignature, AssetIdentifier, FixedFunction, FunctionSignature,
     TypeSignature, SequenceSubtype, StringSubtype, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    BUFF_64, BUFF_32, BUFF_20, BUFF_1, BufferLength, StringUTF8Length
+    BUFF_65, BUFF_64, BUFF_33, BUFF_32, BUFF_20, BUFF_1, BufferLength, StringUTF8Length
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -651,6 +651,119 @@ impl Value {
         StringUTF8Length::try_from(data.len())?;
 
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
+    }
+
+    pub fn expect_u128(self) -> u128 {
+        if let Value::UInt(inner) = self {
+            inner
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a u128", &self));
+        }
+    }
+
+    pub fn expect_i128(self) -> i128 {
+        if let Value::Int(inner) = self {
+            inner
+        }
+        else {
+            panic!(format!("Value '{:?}' is not an i128", &self));
+        }
+    }
+
+    pub fn expect_buff(self, sz: usize) -> Vec<u8> {
+        if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
+            if buffdata.data.len() == sz {
+                buffdata.data
+            }
+            else {
+                panic!(format!("Value buffer has len {}, expected {}", buffdata.data.len(), sz));
+            }
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a buff", &self));
+        }
+    }
+
+    pub fn expect_bool(self) -> bool {
+        if let Value::Bool(b) = self {
+            b
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a bool", &self));
+        }
+    }
+
+    pub fn expect_tuple(self) -> TupleData {
+        if let Value::Tuple(data) = self {
+            data
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a tuple", &self));
+        }
+    }
+
+    pub fn expect_optional(self) -> Option<Value> {
+        if let Value::Optional(opt) = self {
+            match opt.data {
+                Some(boxed_value) => Some(*boxed_value),
+                None => None
+            }
+        }
+        else {
+            panic!(format!("Value '{:?}' is not an optional", &self));
+        }
+    }
+
+    pub fn expect_principal(self) -> PrincipalData {
+        if let Value::Principal(p) = self {
+            p
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a principal", &self));
+        }
+    }
+
+    pub fn expect_result(self) -> std::result::Result<Value, Value> {
+        if let Value::Response(res_data) = self {
+            if res_data.committed {
+                Ok(*res_data.data)
+            }
+            else {
+                Err(*res_data.data)
+            }
+        }
+        else {
+            panic!("FATAL: not a response");
+        }
+    }
+    
+    pub fn expect_result_ok(self) -> Value {
+        if let Value::Response(res_data) = self {
+            if res_data.committed {
+                *res_data.data
+            }
+            else {
+                panic!("FATAL: not a (ok ..)");
+            }
+        }
+        else {
+            panic!("FATAL: not a response");
+        }
+    }
+
+    pub fn expect_result_err(self) -> Value {
+        if let Value::Response(res_data) = self {
+            if !res_data.committed {
+                *res_data.data
+            }
+            else {
+                panic!("FATAL: not a (err ..)");
+            }
+        }
+        else {
+            panic!("FATAL: not a response");
+        }
     }
 }
 

@@ -212,11 +212,11 @@ dependencies = [
  "ed25519-dalek",
  "integer-sqrt",
  "lazy_static",
- "libc",
  "mio",
  "percent-encoding",
  "prometheus",
  "rand 0.7.2",
+ "rand_chacha 0.2.2",
  "regex",
  "ripemd160",
  "rusqlite",
@@ -313,9 +313,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.58"
+version = "1.0.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9a06fb2e53271d7c279ec1efea6ab691c35a2ae67ec0d91d7acec0caf13b518"
+checksum = "8dae9c4b8fedcae85592ba623c4fd08cfdab3e3b72d6df780c6ead964a69bfff"
 
 [[package]]
 name = "cfg-if"
@@ -1767,13 +1767,13 @@ dependencies = [
 
 [[package]]
 name = "ring"
-version = "0.16.15"
+version = "0.16.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "952cd6b98c85bbc30efa1ba5783b8abf12fec8b3287ffa52605b9432313e34e4"
+checksum = "1ba5a8ec64ee89a76c98c549af81ff14813df09c3e6dc4766c3856da48597a0c"
 dependencies = [
  "cc",
+ "lazy_static",
  "libc",
- "once_cell",
  "spin",
  "untrusted",
  "web-sys",
@@ -1801,6 +1801,7 @@ dependencies = [
  "byteorder",
  "libsqlite3-sys",
  "lru-cache",
+ "serde_json",
  "time 0.1.43",
 ]
 
@@ -1887,13 +1888,21 @@ dependencies = [
 
 [[package]]
 name = "secp256k1"
-version = "0.11.5"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22659b295bc209921ddd4e5379ceaf194fcfd19eb515051b7ba30ce47d8063a"
+checksum = "c6179428c22c73ac0fbb7b5579a56353ce78ba29759b3b8575183336ea74cdfb"
+dependencies = [
+ "secp256k1-sys",
+ "serde",
+]
+
+[[package]]
+name = "secp256k1-sys"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11553d210db090930f4432bea123b31f70bbf693ace14504ea2a35e796c28dd2"
 dependencies = [
  "cc",
- "libc",
- "serde",
 ]
 
 [[package]]
@@ -2092,10 +2101,10 @@ dependencies = [
  "blockstack-core",
  "http-types",
  "lazy_static",
+ "libc",
  "pico-args",
  "rand 0.7.2",
  "reqwest",
- "secp256k1",
  "serde",
  "serde_derive",
  "serde_json",
@@ -2670,9 +2679,9 @@ dependencies = [
 
 [[package]]
 name = "webpki"
-version = "0.21.3"
+version = "0.21.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab146130f5f790d45f82aeeb09e55a256573373ec64409fc19a6fb82fb1032ae"
+checksum = "f1f50e1972865d6b1adb54167d1c8ed48606004c2c9d0ea5f1eeb34d95e863ef"
 dependencies = [
  "ring",
  "untrusted",

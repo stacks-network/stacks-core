@@ -216,8 +216,10 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<LeaderKeyRegisterOp, op_error> {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
+}
 
-    fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
+impl LeaderKeyRegisterOp {
+    pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
         /////////////////////////////////////////////////////////////////
         // Keys must be unique -- no one can register the same key twice
         /////////////////////////////////////////////////////////////////
@@ -453,7 +455,7 @@ pub mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone()
+            first_block_hash: first_burn_hash.clone(),
         };
         
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -524,7 +526,7 @@ pub mod tests {
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
 
-                let next_tip_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], None).unwrap();
+                let next_tip_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], None, None).unwrap();
                 snapshot_row.index_root = next_tip_root;
 
                 tx.commit().unwrap();

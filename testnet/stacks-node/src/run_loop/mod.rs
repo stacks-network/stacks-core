@@ -7,6 +7,8 @@ use stacks::chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, 
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::util::vrf::VRFPublicKey;
 
+use stacks::vm::database::BurnStateDB;
+
 macro_rules! info_blue {
     ($($arg:tt)*) => ({
         eprintln!("\x1b[0;96m{}\x1b[0m", format!($($arg)*));
@@ -29,7 +31,7 @@ macro_rules! info_green {
 pub struct RunLoopCallbacks {
     on_burn_chain_initialized: Option<fn(&mut Box<dyn BurnchainController>)>,
     on_new_burn_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip)>,
-    on_new_stacks_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState)>,
+    on_new_stacks_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB)>,
     on_new_tenure: Option<fn(u64, &BurnchainTip, &ChainTip, &mut Tenure)>,
 }
 
@@ -51,7 +53,7 @@ impl RunLoopCallbacks {
         self.on_new_burn_chain_state = Some(callback);
     }
 
-    pub fn on_new_stacks_chain_state(&mut self, callback: fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState)) {
+    pub fn on_new_stacks_chain_state(&mut self, callback: fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB)) {
         self.on_new_stacks_chain_state = Some(callback);
     }
 
@@ -76,7 +78,7 @@ impl RunLoopCallbacks {
         }
     }
 
-    pub fn invoke_new_stacks_chain_state(&self, round: u64, burnchain_tip: &BurnchainTip, chain_tip: &ChainTip, chain_state: &mut StacksChainState) {
+    pub fn invoke_new_stacks_chain_state(&self, round: u64, burnchain_tip: &BurnchainTip, chain_tip: &ChainTip, chain_state: &mut StacksChainState, burn_dbconn: &dyn BurnStateDB) {
         info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", 
             chain_tip.metadata.block_height, 
             chain_tip.metadata.index_block_hash(), 
@@ -95,7 +97,7 @@ impl RunLoopCallbacks {
         }
 
         if let Some(cb) = self.on_new_stacks_chain_state {
-            cb(round, burnchain_tip, chain_tip, chain_state);
+            cb(round, burnchain_tip, chain_tip, chain_state, burn_dbconn);
         }
     }
 

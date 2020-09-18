@@ -8,6 +8,9 @@ use vm::{eval, LocalContext, Environment};
 use vm::costs::{cost_functions, CostTracker};
 use std::convert::{TryFrom};
 
+use vm::database::ClarityDatabase;
+use vm::database::STXBalance;
+
 enum MintAssetErrorCodes { ALREADY_EXIST = 1 }
 enum MintTokenErrorCodes { NON_POSITIVE_AMOUNT = 1 }
 enum TransferAssetErrorCodes { NOT_OWNED_BY = 1, SENDER_IS_RECIPIENT = 2, DOES_NOT_EXIST = 3 }
@@ -20,6 +23,24 @@ macro_rules! clarity_ecode {
     }
 }
 
+/// Get the consolidated uSTX balance.
+/// That is, if the PoX lock has expired, then include the
+/// no-longer-locked uSTX in the balance.
+/// Returns (balance, is-consolidated?)
+pub fn get_stx_balance_snapshot(db: &mut ClarityDatabase, principal: &PrincipalData) -> (STXBalance, u64) {
+    let stx_balance         = db.get_account_stx_balance(principal);
+    let cur_burn_height     = db.get_current_burnchain_block_height() as u64;
+    test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_locked_tokens_unlockable={})", 
+        principal, 
+        stx_balance.amount_unlocked, 
+        stx_balance.amount_locked, 
+        stx_balance.unlock_height, 
+        cur_burn_height, 
+        stx_balance.get_available_balance_at_block(cur_burn_height),
+        stx_balance.has_locked_tokens_unlockable(cur_burn_height));
+    (stx_balance, cur_burn_height)
+}
+
 pub fn special_stx_balance(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
@@ -30,11 +51,55 @@ pub fn special_stx_balance(args: &[SymbolicExpression],
     let owner = eval(&args[0], env, context)?;
 
     if let Value::Principal(ref principal) = owner {
-        let balance = env.global_context.database.get_account_stx_balance(&principal);
-        Ok(Value::UInt(balance))
+        let (balance, block_height) = get_stx_balance_snapshot(&mut env.global_context.database, principal);
+        Ok(Value::UInt(balance.get_available_balance_at_block(block_height)))
     } else {
         Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
     }
+}
+
+/// Do a "consolidated" STX transfer.
+/// If the 'from' principal has locked STX, and they have unlocked, then process the STX unlock
+/// and update its balance in addition to spending tokens out of it.
+pub fn stx_transfer_consolidated(env: &mut Environment, from: &PrincipalData, to: &PrincipalData, amount: u128) -> Result<Value> {
+    if amount <= 0 {
+        return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
+    }
+
+    if from == to {
+        return clarity_ecode!(StxErrorCodes::SENDER_IS_RECIPIENT);
+    }
+
+    if Some(from.clone()) != env.sender.as_ref().map(|pval| pval.clone().expect_principal()) {
+        return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
+    }
+
+    let (mut sender, block_height) = get_stx_balance_snapshot(&mut env.global_context.database, from);
+    let (mut recipient, _) = get_stx_balance_snapshot(&mut env.global_context.database, to);
+
+    if !sender.can_transfer(amount, block_height) {
+        return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE)
+    }
+
+    sender.transfer_to(&mut recipient, amount, block_height)
+        .map_err(|_| RuntimeErrorType::ArithmeticOverflow)?;
+
+    // loading from/to principals and balances
+    env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+    env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+    // loading from's locked amount and height
+    // TODO: this does not count the inner stacks block header load, but arguably,
+    // this could be optimized away, so it shouldn't penalize the caller.
+    env.add_memory(STXBalance::size_of as u64)?;
+    env.add_memory(STXBalance::size_of as u64)?;
+
+    // NOTE: this updates the balance with the unlocked tokens, if we did an unlock.
+    env.global_context.database.set_account_stx_balance(from, &sender);
+    env.global_context.database.set_account_stx_balance(to, &recipient);
+
+    env.global_context.log_stx_transfer(&from, amount)?;
+    env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;
+    Ok(Value::okay_true())
 }
 
 pub fn special_stx_transfer(args: &[SymbolicExpression],
@@ -49,42 +114,9 @@ pub fn special_stx_transfer(args: &[SymbolicExpression],
     let to_val     = eval(&args[2], env, context)?;
 
     if let (Value::Principal(ref from), Value::Principal(ref to), Value::UInt(amount)) = (&from_val, to_val, amount_val) {
-        if amount <= 0 {
-            return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT)
-        }
-
-        if from == to {
-            return clarity_ecode!(StxErrorCodes::SENDER_IS_RECIPIENT)
-        }
-
-        if Some(&from_val) != env.sender.as_ref() {
-            return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER)
-        }
-
-        let from_bal = env.global_context.database.get_account_stx_balance(&from);
-        let to_bal = env.global_context.database.get_account_stx_balance(&to);
-
-        if from_bal < amount {
-            return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE)
-        }
-
-        let final_from_bal = from_bal - amount;
-        let final_to_bal = to_bal.checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
-
-        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(TypeSignature::UIntType.size() as u64)?;
-        env.add_memory(TypeSignature::UIntType.size() as u64)?;
-
-        env.global_context.database.set_account_stx_balance(&from, final_from_bal);
-        env.global_context.database.set_account_stx_balance(&to,   final_to_bal);
-
-        env.global_context.log_stx_transfer(&from, amount)?;
-        env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;
-
-        Ok(Value::okay_true())
-    } else {
+        stx_transfer_consolidated(env, from, to, amount)
+    }
+    else {
         Err(CheckErrors::BadTransferSTXArguments.into())
     }
 }
@@ -108,18 +140,19 @@ pub fn special_stx_burn(args: &[SymbolicExpression],
             return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER)
         }
 
-        let from_bal = env.global_context.database.get_account_stx_balance(&from);
-
-        if from_bal < amount {
+        let (mut burner_balance, block_height) = get_stx_balance_snapshot(&mut env.global_context.database, from);
+        
+        if !burner_balance.can_transfer(amount, block_height) {
             return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE)
         }
 
-        let final_from_bal = from_bal - amount;
+        burner_balance.debit(amount, block_height)
+            .expect("STX underflow");
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(TypeSignature::UIntType.size() as u64)?;
+        env.add_memory(STXBalance::size_of as u64)?;
 
-        env.global_context.database.set_account_stx_balance(&from, final_from_bal);
+        env.global_context.database.set_account_stx_balance(from, &burner_balance);
 
         env.global_context.log_stx_burn(&from, amount)?;
         env.register_stx_burn_event(from.clone(), amount)?;
@@ -156,7 +189,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
         let to_bal = env.global_context.database.get_ft_balance(&env.contract_context.contract_identifier, token_name, to_principal)?;
 
         let final_to_bal = to_bal.checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+            .expect("STX overflow");
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(TypeSignature::UIntType.size() as u64)?;

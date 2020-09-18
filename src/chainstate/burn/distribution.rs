@@ -464,6 +464,7 @@ mod tests {
                 num_sigs: 1,
                 hash_mode: AddressHashMode::SerializeP2PKH
             },
+            commit_outs: vec![],
 
             txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
             vtxindex: 443,
@@ -488,6 +489,7 @@ mod tests {
                 num_sigs: 1,
                 hash_mode: AddressHashMode::SerializeP2PKH
             },
+            commit_outs: vec![],
 
             txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27d0").unwrap()).unwrap(),
             vtxindex: 444,
@@ -512,6 +514,7 @@ mod tests {
                 num_sigs: 1,
                 hash_mode: AddressHashMode::SerializeP2PKH
             },
+            commit_outs: vec![],
 
             txid: Txid::from_bytes_be(&hex_bytes("301dc687a9f06a1ae87a013f27133e9cec0843c2983567be73e185827c7c13de").unwrap()).unwrap(),
             vtxindex: 445,

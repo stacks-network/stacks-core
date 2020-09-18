@@ -98,6 +98,7 @@ use vm::clarity::{
 pub use vm::analysis::errors::{CheckErrors, CheckError};
 
 use vm::database::ClarityDatabase;
+use vm::database::BurnStateDB;
 
 use vm::contracts::Contract;
 
@@ -2688,21 +2689,25 @@ impl StacksChainState {
         let miner_reward_total = miner_reward.total();
         clarity_tx.connection().as_transaction(|x| { x.with_clarity_db(|ref mut db| {
             let miner_principal = PrincipalData::Standard(StandardPrincipalData::from(miner_reward.address.clone()));
-            let cur_balance = db.get_account_stx_balance(&miner_principal);
-            let new_balance = cur_balance.checked_add(miner_reward_total).expect("FATAL: STX reward overflow");
-            debug!("Balance available for {} is {} STX", &miner_reward.address, new_balance);
-            db.set_account_stx_balance(&miner_principal, new_balance);
+            let mut balance = db.get_account_stx_balance(&miner_principal);
+            let cur_burn_height = db.get_current_burnchain_block_height() as u64;
+            balance.credit(miner_reward_total, cur_burn_height)
+                .expect("STX overflow");
+            debug!("Balance available for {} is {} STX", &miner_reward.address, balance.get_available_balance_at_block(cur_burn_height));
+            db.set_account_stx_balance(&miner_principal, &balance);
 
             Ok(())
         })}).map_err(Error::ClarityError)?;
         Ok(())
     }
 
-    /// Process matured miner rewards for this block
-    pub fn process_matured_miner_rewards<'a>(clarity_tx: &mut ClarityTx<'a>, miner_rewards: &Vec<MinerReward>) -> Result<(), Error> {
+    /// Process matured miner rewards for this block.
+    /// Returns the number of liquid uSTX created -- i.e. the coinbase
+    pub fn process_matured_miner_rewards<'a>(clarity_tx: &mut ClarityTx<'a>, miner_rewards: &Vec<MinerReward>) -> Result<u128, Error> {
         // must all be in order by vtxindex, and the first reward (the miner's) must have vtxindex 0
         assert!(miner_rewards.len() > 0);
         assert!(miner_rewards[0].vtxindex == 0);
+        let coinbase_reward = miner_rewards[0].coinbase;
         for i in 0..miner_rewards.len()-1 {
             assert!(miner_rewards[i].vtxindex < miner_rewards[i+1].vtxindex);
         }
@@ -2711,7 +2716,14 @@ impl StacksChainState {
         for reward in miner_rewards.iter() {
             StacksChainState::process_matured_miner_reward(clarity_tx, reward)?;
         }
-        Ok(())
+        Ok(coinbase_reward)
+    }
+
+    /// Process all STX that unlock at this block height.
+    /// Return the total number of uSTX unlocked in this block
+    pub fn process_stx_unlocks<'a>(_clarity_tx: &mut ClarityTx<'a>) -> Result<u128, Error> {
+        // TODO: call into the .lockup contract and get the list of unlocks
+        Ok(0)
     }
 
     /// Process the next pre-processed staging block.
@@ -2725,6 +2737,7 @@ impl StacksChainState {
     /// Returns None if we're out of blocks to process.
     fn append_block<'a>(chainstate_tx: &mut ChainstateTx<'a>,
                         clarity_instance: &'a mut ClarityInstance,
+                        burn_dbconn: &dyn BurnStateDB,
                         parent_chain_tip: &StacksHeaderInfo,
                         chain_tip_consensus_hash: &ConsensusHash,
                         chain_tip_burn_header_hash: &BurnchainHeaderHash,
@@ -2747,7 +2760,7 @@ impl StacksChainState {
             StacksChainState::find_mature_miner_rewards(&mut chainstate_tx.headers_tx, parent_chain_tip, Some(chainstate_tx.miner_payment_cache))?
         };
 
-        let (scheduled_miner_reward, txs_receipts, microblock_execution_cost, block_execution_cost) = {
+        let (scheduled_miner_reward, txs_receipts, microblock_execution_cost, block_execution_cost, total_liquid_ustx) = {
             let (parent_consensus_hash, parent_block_hash) = 
                 if block.is_first_mined() {
                     // has to be the sentinal hashes if this block has no parent
@@ -2777,7 +2790,7 @@ impl StacksChainState {
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
             
-            let mut clarity_tx = StacksChainState::chainstate_block_begin(chainstate_tx, clarity_instance, &parent_consensus_hash, &parent_block_hash, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
+            let mut clarity_tx = StacksChainState::chainstate_block_begin(chainstate_tx, clarity_instance, burn_dbconn, &parent_consensus_hash, &parent_block_hash, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
             // process microblock stream
             let (microblock_fees, microblock_burns, mut microblock_txs_receipts) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
@@ -2815,10 +2828,26 @@ impl StacksChainState {
             block_cost.sub(&microblock_cost).expect("BUG: microblock cost + block cost < block cost");
 
             // grant matured miner rewards
-            if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
-                // grant in order by miner, then users
-                StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &mature_miner_rewards)?;
-            }
+            let new_liquid_miner_ustx =
+                if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
+                    // grant in order by miner, then users
+                    StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &mature_miner_rewards)?
+                }
+                else {
+                    0
+                };
+
+            // total burns
+            let total_burnt = block_burns.checked_add(microblock_burns).expect("Overflow: Too many STX burnt");
+
+            // unlock any uSTX
+            let new_unlocked_ustx = StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+
+            // calculate total liquid STX
+            let total_liquid_ustx = parent_chain_tip.total_liquid_ustx
+                .checked_add(new_liquid_miner_ustx).expect("FATAL: uSTX overflow")
+                .checked_add(new_unlocked_ustx).expect("FATAL: uSTX overflow")
+                .checked_sub(total_burnt).expect("FATAL: uSTX underflow");
 
             let root_hash = clarity_tx.get_root_hash();
             if root_hash != block.header.state_index_root {
@@ -2843,7 +2872,7 @@ impl StacksChainState {
                                                                                        next_block_height, 
                                                                                        block_fees,                // TODO: calculate (STX/compute unit) * (compute used) 
                                                                                        microblock_fees, 
-                                                                                       block_burns.checked_add(microblock_burns).expect("Overflow: Too many STX burnt"),
+                                                                                       total_burnt,
                                                                                        burnchain_commit_burn,
                                                                                        burnchain_sortition_burn,
                                                                                        0xffffffffffffffff)        // TODO: calculate total compute budget and scale up
@@ -2851,7 +2880,7 @@ impl StacksChainState {
 
             txs_receipts.append(&mut microblock_txs_receipts);
 
-            (scheduled_miner_reward, txs_receipts, microblock_cost, block_cost)
+            (scheduled_miner_reward, txs_receipts, microblock_cost, block_cost, total_liquid_ustx)
         };
 
         let microblock_tail_opt = match microblocks.len() {
@@ -2870,6 +2899,7 @@ impl StacksChainState {
                                                     microblock_tail_opt,
                                                     &scheduled_miner_reward,
                                                     user_burns,
+                                                    total_liquid_ustx,
                                                     &block_execution_cost)
             .expect("FATAL: failed to advance chain tip");
 
@@ -2942,7 +2972,9 @@ impl StacksChainState {
                     if next_staging_block.is_first_mined() {
                         // this is the first-ever mined block
                         debug!("This is the first-ever block in this fork.  Parent is 00000000..00000000/00000000..00000000");
-                        StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]))        // NOTE: we don't use or care about the index_root_hash field here
+                        StacksChainState::get_anchored_block_header_info(&chainstate_tx.headers_tx, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+                            .expect("FATAL: failed to load initial block header")
+                            .expect("FATAL: initial block header not found in headers DB")
                     }
                     else {
                         // no parent stored
@@ -3057,6 +3089,7 @@ impl StacksChainState {
         let epoch_receipt = 
             match StacksChainState::append_block(&mut chainstate_tx, 
                                                  clarity_instance, 
+                                                 &sort_tx.as_conn().as_tipless_conn(),
                                                  &parent_block_header_info, 
                                                  &next_staging_block.consensus_hash, 
                                                  &burn_header_hash,
@@ -3258,7 +3291,7 @@ impl StacksChainState {
         };
         
         let current_tip = StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
-        self.with_read_only_clarity_tx(&current_tip, |conn| {
+        self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
             StacksChainState::can_include_tx(mempool_conn, conn, &conf, has_microblock_pubk, tx, tx_size)
         })
     }
@@ -3334,14 +3367,18 @@ impl StacksChainState {
                 return Err(MemPoolRejection::BadAddressVersionByte)
         }
 
+        let block_height = clarity_connection.with_clarity_db_readonly(|ref mut db| {
+            db.get_current_burnchain_block_height() as u64
+        });
+
         // 5: the paying account must have enough funds
-        if fee as u128 > payer.stx_balance {
+        if  !payer.stx_balance.can_transfer(fee as u128, block_height) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
                     // pass: we'll return a total_spent failure below.
                 },
                 _ => {
-                    return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance));
+                    return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance.amount_unlocked));
                 }
             }
         }
@@ -3361,8 +3398,8 @@ impl StacksChainState {
                     } else {
                         0
                     };
-                if total_spent > origin.stx_balance {
-                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance))
+                if !origin.stx_balance.can_transfer(total_spent, block_height) {
+                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance.get_available_balance_at_block(block_height)))
                 }
             },
             TransactionPayload::ContractCall(TransactionContractCall {
@@ -5123,7 +5160,7 @@ pub mod test {
                 let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block.0, vec![])
             });
 

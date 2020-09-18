@@ -824,6 +824,7 @@ impl <T: MarfTrieId> MARF <T> {
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)
             .map_err(|e| {
                 warn!("Failed to re-open {} {:?}: {:?}", &cur_block_hash, cur_block_id, &e);
+                warn!("Result of failed key lookup '{}': {:?}", key, &result);
                 e
             })?;
 

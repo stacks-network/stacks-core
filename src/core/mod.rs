@@ -43,6 +43,7 @@ pub const NETWORK_ID_TESTNET : u32 = 0xff000000;
 pub const NETWORK_P2P_PORT : u16 = 6265;
 
 // first burnchain block hash 
+// TODO: update once we know the true first burnchain block
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH : ConsensusHash = ConsensusHash([0u8; 20]);
 pub const FIRST_BURNCHAIN_BLOCK_HASH : BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
 pub const FIRST_BURNCHAIN_BLOCK_HEIGHT : u32 = 0;
@@ -61,6 +62,10 @@ pub const BOOT_BLOCK_HASH : BlockHeaderHash = BlockHeaderHash([0xff; 32]);
 pub const BURNCHAIN_BOOT_CONSENSUS_HASH : ConsensusHash = ConsensusHash([0xff; 20]);
 
 pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
+
+pub const POX_REGISTRATION_WINDOW_LENGTH: u32 = 250;
+pub const POX_REWARD_WINDOW_LENGTH: u32 = 1000;
+pub const POX_REWARD_CYCLE_LENGTH: u32 = POX_REGISTRATION_WINDOW_LENGTH + POX_REWARD_WINDOW_LENGTH;
 
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Result<u64, burnchain_error> {

@@ -10,8 +10,6 @@ use base64::{encode};
 use serde::{Serialize};
 use serde_json::value::RawValue;
 
-use secp256k1::{Secp256k1};
-
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
@@ -20,6 +18,7 @@ use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::Error as burnchain_error;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
 use stacks::burnchains::bitcoin::spv::SpvClient; 
@@ -30,6 +29,7 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp,
     UserBurnSupportOp,
     BlockstackOperationType,
+    leader_block_commit::OUTPUTS_PER_COMMIT,
 };
 use stacks::deps::bitcoin::blockdata::transaction::{Transaction, TxIn, TxOut, OutPoint};
 use stacks::deps::bitcoin::blockdata::opcodes;
@@ -125,16 +125,20 @@ impl BitcoinRegtestController {
         }        
     }
 
-    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
+    fn setup_burnchain(&self) -> (Burnchain, BitcoinNetworkType) {
         let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
         let working_dir = self.config.get_burn_db_path();
-        let burnchain = match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
-            Ok(burnchain) => burnchain,
+        match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
+            Ok(burnchain) => (burnchain, network_type),
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);
                 panic!()    
             }
-        };
+        }
+    }
+
+    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
+        let (burnchain, network_type) = self.setup_burnchain();
 
         let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
@@ -366,17 +370,8 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
-        let address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
-        let identifier_output = TxOut {
-            value: DUST_UTXO_LIMIT,
-            script_pubkey: Builder::new()
-                .push_opcode(opcodes::All::OP_DUP)
-                .push_opcode(opcodes::All::OP_HASH160)
-                .push_slice(&address_hash)
-                .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                .push_opcode(opcodes::All::OP_CHECKSIG)
-                .into_script()
-        };
+        let address_hash = Hash160::from_data(&public_key.to_bytes());
+        let identifier_output = BitcoinAddress::to_p2pkh_tx_out(&address_hash, DUST_UTXO_LIMIT);
 
         tx.output.push(identifier_output);
 
@@ -416,19 +411,35 @@ impl BitcoinRegtestController {
                 .into_script(),
         };
 
-        let burn_address_hash = Hash160([0u8; 20]).as_bytes();
-        let burn_output = TxOut {
-            value: payload.burn_fee,
-            script_pubkey: Builder::new()
-                .push_opcode(opcodes::All::OP_DUP)
-                .push_opcode(opcodes::All::OP_HASH160)
-                .push_slice(burn_address_hash)
-                .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                .push_opcode(opcodes::All::OP_CHECKSIG)
-                .into_script()
+        tx.output = vec![consensus_output];
+
+        if OUTPUTS_PER_COMMIT < payload.commit_outs.len() {
+            error!("Generated block commit with more commit outputs than OUTPUTS_PER_COMMIT");
+            return None;
+        }
+
+        let burned = if payload.commit_outs.len() > 0 {
+            let pox_transfers = payload.commit_outs.len() as u64;
+            let burn_remainder = (OUTPUTS_PER_COMMIT as u64) - pox_transfers;
+            let value_per_transfer = payload.burn_fee / (OUTPUTS_PER_COMMIT as u64);
+            if value_per_transfer < 5500 {
+                error!("Total burn fee not enough for number of outputs");
+                return None;
+            }
+            for commit_to in payload.commit_outs.iter() {
+                tx.output.push(commit_to.to_bitcoin_tx_out(value_per_transfer));
+            }
+            value_per_transfer * burn_remainder
+        } else {
+            payload.burn_fee
         };
 
-        tx.output = vec![consensus_output, burn_output];
+        if burned > 0 {
+            let burn_address_hash = Hash160([0u8; 20]);
+            let burn_output = BitcoinAddress::to_p2pkh_tx_out(&burn_address_hash, burned);
+            tx.output.push(burn_output);
+        }
+
 
         self.finalize_tx(
             &mut tx,
@@ -493,7 +504,7 @@ impl BitcoinRegtestController {
         // Append the change output
         let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
         let public_key = signer.get_public_key();
-        let change_address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
+        let change_address_hash = Hash160::from_data(&public_key.to_bytes());
         if total_unspent < total_spent + tx_fee {
             warn!("Unspent total {} is less than intended spend: {}",
                   total_unspent, total_spent + tx_fee);
@@ -501,16 +512,7 @@ impl BitcoinRegtestController {
         }
         let value = total_unspent - total_spent - tx_fee;
         if value >= DUST_UTXO_LIMIT {
-            let change_output = TxOut {
-                value,
-                script_pubkey: Builder::new()
-                    .push_opcode(opcodes::All::OP_DUP)
-                    .push_opcode(opcodes::All::OP_HASH160)
-                    .push_slice(&change_address_hash)
-                    .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                    .push_opcode(opcodes::All::OP_CHECKSIG)
-                    .into_script()
-            };
+            let change_output = BitcoinAddress::to_p2pkh_tx_out(&change_address_hash, value);
             tx.output.push(change_output);
         } else {
             debug!("Not enough change to clear dust limit. Not adding change address.");
@@ -522,20 +524,17 @@ impl BitcoinRegtestController {
             let sig_hash_all = 0x01;
             let sig_hash = tx.signature_hash(i, &script_pub_key, sig_hash_all);   
     
-            let mut sig1_der = {
-                let secp = Secp256k1::new();
+            let sig1_der = {
                 let message = signer.sign_message(sig_hash.as_bytes())
                     .expect("Unable to sign message");
-                let der = message.to_secp256k1_recoverable()
+                message.to_secp256k1_recoverable()
                     .expect("Unable to get recoverable signature")
-                    .to_standard(&secp)
-                    .serialize_der(&secp);
-                der
+                    .to_standard()
+                    .serialize_der()
             };
-            sig1_der.push(sig_hash_all as u8);
     
             tx.input[i].script_sig = Builder::new()
-                .push_slice(&sig1_der[..])
+                .push_slice(&[&*sig1_der, &[sig_hash_all as u8][..]].concat())
                 .push_slice(&public_key.to_bytes())
                 .into_script();   
         }

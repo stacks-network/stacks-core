@@ -810,6 +810,7 @@ mod tests {
 
     use vm::{
         database::HeadersDB,
+        database::NULL_BURN_STATE_DB,
         types::{QualifiedContractIdentifier, PrincipalData},
         Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
     use chainstate::burn::{VRFSeed, BlockHeaderHash};
@@ -867,7 +868,7 @@ mod tests {
 
         {
             let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
-            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx, &NULL_BURN_STATE_DB,
                                                                 &ConsensusHash::empty(),
                                                                 &BlockHeaderHash::sentinel(),
                                                                 &b_1.0,
@@ -877,7 +878,7 @@ mod tests {
 
         {
             let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
-            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx, &NULL_BURN_STATE_DB,
                                                                 &ConsensusHash::empty(),
                                                                 &BlockHeaderHash::sentinel(),
                                                                 &b_3.0,
@@ -887,7 +888,7 @@ mod tests {
 
         {
             let (chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
-            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx,
+            let c_tx = StacksChainState::chainstate_block_begin(&chainstate_tx, clar_tx, &NULL_BURN_STATE_DB,
                                                                 &b_1.0,
                                                                 &b_1.1,
                                                                 &b_2.0,
