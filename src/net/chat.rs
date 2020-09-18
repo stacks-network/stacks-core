@@ -1791,24 +1791,26 @@ mod test {
         let mut prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
         for i in prev_snapshot.block_height..chain_view.burn_block_height+1 {
             let mut next_snapshot = prev_snapshot.clone();
-
-            next_snapshot.block_height += 1;
-            if i == chain_view.burn_block_height {
-                next_snapshot.burn_header_hash = chain_view.burn_block_hash.clone();
-            }
-            else if i == chain_view.burn_stable_block_height {
-                next_snapshot.burn_header_hash = chain_view.burn_stable_block_hash.clone();
-            }
-
+            
             let big_i = Uint256::from_u64(i as u64);
             let mut big_i_bytes_32 = [0u8; 32];
             let mut big_i_bytes_20 = [0u8; 20];
             big_i_bytes_32.copy_from_slice(&big_i.to_u8_slice());
             big_i_bytes_20.copy_from_slice(&big_i.to_u8_slice()[0..20]);
 
-            next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
+            next_snapshot.block_height += 1;
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
-            next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+            if i == chain_view.burn_block_height {
+                next_snapshot.burn_header_hash = chain_view.burn_block_hash.clone();
+            }
+            else if i == chain_view.burn_stable_block_height {
+                next_snapshot.burn_header_hash = chain_view.burn_stable_block_hash.clone();
+            }
+            else {
+                next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+            }
+
+            next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
             next_snapshot.sortition_id = SortitionId(big_i_bytes_32.clone());
             next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
             next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32.clone());
@@ -2718,7 +2720,7 @@ mod test {
             assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(false));
         }
 
-        // unstable consensus hash mismatch
+        // unstable burn header hash mismatch
         {
             let mut convo_bad = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
 
@@ -2731,11 +2733,11 @@ mod test {
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             
-            // considered valid as long as the stable consensus hash is valid
+            // considered valid as long as the stable burn header hash is valid
             assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(true));
         }
 
-        // stable consensus hash mismatch 
+        // stable burn header hash mismatch 
         {
             let mut convo_bad = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
 
