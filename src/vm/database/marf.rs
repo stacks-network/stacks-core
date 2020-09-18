@@ -318,8 +318,14 @@ impl ClarityBackingStore for MarfedKV {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
         self.marf.check_ancestor_block_hash(&bhh).map_err(|e| {
             match e {
-                MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)),
-                MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)),
+                MarfError::NotFoundError => {
+                    test_debug!("No such block {:?} (NotFoundError)", &bhh);
+                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                },
+                MarfError::NonMatchingForks(_bh1, _bh2) => {
+                    test_debug!("No such block {:?} (NonMatchingForks({}, {}))", &bhh, BlockHeaderHash(_bh1), BlockHeaderHash(_bh2));
+                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                },
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e)
             }
         })?;
