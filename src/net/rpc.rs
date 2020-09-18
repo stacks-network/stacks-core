@@ -148,7 +148,7 @@ impl fmt::Debug for ConversationHttp {
 
 impl RPCPeerInfoData {
     pub fn from_db(burnchain: &Burnchain, sortdb: &SortitionDB, chainstate: &StacksChainState, peerdb: &PeerDB, exit_at_block_height: &Option<&u64>) -> Result<RPCPeerInfoData, net_error> {
-        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn)?;
+        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn())?;
         let stable_burnchain_tip = {
             let ic = sortdb.index_conn();
@@ -1424,12 +1424,12 @@ mod test {
         let (burn_ops, stacks_block, microblocks) = peer_1.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
             let parent_tip = match parent_opt {
                 None => {
-                    StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                    StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                 }
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                    StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                 }
             };
 

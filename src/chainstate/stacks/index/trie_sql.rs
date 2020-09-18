@@ -57,7 +57,7 @@ use chainstate::stacks::index::{
 };
 
 use chainstate::stacks::index::storage::{
-    TrieFileStorage,
+    TrieFileStorage, TrieStorageConnection
 };
 
 use chainstate::stacks::index::bits::{
@@ -213,7 +213,7 @@ pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(conn: &Connection) -> Resu
         let block_hash: T = row.get("block_hash");
         let data = row.get_raw("data")
             .as_blob().expect("DB Corruption: MARF data is non-blob");
-        let start = TrieFileStorage::<T>::root_ptr_disk() as usize;
+        let start = TrieStorageConnection::<T>::root_ptr_disk() as usize;
         let trie_hash = TrieHash(read_hash_bytes(&mut &data[start..])?);
         Ok((trie_hash, block_hash))
     })?;
@@ -255,7 +255,7 @@ pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(conn: &Connection, bhh: &T, ptr
     Ok(TrieHash(hash_buff))
 }
 
-pub fn tx_lock_bhh_for_extension<'a, T: MarfTrieId>(tx: &mut Transaction<'a>, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
+pub fn tx_lock_bhh_for_extension<T: MarfTrieId>(tx: &Connection, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
     if !unconfirmed {
         // confirmed tries can only be extended once.
         // unconfirmed tries can be overwritten.
@@ -276,10 +276,8 @@ pub fn tx_lock_bhh_for_extension<'a, T: MarfTrieId>(tx: &mut Transaction<'a>, bh
     Ok(true)
 }
 
-pub fn lock_bhh_for_extension<T: MarfTrieId>(conn: &mut Connection, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
-    let mut tx = tx_begin_immediate(conn)?;
-    tx_lock_bhh_for_extension(&mut tx, bhh, unconfirmed)?;
-    tx.commit()?;
+pub fn lock_bhh_for_extension<T: MarfTrieId>(tx: &Transaction, bhh: &T, unconfirmed: bool) -> Result<bool, Error> {
+    tx_lock_bhh_for_extension(tx, bhh, unconfirmed)?;
     Ok(true)
 }
 
@@ -303,10 +301,9 @@ pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn clear_tables(conn: &mut Connection) -> Result<(), Error> {
-    let tx = tx_begin_immediate(conn)?;
+pub fn clear_tables(tx: &Transaction) -> Result<(), Error> {
     tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
     tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
     tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
-    tx.commit().map_err(|e| e.into())
+    Ok(())
 }

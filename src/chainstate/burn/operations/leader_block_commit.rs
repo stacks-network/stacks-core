@@ -24,7 +24,11 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
-use chainstate::burn::db::sortdb::SortitionHandleConn;
+use chainstate::burn::db::sortdb::{
+    SortitionHandleTx,
+    SortitionDB
+};
+
 use chainstate::stacks::{
     StacksAddress, StacksPublicKey, StacksPrivateKey
 };
@@ -343,9 +347,11 @@ pub struct RewardSetInfo {
 }
 
 impl LeaderBlockCommitOp {
-    pub fn check(&self, _burnchain: &Burnchain, tx: &SortitionHandleConn, reward_set_info: Option<&RewardSetInfo>) -> Result<(), op_error> {
+    pub fn check(&self, _burnchain: &Burnchain, tx: &mut SortitionHandleTx, reward_set_info: Option<&RewardSetInfo>) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
+
+        let tx_tip = tx.context.chain_tip.clone();
         
         /////////////////////////////////////////////////////////////////////////////////////
         // There must be a burn
@@ -411,7 +417,7 @@ impl LeaderBlockCommitOp {
         // This tx must occur after the start of the network
         /////////////////////////////////////////////////////////////////////////////////////
     
-        let first_block_snapshot = tx.get_first_block_snapshot()?;
+        let first_block_snapshot = SortitionDB::get_first_block_snapshot(tx.tx())?;
 
         if self.block_height < first_block_snapshot.block_height {
             warn!("Invalid block commit: predates genesis height {}", first_block_snapshot.block_height);
@@ -438,7 +444,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoLeaderKey);
         }
 
-        let register_key = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into())?
+        let register_key = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into(), &tx_tip)?
             .ok_or_else(|| {
                 warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, &tx.context.chain_tip);
                 op_error::BlockCommitNoLeaderKey
@@ -458,7 +464,7 @@ impl LeaderBlockCommitOp {
         }
         else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
-            let has_parent = tx.get_block_commit_parent(parent_block_height, self.parent_vtxindex.into())?
+            let has_parent = tx.get_block_commit_parent(parent_block_height, self.parent_vtxindex.into(), &tx_tip)?
                 .is_some();
             if !has_parent {
                 warn!("Invalid block commit: no parent block in this fork");
@@ -1139,9 +1145,8 @@ mod tests {
                 num_txs: 1,
                 timestamp: get_epoch_time_secs()
             };
-            let ic = db.index_handle(&SortitionId::stubbed(&fixture.op.burn_header_hash));
-            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic, None)));
+            let mut ic = SortitionHandleTx::begin(&mut db, &SortitionId::stubbed(&fixture.op.burn_header_hash)).unwrap();
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &mut ic, None)));
         }
     }
 }
-

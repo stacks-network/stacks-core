@@ -56,7 +56,8 @@ use chainstate::stacks::index::{
 use chainstate::stacks::index::marf::{
     MARF,
     BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
-    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY
+    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY,
+    MarfConnection
 };
 
 use chainstate::stacks::index::storage::TrieFileStorage;
@@ -72,7 +73,7 @@ use util::db::{
     DBConn,
     DBTx,
     IndexDBTx,
-    query_rows,
+    query_row,
     query_count,
     FromRow,
     FromColumn,
@@ -121,7 +122,6 @@ pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
     clarity_state: ClarityInstance,
-    pub headers_db: DBConn,
     pub blocks_db: DBConn,
     pub headers_state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
@@ -490,50 +490,37 @@ pub const MINER_FEE_MINIMUM_BLOCK_USAGE : u64 = 80;         // miner must share 
 pub const MINER_FEE_WINDOW : u64 = 24;                      // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
 
 impl StacksChainState {
-    fn instantiate_headers_db(conn: &mut DBConn, mainnet: bool, chain_id: u32, marf_path: &str) -> Result<(), Error> {
-        let tx = tx_begin_immediate(conn)?;
-        
-        for cmd in STACKS_CHAIN_STATE_SQL {
-            tx.execute(cmd, NO_PARAMS).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        }
-
-        tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)", &[&CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
+    fn instantiate_headers_db(mainnet: bool, chain_id: u32, marf_path: &str) -> Result<MARF<StacksBlockId>, Error> {
         let mut marf = StacksChainState::open_index(marf_path)?;
-        let mut dbtx = StacksDBTx::new(tx, &mut marf, ());
+        let mut dbtx = StacksDBTx::new(&mut marf, ());
+
+        {
+            let tx = dbtx.tx();
         
-        dbtx.instantiate_index().map_err(Error::DBError)?;
-        dbtx.commit().map_err(Error::DBError)?;
-        Ok(())
+            for cmd in STACKS_CHAIN_STATE_SQL {
+                tx.execute(cmd, NO_PARAMS)?;
+            }
+
+            tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
+                       &[&CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])?;
+        }
+        
+        dbtx.instantiate_index()?;
+        dbtx.commit()?;
+        Ok(marf)
     }
     
-    fn open_headers_db(mainnet: bool, chain_id: u32, headers_path: &str, index_path: &str) -> Result<DBConn, Error> {
-        let mut create_flag = false;
-        let open_flags =
-            if fs::metadata(headers_path).is_err() {
-                // need to create 
-                create_flag = true;
-                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
-            }
-            else {
-                // can just open 
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            };
-
-        let mut conn = DBConn::open_with_flags(headers_path, open_flags).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        conn.busy_handler(Some(tx_busy_handler)).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+    fn open_headers_db(mainnet: bool, chain_id: u32, index_path: &str) -> Result<MARF<StacksBlockId>, Error> {
+        let create_flag = fs::metadata(index_path).is_err();
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_headers_db(&mut conn, mainnet, chain_id, index_path)?;
-        }
-        else {
+            StacksChainState::instantiate_headers_db(mainnet, chain_id, index_path)
+        } else {
+            let marf = StacksChainState::open_index(index_path)?;
             // sanity check
-            let rows = query_rows::<DBConfig, _>(&conn, &"SELECT * FROM db_config LIMIT 1".to_string(), NO_PARAMS)
-                .map_err(Error::DBError)?;
-
-            let db_config = rows[0].clone();
+            let db_config = query_row::<DBConfig, _>(marf.sqlite_conn(), &"SELECT * FROM db_config LIMIT 1".to_string(), NO_PARAMS)?
+                .expect("CORRUPTION: no db_config found");
 
             if db_config.mainnet != mainnet {
                 error!("Invalid chain state database: expected mainnet = {}, got {}", mainnet, db_config.mainnet);
@@ -549,9 +536,9 @@ impl StacksChainState {
                 error!("Invalid chain ID: expected {}, got {}", chain_id, db_config.chain_id);
                 return Err(Error::InvalidChainstateDB);
             }
-        }
 
-        Ok(conn)
+            Ok(marf)
+        }
     }
     
     pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, Error> {
@@ -738,10 +725,6 @@ impl StacksChainState {
         headers_path.push("vm");
         StacksChainState::mkdirs(&headers_path)?;
 
-        headers_path.push("headers.db");
-        let headers_db_path = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
-
-        headers_path.pop();
         headers_path.push("clarity");
         let clarity_state_index_root = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
 
@@ -759,10 +742,8 @@ impl StacksChainState {
             Err(_) => false
         };
 
-        let headers_db = StacksChainState::open_headers_db(mainnet, chain_id, &headers_db_path, &header_index_root)?;
+        let headers_state_index = StacksChainState::open_headers_db(mainnet, chain_id, &header_index_root)?;
         let blocks_db = StacksChainState::open_blocks_db(&blocks_db_path)?;
-
-        let headers_state_index = StacksChainState::open_index(&header_index_root)?;
 
         let vm_state = MarfedKV::open(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH)))
             .map_err(|e| Error::ClarityError(e.into()))?;
@@ -773,7 +754,6 @@ impl StacksChainState {
             mainnet: mainnet,
             chain_id: chain_id,
             clarity_state: clarity_state,
-            headers_db: headers_db,
             blocks_db: blocks_db,
             headers_state_index: headers_state_index,
             blocks_path: blocks_path_root,
@@ -802,8 +782,7 @@ impl StacksChainState {
 
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     pub fn headers_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        let tx = tx_begin_immediate(&mut self.headers_db)?;
-        Ok(StacksDBTx::new(tx, &mut self.headers_state_index, ()))
+        Ok(StacksDBTx::new(&mut self.headers_state_index, ()))
     }
     
     /// Begin a transaction against our staging block index DB.
@@ -816,12 +795,11 @@ impl StacksChainState {
     /// Used when considering a new block to append the chain state.
     pub fn chainstate_tx_begin<'a>(&'a mut self) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
         let config = self.config();
-        let headers_inner_tx = tx_begin_immediate(&mut self.headers_db)?;
         let blocks_inner_tx = tx_begin_immediate(&mut self.blocks_db)?;
 
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
-        let headers_tx = StacksDBTx::new(headers_inner_tx, &mut self.headers_state_index, ());
+        let headers_tx = StacksDBTx::new(&mut self.headers_state_index, ());
         let blocks_tx = BlocksDBTx::new(blocks_inner_tx, blocks_path);
 
         let chainstate_tx = ChainstateTx {
@@ -838,14 +816,18 @@ impl StacksChainState {
     // DO NOT CALL FROM PRODUCTION
     pub fn clarity_eval_read_only(&mut self, burn_dbconn: &dyn BurnStateDB, parent_id_bhh: &StacksBlockId,
                                   contract: &QualifiedContractIdentifier, code: &str) -> Value {
-        let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, burn_dbconn, contract, code);
+        let result = self.clarity_state.eval_read_only(parent_id_bhh, self.headers_state_index.sqlite_conn(), burn_dbconn, contract, code);
         result.unwrap()
     }
-    
+
     pub fn clarity_eval_read_only_checked(&mut self, burn_dbconn: &dyn BurnStateDB, parent_id_bhh: &StacksBlockId,
                                           contract: &QualifiedContractIdentifier, code: &str) -> Result<Value, Error> {
-        self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, burn_dbconn, contract, code)
+        self.clarity_state.eval_read_only(parent_id_bhh, self.headers_state_index.sqlite_conn(), burn_dbconn, contract, code)
             .map_err(Error::ClarityError)
+    }
+
+    pub fn headers_db(&self) -> &DBConn {
+        self.headers_state_index.sqlite_conn()
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
@@ -867,7 +849,7 @@ impl StacksChainState {
     /// transaction.  Used by the miner for producing blocks.
     pub fn block_begin<'a>(&'a mut self, burn_dbconn: &'a dyn BurnStateDB, parent_consensus_hash: &ConsensusHash, parent_block: &BlockHeaderHash, new_consensus_hash: &ConsensusHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         let conf = self.config();
-        StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state, burn_dbconn,
+        StacksChainState::inner_clarity_tx_begin(conf, self.headers_state_index.sqlite_conn(), &mut self.clarity_state, burn_dbconn,
                                                  parent_consensus_hash, parent_block, new_consensus_hash, new_block)
     }
 
@@ -877,7 +859,7 @@ impl StacksChainState {
     }
     
     fn begin_read_only_clarity_tx<'a>(&'a mut self, burn_dbconn: &'a dyn BurnStateDB, index_block: &StacksBlockId) -> ClarityReadOnlyConnection<'a> {
-        self.clarity_state.read_only_connection(&index_block, &self.headers_db, burn_dbconn)
+        self.clarity_state.read_only_connection(&index_block, self.headers_state_index.sqlite_conn(), burn_dbconn)
     }
     
     /// Run to_do on the state of the Clarity VM at the given chain tip
@@ -895,7 +877,7 @@ impl StacksChainState {
         let mut unconfirmed_state_opt = self.unconfirmed_state.take();
         let res = 
             if let Some(ref mut unconfirmed_state) = unconfirmed_state_opt {
-                let mut conn = unconfirmed_state.clarity_inst.read_only_connection(&unconfirmed_state.unconfirmed_chain_tip, &self.headers_db, burn_dbconn);
+                let mut conn = unconfirmed_state.clarity_inst.read_only_connection(&unconfirmed_state.unconfirmed_chain_tip, self.headers_db(), burn_dbconn);
                 let result = to_do(&mut conn);
                 conn.done();
                 Some(result)
@@ -931,7 +913,7 @@ impl StacksChainState {
     fn get_parent_index_block(parent_consensus_hash: &ConsensusHash, parent_block: &BlockHeaderHash) -> StacksBlockId {
         if *parent_block == BOOT_BLOCK_HASH {
             // begin boot block
-            TrieFileStorage::block_sentinel()
+            StacksBlockId::sentinel()
         }
         else if *parent_block == FIRST_STACKS_BLOCK_HASH {
             // begin first-ever block
@@ -984,7 +966,6 @@ impl StacksChainState {
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(consensus_hash: &ConsensusHash, header: &StacksBlockHeader) -> StacksBlockId {
         if consensus_hash == &FIRST_BURNCHAIN_CONSENSUS_HASH {
-            // TrieFileStorage::block_sentinel()
             StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         } else {
             header.index_block_hash(consensus_hash)

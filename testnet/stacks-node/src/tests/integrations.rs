@@ -179,7 +179,7 @@ fn integration_test_get_info() {
                 // find header metadata
                 let mut headers = vec![];
                 for block in blocks.iter() {
-                    let header = StacksChainState::get_anchored_block_header_info(&chain_state.headers_db, &block.0, &block.1).unwrap().unwrap();
+                    let header = StacksChainState::get_anchored_block_header_info(chain_state.headers_db(), &block.0, &block.1).unwrap().unwrap();
                     eprintln!("{}/{}: {:?}", &block.0, &block.1, &header);
                     headers.push(header);
                 }
@@ -189,7 +189,7 @@ fn integration_test_get_info() {
                 // find miner metadata
                 let mut miners = vec![];
                 for block in blocks.iter() {
-                    let miner = StacksChainState::get_miner_info(&chain_state.headers_db, &block.0, &block.1).unwrap().unwrap();
+                    let miner = StacksChainState::get_miner_info(chain_state.headers_db(), &block.0, &block.1).unwrap().unwrap();
                     miners.push(miner);
                 }
 

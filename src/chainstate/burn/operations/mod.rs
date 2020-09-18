@@ -38,7 +38,7 @@ use burnchains::Burnchain;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::sortdb::SortitionHandleConn;
+use chainstate::burn::db::sortdb::SortitionHandleTx;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
 use burnchains::{

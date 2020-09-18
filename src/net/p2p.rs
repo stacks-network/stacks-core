@@ -2191,7 +2191,7 @@ impl PeerNetwork {
         debug!("{:?}: Process BlocksData from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.blocks.len());
 
         for (consensus_hash, block) in new_blocks.blocks.iter() {
-            let sn = match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &consensus_hash) {
+            let sn = match SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &consensus_hash) {
                 Ok(Some(sn)) => sn,
                 Ok(None) => {
                     // ignore
@@ -2380,7 +2380,7 @@ impl PeerNetwork {
     /// Refresh view of burnchain, if needed
     pub fn refresh_burnchain_view(&mut self, sortdb: &SortitionDB) -> Result<(), net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn)?;
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
         if sn.block_height > self.chain_view.burn_block_height {
             debug!("{:?}: load chain view for burn block {}", &self.local_peer, sn.block_height);
             let new_chain_view = {

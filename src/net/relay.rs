@@ -449,7 +449,7 @@ impl Relayer {
             let block_hash = block.block_hash();
 
             // is this the right Stacks block for this sortition?
-            let sn = match SortitionDB::get_block_snapshot_consensus(conn.conn, consensus_hash)? {
+            let sn = match SortitionDB::get_block_snapshot_consensus(conn.conn(), consensus_hash)? {
                 Some(sn) => {
                     if !sn.pox_valid {
                         info!("Pushed block from consensus hash {} corresponds to invalid PoX state", consensus_hash);
@@ -613,7 +613,7 @@ impl Relayer {
                 }
 
                 for (consensus_hash, block) in blocks_data.blocks.iter() {
-                    match SortitionDB::get_block_snapshot_consensus(sort_ic.conn, &consensus_hash)? {
+                    match SortitionDB::get_block_snapshot_consensus(sort_ic.conn(), &consensus_hash)? {
                         Some(sn) => {
                             if !sn.pox_valid {
                                 warn!("Consensus hash {} is not on the valid PoX fork", &consensus_hash);
@@ -843,7 +843,7 @@ impl Relayer {
     pub fn load_blocks_available_data(sortdb: &SortitionDB, consensus_hashes: Vec<ConsensusHash>) -> Result<BlocksAvailableMap, net_error> {
         let mut ret = BlocksAvailableMap::new();
         for ch in consensus_hashes.into_iter() {
-            let sn = match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &ch)? {
+            let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &ch)? {
                 Some(sn) => sn,
                 None => {
                     continue;
