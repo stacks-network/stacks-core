@@ -1,0 +1,9 @@
+{
+    "version": "2.0.0",
+    "tasks": [{
+        "label": "killbitcoind",
+        "command": "pkill",
+        "args": ["bitcoind"],
+        "type": "shell"
+    }]
+}

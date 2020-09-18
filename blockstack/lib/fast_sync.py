@@ -291,6 +291,19 @@ def fast_sync_snapshot_decompress( snapshot_path, output_dir ):
     return {'status': True}
 
 
+def dump_v2_datafile(working_dir, export_path, block_number, tmpfile_dir=None):
+    # TODO: output 
+    #       * consensus hash
+    #       * STX allocations and unlock schedules
+    #       * BNS name allocations (this portion necessarily depends on the BNS Clarity contract merging)
+
+    # what data is required in order to validate against a consensus hash? look into virtualchain.state_engine_verify
+    # best way to obtain consensus hash? 
+    #   snapshot(...) https://github.com/blockstack/virtualchain/blob/fcdff5221805d3cd8861e049daca5fe7295a1533/virtualchain/lib/indexer.py#L1030
+    #   get_consensus_at(block_id): https://github.com/blockstack/virtualchain/blob/fcdff5221805d3cd8861e049daca5fe7295a1533/virtualchain/lib/indexer.py#L1491
+    #
+    return None
+
 def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpfile_dir=None):
     """
     Export all the local state for fast-sync.
@@ -446,10 +459,11 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpf
     log.debug("Wrote {} bytes".format(os.stat(export_path).st_size))
 
     # sign
-    rc = fast_sync_sign_snapshot( export_path, private_key, first=True )
-    if not rc:
-        log.error("Failed to sign snapshot {}".format(export_path))
-        return False
+    if private_key is not None:
+        rc = fast_sync_sign_snapshot( export_path, private_key, first=True )
+        if not rc:
+            log.error("Failed to sign snapshot {}".format(export_path))
+            return False
 
     _cleanup(tmpdir)
     return True
