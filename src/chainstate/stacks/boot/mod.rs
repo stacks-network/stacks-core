@@ -87,8 +87,7 @@ fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
 
 impl StacksChainState {
     fn eval_boot_code_read_only(&mut self, sortdb: &SortitionDB, stacks_block_id: &StacksBlockId, boot_contract_name: &str, code: &str) -> Result<Value, Error> {
-        let iconn = sortdb.index_conn();
-        self.clarity_eval_read_only_checked(&iconn, &stacks_block_id, &boot_code_id(boot_contract_name), code)
+        self.clarity_eval_read_only_checked(&mut sortdb.index_conn(), &stacks_block_id, &boot_code_id(boot_contract_name), code)
     }
 
     /// Determine which reward cycle this particular block lives in.

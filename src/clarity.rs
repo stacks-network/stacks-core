@@ -421,7 +421,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let header_db = CLIHeadersDB::new(&db_name);
             in_block(db_name, marf_kv, |mut kv| {
                 {
-                    let mut db = kv.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let burn_state_db = &mut NULL_BURN_STATE_DB;
+                    let mut db = kv.as_clarity_db(&header_db, burn_state_db);
                     db.initialize();
                     db.begin();
                     for (principal, amount) in allocations.iter() {
@@ -592,7 +593,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let burn_state_db = &mut NULL_BURN_STATE_DB;
+                    let db = marf.as_clarity_db(&header_db, burn_state_db);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
@@ -622,7 +624,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let burn_state_db = &mut NULL_BURN_STATE_DB;
+                    let db = marf.as_clarity_db(&header_db, burn_state_db);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
@@ -661,7 +664,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = at_block(chain_tip, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let burn_state_db = &mut NULL_BURN_STATE_DB;
+                    let db = marf.as_clarity_db(&header_db, burn_state_db);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
@@ -708,7 +712,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Err(e) => (marf, Err(e)),
                         Ok(analysis) => {
                             let result = {
-                                let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                                let burn_state_db = &mut NULL_BURN_STATE_DB;
+                                let db = marf.as_clarity_db(&header_db, burn_state_db);
                                 let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                                 vm_env.initialize_contract(contract_identifier, &contract_content)
                             };
@@ -776,7 +781,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                    let burn_state_db = &mut NULL_BURN_STATE_DB;
+                    let db = marf.as_clarity_db(&header_db, burn_state_db);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
                 (marf, result)

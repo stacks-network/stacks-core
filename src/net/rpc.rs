@@ -463,7 +463,7 @@ impl ConversationHttp {
                                           tip: &StacksBlockId, account: &PrincipalData, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&mut sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
                 let block_height = clarity_db.get_current_burnchain_block_height() as u64;
@@ -505,7 +505,7 @@ impl ConversationHttp {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&mut sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
                 let (value, marf_proof) = clarity_db.get_with_proof::<Value>(&key)
@@ -545,7 +545,7 @@ impl ConversationHttp {
 
         let args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&mut sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
                 env.execute_contract(&contract_identifier, function.as_str(), &args, true)
             })
@@ -571,7 +571,7 @@ impl ConversationHttp {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&mut sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|db| {
                 let source = db.get_contract_src(&contract_identifier)?;
                 let contract_commit_key = MarfedKV::make_contract_hash_key(&contract_identifier);
@@ -606,7 +606,7 @@ impl ConversationHttp {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&mut sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_analysis_db_readonly(|db| {
                 let contract = db.load_contract(&contract_identifier)?;
                 contract.contract_interface

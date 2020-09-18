@@ -79,7 +79,7 @@ pub struct StacksMicroblockBuilder<'a> {
 
 impl <'a> StacksMicroblockBuilder <'a> {
     pub fn new(anchor_block: BlockHeaderHash, anchor_block_consensus_hash: ConsensusHash,
-               chainstate: &'a mut StacksChainState, burn_dbconn: &'a dyn BurnStateDB, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
+               chainstate: &'a mut StacksChainState, burn_dbconn: &'a mut dyn BurnStateDB, initial_cost: ExecutionCost, bytes_so_far: u64) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let header_reader = chainstate.reopen()?;
         let anchor_block_height = 
             StacksChainState::get_anchored_block_header_info(header_reader.headers_db(), &anchor_block_consensus_hash, &anchor_block)?
@@ -551,7 +551,7 @@ impl StacksBlockBuilder {
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
     /// yet known).
-    pub fn epoch_begin<'a>(&mut self, chainstate: &'a mut StacksChainState, burn_dbconn: &'a dyn BurnStateDB) -> Result<ClarityTx<'a>, Error> {
+    pub fn epoch_begin<'a>(&mut self, chainstate: &'a mut StacksChainState, burn_dbconn: &'a mut dyn BurnStateDB) -> Result<ClarityTx<'a>, Error> {
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
             let mut tx = chainstate.headers_tx_begin()?;
@@ -630,7 +630,7 @@ impl StacksBlockBuilder {
     
     /// Unconditionally build an anchored block from a list of transactions.
     /// Used when we are re-building a valid block after we exceed budget
-    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate_handle: &StacksChainState, burn_dbconn: &dyn BurnStateDB, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
+    pub fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate_handle: &StacksChainState, burn_dbconn: &mut dyn BurnStateDB, mut txs: Vec<StacksTransaction>) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let mut chainstate = chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?;  // used for processing a block up to the given limit
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
@@ -687,7 +687,7 @@ impl StacksBlockBuilder {
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(chainstate_handle: &StacksChainState,       // not directly used; used as a handle to open other chainstates
-                                burn_dbconn: &dyn BurnStateDB,
+                                burn_dbconn: &mut dyn BurnStateDB,
                                 mempool: &MemPoolDB,
                                 parent_stacks_header: &StacksHeaderInfo,    // Stacks header we're building off of
                                 total_burn: u64,                            // the burn so far on the burnchain (i.e. from the last burnchain block)

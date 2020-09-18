@@ -44,7 +44,7 @@ pub struct ClarityBlockConnection<'a> {
     datastore: MarfedKV,
     parent: &'a mut ClarityInstance,
     header_db: &'a dyn HeadersDB,
-    burn_state_db: &'a dyn BurnStateDB,
+    burn_state_db: &'a mut dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>
 }
 
@@ -57,7 +57,7 @@ pub struct ClarityTransactionConnection<'a> {
     log: Option<RollbackWrapperPersistedLog>,
     store: &'a mut MarfedKV,
     header_db: &'a dyn HeadersDB,
-    burn_state_db: &'a dyn BurnStateDB,
+    burn_state_db: &'a mut dyn BurnStateDB,
     cost_track: &'a mut Option<LimitedCostTracker>
 }
 
@@ -65,7 +65,7 @@ pub struct ClarityReadOnlyConnection<'a> {
     datastore: MarfedKV,
     parent: &'a mut ClarityInstance,
     header_db: &'a dyn HeadersDB,
-    burn_state_db: &'a dyn BurnStateDB,
+    burn_state_db: &'a mut dyn BurnStateDB,
 }
 
 #[derive(Debug)]
@@ -184,7 +184,7 @@ impl ClarityInstance {
         f(datastore.get_marf())
     }
 
-    pub fn begin_block<'a> (&'a mut self, current: &StacksBlockId, next: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityBlockConnection<'a> {
+    pub fn begin_block<'a> (&'a mut self, current: &StacksBlockId, next: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a mut dyn BurnStateDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -203,7 +203,7 @@ impl ClarityInstance {
         }
     }
     
-    pub fn begin_unconfirmed<'a> (&'a mut self, current: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityBlockConnection<'a> {
+    pub fn begin_unconfirmed<'a> (&'a mut self, current: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a mut dyn BurnStateDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -222,7 +222,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn read_only_connection<'a>(&'a mut self, at_block: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityReadOnlyConnection<'a> {
+    pub fn read_only_connection<'a>(&'a mut self, at_block: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a mut dyn BurnStateDB) -> ClarityReadOnlyConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -239,7 +239,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn eval_read_only(&mut self, at_block: &StacksBlockId, header_db: &dyn HeadersDB, burn_state_db: &dyn BurnStateDB, contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
+    pub fn eval_read_only(&mut self, at_block: &StacksBlockId, header_db: &dyn HeadersDB, burn_state_db: &mut dyn BurnStateDB, contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
         self.datastore.as_mut().unwrap()
             .set_chain_tip(at_block);
         let clarity_db = self.datastore.as_mut().unwrap()
@@ -289,7 +289,7 @@ impl ClarityConnection for ClarityBlockConnection <'_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db, &mut self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back();
@@ -310,7 +310,7 @@ impl ClarityConnection for ClarityReadOnlyConnection <'_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db, &mut self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back();
@@ -419,7 +419,7 @@ impl <'a> ClarityBlockConnection <'a> {
         let store = &mut self.datastore;
         let cost_track = &mut self.cost_track;
         let header_db = &self.header_db;
-        let burn_state_db = &self.burn_state_db;
+        let burn_state_db = &mut self.burn_state_db;
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
         ClarityTransactionConnection {
@@ -452,7 +452,7 @@ impl ClarityConnection for ClarityTransactionConnection <'_> {
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
         using!(self.log, "log", |log| {
             let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &self.burn_state_db);
+            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &mut self.burn_state_db);
             db.begin();
             let (r, mut db) = to_do(db);
             db.roll_back();
@@ -495,7 +495,7 @@ impl <'a> ClarityTransactionConnection <'a> {
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
         using!(self.log, "log", |log| {
             let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &self.burn_state_db);
+            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &mut self.burn_state_db);
 
             db.begin();
             let result = to_do(&mut db);
@@ -554,7 +554,7 @@ impl <'a> ClarityTransactionConnection <'a> {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &self.burn_state_db);
+                let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &mut self.burn_state_db);
 
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
