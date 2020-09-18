@@ -1554,9 +1554,9 @@ mod test {
         let nonce = rng.next_u32();
         let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                           12345,
-                                          &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                          &BurnchainHeaderHash([0x11; 32]),
                                           12339,
-                                          &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                          &BurnchainHeaderHash([0x22; 32]),
                                           StacksMessageType::Ping(PingData { nonce: nonce }));
         let privkey = Secp256k1PrivateKey::new();
         ping.sign(request_id, &privkey).unwrap();
@@ -1596,9 +1596,9 @@ mod test {
         // send
         let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                           12345,
-                                          &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                          &BurnchainHeaderHash([0x11; 32]),
                                           12339,
-                                          &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                          &BurnchainHeaderHash([0x22; 32]),
                                           StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
         let privkey = Secp256k1PrivateKey::new();
@@ -1747,9 +1747,9 @@ mod test {
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
-                                              &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                              &BurnchainHeaderHash([0x11; 32]),
                                               12339 + i,
-                                              &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                              &BurnchainHeaderHash([0x22; 32]),
                                               StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
             ping.sign(i as u32, &privkey).unwrap();
@@ -1838,9 +1838,9 @@ mod test {
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
-                                              &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                              &BurnchainHeaderHash([0x11; 32]),
                                               12339 + i,
-                                              &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                              &BurnchainHeaderHash([0x22; 32]),
                                               StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
 
             ping.sign(i as u32, &privkey).unwrap();
@@ -1943,9 +1943,9 @@ mod test {
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
-                                              &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                              &BurnchainHeaderHash([0x11; 32]),
                                               12339 + i,
-                                              &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                              &BurnchainHeaderHash([0x22; 32]),
                                               StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
 
             ping.sign(i as u32, &privkey).unwrap();
