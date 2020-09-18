@@ -2737,7 +2737,7 @@ impl StacksChainState {
     /// Returns None if we're out of blocks to process.
     fn append_block<'a>(chainstate_tx: &mut ChainstateTx<'a>,
                         clarity_instance: &'a mut ClarityInstance,
-                        burn_dbconn: &mut dyn BurnStateDB,
+                        burn_dbconn: &dyn BurnStateDB,
                         parent_chain_tip: &StacksHeaderInfo,
                         chain_tip_consensus_hash: &ConsensusHash,
                         chain_tip_burn_header_hash: &BurnchainHeaderHash,
@@ -3291,7 +3291,7 @@ impl StacksChainState {
         };
         
         let current_tip = StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
-        self.with_read_only_clarity_tx(&mut NULL_BURN_STATE_DB, &current_tip, |conn| {
+        self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
             StacksChainState::can_include_tx(mempool_conn, conn, &conf, has_microblock_pubk, tx, tx_size)
         })
     }

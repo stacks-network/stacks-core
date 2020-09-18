@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use vm::types::{QualifiedContractIdentifier};
 use vm::errors::{InterpreterError, CheckErrors, InterpreterResult as Result, IncomparableError, RuntimeErrorType};
 use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, BurnStateDB, NULL_HEADER_DB, NULL_BURN_STATE_DB,
-                   clarity_db::NullBurnStateDB,
                    ClaritySerializable, ClarityDeserializable};
 use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::StacksBlockId;
@@ -31,13 +30,8 @@ pub struct MarfedKV {
     side_store: SqliteConnection
 }
 
-// used to separate ownership of the store and
-//  the burnstatedb
-struct InnerMemoryBackingStore(SqliteConnection);
-
 pub struct MemoryBackingStore {
-    side_store: InnerMemoryBackingStore,
-    burn_state_db: NullBurnStateDB
+    side_store: SqliteConnection
 }
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
@@ -198,7 +192,7 @@ impl MarfedKV {
         MarfedKV { marf, chain_tip, side_store }
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self, headers_db: &'a dyn HeadersDB, burn_state_db: &'a mut dyn BurnStateDB) -> ClarityDatabase<'a> {
+    pub fn as_clarity_db<'a>(&'a mut self, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
         ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
@@ -428,9 +422,9 @@ impl ClarityBackingStore for MarfedKV {
 
 impl MemoryBackingStore {
     pub fn new() -> MemoryBackingStore {
-        let side_store = InnerMemoryBackingStore(SqliteConnection::memory().unwrap());
+        let side_store = SqliteConnection::memory().unwrap();
 
-        let mut memory_marf = MemoryBackingStore { side_store, burn_state_db: NullBurnStateDB {} };
+        let mut memory_marf = MemoryBackingStore { side_store };
 
         memory_marf.as_clarity_db().initialize();
 
@@ -438,32 +432,32 @@ impl MemoryBackingStore {
     }
 
     pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(&mut self.side_store, &NULL_HEADER_DB, &mut self.burn_state_db)
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
-        AnalysisDatabase::new(&mut self.side_store)
+        AnalysisDatabase::new(self)
     }
 }
 
-impl ClarityBackingStore for InnerMemoryBackingStore {
+impl ClarityBackingStore for MemoryBackingStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
-        self.0.get(key)
+        self.side_store.get(key)
     }
 
     fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
-        self.0.get(key)
+        self.side_store.get(key)
             .map(|x| {
                 (x, TrieMerkleProof(vec![]))
             })
     }
 
     fn get_side_store(&mut self) -> &mut SqliteConnection {
-        &mut self.0
+        &mut self.side_store
     }
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
@@ -488,7 +482,7 @@ impl ClarityBackingStore for InnerMemoryBackingStore {
 
     fn put_all(&mut self, mut items: Vec<(String, String)>) {
         for (key, value) in items.drain(..) {
-            self.0.put(&key, &value);
+            self.side_store.put(&key, &value);
         }
     }
 }

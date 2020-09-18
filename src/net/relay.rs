@@ -748,7 +748,7 @@ impl Relayer {
         let canonical_tip = StacksBlockHeader::make_index_block_hash(&canonical_consensus_hash, &canonical_block_hash);
         // setup unconfirmed state off of this tip
         debug!("Reload unconfirmed state");
-        chainstate.reload_unconfirmed_state(&mut sortdb.index_conn(), canonical_tip)?;
+        chainstate.reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip)?;
         Ok(())
     }
 

@@ -62,7 +62,7 @@ pub enum StoreType {
 pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
-    burn_state_db: &'a mut dyn BurnStateDB,
+    burn_state_db: &'a dyn BurnStateDB,
 }
 
 pub trait HeadersDB {
@@ -77,7 +77,7 @@ pub trait HeadersDB {
 
 pub trait BurnStateDB {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
-    fn get_burn_header_hash(&mut self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash>;
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash>;
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
@@ -166,11 +166,12 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         }
     }
 
-    fn get_burn_header_hash(&mut self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
-        match SortitionDB::get_ancestor_snapshot_tx(self, height as u64, sortition_id) {
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        panic!();
+/*        match SortitionDB::get_ancestor_snapshot_tx(self, height as u64, sortition_id) {
             Ok(Some(x)) => Some(x.burn_header_hash),
             _ => return None
-        }
+        }*/
     }
 }
 
@@ -182,7 +183,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
         }
     }
 
-    fn get_burn_header_hash(&mut self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
         let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
         match db_handle.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
@@ -191,13 +192,13 @@ impl BurnStateDB for SortitionDBConn<'_> {
     }
 } 
 
-impl BurnStateDB for &mut dyn BurnStateDB {
+impl BurnStateDB for &dyn BurnStateDB {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
-        BurnStateDB::get_burn_block_height(*self, sortition_id)
+        (*self).get_burn_block_height(sortition_id)
     }
 
-    fn get_burn_header_hash(&mut self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
-        BurnStateDB::get_burn_header_hash(*self, height, sortition_id)
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        (*self).get_burn_header_hash(height, sortition_id)
     }
 }
 
@@ -256,13 +257,13 @@ impl BurnStateDB for NullBurnStateDB {
         None
     }
     
-    fn get_burn_header_hash(&mut self, _height: u32, _sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+    fn get_burn_header_hash(&self, _height: u32, _sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
         None
     }
 }
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn new(store: &'a mut dyn ClarityBackingStore, headers_db: &'a dyn HeadersDB, burn_state_db: &'a mut dyn BurnStateDB) -> ClarityDatabase<'a> {
+    pub fn new(store: &'a mut dyn ClarityBackingStore, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store: RollbackWrapper::new(store),
             headers_db,
@@ -270,7 +271,7 @@ impl <'a> ClarityDatabase <'a> {
         }
     }
 
-    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB, burn_state_db: &'a mut dyn BurnStateDB) -> ClarityDatabase<'a> {
+    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
         ClarityDatabase { store, headers_db, burn_state_db }
     }
 
@@ -796,7 +797,7 @@ impl <'a> ClarityDatabase<'a> {
         self.burn_state_db.get_burn_block_height(sortition_id)
     }
 
-    pub fn get_burn_header_hash(&mut self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+    pub fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
         self.burn_state_db.get_burn_header_hash(height, sortition_id)
     }
 }
