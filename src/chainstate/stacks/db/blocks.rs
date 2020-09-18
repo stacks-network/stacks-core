@@ -68,7 +68,6 @@ use util::retry::BoundReader;
 use chainstate::burn::db::sortdb::*;
 
 use net::MAX_MESSAGE_LEN;
-use net::BLOCKS_INV_DATA_MAX_BITLEN;
 use net::BlocksInvData;
 use net::Error as net_error;
 
@@ -1380,12 +1379,8 @@ impl StacksChainState {
 
     /// Generate a blocks inventory message, given the output of
     /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
-    /// BLOCKS_INV_DATA_MAX_BITLEN in order to generate a valid BlocksInvData payload.
+    /// pox_constants.reward_cycle_length, in order to generate a valid BlocksInvData payload.
     pub fn get_blocks_inventory(&mut self, header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)]) -> Result<BlocksInvData, Error> {
-        if header_hashes.len() > (BLOCKS_INV_DATA_MAX_BITLEN as usize) {
-            return Err(Error::NetError(net_error::OverflowError("Resulting block inventory would be too big".to_string())));
-        }
-
         let mut block_bits = vec![];
         let mut microblock_bits = vec![];
 
@@ -2402,7 +2397,7 @@ impl StacksChainState {
     #[cfg(test)]
     pub fn preprocess_stacks_epoch(&mut self, sort_ic: &SortitionDBConn, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
         let parent_sn = {
-            let db_handle = sort_ic.as_handle(&SortitionId::stubbed(&snapshot.burn_header_hash));
+            let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
             let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash)? {
                 Some(sn) => sn,
                 None => {
@@ -4969,7 +4964,7 @@ pub mod test {
         let mut consensus_hashes = vec![];
         let mut parent_consensus_hashes = vec![];
 
-        for i in 0..(BLOCKS_INV_DATA_MAX_BITLEN as usize) {
+        for i in 0..32 {
             test_debug!("Making block {}", i);
             let privk = StacksPrivateKey::new();
             let block = make_empty_coinbase_block(&privk);
