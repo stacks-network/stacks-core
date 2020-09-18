@@ -122,7 +122,7 @@ impl PeerNetwork {
         if uptime_bucket_1 < uptime_bucket_2 {
             return Ordering::Less;
         }
-        if uptime_bucket_1 > uptime_bucket_1 {
+        if uptime_bucket_1 > uptime_bucket_2 {
             return Ordering::Greater;
         }
 
