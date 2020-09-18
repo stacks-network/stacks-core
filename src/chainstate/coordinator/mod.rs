@@ -280,7 +280,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
             info!("Anchor block selected: {}", stacks_block_hash);
             let anchor_block_known = StacksChainState::is_stacks_block_processed(
-                &chain_state.headers_db, &consensus_hash, &stacks_block_hash)?;
+                &chain_state.headers_db(), &consensus_hash, &stacks_block_hash)?;
             let anchor_status = if anchor_block_known {
                 let block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block_hash);
                 let reward_set = provider.get_reward_set(

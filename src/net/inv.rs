@@ -541,7 +541,7 @@ impl InvState {
     /// Returns the optional block sortition height at which the block or confirmed microblock stream resides in the blockchain (returns
     /// None if its bit was already set).
     fn set_data_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, microblocks: bool) -> Result<Option<u64>, net_error> {
-        let sn = match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &consensus_hash)? {
+        let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)? {
             Some(sn) => sn,
             None => {
                 // we don't know about this block
@@ -810,7 +810,7 @@ impl PeerNetwork {
                 let tip_consensus_hash = convo.get_burnchain_tip_consensus_hash();
 
                 debug!("{:?}: chain view of {:?} is ({},{})-({},{})", &self.local_peer, nk, stable_tip_height, &stable_tip_consensus_hash, tip_height, &tip_consensus_hash);
-                match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &tip_consensus_hash)? {
+                match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &tip_consensus_hash)? {
                     // we know about this peer's latest consensus hash's snapshot.  Ask for blocks
                     // no higher than its highest known block.
                     Some(_sn) => {
@@ -825,7 +825,7 @@ impl PeerNetwork {
                     // this peer is unstable -- its tip consensus hash differs from ours, but we
                     // agree with its stable consensus hash.  Ask only for blocks no higher than
                     // its stable consensus hash.
-                    None => match SortitionDB::get_block_snapshot_consensus(&sortdb.conn, &stable_tip_consensus_hash).map_err(net_error::DBError)? {
+                    None => match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stable_tip_consensus_hash).map_err(net_error::DBError)? {
                         Some(_sn) => {
                             if stable_tip_height < highest_block_height {
                                 test_debug!("{:?}: neighbor {:?} is unstable, and has processed only up to stable burn block {} (we are targeting {})", &self.local_peer, nk, tip_height, target_block_height);

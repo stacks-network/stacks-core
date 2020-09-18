@@ -2153,7 +2153,7 @@ impl PeerNetwork {
             // TODO(PoX): burn_header_hash to be replaced with a ConsensusHash, so we can just use
             // SortitionDB::get_block_snapshot_consensus() here.
             let sortid = SortitionId::stubbed(burn_header_hash);
-            let sn = match SortitionDB::get_block_snapshot(&sortdb.conn, &sortid) {
+            let sn = match SortitionDB::get_block_snapshot(sortdb.conn(), &sortid) {
                 Ok(Some(sn)) => sn,
                 Ok(None) => {
                     // ignore
@@ -2346,7 +2346,7 @@ impl PeerNetwork {
         }
 
         // update burnchain snapshot if we need to (careful -- it's expensive)
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn)?;
+        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         if sn.block_height > self.chain_view.burn_block_height {
             debug!("{:?}: load chain view for burn block {}", &self.local_peer, sn.block_height);
             let new_chain_view = {

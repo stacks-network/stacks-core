@@ -43,6 +43,7 @@ use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::retry::LogReader;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::burn::BlockHeaderHash;
 use blockstack_lib::chainstate::burn::ConsensusHash;
@@ -191,14 +192,20 @@ fn main() {
 
     if argv[1] == "header-indexed-get" {
         if argv.len() < 5 {
-            eprintln!("Usage: {} header-indexed-get CHAINSTATE_DIR BLOCK_ID_HASH KEY", argv[0]);
+            eprintln!("Usage: {} header-indexed-get STATE_DIR BLOCK_ID_HASH KEY", argv[0]);
+            eprintln!("       STATE_DIR is either the chain state directory OR a marf index and data db file");
             process::exit(1);
         }
-        let headers_dir = &argv[2];
-        let marf_path = format!("{}/vm/index", &headers_dir);
-        let db_path = format!("{}/vm/headers.db", &headers_dir);
-        let marf_tip = &argv[3];
-        let marf_key = &argv[4];
+        let (marf_path, db_path, arg_next) = if argv.len() == 5 {
+            let headers_dir = &argv[2];
+            (format!("{}/vm/index", &headers_dir),
+             format!("{}/vm/headers.db", &headers_dir),
+             3)
+        } else {
+            (argv[2].to_string(), argv[3].to_string(), 4)
+        };
+        let marf_tip = &argv[arg_next];
+        let marf_key = &argv[arg_next+1];
 
         if fs::metadata(&marf_path).is_err() {
             eprintln!("No such file or directory: {}", &marf_path);

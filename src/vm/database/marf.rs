@@ -6,7 +6,7 @@ use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, BurnStateDB, NU
                    ClaritySerializable, ClarityDeserializable};
 use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::StacksBlockId;
-use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::marf::{MARF, MarfConnection};
 use chainstate::stacks::index::{MARFValue, Error as MarfError, MarfTrieId, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::stacks::index::proofs::{TrieMerkleProof};
@@ -210,8 +210,13 @@ impl MarfedKV {
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
     pub fn begin(&mut self, current: &StacksBlockId, next: &StacksBlockId) {
-        self.marf.begin(current, next)
-            .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
+        {
+            let mut tx = self.marf.begin_tx()
+                .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
+            tx.begin(current, next)
+                .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
+            tx.commit_tx();
+        }
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
@@ -219,8 +224,13 @@ impl MarfedKV {
     }
     
     pub fn begin_unconfirmed(&mut self, current: &StacksBlockId) {
-        self.marf.begin_unconfirmed(current)
-            .expect(&format!("ERROR: Failed to begin new unconfirmed MARF block for {})", current));
+        {
+            let mut tx = self.marf.begin_tx()
+                .expect(&format!("ERROR: Failed to begin new unconfirmed MARF block for {})", current));
+            tx.begin_unconfirmed(current)
+                .expect(&format!("ERROR: Failed to begin new unconfirmed MARF block for {})", current));
+            tx.commit_tx();
+        }
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
@@ -452,7 +462,7 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         if height == 0 {
-            Some(TrieFileStorage::block_sentinel())
+            Some(StacksBlockId::sentinel())
         } else {
             None
         }

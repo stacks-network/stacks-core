@@ -1098,7 +1098,7 @@ impl StacksChainState {
     /// stacks_block _must_ have been committed, or this will return an error
     pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
         let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?";
-        self.headers_db.query_row(sql, &[stacks_block], |row| row.get(0))
+        self.headers_db().query_row(sql, &[stacks_block], |row| row.get(0))
             .map_err(|e| Error::from(db_error::from(e)))
     }
 
@@ -3089,7 +3089,7 @@ impl StacksChainState {
         let epoch_receipt = 
             match StacksChainState::append_block(&mut chainstate_tx, 
                                                  clarity_instance, 
-                                                 &sort_tx.as_conn().as_tipless_conn(),
+                                                 sort_tx,
                                                  &parent_block_header_info, 
                                                  &next_staging_block.consensus_hash, 
                                                  &burn_header_hash,
@@ -3245,7 +3245,7 @@ impl StacksChainState {
     /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
     /// in.
     pub fn get_stacks_chain_tip(&self, sortdb: &SortitionDB) -> Result<Option<StagingBlock>, Error> {
-        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(&sortdb.conn)?;
+        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
         let args : &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
         query_row(&self.blocks_db, sql, args).map_err(Error::DBError)
@@ -5148,12 +5148,12 @@ pub mod test {
                 last_parent_opt = parent_opt.cloned();
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 

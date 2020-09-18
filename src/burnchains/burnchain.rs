@@ -124,7 +124,7 @@ impl BurnchainStateTransition {
         }
     }
 
-    pub fn from_block_ops(ic: &SortitionHandleConn, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
+    pub fn from_block_ops(sort_tx: &mut SortitionHandleTx, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
         let mut user_burns: Vec<UserBurnSupportOp> = vec![];
@@ -159,7 +159,7 @@ impl BurnchainStateTransition {
         }
 
         // find all VRF leader keys that were consumed by the block commits of this block 
-        let consumed_leader_keys = SortitionDB::get_consumed_leader_keys(&ic, &parent_snapshot, &block_commits)?;
+        let consumed_leader_keys = sort_tx.get_consumed_leader_keys(&parent_snapshot, &block_commits)?;
 
         // calculate the burn distribution from these operations.
         // The resulting distribution will contain the user burns that match block commits, and

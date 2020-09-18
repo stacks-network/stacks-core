@@ -822,9 +822,9 @@ pub mod test {
 
             let new_seed = VRFSeed::from_proof(&proof);
 
-            let get_commit_res = ic.as_handle(&last_snapshot_with_sortition.sortition_id)
-                .get_block_commit(&last_snapshot_with_sortition.winning_block_txid,
-                                  &last_snapshot_with_sortition.sortition_id)
+            let get_commit_res = SortitionDB::get_block_commit(ic.conn(),
+                                                               &last_snapshot_with_sortition.winning_block_txid,
+                                                               &last_snapshot_with_sortition.sortition_id)
                 .expect("FATAL: failed to read block commit");
             let mut txop = match get_commit_res {
                 Some(parent) => {
@@ -883,7 +883,7 @@ pub mod test {
             let sort_id = SortitionId::stubbed(&header.parent_block_hash);
             let mut sortition_db_handle = SortitionHandleTx::begin(db, &sort_id).unwrap();
 
-            let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&header.parent_block_hash)
+            let parent_snapshot = sortition_db_handle.get_block_snapshot(&header.parent_block_hash, &sort_id)
                 .unwrap()
                 .expect("FATAL: failed to get burnchain linkage info");
 
