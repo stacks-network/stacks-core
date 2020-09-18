@@ -1355,54 +1355,8 @@ impl PeerNetwork {
         Ok(neighbors)
     }
 
-    /// Connect to a remote peer and begin to handshake with it.
-    /// Returns Ok(None) if the connection is in progress.
-    /// Returns Ok(Some(handle)) if the connection succeeded and we sent the handshake
-    /// Returns Err(..) if there was a problem
-    fn walk_connect_and_handshake(&mut self, walk: &mut NeighborWalk, nk: &NeighborKey) -> Result<Option<ReplyHandleP2P>, net_error> {
-        if !self.is_registered(nk) {
-            if !walk.connecting.contains_key(nk) {
-                let con_res = self.connect_peer(nk);
-                match con_res {
-                    Ok(event_id) => {
-                        // remember this in the walk result
-                        walk.connecting.insert(nk.clone(), event_id);
-
-                        // stop the pruner from removing this connection
-                        walk.events.insert(event_id);
-                        
-                        // force the caller to try again -- we're not registered yet
-                        debug!("{:?}: Walk is connecting to {:?} (event {})", &self.local_peer, &nk, event_id);
-                        return Ok(None);
-                    },
-                    Err(_e) => {
-                        debug!("{:?}: Failed to connect to {:?}: {:?}", &self.local_peer, nk, &_e);
-                        return Err(net_error::PeerNotConnected);
-                    }
-                }
-            }
-            else {
-                let event_id = walk.connecting.get(nk).unwrap();
-                
-                // is the peer network still working?
-                if !self.is_connecting(*event_id) {
-                    debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", &self.local_peer, *event_id, nk);
-                    walk.connecting.remove(&nk);
-                    return Err(net_error::PeerNotConnected);
-                }
-
-                // still connecting
-                debug!("{:?}: walk still connecting to {:?} (event {})", &self.local_peer, nk, event_id);
-                return Ok(None);
-            }
-        }
-        else {
-            test_debug!("{:?}: already connected to {:?} as event {}", &self.local_peer, &nk, self.get_event_id(nk).unwrap());
-        }
-        
-        // so far so good.
-        walk.connecting.remove(&nk);
-
+    /// Send off a handshake to a remote peer
+    fn walk_handshake(&mut self, walk: &mut NeighborWalk, nk: &NeighborKey) -> Result<ReplyHandleP2P, net_error> {
         // send handshake.
         let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
         
@@ -1410,9 +1364,12 @@ impl PeerNetwork {
 
         let msg = self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
         let req_res = self.send_message(nk, msg, self.connection_opts.timeout);
+
+        // we tried this neighbor
+        walk.connecting.remove(nk);
         match req_res {
             Ok(handle) => {
-                Ok(Some(handle))
+                Ok(handle)
             },
             Err(e) => {
                 debug!("{:?}: Not connected: {:?} ({:?})", &self.local_peer, nk, &e);
@@ -1420,6 +1377,61 @@ impl PeerNetwork {
                 Err(net_error::PeerNotConnected)
             }
         }
+    }
+
+    /// Connect to a remote peer and begin to handshake with it.
+    /// Returns Ok(None) if the connection is in progress.
+    /// Returns Ok(Some(handle)) if the connection succeeded and we sent the handshake
+    /// Returns Err(..) if there was a problem
+    fn walk_connect_and_handshake(&mut self, walk: &mut NeighborWalk, nk: &NeighborKey) -> Result<Option<ReplyHandleP2P>, net_error> {
+        match self.can_register_peer(nk, true) {
+            Ok(_) => {
+                if !walk.connecting.contains_key(nk) {
+                    let con_res = self.connect_peer(nk);
+                    match con_res {
+                        Ok(event_id) => {
+                            // remember this in the walk result
+                            walk.connecting.insert(nk.clone(), event_id);
+
+                            // stop the pruner from removing this connection
+                            walk.events.insert(event_id);
+                            
+                            // force the caller to try again -- we're not registered yet
+                            debug!("{:?}: Walk is connecting to {:?} (event {})", &self.local_peer, &nk, event_id);
+                            return Ok(None);
+                        },
+                        Err(_e) => {
+                            debug!("{:?}: Failed to connect to {:?}: {:?}", &self.local_peer, nk, &_e);
+                            return Err(net_error::PeerNotConnected);
+                        }
+                    }
+                }
+                else {
+                    let event_id = walk.connecting.get(nk).unwrap();
+                    
+                    // is the peer network still working?
+                    if !self.is_connecting(*event_id) {
+                        debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", &self.local_peer, *event_id, nk);
+                        walk.connecting.remove(&nk);
+                        return Err(net_error::PeerNotConnected);
+                    }
+
+                    // still connecting
+                    debug!("{:?}: walk still connecting to {:?} (event {})", &self.local_peer, nk, event_id);
+                    return Ok(None);
+                }
+            },
+            Err(net_error::AlreadyConnected(_event_id)) => {
+                test_debug!("{:?}: already connected to {:?} as event {}", &self.local_peer, &nk, _event_id);
+            },
+            Err(e) => {
+                info!("{:?}: could not connect to {:?}: {:?}", &self.local_peer, &nk, &e);
+                return Err(e);
+            }
+        }
+       
+        self.walk_handshake(walk, nk)
+            .and_then(|handle| Ok(Some(handle)))
     }
 
     /// Instantiate the neighbor walk from a neighbor routable from us.
@@ -1561,7 +1573,24 @@ impl PeerNetwork {
                     let my_addr = walk.cur_neighbor.addr.clone();
                     walk.clear_state();
 
-                    match network.walk_connect_and_handshake(walk, &my_addr)? {
+                    let my_pubkh = Hash160::from_data(&walk.cur_neighbor.public_key.to_bytes());
+                    let res = match network.can_register_peer_with_pubkey(&my_addr, true, &my_pubkh) {
+                        Ok(_) => {
+                            network.walk_connect_and_handshake(walk, &my_addr)?
+                        },
+                        Err(net_error::AlreadyConnected(_event_id)) => {
+                            debug!("{:?}: Already connected to {:?} on event {}", &network.local_peer, &my_addr, &_event_id);
+                            network.walk_handshake(walk, &my_addr)
+                                .and_then(|handle| Ok(Some(handle)))?
+                        },
+                        Err(e) => {
+                            info!("{:?}: Failed to check connection to {:?}: {:?}", &network.local_peer, &my_addr, &e);
+                            debug!("{:?}: No Handshake sent (dest was {:?})", &walk.local_peer, &my_addr);
+                            return Ok(false);
+                        }
+                    };
+
+                    match res {
                         Some(handle) => {
                             debug!("{:?}: Handshake sent to {:?}", &walk.local_peer, &my_addr);
                             walk.handshake_begin(handle);
@@ -1681,29 +1710,52 @@ impl PeerNetwork {
                             test_debug!("{:?}: skip handshaking with cur_neighbor {:?}", &network.local_peer, &walk.cur_neighbor.addr);
                             continue;
                         }
-                        
-                        let nk = NeighborKey::from_neighbor_address(network.peer_version, network.local_peer.network_id, &na);
 
                         // already sent a handshake to this neighbor?
                         if walk.unresolved_handshake_neighbors.contains_key(na) {
                             test_debug!("{:?}: already connected to {:?}", &network.local_peer, &na);
                             continue;
                         }
+                        
+                        let nk = NeighborKey::from_neighbor_address(network.peer_version, network.local_peer.network_id, &na);
+                        match network.can_register_peer_with_pubkey(&nk, true, &na.public_key_hash) {
+                            Ok(_) => {
+                                // not connected; try and do so
+                                test_debug!("{:?}: try to connect to {:?} ({:?})", &network.local_peer, &nk, &na);
 
-                        match network.walk_connect_and_handshake(walk, &nk) {
-                            Ok(Some(handle)) => {
-                                debug!("{:?}: will Handshake with neighbor-of-neighbor {:?}", &network.local_peer, &nk);
-                                walk.unresolved_handshake_neighbors.insert(na.clone(), handle);
-                            }
-                            Ok(None) => {
-                                test_debug!("{:?}: already connecting to {:?}", &network.local_peer, &nk);
-                                pending = true;
+                                match network.walk_connect_and_handshake(walk, &nk) {
+                                    Ok(Some(handle)) => {
+                                        debug!("{:?}: will Handshake with neighbor-of-neighbor {:?}", &network.local_peer, &nk);
+                                        walk.unresolved_handshake_neighbors.insert(na.clone(), handle);
+                                    },
+                                    Ok(None) => {
+                                        test_debug!("{:?}: already connecting to {:?}", &network.local_peer, &nk);
+                                        pending = true;
 
-                                // try again
-                                continue;
+                                        // try again
+                                        continue;
+                                    }
+                                    Err(e) => {
+                                        info!("{:?}: Failed to connect to {:?}: {:?}", &network.local_peer, &nk, &e);
+                                        continue;
+                                    }
+                                }
                             }
-                            Err(e) => {
-                                info!("Failed to connect to {:?}: {:?}", &nk, &e);
+                            Err(net_error::AlreadyConnected(_)) => {
+                                // connected already; proceed to send handshake
+                                match network.walk_handshake(walk, &nk) {
+                                    Ok(handle) => {
+                                        debug!("{:?}: will Handshake with neighbor-of-neighbor {:?}", &network.local_peer, &nk);
+                                        walk.unresolved_handshake_neighbors.insert(na.clone(), handle);
+                                    },
+                                    Err(e) => {
+                                        info!("{:?}: failed to send Handshake to neighbor-of-neighbor {:?}: {:?}", &network.local_peer, &nk, &e);
+                                        continue;
+                                    }
+                                }
+                            }
+                            Err(_e) => {
+                                info!("{:?}: cannot register peer {:?}: {:?}", &network.local_peer, &nk, &_e);
                                 continue;
                             }
                         }
@@ -1826,19 +1878,40 @@ impl PeerNetwork {
                     continue;
                 }
 
-                // still have to connect
-                pending = true;
-                
-                match network.walk_connect_and_handshake(walk, &nk)? {
-                    Some(handle) => {
-                        debug!("{:?}: Sent pingback handshake to {:?}", &network.local_peer, &nk);
-                        walk.pending_pingback_handshakes.insert(naddr.clone(), handle);
-                    },
-                    None => {
-                        debug!("{:?}: No pingback handshake sent to {:?}", &network.local_peer, &nk);
+                match network.can_register_peer_with_pubkey(&nk, true, &naddr.public_key_hash) {
+                    Ok(_) => {
+                        // not connected yet
+                        // still have to connect
+                        pending = true;
+                        match network.walk_connect_and_handshake(walk, &nk)? {
+                            Some(handle) => {
+                                debug!("{:?}: Sent pingback handshake to {:?}", &network.local_peer, &nk);
+                                walk.pending_pingback_handshakes.insert(naddr.clone(), handle);
+                            },
+                            None => {
+                                debug!("{:?}: No pingback handshake sent to {:?}", &network.local_peer, &nk);
 
-                        // try again
-                        new_network_pingbacks.insert(naddr, pingback);
+                                // try again
+                                new_network_pingbacks.insert(naddr, pingback);
+                            }
+                        }
+                    },
+                    Err(net_error::AlreadyConnected(_)) => {
+                        // already connected; just send
+                        match network.walk_handshake(walk, &nk) {
+                            Ok(handle) => {
+                                debug!("{:?}: Sent pingback handshake to {:?}", &network.local_peer, &nk);
+                                walk.pending_pingback_handshakes.insert(naddr.clone(), handle);
+                            },
+                            Err(e) => {
+                                info!("{:?}: Failed to send pingback handshake to {:?}: {:?}", &network.local_peer, &nk, &e);
+                                continue;
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        info!("{:?}: Failed to connect to {:?}: {:?}", &network.local_peer, &nk, &e);
+                        continue;
                     }
                 }
             }
@@ -3474,11 +3547,12 @@ mod test {
 
             peer_configs.push(conf);
         }
+        
+        // all peers see peer ::33000 as having ASN and Org ID 1
+        let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_ring(&mut peer_configs, NEIGHBOR_COUNT);
 
-        // all peers see peer ::33000 as having ASN and Org ID 1
-        let peer_0 = peer_configs[0].to_neighbor();
         for i in 1..PEER_COUNT {
             match PeerDB::get_peer(peers[i].network.peerdb.conn(), peer_0.addr.network_id, &peer_0.addr.addrbytes, peer_0.addr.port).unwrap() {
                 Some(p) => {
@@ -3620,11 +3694,11 @@ mod test {
 
             peer_configs.push(conf);
         }
+        // all peers see peer ::33300 as having ASN and Org ID 1
+        let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_line(&mut peer_configs, NEIGHBOR_COUNT, 0);
 
-        // all peers see peer ::33300 as having ASN and Org ID 1
-        let peer_0 = peer_configs[0].to_neighbor();
         for i in 1..PEER_COUNT {
             match PeerDB::get_peer(peers[i].network.peerdb.conn(), peer_0.addr.network_id, &peer_0.addr.addrbytes, peer_0.addr.port).unwrap() {
                 Some(p) => {
@@ -3812,11 +3886,11 @@ mod test {
 
             peer_configs.push(conf);
         }
+        // all peers see peer ::33600 as having ASN and Org ID 1
+        let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_star(&mut peer_configs, NEIGHBOR_COUNT);
 
-        // all peers see peer ::33600 as having ASN and Org ID 1
-        let peer_0 = peer_configs[0].to_neighbor();
         for i in 1..PEER_COUNT {
             match PeerDB::get_peer(peers[i].network.peerdb.conn(), peer_0.addr.network_id, &peer_0.addr.addrbytes, peer_0.addr.port).unwrap() {
                 Some(p) => {
