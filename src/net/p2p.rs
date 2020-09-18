@@ -2557,6 +2557,7 @@ mod test {
     use util::sleep_ms;
     use burnchains::*;
     use burnchains::burnchain::*;
+    use util::test::*;
 
     use rand::RngCore;
     use rand;
@@ -2628,176 +2629,180 @@ mod test {
     #[test]
     #[ignore]
     fn test_dispatch_requests_connect_and_message_relay() {
-        let neighbor = make_test_neighbor(2100);
+        with_timeout(100, || {
+            let neighbor = make_test_neighbor(2100);
 
-        let mut p2p = make_test_p2p_network(&vec![]);
+            let mut p2p = make_test_p2p_network(&vec![]);
 
-        let ping = StacksMessage::new(p2p.peer_version, p2p.local_peer.network_id,
-                                      p2p.chain_view.burn_block_height,
-                                      &p2p.chain_view.burn_block_hash,
-                                      p2p.chain_view.burn_stable_block_height,
-                                      &p2p.chain_view.burn_stable_block_hash,
-                                      StacksMessageType::Ping(PingData::new()));
+            let ping = StacksMessage::new(p2p.peer_version, p2p.local_peer.network_id,
+                                          p2p.chain_view.burn_block_height,
+                                          &p2p.chain_view.burn_block_hash,
+                                          p2p.chain_view.burn_stable_block_height,
+                                          &p2p.chain_view.burn_stable_block_hash,
+                                          StacksMessageType::Ping(PingData::new()));
 
-        let mut h = p2p.new_handle(1);
+            let mut h = p2p.new_handle(1);
 
-        use std::net::TcpListener;
-        let listener = TcpListener::bind("127.0.0.1:2100").unwrap();
+            use std::net::TcpListener;
+            let listener = TcpListener::bind("127.0.0.1:2100").unwrap();
 
-        // start fake neighbor endpoint, which will accept once and wait 5 seconds
-        let endpoint_thread = thread::spawn(move || {
-            let (sock, addr) = listener.accept().unwrap();
-            test_debug!("Accepted {:?}", &addr);
-            thread::sleep(time::Duration::from_millis(5000));
-        });
-        
-        p2p.bind(&"127.0.0.1:2000".parse().unwrap(), &"127.0.0.1:2001".parse().unwrap()).unwrap();
-        p2p.connect_peer(&neighbor.addr).unwrap();
+            // start fake neighbor endpoint, which will accept once and wait 5 seconds
+            let endpoint_thread = thread::spawn(move || {
+                let (sock, addr) = listener.accept().unwrap();
+                test_debug!("Accepted {:?}", &addr);
+                thread::sleep(time::Duration::from_millis(5000));
+            });
+            
+            p2p.bind(&"127.0.0.1:2000".parse().unwrap(), &"127.0.0.1:2001".parse().unwrap()).unwrap();
+            p2p.connect_peer(&neighbor.addr).unwrap();
 
-        // start dispatcher
-        let p2p_thread = thread::spawn(move || {
-            for i in 0..5 {
-                test_debug!("dispatch batch {}", i);
+            // start dispatcher
+            let p2p_thread = thread::spawn(move || {
+                for i in 0..5 {
+                    test_debug!("dispatch batch {}", i);
 
-                p2p.dispatch_requests();
-                let mut poll_states = match p2p.network {
-                    None => {
-                        panic!("network not connected");
+                    p2p.dispatch_requests();
+                    let mut poll_states = match p2p.network {
+                        None => {
+                            panic!("network not connected");
+                        },
+                        Some(ref mut network) => {
+                            network.poll(100).unwrap()
+                        }
+                    };
+
+                    let mut p2p_poll_state = poll_states.remove(&p2p.p2p_network_handle).unwrap();
+
+                    p2p.process_new_sockets(&mut p2p_poll_state).unwrap();
+                    p2p.process_connecting_sockets(&mut p2p_poll_state);
+
+                    thread::sleep(time::Duration::from_millis(1000));
+                }
+            });
+
+            // will eventually accept
+            let mut sent = false;
+            for i in 0..10 {
+                match h.relay_signed_message(neighbor.addr.clone(), ping.clone()) {
+                    Ok(_) => {
+                        sent = true;
+                        break;
                     },
-                    Some(ref mut network) => {
-                        network.poll(100).unwrap()
+                    Err(net_error::NoSuchNeighbor) | Err(net_error::FullHandle) => {
+                        test_debug!("Failed to relay; try again in {} ms", (i + 1) * 1000);
+                        sleep_ms((i + 1) * 1000);
+                    },
+                    Err(e) => {
+                        eprintln!("{:?}", &e);
+                        assert!(false);
                     }
-                };
-
-                let mut p2p_poll_state = poll_states.remove(&p2p.p2p_network_handle).unwrap();
-
-                p2p.process_new_sockets(&mut p2p_poll_state).unwrap();
-                p2p.process_connecting_sockets(&mut p2p_poll_state);
-
-                thread::sleep(time::Duration::from_millis(1000));
-            }
-        });
-
-        // will eventually accept
-        let mut sent = false;
-        for i in 0..10 {
-            match h.relay_signed_message(neighbor.addr.clone(), ping.clone()) {
-                Ok(_) => {
-                    sent = true;
-                    break;
-                },
-                Err(net_error::NoSuchNeighbor) | Err(net_error::FullHandle) => {
-                    test_debug!("Failed to relay; try again in {} ms", (i + 1) * 1000);
-                    sleep_ms((i + 1) * 1000);
-                },
-                Err(e) => {
-                    eprintln!("{:?}", &e);
-                    assert!(false);
                 }
             }
-        }
 
-        if !sent {
-            error!("Failed to relay to neighbor");
-            assert!(false);
-        }
+            if !sent {
+                error!("Failed to relay to neighbor");
+                assert!(false);
+            }
 
-        p2p_thread.join().unwrap();
-        test_debug!("dispatcher thread joined");
+            p2p_thread.join().unwrap();
+            test_debug!("dispatcher thread joined");
 
-        endpoint_thread.join().unwrap();
-        test_debug!("fake endpoint thread joined");
+            endpoint_thread.join().unwrap();
+            test_debug!("fake endpoint thread joined");
+        })
     }
     
     #[test]
     #[ignore]
     fn test_dispatch_requests_connect_and_ban() {
-        let neighbor = make_test_neighbor(2200);
+        with_timeout(100, || {
+            let neighbor = make_test_neighbor(2200);
 
-        let mut p2p = make_test_p2p_network(&vec![]);
+            let mut p2p = make_test_p2p_network(&vec![]);
 
-        let ping = StacksMessage::new(p2p.peer_version, p2p.local_peer.network_id,
-                                      p2p.chain_view.burn_block_height,
-                                      &p2p.chain_view.burn_block_hash,
-                                      p2p.chain_view.burn_stable_block_height,
-                                      &p2p.chain_view.burn_stable_block_hash,
-                                      StacksMessageType::Ping(PingData::new()));
+            let ping = StacksMessage::new(p2p.peer_version, p2p.local_peer.network_id,
+                                          p2p.chain_view.burn_block_height,
+                                          &p2p.chain_view.burn_block_hash,
+                                          p2p.chain_view.burn_stable_block_height,
+                                          &p2p.chain_view.burn_stable_block_hash,
+                                          StacksMessageType::Ping(PingData::new()));
 
-        let mut h = p2p.new_handle(1);
+            let mut h = p2p.new_handle(1);
 
-        use std::net::TcpListener;
-        let listener = TcpListener::bind("127.0.0.1:2200").unwrap();
+            use std::net::TcpListener;
+            let listener = TcpListener::bind("127.0.0.1:2200").unwrap();
 
-        // start fake neighbor endpoint, which will accept once and wait 5 seconds
-        let endpoint_thread = thread::spawn(move || {
-            let (sock, addr) = listener.accept().unwrap();
-            test_debug!("Accepted {:?}", &addr);
-            thread::sleep(time::Duration::from_millis(5000));
-        });
-        
-        p2p.bind(&"127.0.0.1:2010".parse().unwrap(), &"127.0.0.1:2011".parse().unwrap()).unwrap();
-        p2p.connect_peer(&neighbor.addr).unwrap();
-
-        let (sx, rx) = sync_channel(1);
-
-        // start dispatcher, and relay back the list of peers we banned
-        let p2p_thread = thread::spawn(move || {
-            let mut banned_peers = vec![];
-            for i in 0..5 {
-                test_debug!("dispatch batch {}", i);
-
-                p2p.dispatch_requests();
-                let mut poll_state = match p2p.network {
-                    None => {
-                        panic!("network not connected");
-                    },
-                    Some(ref mut network) => {
-                        network.poll(100).unwrap()
-                    }
-                };
-
-                let mut p2p_poll_state = poll_state.remove(&p2p.p2p_network_handle).unwrap();
-
-                p2p.process_new_sockets(&mut p2p_poll_state).unwrap();
-                p2p.process_connecting_sockets(&mut p2p_poll_state);
-
-                let mut banned = p2p.process_bans().unwrap();
-                if banned.len() > 0 {
-                    test_debug!("Banned {} peer(s)", banned.len());
-                }
-
-                banned_peers.append(&mut banned);
-
+            // start fake neighbor endpoint, which will accept once and wait 5 seconds
+            let endpoint_thread = thread::spawn(move || {
+                let (sock, addr) = listener.accept().unwrap();
+                test_debug!("Accepted {:?}", &addr);
                 thread::sleep(time::Duration::from_millis(5000));
-            }
+            });
+            
+            p2p.bind(&"127.0.0.1:2010".parse().unwrap(), &"127.0.0.1:2011".parse().unwrap()).unwrap();
+            p2p.connect_peer(&neighbor.addr).unwrap();
 
-            let _ = sx.send(banned_peers);
-        });
+            let (sx, rx) = sync_channel(1);
 
-        // will eventually accept and ban
-        for i in 0..5 {
-            match h.ban_peers(vec![neighbor.addr.clone()]) {
-                Ok(_) => {
-                    continue;
-                },
-                Err(net_error::FullHandle) => {
-                    test_debug!("Failed to relay; try again in {} ms", 1000 * (i + 1));
-                    sleep_ms(1000 * (i + 1));
-                },
-                Err(e) => {
-                    eprintln!("{:?}", &e);
-                    assert!(false);
+            // start dispatcher, and relay back the list of peers we banned
+            let p2p_thread = thread::spawn(move || {
+                let mut banned_peers = vec![];
+                for i in 0..5 {
+                    test_debug!("dispatch batch {}", i);
+
+                    p2p.dispatch_requests();
+                    let mut poll_state = match p2p.network {
+                        None => {
+                            panic!("network not connected");
+                        },
+                        Some(ref mut network) => {
+                            network.poll(100).unwrap()
+                        }
+                    };
+
+                    let mut p2p_poll_state = poll_state.remove(&p2p.p2p_network_handle).unwrap();
+
+                    p2p.process_new_sockets(&mut p2p_poll_state).unwrap();
+                    p2p.process_connecting_sockets(&mut p2p_poll_state);
+
+                    let mut banned = p2p.process_bans().unwrap();
+                    if banned.len() > 0 {
+                        test_debug!("Banned {} peer(s)", banned.len());
+                    }
+
+                    banned_peers.append(&mut banned);
+
+                    thread::sleep(time::Duration::from_millis(5000));
+                }
+
+                let _ = sx.send(banned_peers);
+            });
+
+            // will eventually accept and ban
+            for i in 0..5 {
+                match h.ban_peers(vec![neighbor.addr.clone()]) {
+                    Ok(_) => {
+                        continue;
+                    },
+                    Err(net_error::FullHandle) => {
+                        test_debug!("Failed to relay; try again in {} ms", 1000 * (i + 1));
+                        sleep_ms(1000 * (i + 1));
+                    },
+                    Err(e) => {
+                        eprintln!("{:?}", &e);
+                        assert!(false);
+                    }
                 }
             }
-        }
-        
-        let banned = rx.recv().unwrap();
-        assert!(banned.len() >= 1);
+            
+            let banned = rx.recv().unwrap();
+            assert!(banned.len() >= 1);
 
-        p2p_thread.join().unwrap();
-        test_debug!("dispatcher thread joined");
+            p2p_thread.join().unwrap();
+            test_debug!("dispatcher thread joined");
 
-        endpoint_thread.join().unwrap();
-        test_debug!("fake endpoint thread joined");
+            endpoint_thread.join().unwrap();
+            test_debug!("fake endpoint thread joined");
+        })
     }
 }

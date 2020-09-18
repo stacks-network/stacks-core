@@ -1507,6 +1507,7 @@ pub mod test {
     use chainstate::stacks::*;
     use std::collections::HashMap;
     use chainstate::burn::db::sortdb::*;
+    use util::test::*;
 
     fn get_peer_availability(peer: &mut TestPeer, start_height: u64, end_height: u64) -> Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> {
         let inv_state = peer.network.inv_state.take().unwrap();
@@ -1823,311 +1824,321 @@ pub mod test {
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_2_peers_download() {
-        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_2_peers_download", 3200, 2,
-                                       |ref mut peer_configs| {
-                                           // build initial network topology
-                                           assert_eq!(peer_configs.len(), 2);
+        with_timeout(600, || {
+            run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_2_peers_download", 3200, 2,
+                                           |ref mut peer_configs| {
+                                               // build initial network topology
+                                               assert_eq!(peer_configs.len(), 2);
 
-                                           peer_configs[0].connection_opts.disable_block_advertisement = true;
-                                           peer_configs[1].connection_opts.disable_block_advertisement = true;
+                                               peer_configs[0].connection_opts.disable_block_advertisement = true;
+                                               peer_configs[1].connection_opts.disable_block_advertisement = true;
 
-                                           let peer_0 = peer_configs[0].to_neighbor();
-                                           let peer_1 = peer_configs[1].to_neighbor();
-                                           peer_configs[0].add_neighbor(&peer_1);
-                                           peer_configs[1].add_neighbor(&peer_0);
-                                       },
-                                       |num_blocks, ref mut peers| {
-                                           // build up block data to replicate
-                                           let mut block_data = vec![];
-                                           for _ in 0..num_blocks {
-                                               let (mut burn_ops, stacks_block, microblocks) = peers[1].make_default_tenure();
+                                               let peer_0 = peer_configs[0].to_neighbor();
+                                               let peer_1 = peer_configs[1].to_neighbor();
+                                               peer_configs[0].add_neighbor(&peer_1);
+                                               peer_configs[1].add_neighbor(&peer_0);
+                                           },
+                                           |num_blocks, ref mut peers| {
+                                               // build up block data to replicate
+                                               let mut block_data = vec![];
+                                               for _ in 0..num_blocks {
+                                                   let (mut burn_ops, stacks_block, microblocks) = peers[1].make_default_tenure();
 
-                                               let (_, burn_header_hash, consensus_hash) = peers[1].next_burnchain_block(burn_ops.clone());
-                                               peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                                                   let (_, burn_header_hash, consensus_hash) = peers[1].next_burnchain_block(burn_ops.clone());
+                                                   peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                                               TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                                                   TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
-                                               peers[0].next_burnchain_block_raw(burn_ops);
+                                                   peers[0].next_burnchain_block_raw(burn_ops);
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[1].sortdb.as_ref().unwrap().conn()).unwrap();
-                                               block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
-                                           }
-                                           block_data
-                                       },
-                                       |_| {},
-                                       |peer| {
-                                           // check peer health
-                                           // nothing should break 
-                                           match peer.network.block_downloader {
-                                               Some(ref dl) => {
-                                                   assert_eq!(dl.broken_peers.len(), 0);
-                                                   assert_eq!(dl.dead_peers.len(), 0);
-                                               },
-                                               None => {}
-                                           }
+                                                   let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[1].sortdb.as_ref().unwrap().conn()).unwrap();
+                                                   block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                               }
+                                               block_data
+                                           },
+                                           |_| {},
+                                           |peer| {
+                                               // check peer health
+                                               // nothing should break 
+                                               match peer.network.block_downloader {
+                                                   Some(ref dl) => {
+                                                       assert_eq!(dl.broken_peers.len(), 0);
+                                                       assert_eq!(dl.dead_peers.len(), 0);
+                                                   },
+                                                   None => {}
+                                               }
 
-                                           // no block advertisements (should be disabled)
-                                           let _ = peer.for_each_convo_p2p(|event_id, convo| {
-                                               let cnt = *(convo.stats.msg_rx_counts.get(&StacksMessageID::BlocksAvailable).unwrap_or(&0));
-                                               assert_eq!(cnt, 0, "neighbor event={} got {} BlocksAvailable messages", event_id, cnt);
-                                               Ok(())
-                                           });
+                                               // no block advertisements (should be disabled)
+                                               let _ = peer.for_each_convo_p2p(|event_id, convo| {
+                                                   let cnt = *(convo.stats.msg_rx_counts.get(&StacksMessageID::BlocksAvailable).unwrap_or(&0));
+                                                   assert_eq!(cnt, 0, "neighbor event={} got {} BlocksAvailable messages", event_id, cnt);
+                                                   Ok(())
+                                               });
 
-                                           true
-                                       },
-                                       |_| true);
+                                               true
+                                           },
+                                           |_| true);
+        })
     }
    
     // TODO: hint on PoX inv change to advance downloader?
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_5_peers_star() {
-        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_5_peers_star", 3210, 5,
-                                       |ref mut peer_configs| {
-                                           // build initial network topology -- a star with
-                                           // peers[0] at the center, with all the blocks
-                                           assert_eq!(peer_configs.len(), 5);
-                                           let mut neighbors = vec![];
+        with_timeout(600, || {
+            run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_5_peers_star", 3210, 5,
+                                           |ref mut peer_configs| {
+                                               // build initial network topology -- a star with
+                                               // peers[0] at the center, with all the blocks
+                                               assert_eq!(peer_configs.len(), 5);
+                                               let mut neighbors = vec![];
 
-                                           for p in peer_configs.iter_mut() {
-                                               p.connection_opts.disable_block_advertisement = true;
-                                               p.connection_opts.max_clients_per_host = 30;
-                                           }
-                                           
-                                           let peer_0 = peer_configs[0].to_neighbor();
-                                           for i in 1..peer_configs.len() {
-                                               neighbors.push(peer_configs[i].to_neighbor());
-                                               peer_configs[i].add_neighbor(&peer_0);
-                                           }
-
-                                           for n in neighbors.drain(..) {
-                                               peer_configs[0].add_neighbor(&n);
-                                           }
-                                       },
-                                       |num_blocks, ref mut peers| {
-                                           // build up block data to replicate
-                                           let mut block_data = vec![];
-                                           for _ in 0..num_blocks {
-                                               let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
-
-                                               let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
-                                               peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-                                               TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
-
-                                               for i in 1..peers.len() {
-                                                    peers[i].next_burnchain_block_raw(burn_ops.clone());
+                                               for p in peer_configs.iter_mut() {
+                                                   p.connection_opts.disable_block_advertisement = true;
+                                                   p.connection_opts.max_clients_per_host = 30;
+                                               }
+                                               
+                                               let peer_0 = peer_configs[0].to_neighbor();
+                                               for i in 1..peer_configs.len() {
+                                                   neighbors.push(peer_configs[i].to_neighbor());
+                                                   peer_configs[i].add_neighbor(&peer_0);
                                                }
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
-                                               block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
-                                           }
-                                           block_data
-                                       },
-                                       |_| {},
-                                       |peer| {
-                                           // check peer health
-                                           // nothing should break 
-                                           match peer.network.block_downloader {
-                                               Some(ref dl) => {
-                                                   assert_eq!(dl.broken_peers.len(), 0);
-                                                   assert_eq!(dl.dead_peers.len(), 0);
-                                               },
-                                               None => {}
-                                           }
-                                           true
-                                       },
-                                       |_| true);
+                                               for n in neighbors.drain(..) {
+                                                   peer_configs[0].add_neighbor(&n);
+                                               }
+                                           },
+                                           |num_blocks, ref mut peers| {
+                                               // build up block data to replicate
+                                               let mut block_data = vec![];
+                                               for _ in 0..num_blocks {
+                                                   let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
+
+                                                   let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
+                                                   peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                                                   TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                                                   for i in 1..peers.len() {
+                                                        peers[i].next_burnchain_block_raw(burn_ops.clone());
+                                                   }
+
+                                                   let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                                   block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                               }
+                                               block_data
+                                           },
+                                           |_| {},
+                                           |peer| {
+                                               // check peer health
+                                               // nothing should break 
+                                               match peer.network.block_downloader {
+                                                   Some(ref dl) => {
+                                                       assert_eq!(dl.broken_peers.len(), 0);
+                                                       assert_eq!(dl.dead_peers.len(), 0);
+                                                   },
+                                                   None => {}
+                                               }
+                                               true
+                                           },
+                                           |_| true);
+        })
     }
 
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_5_peers_line() {
-        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_5_peers_line", 3220, 5,
-                                       |ref mut peer_configs| {
-                                           // build initial network topology -- a line with
-                                           // peers[0] at the left, with all the blocks
-                                           assert_eq!(peer_configs.len(), 5);
-                                           let mut neighbors = vec![];
-                                           
-                                           for p in peer_configs.iter_mut() {
-                                               p.connection_opts.disable_block_advertisement = true;
-                                               p.connection_opts.max_clients_per_host = 30;
-                                           }
-
-                                           for i in 0..peer_configs.len() {
-                                               neighbors.push(peer_configs[i].to_neighbor());
-                                           }
-
-                                           for i in 0..peer_configs.len()-1 {
-                                               peer_configs[i].add_neighbor(&neighbors[i+1]);
-                                               peer_configs[i+1].add_neighbor(&neighbors[i]);
-                                           }
-                                       },
-                                       |num_blocks, ref mut peers| {
-                                           // build up block data to replicate
-                                           let mut block_data = vec![];
-                                           for _ in 0..num_blocks {
-                                               let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
-
-                                               let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
-                                               peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-                                               TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
-
-                                               for i in 1..peers.len() {
-                                                    peers[i].next_burnchain_block_raw(burn_ops.clone());
+        with_timeout(600, || {
+            run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_5_peers_line", 3220, 5,
+                                           |ref mut peer_configs| {
+                                               // build initial network topology -- a line with
+                                               // peers[0] at the left, with all the blocks
+                                               assert_eq!(peer_configs.len(), 5);
+                                               let mut neighbors = vec![];
+                                               
+                                               for p in peer_configs.iter_mut() {
+                                                   p.connection_opts.disable_block_advertisement = true;
+                                                   p.connection_opts.max_clients_per_host = 30;
                                                }
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
-                                               block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
-                                           }
-                                           block_data
-                                       },
-                                       |_| {},
-                                       |peer| {
-                                           // check peer health
-                                           // nothing should break 
-                                           match peer.network.block_downloader {
-                                               Some(ref dl) => {
-                                                   assert_eq!(dl.broken_peers.len(), 0);
-                                                   assert_eq!(dl.dead_peers.len(), 0);
-                                               },
-                                               None => {}
-                                           }
-                                           true
-                                       },
-                                       |_| true);
+                                               for i in 0..peer_configs.len() {
+                                                   neighbors.push(peer_configs[i].to_neighbor());
+                                               }
+
+                                               for i in 0..peer_configs.len()-1 {
+                                                   peer_configs[i].add_neighbor(&neighbors[i+1]);
+                                                   peer_configs[i+1].add_neighbor(&neighbors[i]);
+                                               }
+                                           },
+                                           |num_blocks, ref mut peers| {
+                                               // build up block data to replicate
+                                               let mut block_data = vec![];
+                                               for _ in 0..num_blocks {
+                                                   let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
+
+                                                   let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
+                                                   peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                                                   TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                                                   for i in 1..peers.len() {
+                                                        peers[i].next_burnchain_block_raw(burn_ops.clone());
+                                                   }
+
+                                                   let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                                   block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                               }
+                                               block_data
+                                           },
+                                           |_| {},
+                                           |peer| {
+                                               // check peer health
+                                               // nothing should break 
+                                               match peer.network.block_downloader {
+                                                   Some(ref dl) => {
+                                                       assert_eq!(dl.broken_peers.len(), 0);
+                                                       assert_eq!(dl.dead_peers.len(), 0);
+                                                   },
+                                                   None => {}
+                                               }
+                                               true
+                                           },
+                                           |_| true);
+        })
     }
     
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
-        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed_connections", 3230, 5,
-                                       |ref mut peer_configs| {
-                                           // build initial network topology -- a star with
-                                           // peers[0] at the center, with all the blocks
-                                           assert_eq!(peer_configs.len(), 5);
-                                           let mut neighbors = vec![];
-                                           
-                                           for p in peer_configs.iter_mut() {
-                                               p.connection_opts.disable_block_advertisement = true;
-                                           }
-
-                                           let peer_0 = peer_configs[0].to_neighbor();
-
-                                           for i in 1..peer_configs.len() {
-                                               neighbors.push(peer_configs[i].to_neighbor());
-                                               peer_configs[i].add_neighbor(&peer_0);
-
-                                               // severely restrict the number of allowed
-                                               // connections in each peer
-                                               peer_configs[i].connection_opts.max_clients_per_host = 1;
-                                               peer_configs[i].connection_opts.num_clients = 1;
-                                               peer_configs[i].connection_opts.idle_timeout = 1;
-                                           }
-
-                                           for n in neighbors.drain(..) {
-                                               peer_configs[0].add_neighbor(&n);
-                                           }
-                                       },
-                                       |num_blocks, ref mut peers| {
-                                           // build up block data to replicate
-                                           let mut block_data = vec![];
-                                           for _ in 0..num_blocks {
-                                               let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
-
-                                               let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
-                                               peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-                                               TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
-
-                                               for i in 1..peers.len() {
-                                                    peers[i].next_burnchain_block_raw(burn_ops.clone());
+        with_timeout(600, || {
+            run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed_connections", 3230, 5,
+                                           |ref mut peer_configs| {
+                                               // build initial network topology -- a star with
+                                               // peers[0] at the center, with all the blocks
+                                               assert_eq!(peer_configs.len(), 5);
+                                               let mut neighbors = vec![];
+                                               
+                                               for p in peer_configs.iter_mut() {
+                                                   p.connection_opts.disable_block_advertisement = true;
                                                }
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
-                                               block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
-                                           }
-                                           block_data
-                                       },
-                                       |_| {},
-                                       |peer| {
-                                           // check peer health
-                                           // nothing should break 
-                                           match peer.network.block_downloader {
-                                               Some(ref dl) => {
-                                                   assert_eq!(dl.broken_peers.len(), 0);
-                                                   assert_eq!(dl.dead_peers.len(), 0);
-                                               },
-                                               None => {}
-                                           }
-                                           true
-                                       },
-                                       |_| true);
+                                               let peer_0 = peer_configs[0].to_neighbor();
+
+                                               for i in 1..peer_configs.len() {
+                                                   neighbors.push(peer_configs[i].to_neighbor());
+                                                   peer_configs[i].add_neighbor(&peer_0);
+
+                                                   // severely restrict the number of allowed
+                                                   // connections in each peer
+                                                   peer_configs[i].connection_opts.max_clients_per_host = 1;
+                                                   peer_configs[i].connection_opts.num_clients = 1;
+                                                   peer_configs[i].connection_opts.idle_timeout = 1;
+                                               }
+
+                                               for n in neighbors.drain(..) {
+                                                   peer_configs[0].add_neighbor(&n);
+                                               }
+                                           },
+                                           |num_blocks, ref mut peers| {
+                                               // build up block data to replicate
+                                               let mut block_data = vec![];
+                                               for _ in 0..num_blocks {
+                                                   let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
+
+                                                   let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
+                                                   peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                                                   TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                                                   for i in 1..peers.len() {
+                                                        peers[i].next_burnchain_block_raw(burn_ops.clone());
+                                                   }
+
+                                                   let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                                   block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                               }
+                                               block_data
+                                           },
+                                           |_| {},
+                                           |peer| {
+                                               // check peer health
+                                               // nothing should break 
+                                               match peer.network.block_downloader {
+                                                   Some(ref dl) => {
+                                                       assert_eq!(dl.broken_peers.len(), 0);
+                                                       assert_eq!(dl.dead_peers.len(), 0);
+                                                   },
+                                                   None => {}
+                                               }
+                                               true
+                                           },
+                                           |_| true);
+        })
     }
     
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
-        run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed_sockets", 3240, 5,
-                                       |ref mut peer_configs| {
-                                           // build initial network topology -- a star with
-                                           // peers[0] at the center, with all the blocks
-                                           assert_eq!(peer_configs.len(), 5);
-                                           let mut neighbors = vec![];
-                                           
-                                           for p in peer_configs.iter_mut() {
-                                               p.connection_opts.disable_block_advertisement = true;
-                                           }
-
-                                           let peer_0 = peer_configs[0].to_neighbor();
-
-                                           for i in 1..peer_configs.len() {
-                                               neighbors.push(peer_configs[i].to_neighbor());
-                                               peer_configs[i].add_neighbor(&peer_0);
-
-                                               // severely restrict the number of events
-                                               peer_configs[i].connection_opts.max_sockets = 10;
-                                           }
-
-                                           for n in neighbors.drain(..) {
-                                               peer_configs[0].add_neighbor(&n);
-                                           }
-                                       },
-                                       |num_blocks, ref mut peers| {
-                                           // build up block data to replicate
-                                           let mut block_data = vec![];
-                                           for _ in 0..num_blocks {
-                                               let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
-
-                                               let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
-                                               peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-                                               TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
-
-                                               for i in 1..peers.len() {
-                                                    peers[i].next_burnchain_block_raw(burn_ops.clone());
+        with_timeout(600, || {
+            run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed_sockets", 3240, 5,
+                                           |ref mut peer_configs| {
+                                               // build initial network topology -- a star with
+                                               // peers[0] at the center, with all the blocks
+                                               assert_eq!(peer_configs.len(), 5);
+                                               let mut neighbors = vec![];
+                                               
+                                               for p in peer_configs.iter_mut() {
+                                                   p.connection_opts.disable_block_advertisement = true;
                                                }
 
-                                               let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
-                                               block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
-                                           }
-                                           block_data
-                                       },
-                                       |_| {},
-                                       |peer| {
-                                           // check peer health
-                                           // nothing should break 
-                                           match peer.network.block_downloader {
-                                               Some(ref dl) => {
-                                                   assert_eq!(dl.broken_peers.len(), 0);
-                                                   assert_eq!(dl.dead_peers.len(), 0);
-                                               },
-                                               None => {}
-                                           }
-                                           true
-                                       },
-                                       |_| true);
+                                               let peer_0 = peer_configs[0].to_neighbor();
+
+                                               for i in 1..peer_configs.len() {
+                                                   neighbors.push(peer_configs[i].to_neighbor());
+                                                   peer_configs[i].add_neighbor(&peer_0);
+
+                                                   // severely restrict the number of events
+                                                   peer_configs[i].connection_opts.max_sockets = 10;
+                                               }
+
+                                               for n in neighbors.drain(..) {
+                                                   peer_configs[0].add_neighbor(&n);
+                                               }
+                                           },
+                                           |num_blocks, ref mut peers| {
+                                               // build up block data to replicate
+                                               let mut block_data = vec![];
+                                               for _ in 0..num_blocks {
+                                                   let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
+
+                                                   let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
+                                                   peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                                                   TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                                                   for i in 1..peers.len() {
+                                                        peers[i].next_burnchain_block_raw(burn_ops.clone());
+                                                   }
+
+                                                   let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                                   block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
+                                               }
+                                               block_data
+                                           },
+                                           |_| {},
+                                           |peer| {
+                                               // check peer health
+                                               // nothing should break 
+                                               match peer.network.block_downloader {
+                                                   Some(ref dl) => {
+                                                       assert_eq!(dl.broken_peers.len(), 0);
+                                                       assert_eq!(dl.dead_peers.len(), 0);
+                                                   },
+                                                   None => {}
+                                               }
+                                               true
+                                           },
+                                           |_| true);
+        })
     }
 }

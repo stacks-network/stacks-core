@@ -81,3 +81,60 @@ impl error::Error for HexError {
         }
     }
 }
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use std::sync::mpsc::sync_channel;
+    use std::process;
+
+    pub fn with_timeout<F>(timeout_secs: u64, test_func: F)
+    where
+        F: FnOnce() -> ()
+    {
+        let (sx, rx) = sync_channel(1);
+        let t = thread::spawn(move || {
+            let deadline = timeout_secs + get_epoch_time_secs();
+            let mut done = false;
+            while get_epoch_time_secs() <= deadline {
+                sleep_ms(1000);
+                match rx.try_recv() {
+                    Ok(_) => {
+                        done = true;
+                        break;
+                    }
+                    Err(_) => {}
+                }
+            }
+            if !done {
+                eprintln!("Test timed out after {} seconds", timeout_secs);
+                process::abort();
+            }
+        });
+
+        test_func();
+        let _ = sx.try_send(());
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn test_test_timeout() {
+        with_timeout(1000, || {
+            eprintln!("timeout test start...");
+            sleep_ms(1000);
+            eprintln!("timeout test end");
+        })
+    }
+
+    /*
+    // this will always fail, since we need process::abort() to ensure the test actually stops 
+    #[test]
+    #[should_panic]
+    fn test_test_timeout_timeout() {
+        with_timeout(1, || {
+            eprintln!("timeout panic test start...");
+            sleep_ms(1000 * 1000);
+        })
+    }
+    */
+}

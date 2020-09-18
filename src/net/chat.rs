@@ -1716,6 +1716,8 @@ mod test {
     use std::io::Write;
     use std::fs;
 
+    use util::test::*;
+
     use net::test::*;
 
     use core::{PEER_VERSION, NETWORK_P2P_PORT};
@@ -1849,94 +1851,96 @@ mod test {
     #[test]
     #[ignore]
     fn convo_handshake_accept() {
-        let conn_opts = ConnectionOptions::default();
+        with_timeout(100, || {
+            let conn_opts = ConnectionOptions::default();
 
-        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
-        let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
-        
-        let burnchain = testing_burnchain_config();
+            let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+            
+            let burnchain = testing_burnchain_config();
 
-        let mut chain_view = BurnchainView {
-            burn_block_height: 12348,
-            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
-            burn_stable_block_height: 12341,
-            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new()
-        };
-        chain_view.make_test_data();
+            let mut chain_view = BurnchainView {
+                burn_block_height: 12348,
+                burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+                burn_stable_block_height: 12341,
+                burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+                last_burn_block_hashes: HashMap::new()
+            };
+            chain_view.make_test_data();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
+            db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+            db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
-       
-        // no peer public keys known yet
-        assert!(convo_1.connection.get_public_key().is_none());
-        assert!(convo_2.connection.get_public_key().is_none());
-        
-        // convo_1 sends a handshake to convo_2
-        let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
-        let handshake_1 = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::Handshake(handshake_data_1.clone())).unwrap();
-        let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+            let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+           
+            // no peer public keys known yet
+            assert!(convo_1.connection.get_public_key().is_none());
+            assert!(convo_2.connection.get_public_key().is_none());
+            
+            // convo_1 sends a handshake to convo_2
+            let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
+            let handshake_1 = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::Handshake(handshake_data_1.clone())).unwrap();
+            let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-        // convo_2 receives it and processes it, and since no one is waiting for it, will forward
-        // it along to the chat caller (us)
-        test_debug!("send handshake");
-        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &pox_id_2, &mut chainstate_2, &mut BlockHeaderCache::new(), &chain_view).unwrap();
+            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
+            // it along to the chat caller (us)
+            test_debug!("send handshake");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &pox_id_2, &mut chainstate_2, &mut BlockHeaderCache::new(), &chain_view).unwrap();
 
-        // convo_1 has a handshakeaccept 
-        test_debug!("send handshake-accept");
-        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &pox_id_1, &mut chainstate_1, &mut BlockHeaderCache::new(), &chain_view).unwrap();
+            // convo_1 has a handshakeaccept 
+            test_debug!("send handshake-accept");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &pox_id_1, &mut chainstate_1, &mut BlockHeaderCache::new(), &chain_view).unwrap();
 
-        let reply_1 = rh_1.recv(0).unwrap();
+            let reply_1 = rh_1.recv(0).unwrap();
 
-        assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 1);
+            assert_eq!(unhandled_1.len(), 0);
+            assert_eq!(unhandled_2.len(), 1);
 
-        // convo 2 returns the handshake from convo 1
-        match unhandled_2[0].payload {
-            StacksMessageType::Handshake(ref data) => {
-                assert_eq!(handshake_data_1, *data);
-            },
-            _ => {
-                assert!(false);
-            }
-        };
+            // convo 2 returns the handshake from convo 1
+            match unhandled_2[0].payload {
+                StacksMessageType::Handshake(ref data) => {
+                    assert_eq!(handshake_data_1, *data);
+                },
+                _ => {
+                    assert!(false);
+                }
+            };
 
-        // received a valid HandshakeAccept from peer 2 
-        match reply_1.payload {
-            StacksMessageType::HandshakeAccept(ref data) => {
-                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                assert_eq!(data.handshake.port, local_peer_2.port);
-                assert_eq!(data.handshake.services, local_peer_2.services);
-                assert_eq!(data.handshake.node_public_key, StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer_2.private_key)));
-                assert_eq!(data.handshake.expire_block_height, local_peer_2.private_key_expire); 
-                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-            },
-            _ => {
-                assert!(false);
-            }
-        };
+            // received a valid HandshakeAccept from peer 2 
+            match reply_1.payload {
+                StacksMessageType::HandshakeAccept(ref data) => {
+                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                    assert_eq!(data.handshake.port, local_peer_2.port);
+                    assert_eq!(data.handshake.services, local_peer_2.services);
+                    assert_eq!(data.handshake.node_public_key, StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer_2.private_key)));
+                    assert_eq!(data.handshake.expire_block_height, local_peer_2.private_key_expire); 
+                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+                },
+                _ => {
+                    assert!(false);
+                }
+            };
 
-        // convo_2 got updated with convo_1's peer info, but no heartbeat info 
-        assert_eq!(convo_2.peer_heartbeat, 3600);
-        assert_eq!(convo_2.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_1.private_key));
-        assert_eq!(convo_2.data_url, "http://peer1.com".into());
+            // convo_2 got updated with convo_1's peer info, but no heartbeat info 
+            assert_eq!(convo_2.peer_heartbeat, 3600);
+            assert_eq!(convo_2.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_1.private_key));
+            assert_eq!(convo_2.data_url, "http://peer1.com".into());
 
-        // convo_1 got updated with convo_2's peer info, as well as heartbeat
-        assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
-        assert_eq!(convo_1.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_2.private_key));
-        assert_eq!(convo_1.data_url, "http://peer2.com".into());
+            // convo_1 got updated with convo_2's peer info, as well as heartbeat
+            assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
+            assert_eq!(convo_1.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_2.private_key));
+            assert_eq!(convo_1.data_url, "http://peer2.com".into());
+        })
     }
     
     #[test]
@@ -2421,157 +2425,158 @@ mod test {
     }
     
     #[test]
-    #[ignore]
     fn convo_handshake_getblocksinv() {
-        let conn_opts = ConnectionOptions::default();
+        with_timeout(100, || {
+            let conn_opts = ConnectionOptions::default();
 
-        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
-        let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
-        
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        
-        let burnchain = testing_burnchain_config();
+            let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+            
+            let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+            
+            let burnchain = testing_burnchain_config();
 
-        let mut chain_view = BurnchainView {
-            burn_block_height: 12348,
-            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
-            burn_stable_block_height: 12341,
-            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-            last_burn_block_hashes: HashMap::new()
-        };
-        chain_view.make_test_data();
+            let mut chain_view = BurnchainView {
+                burn_block_height: 12348,
+                burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+                burn_stable_block_height: 12341,
+                burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+                last_burn_block_hashes: HashMap::new()
+            };
+            chain_view.make_test_data();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
-        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
-        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
+            db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+            db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
-       
-        // no peer public keys known yet
-        assert!(convo_1.connection.get_public_key().is_none());
-        assert!(convo_2.connection.get_public_key().is_none());
-        
-        // convo_1 sends a handshake to convo_2
-        let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
-        let handshake_1 = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::Handshake(handshake_data_1.clone())).unwrap();
-        let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+            let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+           
+            // no peer public keys known yet
+            assert!(convo_1.connection.get_public_key().is_none());
+            assert!(convo_2.connection.get_public_key().is_none());
+            
+            // convo_1 sends a handshake to convo_2
+            let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
+            let handshake_1 = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::Handshake(handshake_data_1.clone())).unwrap();
+            let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-        // convo_2 receives it and processes it, and since no one is waiting for it, will forward
-        // it along to the chat caller (us)
-        test_debug!("send handshake");
-        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &pox_id_2, &mut chainstate_2, &mut BlockHeaderCache::new(), &chain_view).unwrap();
+            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
+            // it along to the chat caller (us)
+            test_debug!("send handshake");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &pox_id_2, &mut chainstate_2, &mut BlockHeaderCache::new(), &chain_view).unwrap();
 
-        // convo_1 has a handshakeaccept 
-        test_debug!("send handshake-accept");
-        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &pox_id_1, &mut chainstate_1, &mut BlockHeaderCache::new(), &chain_view).unwrap();
+            // convo_1 has a handshakeaccept 
+            test_debug!("send handshake-accept");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &pox_id_1, &mut chainstate_1, &mut BlockHeaderCache::new(), &chain_view).unwrap();
 
-        let reply_1 = rh_1.recv(0).unwrap();
+            let reply_1 = rh_1.recv(0).unwrap();
 
-        assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 1);
+            assert_eq!(unhandled_1.len(), 0);
+            assert_eq!(unhandled_2.len(), 1);
 
-        // convo 2 returns the handshake from convo 1
-        match unhandled_2[0].payload {
-            StacksMessageType::Handshake(ref data) => {
-                assert_eq!(handshake_data_1, *data);
-            },
-            _ => {
-                assert!(false);
-            }
-        };
-
-        // received a valid HandshakeAccept from peer 2 
-        match reply_1.payload {
-            StacksMessageType::HandshakeAccept(ref data) => {
-                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                assert_eq!(data.handshake.port, local_peer_2.port);
-                assert_eq!(data.handshake.services, local_peer_2.services);
-                assert_eq!(data.handshake.node_public_key, StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer_2.private_key)));
-                assert_eq!(data.handshake.expire_block_height, local_peer_2.private_key_expire); 
-                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-            },
-            _ => {
-                assert!(false);
-            }
-        };
-
-        // convo_1 sends a getblocksinv to convo_2 for all the blocks
-        let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip(sortdb_1.conn()).unwrap();
-        let getblocksdata_1 = GetBlocksInv { consensus_hash: convo_1_chaintip.consensus_hash, num_blocks: GETPOXINV_MAX_BITLEN as u16 };
-        let getblocksdata_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_1.clone())).unwrap();
-        let mut rh_1 = convo_1.send_signed_request(getblocksdata_1_msg, 10000000).unwrap();
-
-        // convo_2 receives it, and handles it
-        test_debug!("send getblocksinv");
-        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &pox_id_2, &mut chainstate_2, &mut BlockHeaderCache::new(), &chain_view).unwrap();
-
-        // convo_1 gets back a blocksinv message
-        test_debug!("send blocksinv");
-        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &pox_id_1, &mut chainstate_1, &mut BlockHeaderCache::new(), &chain_view).unwrap();
-
-        let reply_1 = rh_1.recv(0).unwrap();
-
-        // no unhandled messages forwarded
-        assert_eq!(unhandled_1, vec![]);
-        assert_eq!(unhandled_2, vec![]);
-
-        // convo 2 returned a block-inv for all blocks 
-        match reply_1.payload {
-            StacksMessageType::BlocksInv(ref data) => {
-                assert_eq!(data.bitlen, GETPOXINV_MAX_BITLEN as u16);
-                test_debug!("data: {:?}", data);
-
-                // all burn blocks had sortitions, but we have no Stacks blocks :(
-                for i in 0..data.bitlen {
-                    assert!(!data.has_ith_block(i));
+            // convo 2 returns the handshake from convo 1
+            match unhandled_2[0].payload {
+                StacksMessageType::Handshake(ref data) => {
+                    assert_eq!(handshake_data_1, *data);
+                },
+                _ => {
+                    assert!(false);
                 }
-            },
-            _ => {
-                assert!(false);
+            };
+
+            // received a valid HandshakeAccept from peer 2 
+            match reply_1.payload {
+                StacksMessageType::HandshakeAccept(ref data) => {
+                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                    assert_eq!(data.handshake.port, local_peer_2.port);
+                    assert_eq!(data.handshake.services, local_peer_2.services);
+                    assert_eq!(data.handshake.node_public_key, StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer_2.private_key)));
+                    assert_eq!(data.handshake.expire_block_height, local_peer_2.private_key_expire); 
+                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+                },
+                _ => {
+                    assert!(false);
+                }
+            };
+
+            // convo_1 sends a getblocksinv to convo_2 for all the blocks
+            let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip(sortdb_1.conn()).unwrap();
+            let getblocksdata_1 = GetBlocksInv { consensus_hash: convo_1_chaintip.consensus_hash, num_blocks: GETPOXINV_MAX_BITLEN as u16 };
+            let getblocksdata_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_1.clone())).unwrap();
+            let mut rh_1 = convo_1.send_signed_request(getblocksdata_1_msg, 10000000).unwrap();
+
+            // convo_2 receives it, and handles it
+            test_debug!("send getblocksinv");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &pox_id_2, &mut chainstate_2, &mut BlockHeaderCache::new(), &chain_view).unwrap();
+
+            // convo_1 gets back a blocksinv message
+            test_debug!("send blocksinv");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &pox_id_1, &mut chainstate_1, &mut BlockHeaderCache::new(), &chain_view).unwrap();
+
+            let reply_1 = rh_1.recv(0).unwrap();
+
+            // no unhandled messages forwarded
+            assert_eq!(unhandled_1, vec![]);
+            assert_eq!(unhandled_2, vec![]);
+
+            // convo 2 returned a block-inv for all blocks 
+            match reply_1.payload {
+                StacksMessageType::BlocksInv(ref data) => {
+                    assert_eq!(data.bitlen, GETPOXINV_MAX_BITLEN as u16);
+                    test_debug!("data: {:?}", data);
+
+                    // all burn blocks had sortitions, but we have no Stacks blocks :(
+                    for i in 0..data.bitlen {
+                        assert!(!data.has_ith_block(i));
+                    }
+                },
+                _ => {
+                    assert!(false);
+                }
             }
-        }
-        
-        // request for a non-existent consensus hash
-        let getblocksdata_diverged_1 = GetBlocksInv { consensus_hash: ConsensusHash([0xff; 20]), num_blocks: GETPOXINV_MAX_BITLEN as u16 };
-        let getblocksdata_diverged_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_diverged_1.clone())).unwrap();
-        let mut rh_1 = convo_1.send_signed_request(getblocksdata_diverged_1_msg, 10000000).unwrap();
+            
+            // request for a non-existent consensus hash
+            let getblocksdata_diverged_1 = GetBlocksInv { consensus_hash: ConsensusHash([0xff; 20]), num_blocks: GETPOXINV_MAX_BITLEN as u16 };
+            let getblocksdata_diverged_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_diverged_1.clone())).unwrap();
+            let mut rh_1 = convo_1.send_signed_request(getblocksdata_diverged_1_msg, 10000000).unwrap();
 
-        // convo_2 receives it, and handles it
-        test_debug!("send getblocksinv (diverged)");
-        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &pox_id_2, &mut chainstate_2, &mut BlockHeaderCache::new(), &chain_view).unwrap();
+            // convo_2 receives it, and handles it
+            test_debug!("send getblocksinv (diverged)");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &sortdb_2, &pox_id_2, &mut chainstate_2, &mut BlockHeaderCache::new(), &chain_view).unwrap();
 
-        // convo_1 gets back a nack message
-        test_debug!("send nack (diverged)");
-        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &pox_id_1, &mut chainstate_1, &mut BlockHeaderCache::new(), &chain_view).unwrap();
+            // convo_1 gets back a nack message
+            test_debug!("send nack (diverged)");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &sortdb_1, &pox_id_1, &mut chainstate_1, &mut BlockHeaderCache::new(), &chain_view).unwrap();
 
-        let reply_1 = rh_1.recv(0).unwrap();
+            let reply_1 = rh_1.recv(0).unwrap();
 
-        // no unhandled messages forwarded
-        assert_eq!(unhandled_1, vec![]);
-        assert_eq!(unhandled_2, vec![]);
+            // no unhandled messages forwarded
+            assert_eq!(unhandled_1, vec![]);
+            assert_eq!(unhandled_2, vec![]);
 
-        // convo 2 returned a nack with the appropriate error message
-        match reply_1.payload {
-            StacksMessageType::Nack(ref data) => {
-                assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
-            },
-            _ => {
-                assert!(false);
+            // convo 2 returned a nack with the appropriate error message
+            match reply_1.payload {
+                StacksMessageType::Nack(ref data) => {
+                    assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
+                },
+                _ => {
+                    assert!(false);
+                }
             }
-        }
+        })
     }
     
     #[test]
