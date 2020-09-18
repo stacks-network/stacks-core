@@ -957,13 +957,17 @@ impl <T: MarfTrieId> MARF <T> {
         }
 
         let bhh_height = MARF::get_block_height(&mut self.storage, bhh, &cur_block_hash)?
-            .ok_or_else(|| Error::NonMatchingForks(bhh.clone().to_bytes(), cur_block_hash.clone().to_bytes()))?;
+            .ok_or_else(|| {
+                test_debug!("could not get block height of {} from {}: non-matching forks?", bhh, &cur_block_hash);
+                Error::NonMatchingForks(bhh.clone().to_bytes(), cur_block_hash.clone().to_bytes())
+            })?;
 
         let actual_block_at_height = MARF::get_block_at_height(&mut self.storage, bhh_height, &cur_block_hash)?
             .ok_or_else(|| Error::CorruptionError(format!(
                 "ERROR: Could not find block for height {}, but it was returned by MARF::get_block_height()", bhh_height)))?;
 
         if bhh != &actual_block_at_height {
+            test_debug!("non-matching forks: {} != {}", bhh, &actual_block_at_height);
             return Err(Error::NonMatchingForks(bhh.clone().to_bytes(), cur_block_hash.to_bytes()))
         }
 
