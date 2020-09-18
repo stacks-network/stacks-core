@@ -624,14 +624,14 @@ impl StacksChainState {
     /// Have we processed and stored a particular block?
     pub fn has_stored_block(blocks_db: &DBConn, blocks_dir: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
         let staging_status = StacksChainState::has_staging_block(blocks_db, consensus_hash, block_hash)?;
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         if staging_status {
             // not committed yet 
-            test_debug!("Block {}/{} is staging", consensus_hash, block_hash);
+            test_debug!("Block {}/{} ({}) is staging", consensus_hash, block_hash, &index_block_hash);
             return Ok(false);
         }
 
         // only accepted if we stored it
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         StacksChainState::has_block_indexed(blocks_dir, &index_block_hash)
     }
 
