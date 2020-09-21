@@ -121,7 +121,13 @@ impl HttpPeer {
     /// (will return Error::AlreadyConnected with the event ID)
     pub fn connect_http(&mut self, network_state: &mut NetworkState, data_url: UrlString, addr: SocketAddr, request: Option<HttpRequestType>) -> Result<usize, net_error> {
         if let Some(event_id) = self.find_free_conversation(&data_url) {
-            return Err(net_error::AlreadyConnected(event_id));
+            let http_nk = NeighborKey {
+                peer_version: self.burnchain.peer_version,
+                network_id: self.network_id,
+                addrbytes: PeerAddress::from_socketaddr(&addr),
+                port: addr.port()
+            };
+            return Err(net_error::AlreadyConnected(event_id, http_nk));
         }
 
         let sock = NetworkState::connect(&addr)?;
