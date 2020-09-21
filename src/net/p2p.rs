@@ -901,6 +901,16 @@ impl PeerNetwork {
         None
     }
 
+    /// Find the neighbor key bound to an event ID
+    pub fn get_event_neighbor_key(&self, event_id: usize) -> Option<NeighborKey> {
+        for (nk, eid) in self.events.iter() {
+            if *eid == event_id {
+                return Some(nk.clone())
+            }
+        }
+        None
+    }
+
     /// Is an event ID connecting?
     pub fn is_connecting(&self, event_id: usize) -> bool {
         self.connecting.contains_key(&event_id)
@@ -930,7 +940,7 @@ impl PeerNetwork {
         // already connected?
         if let Some(event_id) = self.get_event_id(&neighbor_key) {
             test_debug!("{:?}: already connected to {:?} on event {}", &self.local_peer, &neighbor_key, event_id);
-            return Err(net_error::AlreadyConnected(event_id));
+            return Err(net_error::AlreadyConnected(event_id, neighbor_key.clone()));
         }
 
         // consider rate-limits on in-bound peers
@@ -949,7 +959,9 @@ impl PeerNetwork {
         self.can_register_peer(nk, outbound)
             .and_then(|_| {
                 if let Some(event_id) = self.get_pubkey_event(pubkh) {
-                    Err(net_error::AlreadyConnected(event_id))
+                    let nk = self.get_event_neighbor_key(event_id)
+                        .ok_or(net_error::PeerNotConnected)?;
+                    Err(net_error::AlreadyConnected(event_id, nk))
                 }
                 else {
                     Ok(())
@@ -1035,6 +1047,11 @@ impl PeerNetwork {
             Some(event_id) => self.peers.get(event_id),
             None => None
         }
+    }
+    
+    /// Get a ref to a conversation given its event ID
+    pub fn get_peer_convo(&self, event_id: usize) -> Option<&ConversationP2P> {
+        self.peers.get(&event_id)
     }
 
     /// Deregister a socket from our p2p network instance.
