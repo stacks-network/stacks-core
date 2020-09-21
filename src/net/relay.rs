@@ -479,11 +479,18 @@ impl Relayer {
     pub fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
         // find the snapshot of the parent of this block
         let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
-        let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block.block_hash())? {
-            Some((_, sn)) => sn,
-            None => {
+        let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block.block_hash()) {
+            Ok(Some((_, sn))) => sn,
+            Ok(None) => {
                 debug!("Received block with unknown parent snapshot: {}/{}", consensus_hash, &block.block_hash());
                 return Ok(false);
+            }
+            Err(db_error::InvalidPoxSortition) => {
+                warn!("Received block {}/{} on a non-canonical PoX sortition", consensus_hash, &block.block_hash());
+                return Ok(false);
+            },
+            Err(e) => {
+                return Err(e.into());
             }
         };
         
