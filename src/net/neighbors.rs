@@ -71,7 +71,9 @@ pub const WALK_RETRY_COUNT : u64 = 10;      // how many unthrottled walks should
 
 #[cfg(test)] pub const PRUNE_FREQUENCY : u64 = 0;             // how often we should consider pruning neighbors
 #[cfg(not(test))] pub const PRUNE_FREQUENCY : u64 = 43200;     // how often we should consider pruning neighbors (twice a day)
-pub const MAX_NEIGHBOR_BLOCK_DELAY : u64 = 288;     // maximum delta between our current block height and the neighbor's that we will treat this neighbor as fresh
+
+#[cfg(test)] pub const MAX_NEIGHBOR_BLOCK_DELAY : u64 = 25;         // maximum delta between our current block height and the neighbor's that we will treat this neighbor as fresh
+#[cfg(not(test))] pub const MAX_NEIGHBOR_BLOCK_DELAY : u64 = 288;   // maximum delta between our current block height and the neighbor's that we will treat this neighbor as fresh (prod)
 
 #[cfg(test)] pub const NEIGHBOR_WALK_INTERVAL : u64 = 0;
 #[cfg(not(test))] pub const NEIGHBOR_WALK_INTERVAL : u64 = 120;     // seconds
@@ -1421,7 +1423,7 @@ impl PeerNetwork {
                     return Ok(None);
                 }
             },
-            Err(net_error::AlreadyConnected(_event_id)) => {
+            Err(net_error::AlreadyConnected(_event_id, _nk)) => {
                 test_debug!("{:?}: already connected to {:?} as event {}", &self.local_peer, &nk, _event_id);
             },
             Err(e) => {
@@ -1578,9 +1580,11 @@ impl PeerNetwork {
                         Ok(_) => {
                             network.walk_connect_and_handshake(walk, &my_addr)?
                         },
-                        Err(net_error::AlreadyConnected(_event_id)) => {
-                            debug!("{:?}: Already connected to {:?} on event {}", &network.local_peer, &my_addr, &_event_id);
-                            network.walk_handshake(walk, &my_addr)
+                        Err(net_error::AlreadyConnected(event_id, handshake_nk)) => {
+                            // already connected, but on a possibly-different address.
+                            // use peer-announced neighbor address if available.
+                            debug!("{:?}: Already connected to {:?} on event {} (public address: {:?})", &network.local_peer, &my_addr, &event_id, &handshake_nk);
+                            network.walk_handshake(walk, &handshake_nk)
                                 .and_then(|handle| Ok(Some(handle)))?
                         },
                         Err(e) => {
@@ -1741,15 +1745,16 @@ impl PeerNetwork {
                                     }
                                 }
                             }
-                            Err(net_error::AlreadyConnected(_)) => {
-                                // connected already; proceed to send handshake
-                                match network.walk_handshake(walk, &nk) {
+                            Err(net_error::AlreadyConnected(_event_id, handshake_nk)) => {
+                                // make sure to handshake on the peer's preferred address if available
+                                // connected already -- just proceed to send handshake
+                                match network.walk_handshake(walk, &handshake_nk) {
                                     Ok(handle) => {
-                                        debug!("{:?}: will Handshake with neighbor-of-neighbor {:?}", &network.local_peer, &nk);
+                                        debug!("{:?}: will Handshake with neighbor-of-neighbor {:?} ({:?})", &network.local_peer, &handshake_nk, &nk);
                                         walk.unresolved_handshake_neighbors.insert(na.clone(), handle);
                                     },
                                     Err(e) => {
-                                        info!("{:?}: failed to send Handshake to neighbor-of-neighbor {:?}: {:?}", &network.local_peer, &nk, &e);
+                                        info!("{:?}: failed to send Handshake to neighbor-of-neighbor {:?} ({:?}): {:?}", &network.local_peer, &handshake_nk, &nk, &e);
                                         continue;
                                     }
                                 }
@@ -1896,15 +1901,16 @@ impl PeerNetwork {
                             }
                         }
                     },
-                    Err(net_error::AlreadyConnected(_)) => {
+                    Err(net_error::AlreadyConnected(_event_id, handshake_nk)) => {
+                        // use preferred address
                         // already connected; just send
-                        match network.walk_handshake(walk, &nk) {
+                        match network.walk_handshake(walk, &handshake_nk) {
                             Ok(handle) => {
-                                debug!("{:?}: Sent pingback handshake to {:?}", &network.local_peer, &nk);
+                                debug!("{:?}: Sent pingback handshake to {:?}", &network.local_peer, &handshake_nk);
                                 walk.pending_pingback_handshakes.insert(naddr.clone(), handle);
                             },
                             Err(e) => {
-                                info!("{:?}: Failed to send pingback handshake to {:?}: {:?}", &network.local_peer, &nk, &e);
+                                info!("{:?}: Failed to send pingback handshake to {:?}: {:?}", &network.local_peer, &handshake_nk, &e);
                                 continue;
                             }
                         }
@@ -2684,7 +2690,10 @@ mod test {
     fn test_step_walk_1_neighbor_behind() {
         with_timeout(600, || {
             let mut peer_1_config = TestPeerConfig::from_port(32200);
-            let peer_2_config = TestPeerConfig::from_port(32202);
+            let mut peer_2_config = TestPeerConfig::from_port(32202);
+
+            peer_1_config.connection_opts.disable_natpunch = true;
+            peer_2_config.connection_opts.disable_natpunch = true;
 
             // peer 1 crawls peer 2, and peer 1 adds peer 2 to its frontier even though peer 2 does
             // not, because peer 2 is too far ahead
@@ -2705,7 +2714,7 @@ mod test {
             let neighbor_1 = peer_1.to_neighbor();
             let neighbor_2 = peer_2.to_neighbor();
             
-            while walk_1_count < 20 && walk_2_count < 20 {
+            while (walk_1_count < 20 && walk_2_count < 20) || peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).is_none() {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
                 
@@ -2734,6 +2743,19 @@ mod test {
                 };
 
                 i += 1;
+
+                debug!("Peer 1 begin neighbor stats:");
+                for (nk, _) in peer_1.network.events.iter() {
+                    match peer_1.network.get_neighbor_stats(nk) {
+                        Some(ns) => {
+                            debug!("   have stats for {:?}", &nk);
+                        },
+                        None => {
+                            debug!("   (no stats for {:?})", &nk);
+                        }
+                    }
+                };
+                debug!("Peer 1 end neighbor stats");
             }
             
             debug!("Completed walk round {} step(s)", i);
@@ -3043,98 +3065,100 @@ mod test {
 
     #[test]
     fn test_step_walk_2_neighbors_plain() {
-        let mut peer_1_config = TestPeerConfig::from_port(32500);
-        let mut peer_2_config = TestPeerConfig::from_port(32502);
+        with_timeout(600, || {
+            let mut peer_1_config = TestPeerConfig::from_port(32500);
+            let mut peer_2_config = TestPeerConfig::from_port(32502);
 
-        peer_1_config.allowed = -1;
-        peer_2_config.allowed = -1;
+            peer_1_config.allowed = -1;
+            peer_2_config.allowed = -1;
 
-        // peer 1 crawls peer 2, and peer 2 crawls peer 1
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+            // peer 1 crawls peer 2, and peer 2 crawls peer 1
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
 
-        let mut i = 0;
-        let mut walk_1_count = 0;
-        let mut walk_2_count = 0;
-        while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            let mut i = 0;
+            let mut walk_1_count = 0;
+            let mut walk_2_count = 0;
+            while walk_1_count < 20 && walk_2_count < 20 {
+                let _ = peer_1.step();
+                let _ = peer_2.step();
+                
+                walk_1_count = peer_1.network.walk_total_step_count;
+                walk_2_count = peer_2.network.walk_total_step_count;
+
+                test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+
+                match peer_1.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                match peer_2.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                i += 1;
+            }
+
+            debug!("Completed walk round {} step(s)", i);
+
+            // peer 1 contacted peer 2
+            let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
+            assert!(stats_1.last_contact_time > 0);
+            assert!(stats_1.last_handshake_time > 0);
+            assert!(stats_1.last_send_time > 0);
+            assert!(stats_1.last_recv_time > 0);
+            assert!(stats_1.bytes_rx > 0);
+            assert!(stats_1.bytes_tx > 0);
             
-            walk_1_count = peer_1.network.walk_total_step_count;
-            walk_2_count = peer_2.network.walk_total_step_count;
+            // peer 2 contacted peer 1
+            let stats_2 = peer_2.network.get_neighbor_stats(&peer_1.to_neighbor().addr).unwrap();
+            assert!(stats_2.last_contact_time > 0);
+            assert!(stats_2.last_handshake_time > 0);
+            assert!(stats_2.last_send_time > 0);
+            assert!(stats_2.last_recv_time > 0);
+            assert!(stats_2.bytes_rx > 0);
+            assert!(stats_2.bytes_tx > 0);
 
-            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+            let neighbor_1 = peer_1.to_neighbor();
+            let neighbor_2 = peer_2.to_neighbor();
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+            // peer 2 was added to the peer DB of peer 1
+            let peer_1_dbconn = peer_1.get_peerdb_conn();
+            match PeerDB::get_peer(peer_1_dbconn, neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap() {
+                None => {
+                    test_debug!("no such peer: {:?}", &neighbor_2.addr);
+                    assert!(false);
+                },
+                Some(p) => {
+                    assert_eq!(p.public_key, neighbor_2.public_key);
+                    assert_eq!(p.expire_block, neighbor_2.expire_block);
                 }
-                None => {}
-            };
-
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+            }
+            
+            // peer 1 was added to the peer DB of peer 2
+            let peer_2_dbconn = peer_2.get_peerdb_conn();
+            match PeerDB::get_peer(peer_2_dbconn, neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap() {
+                None => {
+                    test_debug!("no such peer: {:?}", &neighbor_1.addr);
+                    assert!(false);
+                },
+                Some(p) => {
+                    assert_eq!(p.public_key, neighbor_1.public_key);
+                    assert_eq!(p.expire_block, neighbor_1.expire_block);
                 }
-                None => {}
-            };
-
-            i += 1;
-        }
-
-        debug!("Completed walk round {} step(s)", i);
-
-        // peer 1 contacted peer 2
-        let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
-        assert!(stats_1.last_contact_time > 0);
-        assert!(stats_1.last_handshake_time > 0);
-        assert!(stats_1.last_send_time > 0);
-        assert!(stats_1.last_recv_time > 0);
-        assert!(stats_1.bytes_rx > 0);
-        assert!(stats_1.bytes_tx > 0);
-        
-        // peer 2 contacted peer 1
-        let stats_2 = peer_2.network.get_neighbor_stats(&peer_1.to_neighbor().addr).unwrap();
-        assert!(stats_2.last_contact_time > 0);
-        assert!(stats_2.last_handshake_time > 0);
-        assert!(stats_2.last_send_time > 0);
-        assert!(stats_2.last_recv_time > 0);
-        assert!(stats_2.bytes_rx > 0);
-        assert!(stats_2.bytes_tx > 0);
-
-        let neighbor_1 = peer_1.to_neighbor();
-        let neighbor_2 = peer_2.to_neighbor();
-
-        // peer 2 was added to the peer DB of peer 1
-        let peer_1_dbconn = peer_1.get_peerdb_conn();
-        match PeerDB::get_peer(peer_1_dbconn, neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap() {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
-            },
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_2.public_key);
-                assert_eq!(p.expire_block, neighbor_2.expire_block);
             }
-        }
-        
-        // peer 1 was added to the peer DB of peer 2
-        let peer_2_dbconn = peer_2.get_peerdb_conn();
-        match PeerDB::get_peer(peer_2_dbconn, neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap() {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_1.addr);
-                assert!(false);
-            },
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_1.public_key);
-                assert_eq!(p.expire_block, neighbor_1.expire_block);
-            }
-        }
+        })
     }
     
     #[test]
@@ -3216,6 +3240,16 @@ mod test {
                     None => {}
                 };
 
+                for (i, peer) in [&peer_1, &peer_2, &peer_3].iter().enumerate() {
+                    let db = peer.get_peerdb_conn();
+                    let neighbors = PeerDB::get_all_peers(db).unwrap();
+                    test_debug!("Begin neighbor dump from {:?}", &peer.to_neighbor().addr);
+                    for n in neighbors {
+                        test_debug!("   {:?}", &n.addr);
+                    }
+                    test_debug!("End neighbor dump from {:?}", &peer.to_neighbor().addr);
+                }
+
                 peer_1_frontier_size = PeerDB::get_all_peers(peer_1.get_peerdb_conn()).unwrap().len();
                 peer_2_frontier_size = PeerDB::get_all_peers(peer_2.get_peerdb_conn()).unwrap().len();
                 peer_3_frontier_size = PeerDB::get_all_peers(peer_3.get_peerdb_conn()).unwrap().len();
@@ -3284,166 +3318,170 @@ mod test {
 
     #[test]
     fn test_step_walk_2_neighbors_rekey() {
-        let mut peer_1_config = TestPeerConfig::from_port(32600);
-        let mut peer_2_config = TestPeerConfig::from_port(32602);
+        with_timeout(600, || {
+            let mut peer_1_config = TestPeerConfig::from_port(32600);
+            let mut peer_2_config = TestPeerConfig::from_port(32602);
 
-        peer_1_config.allowed = -1;
-        peer_2_config.allowed = -1;
+            peer_1_config.allowed = -1;
+            peer_2_config.allowed = -1;
+                
+            // turn off features we don't use
+            peer_1_config.connection_opts.disable_inv_sync = true;
+            peer_1_config.connection_opts.disable_block_download = true;
             
-        // turn off features we don't use
-        peer_1_config.connection_opts.disable_inv_sync = true;
-        peer_1_config.connection_opts.disable_block_download = true;
-        
-        peer_2_config.connection_opts.disable_inv_sync = true;
-        peer_2_config.connection_opts.disable_block_download = true;
-        
-        let first_block_height = peer_1_config.current_block + 1;
+            peer_2_config.connection_opts.disable_inv_sync = true;
+            peer_2_config.connection_opts.disable_block_download = true;
+            
+            let first_block_height = peer_1_config.current_block + 1;
 
-        // make keys expire soon
-        peer_1_config.private_key_expire = first_block_height + 3;
-        peer_2_config.private_key_expire = first_block_height + 4;
+            // make keys expire soon
+            peer_1_config.private_key_expire = first_block_height + 3;
+            peer_2_config.private_key_expire = first_block_height + 4;
 
-        peer_1_config.connection_opts.private_key_lifetime = 5;
-        peer_2_config.connection_opts.private_key_lifetime = 5;
+            peer_1_config.connection_opts.private_key_lifetime = 5;
+            peer_2_config.connection_opts.private_key_lifetime = 5;
 
-        // peer 1 crawls peer 2, and peer 2 crawls peer 1
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+            // peer 1 crawls peer 2, and peer 2 crawls peer 1
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
 
-        let initial_public_key_1 = peer_1.get_public_key();
-        let initial_public_key_2 = peer_2.get_public_key();
+            let initial_public_key_1 = peer_1.get_public_key();
+            let initial_public_key_2 = peer_2.get_public_key();
 
-        // walk for a bit
-        for i in 0..10 {
-            for j in 0..5 {
+            // walk for a bit
+            for i in 0..10 {
+                for j in 0..5 {
+                    let _ = peer_1.step();
+                    let _ = peer_2.step();
+
+                    match peer_1.network.walk {
+                        Some(ref w) => {
+                            assert_eq!(w.result.broken_connections.len(), 0);
+                            assert_eq!(w.result.replaced_neighbors.len(), 0);
+                        }
+                        None => {}
+                    };
+
+                    match peer_2.network.walk {
+                        Some(ref w) => {
+                            assert_eq!(w.result.broken_connections.len(), 0);
+                            assert_eq!(w.result.replaced_neighbors.len(), 0);
+                        }
+                        None => {}
+                    };
+                }
+
+                peer_1.add_empty_burnchain_block();
+                peer_2.add_empty_burnchain_block();
+            }
+
+            // peer 1 contacted peer 2
+            let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
+            assert!(stats_1.last_contact_time > 0);
+            assert!(stats_1.last_handshake_time > 0);
+            assert!(stats_1.last_send_time > 0);
+            assert!(stats_1.last_recv_time > 0);
+            assert!(stats_1.bytes_rx > 0);
+            assert!(stats_1.bytes_tx > 0);
+            
+            // peer 2 contacted peer 1
+            let stats_2 = peer_2.network.get_neighbor_stats(&peer_1.to_neighbor().addr).unwrap();
+            assert!(stats_2.last_contact_time > 0);
+            assert!(stats_2.last_handshake_time > 0);
+            assert!(stats_2.last_send_time > 0);
+            assert!(stats_2.last_recv_time > 0);
+            assert!(stats_2.bytes_rx > 0);
+            assert!(stats_2.bytes_tx > 0);
+
+            let neighbor_1 = peer_1.to_neighbor();
+            let neighbor_2 = peer_2.to_neighbor();
+
+            // peer 1 was added to the peer DB of peer 2
+            assert!(PeerDB::get_peer(peer_1.network.peerdb.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().is_some());
+            
+            // peer 2 was added to the peer DB of peer 1
+            assert!(PeerDB::get_peer(peer_2.network.peerdb.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().is_some());
+            
+            // new keys
+            assert!(peer_1.get_public_key() != initial_public_key_1);
+            assert!(peer_2.get_public_key() != initial_public_key_2);
+        })
+    }
+    
+    #[test]
+    fn test_step_walk_2_neighbors_different_networks() {
+        with_timeout(600, || {
+            // peer 1 and 2 try to handshake but never succeed since they have different network IDs
+            let mut peer_1_config = TestPeerConfig::from_port(32700);
+            let mut peer_2_config = TestPeerConfig::from_port(32702);
+
+            // peer 1 crawls peer 2, and peer 2 crawls peer 1
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            
+            // peer 2 thinks peer 1 has the same network ID that it does
+            peer_1_config.network_id = peer_1_config.network_id + 1;
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+            peer_1_config.network_id = peer_1_config.network_id - 1;
+            
+            // different network IDs
+            peer_2_config.network_id = peer_1_config.network_id + 1;
+
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
+
+            let mut walk_1_count = 0;
+            let mut walk_2_count = 0;
+            let mut i = 0;
+            while walk_1_count < 20 && walk_2_count < 20 {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
+
+                walk_1_count = peer_1.network.walk_total_step_count;
+                walk_2_count = peer_2.network.walk_total_step_count;
+
+                test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
 
                 match peer_1.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
+                    },
                     None => {}
                 };
-
+                
                 match peer_2.network.walk {
                     Some(ref w) => {
                         assert_eq!(w.result.broken_connections.len(), 0);
                         assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
+                    },
                     None => {}
                 };
+
+                i += 1;
             }
-
-            peer_1.add_empty_burnchain_block();
-            peer_2.add_empty_burnchain_block();
-        }
-
-        // peer 1 contacted peer 2
-        let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
-        assert!(stats_1.last_contact_time > 0);
-        assert!(stats_1.last_handshake_time > 0);
-        assert!(stats_1.last_send_time > 0);
-        assert!(stats_1.last_recv_time > 0);
-        assert!(stats_1.bytes_rx > 0);
-        assert!(stats_1.bytes_tx > 0);
-        
-        // peer 2 contacted peer 1
-        let stats_2 = peer_2.network.get_neighbor_stats(&peer_1.to_neighbor().addr).unwrap();
-        assert!(stats_2.last_contact_time > 0);
-        assert!(stats_2.last_handshake_time > 0);
-        assert!(stats_2.last_send_time > 0);
-        assert!(stats_2.last_recv_time > 0);
-        assert!(stats_2.bytes_rx > 0);
-        assert!(stats_2.bytes_tx > 0);
-
-        let neighbor_1 = peer_1.to_neighbor();
-        let neighbor_2 = peer_2.to_neighbor();
-
-        // peer 1 was added to the peer DB of peer 2
-        assert!(PeerDB::get_peer(peer_1.network.peerdb.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().is_some());
-        
-        // peer 2 was added to the peer DB of peer 1
-        assert!(PeerDB::get_peer(peer_2.network.peerdb.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().is_some());
-        
-        // new keys
-        assert!(peer_1.get_public_key() != initial_public_key_1);
-        assert!(peer_2.get_public_key() != initial_public_key_2);
-    }
-    
-    #[test]
-    fn test_step_walk_2_neighbors_different_networks() {
-        // peer 1 and 2 try to handshake but never succeed since they have different network IDs
-        let mut peer_1_config = TestPeerConfig::from_port(32700);
-        let mut peer_2_config = TestPeerConfig::from_port(32702);
-
-        // peer 1 crawls peer 2, and peer 2 crawls peer 1
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        
-        // peer 2 thinks peer 1 has the same network ID that it does
-        peer_1_config.network_id = peer_1_config.network_id + 1;
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-        peer_1_config.network_id = peer_1_config.network_id - 1;
-        
-        // different network IDs
-        peer_2_config.network_id = peer_1_config.network_id + 1;
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-
-        let mut walk_1_count = 0;
-        let mut walk_2_count = 0;
-        let mut i = 0;
-        while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
-
-            walk_1_count = peer_1.network.walk_total_step_count;
-            walk_2_count = peer_2.network.walk_total_step_count;
-
-            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
-
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                },
-                None => {}
-            };
             
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                },
-                None => {}
-            };
+            debug!("Completed walk round {} step(s)", i);
 
-            i += 1;
-        }
-        
-        debug!("Completed walk round {} step(s)", i);
+            // peer 1 did NOT contact peer 2
+            let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr);
+            assert!(stats_1.is_none());
+            
+            // peer 2 did NOT contact peer 1
+            let stats_2 = peer_2.network.get_neighbor_stats(&peer_1.to_neighbor().addr);
+            assert!(stats_2.is_none());
 
-        // peer 1 did NOT contact peer 2
-        let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr);
-        assert!(stats_1.is_none());
-        
-        // peer 2 did NOT contact peer 1
-        let stats_2 = peer_2.network.get_neighbor_stats(&peer_1.to_neighbor().addr);
-        assert!(stats_2.is_none());
+            let neighbor_1 = peer_1.to_neighbor();
+            let neighbor_2 = peer_2.to_neighbor();
 
-        let neighbor_1 = peer_1.to_neighbor();
-        let neighbor_2 = peer_2.to_neighbor();
-
-        // peer 1 was NOT added to the peer DB of peer 2
-        assert!(PeerDB::get_peer(peer_1.network.peerdb.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().is_none());
-        
-        // peer 2 was NOT added to the peer DB of peer 1
-        assert!(PeerDB::get_peer(peer_2.network.peerdb.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().is_none());
+            // peer 1 was NOT added to the peer DB of peer 2
+            assert!(PeerDB::get_peer(peer_1.network.peerdb.conn(), neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap().is_none());
+            
+            // peer 2 was NOT added to the peer DB of peer 1
+            assert!(PeerDB::get_peer(peer_2.network.peerdb.conn(), neighbor_1.addr.network_id, &neighbor_1.addr.addrbytes, neighbor_1.addr.port).unwrap().is_none());
+        })
     }
     
     fn setup_peer_config(i: usize, port_base: u16, neighbor_count: usize, peer_count: usize) -> TestPeerConfig {
