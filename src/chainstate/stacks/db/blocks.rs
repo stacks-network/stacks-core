@@ -2203,12 +2203,19 @@ impl StacksChainState {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();
         let (block_commit, stacks_chain_tip) =
-            match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash)? {
-                Some(bc) => bc,
-                None => {
+            match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash) {
+                Ok(Some(bc)) => bc,
+                Ok(None) => {
                     // unsoliciated
                     warn!("Received unsolicited block: {}/{}", consensus_hash, block_hash);
                     return Ok(None);
+                }
+                Err(db_error::InvalidPoxSortition) => {
+                    warn!("Received unsolicited block on non-canonical PoX fork: {}/{}", consensus_hash, block_hash);
+                    return Ok(None);
+                }
+                Err(e) => {
+                    return Err(e.into());
                 }
             };
 
