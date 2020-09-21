@@ -452,25 +452,6 @@ impl PeerBlocksInv {
             Some((self.num_reward_cycles, false, pox_id.has_ith_anchor_block(self.num_reward_cycles as usize)))
         }
     }
-
-    /// Compare a Pox ID against our PoX inventory, but if one is a prefix of another, and they
-    /// otherwise agree, then return None.
-    pub fn pox_inv_prefix_cmp(&self, pox_id: &PoxId) -> Option<(u64, bool, bool)> {
-        let (disagreed, my_bit, pox_bit) = match self.pox_inv_cmp(pox_id) {
-            Some(x) => x,
-            None => {
-                return None;
-            }
-        };
-
-        if disagreed == (pox_id.len() as u64) || disagreed == self.num_reward_cycles {
-            // one contains the other as a prefix
-            None
-        }
-        else {
-            Some((disagreed, my_bit, pox_bit))
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
