@@ -934,9 +934,9 @@ impl PeerHost {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPeerInfoData {
     pub peer_version: u32,
-    pub burn_consensus: ConsensusHash,
+    pub pox_consensus: ConsensusHash,
     pub burn_block_height: u64,
-    pub stable_burn_consensus: ConsensusHash,
+    pub stable_pox_consensus: ConsensusHash,
     pub stable_burn_block_height: u64,
     pub server_version: String,
     pub network_id: u32,
