@@ -513,6 +513,22 @@ impl ConversationP2P {
         }
     }
 
+    pub fn best_effort_neighbor_key(&self) -> NeighborKey {
+        if self.handshake_port > 0 && self.peer_version > 0 {
+            // got a handshake response already
+            self.to_handshake_neighbor_key()
+        }
+        else {
+            // assume we know nothing from this neighbor
+            NeighborKey {
+                peer_version: self.version,
+                network_id: self.network_id,
+                addrbytes: self.peer_addrbytes.clone(),
+                port: self.peer_port
+            }
+        }
+    }
+
     pub fn to_neighbor_address(&self) -> NeighborAddress {
         let pubkh = 
             if let Some(ref pubk) = self.ref_public_key() {
@@ -1069,7 +1085,7 @@ impl ConversationP2P {
                     return Ok(StacksMessageType::Nack(NackData::new(NackErrorCodes::InvalidPoxFork)));
                 }
 
-                let poxinvdata = match burnchain.block_height_to_reward_cycle(sn.block_height) {
+                match burnchain.block_height_to_reward_cycle(sn.block_height) {
                     Some(reward_cycle) => {
                         // take a slice of the PoxId
                         let (bitvec, bitlen) = pox_id.bit_slice(reward_cycle as usize, getpoxinv.num_cycles as usize);
@@ -1077,16 +1093,16 @@ impl ConversationP2P {
 
                         let poxinvdata = PoxInvData { pox_bitvec: bitvec, bitlen: bitlen as u16 };
                         debug!("{:?}: Handle GetPoxInv at reward cycle {}; Reply {:?} to request {:?}", &local_peer, reward_cycle, &poxinvdata, getpoxinv);
-                        poxinvdata
+                        Ok(StacksMessageType::PoxInv(poxinvdata))
                     },
                     None => {
-                        let poxinvdata = PoxInvData { pox_bitvec: vec![0x00], bitlen: 0 };
-                        debug!("{:?}: Handle GetPoxInv at high block height {}; Reply {:?} to request {:?}", &local_peer, sn.block_height, &poxinvdata, getpoxinv);
-                        poxinvdata
+                        // if we can't turn the block height into a reward cycle, then it's before
+                        // the first-ever reward cycle and this consensus hash does not correspond
+                        // to a real reward cycle.  NACK it.
+                        debug!("{:?}: Consensus hash {:?} does not correspond to a real reward cycle", &local_peer, &getpoxinv.consensus_hash);
+                        Ok(StacksMessageType::Nack(NackData::new(NackErrorCodes::InvalidPoxFork)))
                     }
-                };
-
-                Ok(StacksMessageType::PoxInv(poxinvdata))
+                }
             },
             Ok(None) | Err(db_error::NotFoundError) => {
                 test_debug!("{:?}: snapshot for consensus hash {} not found", local_peer, getpoxinv.consensus_hash);
