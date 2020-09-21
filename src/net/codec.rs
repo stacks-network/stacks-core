@@ -674,6 +674,10 @@ impl StacksMessageCodec for HandshakeData {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HandshakeData, net_error> {
         let addrbytes: PeerAddress                  = read_next(fd)?;
         let port : u16                              = read_next(fd)?;
+        if port == 0 {
+            return Err(net_error::DeserializeError("Invalid handshake data: port is 0".to_string()));
+        }
+
         let services : u16                          = read_next(fd)?;
         let node_public_key : StacksPublicKeyBuffer = read_next(fd)?;
         let expire_block_height : u64               = read_next(fd)?;
