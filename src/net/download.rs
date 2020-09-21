@@ -597,7 +597,7 @@ impl BlockDownloader {
         let sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)?
             .ok_or_else(|| net_error::DBError(db_error::NotFoundError))?;
 
-        let block_height = sn.block_height; // sn.block_height - 1;      // sortdb is 1-indexed
+        let block_height = sn.block_height;
 
         if sn.winning_stacks_block_hash != *block_hash {
             test_debug!("Snapshot of {} (height {}) does not have winning block hash {}", consensus_hash, block_height, block_hash);
@@ -1107,7 +1107,7 @@ impl PeerNetwork {
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             match network.http.connect_http(network_state, data_url.clone(), addr.clone(), Some(request.clone())) {
                 Ok(event_id) => Ok(event_id),
-                Err(net_error::AlreadyConnected(event_id)) => {
+                Err(net_error::AlreadyConnected(event_id, _)) => {
                     match network.http.get_conversation_and_socket(event_id) {
                         (Some(ref mut convo), Some(ref mut socket)) => {
                             convo.send_request(request)?;
@@ -1752,12 +1752,6 @@ pub mod test {
                 test_debug!("Peer {} outbound ({}): {}", i, outbound.len(), outbound.join(", "));
                 test_debug!("Peer {} inbound ({}):  {}", i, inbound.len(), inbound.join(", "));
                 test_debug!("======= peer {} step end   =========", i);
-
-                /*
-                if inbound.len() == 0 && outbound.len() == 0 {
-                    panic!("Peer {} is out of neighbors", i);
-                }
-                */
             }
 
             if !done {
