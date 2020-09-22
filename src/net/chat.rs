@@ -2455,16 +2455,16 @@ mod test {
             let burnchain = testing_burnchain_config();
 
             let mut chain_view = BurnchainView {
-                burn_block_height: 12348,
+                burn_block_height: 12331, // burnchain.reward_cycle_to_block_height(burnchain.block_height_to_reward_cycle(12348 - 8).unwrap()),
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
-                burn_stable_block_height: 12341,
+                burn_stable_block_height: 12331 - 7, // burnchain.reward_cycle_to_block_height(burnchain.block_height_to_reward_cycle(12341 - 8).unwrap() - 1),
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 last_burn_block_hashes: HashMap::new()
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_accept_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_accept_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
+            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs("convo_handshake_getblocksinv_1", &burnchain, 0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]);
+            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs("convo_handshake_getblocksinv_2", &burnchain, 0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]);
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
             db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -2526,9 +2526,14 @@ mod test {
                 }
             };
 
-            // convo_1 sends a getblocksinv to convo_2 for all the blocks
+            // convo_1 sends a getblocksinv to convo_2 for all the blocks in the last reward cycle
             let convo_1_chaintip = SortitionDB::get_canonical_burn_chain_tip(sortdb_1.conn()).unwrap();
-            let getblocksdata_1 = GetBlocksInv { consensus_hash: convo_1_chaintip.consensus_hash, num_blocks: GETPOXINV_MAX_BITLEN as u16 };
+            let convo_1_ancestor = {
+                let ic = sortdb_1.index_conn();
+                SortitionDB::get_ancestor_snapshot(&ic, convo_1_chaintip.block_height - 10 - 1, &convo_1_chaintip.sortition_id).unwrap().unwrap()
+            };
+            
+            let getblocksdata_1 = GetBlocksInv { consensus_hash: convo_1_ancestor.consensus_hash, num_blocks: 10 as u16 };
             let getblocksdata_1_msg = convo_1.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::GetBlocksInv(getblocksdata_1.clone())).unwrap();
             let mut rh_1 = convo_1.send_signed_request(getblocksdata_1_msg, 10000000).unwrap();
 
@@ -2551,7 +2556,7 @@ mod test {
             // convo 2 returned a block-inv for all blocks 
             match reply_1.payload {
                 StacksMessageType::BlocksInv(ref data) => {
-                    assert_eq!(data.bitlen, GETPOXINV_MAX_BITLEN as u16);
+                    assert_eq!(data.bitlen, 10);
                     test_debug!("data: {:?}", data);
 
                     // all burn blocks had sortitions, but we have no Stacks blocks :(
@@ -2559,7 +2564,8 @@ mod test {
                         assert!(!data.has_ith_block(i));
                     }
                 },
-                _ => {
+                x => {
+                    error!("received invalid payload: {:?}", &x);
                     assert!(false);
                 }
             }
