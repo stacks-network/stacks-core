@@ -697,7 +697,6 @@ pub struct MicroblocksData {
 /// Block available hint
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksAvailableData {
-    // TODO(PoX): drop BurnchainHeaderHash -- it's no longer necessary
     pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
 }
 
