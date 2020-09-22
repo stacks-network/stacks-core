@@ -408,7 +408,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                 .expect("Failed to obtain snapshot for block");
 
                             if !snapshot.pox_valid {
-                                warn!("Snapshot for {} is no longer valid; discarding {}...", &consensus_hash, &mined_block.block_hash);
+                                warn!("Snapshot for {} is no longer valid; discarding {}...", &consensus_hash, &mined_block.block_hash());
                             }
                             else {
                                 if let Err(e) = relayer.broadcast_block(snapshot.consensus_hash, mined_block) {
