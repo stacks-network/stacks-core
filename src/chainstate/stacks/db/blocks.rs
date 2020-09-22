@@ -2203,12 +2203,19 @@ impl StacksChainState {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();
         let (block_commit, stacks_chain_tip) =
-            match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash)? {
-                Some(bc) => bc,
-                None => {
+            match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash) {
+                Ok(Some(bc)) => bc,
+                Ok(None) => {
                     // unsoliciated
                     warn!("Received unsolicited block: {}/{}", consensus_hash, block_hash);
                     return Ok(None);
+                }
+                Err(db_error::InvalidPoxSortition) => {
+                    warn!("Received unsolicited block on non-canonical PoX fork: {}/{}", consensus_hash, block_hash);
+                    return Ok(None);
+                }
+                Err(e) => {
+                    return Err(e.into());
                 }
             };
 
@@ -2294,8 +2301,7 @@ impl StacksChainState {
         let mut block_tx = self.blocks_tx_begin()?;
 
         // does this block match the burnchain state? skip if not
-        let validation_res = StacksChainState::validate_anchored_block_burnchain(
-            &sort_handle, consensus_hash, block, mainnet, chain_id)?;
+        let validation_res = StacksChainState::validate_anchored_block_burnchain(&sort_handle, consensus_hash, block, mainnet, chain_id)?;
         let (commit_burn, sortition_burn) = match validation_res {
             Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
             None => { 

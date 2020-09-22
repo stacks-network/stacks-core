@@ -199,7 +199,7 @@ pub enum Error {
     /// Too many peers
     TooManyPeers,
     /// Peer already connected 
-    AlreadyConnected(usize),
+    AlreadyConnected(usize, NeighborKey),
     /// Message already in progress
     InProgress,
     /// Peer is denied
@@ -288,7 +288,7 @@ impl fmt::Display for Error {
             Error::NotConnected => write!(f, "Not connected to peer network"),
             Error::PeerNotConnected => write!(f, "Remote peer is not connected to us"),
             Error::TooManyPeers => write!(f, "Too many peer connections open"),
-            Error::AlreadyConnected(ref _id) => write!(f, "Peer already connected"),
+            Error::AlreadyConnected(ref _id, ref _nk) => write!(f, "Peer already connected"),
             Error::InProgress => write!(f, "Message already in progress"),
             Error::Denied => write!(f, "Peer is denied"),
             Error::NoDataUrl => write!(f, "No data URL available"),
@@ -344,7 +344,7 @@ impl error::Error for Error {
             Error::NotConnected => None,
             Error::PeerNotConnected => None,
             Error::TooManyPeers => None,
-            Error::AlreadyConnected(ref _id) => None,
+            Error::AlreadyConnected(ref _id, ref _nk) => None,
             Error::InProgress => None,
             Error::Denied => None,
             Error::NoDataUrl => None,
@@ -2038,7 +2038,7 @@ pub mod test {
 
             {
                 let mut tx = peerdb.tx_begin().unwrap();
-                PeerDB::set_local_ipaddr(&mut tx, &PeerAddress::from_socketaddr(&local_addr), config.server_port).unwrap();
+                PeerDB::set_local_ipaddr(&mut tx, &PeerAddress::from_socketaddr(&SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.server_port)), config.server_port).unwrap();
                 PeerDB::set_local_services(&mut tx, ServiceFlags::RELAY as u16).unwrap();
                 PeerDB::set_local_private_key(&mut tx, &config.private_key, config.private_key_expire).unwrap();
                 
@@ -2476,8 +2476,21 @@ pub mod test {
         
             let (stacks_block, microblocks) = tenure_builder(&mut self.miner, &mut sortdb, &mut stacks_node.chainstate, proof, parent_block_opt.as_ref(), parent_microblock_header_opt.as_ref());
 
-            let block_commit_op = stacks_node.make_tenure_commitment(&mut sortdb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
+            let mut block_commit_op = stacks_node.make_tenure_commitment(&mut sortdb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
+
+            // patch in reward set info
+            match get_next_recipients(&last_sortition_block, &mut stacks_node.chainstate, &mut sortdb, &self.config.burnchain, &OnChainRewardSetProvider::new()) {
+                Ok(recipients) => {
+                    block_commit_op.commit_outs = match recipients {
+                        Some(info) => vec![info.recipient.0],
+                        None => vec![]
+                    };
+                }
+                Err(e) => {
+                    panic!("Failure fetching recipient set: {:?}", e);
+                }
+            };
 
             self.stacks_node = Some(stacks_node);
             self.sortdb = Some(sortdb);

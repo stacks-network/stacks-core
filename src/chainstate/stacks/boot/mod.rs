@@ -1452,7 +1452,7 @@ pub mod test {
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-unlock-relock", 6014);
 
-        let num_blocks = 20;
+        let num_blocks = 25;
 
         let alice = keys.pop().unwrap();
         let bob = keys.pop().unwrap();

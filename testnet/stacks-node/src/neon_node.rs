@@ -403,53 +403,56 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                 warn!("Failed to advertise new block: {}", e);
                             }
 
-                            // TODO(PoX): use ConsensusHash once BlocksData has been updated.
-                            // Until then, we need to convert the consensus_hash back into a
-                            // burn_header_hash
                             let snapshot = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
                                 .expect("Failed to obtain snapshot for block")
                                 .expect("Failed to obtain snapshot for block");
 
-                            if let Err(e) = relayer.broadcast_block(snapshot.consensus_hash, mined_block) {
-                                warn!("Failed to push new block: {}", e);
+                            if !snapshot.pox_valid {
+                                warn!("Snapshot for {} is no longer valid; discarding {}...", &consensus_hash, &mined_block.block_hash());
                             }
-
-                            // should we broadcast microblocks?
-                            if mine_microblocks {
-                                let mint_result = InitializedNeonNode::relayer_mint_microblocks(
-                                    &consensus_hash, &block_header_hash, &mut chainstate, &sortdb.index_conn(), &keychain,
-                                    consumed_execution, bytes_so_far, &mem_pool);
-                                let mined_microblock = match mint_result {
-                                    Ok(mined_microblock) => mined_microblock,
-                                    Err(e) => {
-                                        warn!("Failed to mine microblock: {}", e);
-                                        continue;
-                                    }
-                                };
-                                // preprocess the microblock locally
-                                match chainstate.preprocess_streamed_microblock(&consensus_hash, &block_header_hash, &mined_microblock) {
-                                    Ok(res) => {
-                                        if !res {
-                                            warn!("Unhandled error while pre-processing microblock {}",
-                                                  mined_microblock.header.block_hash());
-                                            continue
+                            else {
+                                if let Err(e) = relayer.broadcast_block(snapshot.consensus_hash, mined_block) {
+                                    warn!("Failed to push new block: {}", e);
+                                }
+                                else {
+                                    // should we broadcast microblocks?
+                                    if mine_microblocks {
+                                        let mint_result = InitializedNeonNode::relayer_mint_microblocks(
+                                            &consensus_hash, &block_header_hash, &mut chainstate, &sortdb.index_conn(), &keychain,
+                                            consumed_execution, bytes_so_far, &mem_pool);
+                                        let mined_microblock = match mint_result {
+                                            Ok(mined_microblock) => mined_microblock,
+                                            Err(e) => {
+                                                warn!("Failed to mine microblock: {}", e);
+                                                continue;
+                                            }
+                                        };
+                                        // preprocess the microblock locally
+                                        match chainstate.preprocess_streamed_microblock(&consensus_hash, &block_header_hash, &mined_microblock) {
+                                            Ok(res) => {
+                                                if !res {
+                                                    warn!("Unhandled error while pre-processing microblock {}",
+                                                          mined_microblock.header.block_hash());
+                                                    continue
+                                                }
+                                            },
+                                            Err(e) => {
+                                                error!("Error while pre-processing microblock {}: {}",
+                                                       mined_microblock.header.block_hash(), e);
+                                                continue
+                                            },
                                         }
-                                    },
-                                    Err(e) => {
-                                        error!("Error while pre-processing microblock {}: {}",
-                                               mined_microblock.header.block_hash(), e);
-                                        continue
-                                    },
-                                }
-                                // update unconfirmed state
-                                if let Err(e) = chainstate.refresh_unconfirmed_state(&sortdb.index_conn()) {
-                                    warn!("Failed to refresh unconfirmed state after processing microblock {}/{}-{}: {:?}", &mined_burn_hash, &block_header_hash, mined_microblock.block_hash(), &e);
-                                }
-                                // broadcast to peers
-                                let microblock_hash = mined_microblock.header.block_hash();
-                                if let Err(e) = relayer.broadcast_microblock(&consensus_hash, &block_header_hash, mined_microblock) {
-                                    error!("Failure trying to broadcast microblock {}: {}",
-                                           microblock_hash, e);
+                                        // update unconfirmed state
+                                        if let Err(e) = chainstate.refresh_unconfirmed_state(&sortdb.index_conn()) {
+                                            warn!("Failed to refresh unconfirmed state after processing microblock {}/{}-{}: {:?}", &mined_burn_hash, &block_header_hash, mined_microblock.block_hash(), &e);
+                                        }
+                                        // broadcast to peers
+                                        let microblock_hash = mined_microblock.header.block_hash();
+                                        if let Err(e) = relayer.broadcast_microblock(&consensus_hash, &block_header_hash, mined_microblock) {
+                                            error!("Failure trying to broadcast microblock {}: {}",
+                                                   microblock_hash, e);
+                                        }
+                                    }
                                 }
                             }
                         } else {

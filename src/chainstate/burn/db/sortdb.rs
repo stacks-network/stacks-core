@@ -1067,8 +1067,8 @@ impl <'a> SortitionHandleConn <'a> {
         let sn = match SortitionDB::get_block_snapshot_consensus(&connection.conn(), chain_tip)? {
             Some(sn) => {
                 if !sn.pox_valid {
-                    test_debug!("No such chain tip consensus hash {}: not on a valid PoX fork", chain_tip);
-                    return Err(db_error::NotFoundError)
+                    warn!("No such chain tip consensus hash {}: not on a valid PoX fork", chain_tip);
+                    return Err(db_error::InvalidPoxSortition)
                 }
                 sn
             },
@@ -1658,7 +1658,8 @@ impl <'a> SortitionDBConn <'a> {
             .ok_or_else(|| db_error::NotFoundError)?;
 
         if !tip_snapshot.pox_valid {
-            return Err(db_error::NotFoundError);
+            warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", tip_consensus_hash);
+            return Err(db_error::InvalidPoxSortition);
         }
 
         assert!(tip_snapshot.block_height >= self.context.first_block_height, "DB corruption: have snapshot with a smaller block height than the first block height");
@@ -2057,7 +2058,7 @@ impl SortitionDB {
     /// Get a snapshot for an processed sortition.
     /// The snapshot may not be valid
     pub fn get_block_snapshot(conn: &Connection, sortition_id: &SortitionId) -> Result<Option<BlockSnapshot>, db_error> {
-        let qry = "SELECT * FROM snapshots WHERE sortition_id = ?1 AND pox_valid = 1";
+        let qry = "SELECT * FROM snapshots WHERE sortition_id = ?1";
         let args = [&sortition_id];
         query_row_panic(conn, qry, &args,
                         || format!("FATAL: multiple block snapshots for the same block {}", sortition_id))
@@ -2215,7 +2216,8 @@ impl SortitionDB {
         let sortition_id = match SortitionDB::get_block_snapshot_consensus(conn, consensus_hash)? {
             Some(sn) => {
                 if !sn.pox_valid {
-                    return Ok(None);
+                    warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", consensus_hash);
+                    return Err(db_error::InvalidPoxSortition);
                 }
                 sn.sortition_id
             }

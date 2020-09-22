@@ -87,17 +87,19 @@ pub mod test {
     use super::*;
     use std::sync::mpsc::sync_channel;
     use std::process;
+    use std::panic;
 
     pub fn with_timeout<F>(timeout_secs: u64, test_func: F)
     where
-        F: FnOnce() -> () + std::marker::Send + 'static
+        F: FnOnce() -> () + std::marker::Send + 'static + panic::UnwindSafe
     {
         let (sx, rx) = sync_channel(1);
 
-        // run test in separate thread, so a main-thread panic ends the test
         let t = thread::spawn(move || {
-            test_func();
-            let _ = sx.send(());
+            let result = panic::catch_unwind(|| {
+                test_func();
+            });
+            let _ = sx.send(result.is_ok());
         });
 
         // wait for test to finish
@@ -106,17 +108,18 @@ pub mod test {
         while get_epoch_time_secs() <= deadline {
             sleep_ms(1000);
             match rx.try_recv() {
-                Ok(_) => {
+                Ok(success) => {
+                    assert!(success);
                     done = true;
                     break;
                 }
                 Err(_) => {}
             }
         }
+
         if !done {
             panic!("Test timed out after {} seconds", timeout_secs);
         }
-
         t.join().unwrap();
     }
 
@@ -128,13 +131,21 @@ pub mod test {
             eprintln!("timeout test end");
         })
     }
-
+    
     #[test]
-    #[should_panic]
+    #[should_panic] 
     fn test_test_timeout_timeout() {
         with_timeout(1, || {
             eprintln!("timeout panic test start...");
             sleep_ms(1000 * 1000);
+        })
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_test_timeout_panic() {
+        with_timeout(1000, || {
+            panic!("force a panic");
         })
     }
 }

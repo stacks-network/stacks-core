@@ -82,6 +82,8 @@ pub enum Error {
     NotFoundError,
     /// Data already exists
     ExistsError,
+    /// Data corresponds to a non-canonical PoX sortition
+    InvalidPoxSortition,
     /// Sqlite3 error
     SqliteError(sqlite_error),
     /// I/O error
@@ -105,6 +107,7 @@ impl fmt::Display for Error {
             Error::Overflow => write!(f, "Numeric overflow"),
             Error::NotFoundError => write!(f, "Not found"),
             Error::ExistsError => write!(f, "Already exists"),
+            Error::InvalidPoxSortition => write!(f, "Invalid PoX sortition"),
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
@@ -126,6 +129,7 @@ impl error::Error for Error {
             Error::Overflow => None,
             Error::NotFoundError => None,
             Error::ExistsError => None,
+            Error::InvalidPoxSortition => None,
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
             Error::IndexError(ref e) => Some(e),
