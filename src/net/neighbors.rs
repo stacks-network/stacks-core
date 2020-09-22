@@ -1583,7 +1583,7 @@ impl PeerNetwork {
                         Err(net_error::AlreadyConnected(event_id, handshake_nk)) => {
                             // already connected, but on a possibly-different address.
                             // use peer-announced neighbor address if available.
-                            debug!("{:?}: Already connected to {:?} on event {} (public address: {:?})", &network.local_peer, &my_addr, &event_id, &handshake_nk);
+                            debug!("{:?}: Already connected to {:?} on event {} (address: {:?})", &network.local_peer, &my_addr, &event_id, &handshake_nk);
                             network.walk_handshake(walk, &handshake_nk)
                                 .and_then(|handle| Ok(Some(handle)))?
                         },
@@ -1746,7 +1746,6 @@ impl PeerNetwork {
                                 }
                             }
                             Err(net_error::AlreadyConnected(_event_id, handshake_nk)) => {
-                                // make sure to handshake on the peer's preferred address if available
                                 // connected already -- just proceed to send handshake
                                 match network.walk_handshake(walk, &handshake_nk) {
                                     Ok(handle) => {
@@ -2269,8 +2268,8 @@ mod test {
     #[ignore]
     fn test_step_walk_1_neighbor_plain() {
         with_timeout(600, || {
-            let mut peer_1_config = TestPeerConfig::from_port(31990);
-            let peer_2_config = TestPeerConfig::from_port(31992);
+            let mut peer_1_config = TestPeerConfig::from_port(31890);
+            let peer_2_config = TestPeerConfig::from_port(31892);
 
             // peer 1 crawls peer 2, but not vice versa
             // (so only peer 1 will learn its public IP)
@@ -2283,7 +2282,7 @@ mod test {
             let mut walk_1_count = 0;
             let mut walk_2_count = 0;
             
-            while walk_1_count < 20 || walk_2_count < 20 || (!peer_1.network.public_ip_confirmed) {
+            while (walk_1_count < 20 || walk_2_count < 20) || (!peer_1.network.public_ip_confirmed) || peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).is_none() {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
 
@@ -2342,7 +2341,7 @@ mod test {
 
             // peer 1 learned and confirmed its public IP address from peer 2
             assert!(peer_1.network.local_peer.public_ip_address.is_some());
-            assert_eq!(peer_1.network.local_peer.public_ip_address.clone().unwrap(), (PeerAddress::from_socketaddr(&format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()), 31990)); 
+            assert_eq!(peer_1.network.local_peer.public_ip_address.clone().unwrap(), (PeerAddress::from_socketaddr(&format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()), 31890)); 
             assert!(peer_1.network.public_ip_learned);
             assert!(peer_1.network.public_ip_confirmed);
 
@@ -2372,8 +2371,10 @@ mod test {
             let mut i = 0;
             let mut walk_1_count = 0;
             let mut walk_2_count = 0;
+
+            let mut stats_1 = None;
             
-            while walk_1_count < 20 || walk_2_count < 20 {
+            while (walk_1_count < 20 || walk_2_count < 20) || stats_1.is_none() {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
 
@@ -2399,6 +2400,10 @@ mod test {
                     }
                     None => {}
                 };
+                
+                if let Some(s) = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr) {
+                    stats_1 = Some(s);
+                }
 
                 i += 1;
             }
@@ -2409,7 +2414,7 @@ mod test {
             peer_2.dump_frontier();
 
             // peer 1 contacted peer 2
-            let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
+            let stats_1 = stats_1.unwrap();
             assert!(stats_1.last_contact_time > 0);
             assert!(stats_1.last_handshake_time > 0);
             assert!(stats_1.last_send_time > 0);
@@ -2528,8 +2533,8 @@ mod test {
     #[ignore]
     fn test_step_walk_1_neighbor_heartbeat_ping() {
         with_timeout(600, || {
-            let mut peer_1_config = TestPeerConfig::from_port(31992);
-            let mut peer_2_config = TestPeerConfig::from_port(31994);
+            let mut peer_1_config = TestPeerConfig::from_port(32992);
+            let mut peer_2_config = TestPeerConfig::from_port(32994);
 
             peer_1_config.connection_opts.heartbeat = 10;
             peer_2_config.connection_opts.heartbeat = 10;
