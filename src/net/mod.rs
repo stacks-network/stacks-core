@@ -2476,8 +2476,21 @@ pub mod test {
         
             let (stacks_block, microblocks) = tenure_builder(&mut self.miner, &mut sortdb, &mut stacks_node.chainstate, proof, parent_block_opt.as_ref(), parent_microblock_header_opt.as_ref());
 
-            let block_commit_op = stacks_node.make_tenure_commitment(&mut sortdb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
+            let mut block_commit_op = stacks_node.make_tenure_commitment(&mut sortdb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
+
+            // patch in reward set info
+            match get_next_recipients(&last_sortition_block, &mut stacks_node.chainstate, &mut sortdb, &self.config.burnchain, &OnChainRewardSetProvider::new()) {
+                Ok(recipients) => {
+                    block_commit_op.commit_outs = match recipients {
+                        Some(info) => vec![info.recipient.0],
+                        None => vec![]
+                    };
+                }
+                Err(e) => {
+                    panic!("Failure fetching recipient set: {:?}", e);
+                }
+            };
 
             self.stacks_node = Some(stacks_node);
             self.sortdb = Some(sortdb);
