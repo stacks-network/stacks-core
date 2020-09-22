@@ -1654,8 +1654,6 @@ pub mod test {
     }
    
     fn get_blocks_inventory(peer: &mut TestPeer, start_height: u64, end_height: u64) -> BlocksInvData {
-        // assert!(peer.config.burnchain.pox_constants.reward_cycle_length % 8 == 0);
-
         let block_hashes = {
             let num_headers = end_height - start_height;
             let ic = peer.sortdb.as_mut().unwrap().index_conn();
@@ -1695,13 +1693,14 @@ pub mod test {
             peers.push(peer);
         }
 
-        let num_blocks = 10;
+        let mut num_blocks = 10;
         let first_stacks_block_height = {
             let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
         let block_data = block_generator(num_blocks, &mut peers);
+        num_blocks = block_data.len();
 
         let num_burn_blocks = {
             let sn = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
@@ -1778,14 +1777,18 @@ pub mod test {
                 for i in 0..num_peers {
                     for b in 0..num_blocks {
                         if !peer_invs[i].has_ith_block(((b as u64) + first_stacks_block_height - first_sortition_height) as u16) {
-                            test_debug!("Peer {} is missing block {}", i, (b as u64) + first_stacks_block_height - first_sortition_height);
-                            done = false;
+                            if block_data[b].1.is_some() {
+                                test_debug!("Peer {} is missing block {}", i, (b as u64) + first_stacks_block_height - first_sortition_height);
+                                done = false;
+                            }
                         }
                     }
                     for b in 0..(num_blocks - 1) {
                         if !peer_invs[i].has_ith_microblock_stream(((b as u64) + first_stacks_block_height - first_sortition_height) as u16) {
-                            test_debug!("Peer {} is missing microblock stream {}", i, (b as u64) + first_stacks_block_height - first_sortition_height);
-                            done = false;
+                            if block_data[b].2.is_some() {
+                                test_debug!("Peer {} is missing microblock stream {}", i, (b as u64) + first_stacks_block_height - first_sortition_height);
+                                done = false;
+                            }
                         }
                     }
                 }
