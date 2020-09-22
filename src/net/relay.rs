@@ -1591,10 +1591,21 @@ mod test {
                                                peer_configs[2].connection_opts.disable_chat_neighbors = true;
                                                peer_configs[2].connection_opts.disable_inv_sync = true;
 
+                                               // disable nat punches -- disconnect/reconnect
+                                               // clears inv state
+                                               peer_configs[0].connection_opts.disable_natpunch = true;
+                                               peer_configs[1].connection_opts.disable_natpunch = true;
+                                               peer_configs[2].connection_opts.disable_natpunch = true;
+
                                                // generous timeouts
                                                peer_configs[0].connection_opts.timeout = 180;
                                                peer_configs[1].connection_opts.timeout = 180;
                                                peer_configs[2].connection_opts.timeout = 180;
+                                               
+                                               // impatient
+                                               peer_configs[0].connection_opts.download_interval = 5;
+                                               peer_configs[1].connection_opts.download_interval = 5;
+                                               peer_configs[2].connection_opts.download_interval = 5;
 
                                                let peer_0 = peer_configs[0].to_neighbor();
                                                let peer_1 = peer_configs[1].to_neighbor();
@@ -1603,34 +1614,60 @@ mod test {
                                                peer_configs[0].add_neighbor(&peer_1);
                                                peer_configs[1].add_neighbor(&peer_0);
                                                
-                                               peer_configs[1].add_neighbor(&peer_2);
+                                               // peer_configs[1].add_neighbor(&peer_2);
                                                peer_configs[2].add_neighbor(&peer_1);
                                            },
                                            |num_blocks, ref mut peers| {
+                                               let tip = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               let this_reward_cycle = peers[0].config.burnchain.block_height_to_reward_cycle(tip.block_height).unwrap();
+                                               
                                                // build up block data to replicate
                                                let mut block_data = vec![];
                                                for _ in 0..num_blocks {
-                                                   let (burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
-                                                   peers[0].next_burnchain_block(burn_ops.clone());
-                                                   peers[1].next_burnchain_block(burn_ops.clone());
-                                                   peers[2].next_burnchain_block(burn_ops.clone());
+                                                   // only produce blocks for a single reward
+                                                   // cycle, since pushing block/microblock
+                                                   // announcements in reward cycles the remote
+                                                   // peer doesn't know about won't work.
+                                                   let tip = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                                   if peers[0].config.burnchain.block_height_to_reward_cycle(tip.block_height).unwrap() != this_reward_cycle {
+                                                       continue;
+                                                   }
 
+                                                   let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
+
+                                                   let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
                                                    peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                                                   TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                                                   for i in 1..peers.len() {
+                                                        peers[i].next_burnchain_block_raw(burn_ops.clone());
+                                                   }
 
                                                    let sn = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
                                                    block_data.push((sn.consensus_hash.clone(), Some(stacks_block), Some(microblocks)));
                                                }
+
+                                               assert_eq!(block_data.len(), 5);
+
                                                block_data
                                            },
                                            |ref mut peers| {
                                                // make sure peer 2's inv has an entry for peer 1, even
                                                // though it's not doing an inv sync
+                                               
+                                               let tip = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               let this_reward_cycle = peers[0].config.burnchain.block_height_to_reward_cycle(tip.block_height).unwrap();
+
                                                let peer_1_nk = peers[1].to_neighbor().addr;
                                                match peers[2].network.inv_state {
                                                    Some(ref mut inv_state) => {
                                                        if inv_state.get_stats(&peer_1_nk).is_none() {
                                                            test_debug!("initialize inv statistics for peer 1 in peer 2");
-                                                           inv_state.add_peer(peer_1_nk);
+                                                           inv_state.add_peer(peer_1_nk.clone());
+
+                                                           inv_state.get_stats_mut(&peer_1_nk).unwrap().inv.num_reward_cycles = this_reward_cycle;
+                                                           inv_state.get_stats_mut(&peer_1_nk).unwrap().inv.pox_inv = vec![0x3f];
                                                        }
                                                        else {
                                                            test_debug!("peer 2 has inv state for peer 1");
@@ -1756,6 +1793,11 @@ mod test {
                                                peer_configs[1].connection_opts.disable_inv_sync = true;
                                                peer_configs[1].connection_opts.disable_block_download = true;
                                                peer_configs[1].connection_opts.disable_block_advertisement = true;
+                                               
+                                               // disable nat punches -- disconnect/reconnect
+                                               // clears inv state
+                                               peer_configs[0].connection_opts.disable_natpunch = true;
+                                               peer_configs[1].connection_opts.disable_natpunch = true;
 
                                                let peer_0 = peer_configs[0].to_neighbor();
                                                let peer_1 = peer_configs[1].to_neighbor();
@@ -1764,9 +1806,16 @@ mod test {
                                                peer_configs[1].add_neighbor(&peer_0);
                                            },
                                            |num_blocks, ref mut peers| {
+                                               let tip = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               let this_reward_cycle = peers[0].config.burnchain.block_height_to_reward_cycle(tip.block_height).unwrap();
+                                               
                                                // build up block data to replicate
                                                let mut block_data = vec![];
                                                for _ in 0..num_blocks {
+                                                   let tip = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                                   if peers[0].config.burnchain.block_height_to_reward_cycle(tip.block_height).unwrap() != this_reward_cycle {
+                                                       continue;
+                                                   }
                                                    let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
 
                                                    let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
@@ -1955,7 +2004,12 @@ mod test {
 
                                                peer_configs[0].connection_opts.outbox_maxlen = 100;
                                                peer_configs[1].connection_opts.inbox_maxlen = 100;
-
+                                               
+                                               // disable nat punches -- disconnect/reconnect
+                                               // clears inv state
+                                               peer_configs[0].connection_opts.disable_natpunch = true;
+                                               peer_configs[1].connection_opts.disable_natpunch = true;
+                                               
                                                let initial_balances = vec![
                                                    (PrincipalData::from(peer_configs[0].spending_account.origin_address().unwrap()), 1000000),
                                                    (PrincipalData::from(peer_configs[1].spending_account.origin_address().unwrap()), 1000000)
@@ -1971,9 +2025,16 @@ mod test {
                                                peer_configs[1].add_neighbor(&peer_0);
                                            },
                                            |num_blocks, ref mut peers| {
+                                               let tip = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                               let this_reward_cycle = peers[0].config.burnchain.block_height_to_reward_cycle(tip.block_height).unwrap();
+
                                                // build up block data to replicate
                                                let mut block_data = vec![];
                                                for _ in 0..num_blocks {
+                                                   let tip = SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn()).unwrap();
+                                                   if peers[0].config.burnchain.block_height_to_reward_cycle(tip.block_height).unwrap() != this_reward_cycle {
+                                                       continue;
+                                                   }
                                                    let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
 
                                                    let (_, burn_header_hash, consensus_hash) = peers[0].next_burnchain_block(burn_ops.clone());
@@ -1992,18 +2053,6 @@ mod test {
                                                block_data
                                            },
                                            |ref mut peers| {
-                                               // don't do anything until the peers learn their public
-                                               // IP addresses
-                                               if peers[0].network.local_peer.public_ip_address.is_none() {
-                                                   test_debug!("Peer 0 doesn't know its public IP yet");
-                                                   return;
-                                               }
-                                               if peers[1].network.local_peer.public_ip_address.is_none() {
-                                                   test_debug!("Peer 1 doesn't know its public IP yet");
-                                                   return;
-
-                                               }
-                                               
                                                let peer_0_nk = peers[0].to_neighbor().addr;
                                                let peer_1_nk = peers[1].to_neighbor().addr;
 
@@ -2136,7 +2185,8 @@ mod test {
                                                *done_flag = true;
 
                                                let txs = MemPoolDB::get_all_txs(peers[1].mempool.as_ref().unwrap().conn()).unwrap();
-                                               txs.len() == 10
+                                               test_debug!("Peer 1 has {} txs", txs.len());
+                                               txs.len() == 5
                                            });
 
             // peer 1 should have all the transactions
