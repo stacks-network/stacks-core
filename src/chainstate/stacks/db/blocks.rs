@@ -2301,8 +2301,7 @@ impl StacksChainState {
         let mut block_tx = self.blocks_tx_begin()?;
 
         // does this block match the burnchain state? skip if not
-        let validation_res = StacksChainState::validate_anchored_block_burnchain(
-            &sort_handle, consensus_hash, block, mainnet, chain_id)?;
+        let validation_res = StacksChainState::validate_anchored_block_burnchain(&sort_handle, consensus_hash, block, mainnet, chain_id)?;
         let (commit_burn, sortition_burn) = match validation_res {
             Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
             None => { 
