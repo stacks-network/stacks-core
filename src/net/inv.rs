@@ -2184,8 +2184,8 @@ mod test {
             let sortdb = peer_1.sortdb.take().unwrap();
             match peer_1.network.inv_state {
                 Some(ref mut inv) => {
-                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
-                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height + 1));
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height + 1));
 
                     let sn = {
                         let ic = sortdb.index_conn();
@@ -2197,21 +2197,21 @@ mod test {
                     // non-existent consensus hash
                     let sh = inv.set_block_available(&burnchain, &nk, &sortdb, &ConsensusHash([0xfe; 20])).unwrap();
                     assert_eq!(None, sh);
-                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
-                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height + 1));
+                    assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height + 1));
                     
                     // existing consensus hash (mock num_reward_cycles)
                     inv.block_stats.get_mut(&nk).unwrap().inv.num_reward_cycles = 10;
                     let sh = inv.set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap();
 
-                    assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
-                    assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
+                    assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height + 1), sh);
+                    assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height + 1));
                     
                     // idempotent
                     let sh = inv.set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap();
 
-                    assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
-                    assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                    assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height + 1), sh);
+                    assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height + 1));
 
                     assert!(inv.set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap().is_none());
                     assert!(inv.set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap().is_none());
