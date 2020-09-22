@@ -1084,6 +1084,7 @@ impl PeerNetwork {
             // remove inventory state
             match self.inv_state {
                 Some(ref mut inv_state) => {
+                    debug!("{:?}: Remove inventory state for {:?}", &self.local_peer, &nk);
                     inv_state.del_peer(&nk);
                 },
                 None => {}
@@ -2097,10 +2098,10 @@ impl PeerNetwork {
             Some(ref mut inv) => {
                 let res = 
                     if microblocks {
-                        inv.set_microblocks_available(outbound_neighbor_key, sortdb, consensus_hash)
+                        inv.set_microblocks_available(&self.burnchain, outbound_neighbor_key, sortdb, consensus_hash)
                     }
                     else {
-                        inv.set_block_available(outbound_neighbor_key, sortdb, consensus_hash)
+                        inv.set_block_available(&self.burnchain, outbound_neighbor_key, sortdb, consensus_hash)
                     };
 
                 match res {
