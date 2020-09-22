@@ -967,6 +967,10 @@ impl InvState {
     pub fn get_stats(&self, nk: &NeighborKey) -> Option<&NeighborBlockStats> {
         self.block_stats.get(nk)
     }
+    
+    pub fn get_stats_mut(&mut self, nk: &NeighborKey) -> Option<&mut NeighborBlockStats> {
+        self.block_stats.get_mut(nk)
+    }
 
     pub fn add_peer(&mut self, nk: NeighborKey) -> () {
         self.block_stats.insert(nk.clone(), NeighborBlockStats::new(nk.clone(), self.first_block_height));
@@ -978,9 +982,10 @@ impl InvState {
 
     /// Set a block or confirmed microblock stream as available, given the burn header hash and consensus hash.
     /// Used when processing a BlocksAvailable or MicroblocksAvailable message.
+    /// Drops if the message refers to a block height
     /// Returns the optional block sortition height at which the block or confirmed microblock stream resides in the blockchain (returns
     /// None if its bit was already set).
-    fn set_data_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, microblocks: bool) -> Result<Option<u64>, net_error> {
+    fn set_data_available(&mut self, burnchain: &Burnchain, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash, microblocks: bool) -> Result<Option<u64>, net_error> {
         let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)? {
             Some(sn) => {
                 if !sn.pox_valid {
@@ -1007,21 +1012,36 @@ impl InvState {
 
         match self.block_stats.get_mut(neighbor_key) {
             Some(stats) => {
+                // can't set this if we haven't scanned this remote node's PoX inventory this high
+                let reward_cycle = match burnchain.block_height_to_reward_cycle(sn.block_height) {
+                    Some(rc) => rc,
+                    None => {
+                        info!("Block {} ({}) does not correspond to a reward cycle", sn.block_height, sn.consensus_hash);
+                        return Ok(None);
+                    }
+                };
+
+                if reward_cycle > stats.inv.num_reward_cycles {
+                    info!("Cannot set {} for {} available: it comes from reward cycle {}, but we have only scanned up to {}",
+                          if microblocks { "confirmed microblock stream" } else { "block" }, sn.consensus_hash, reward_cycle, stats.inv.num_reward_cycles);
+                    return Ok(None);
+                }
+
                 // NOTE: block heights are 1-indexed in the burn DB, since the 0th snapshot block is the
                 // genesis snapshot and doesn't correspond to anything (the 1st snapshot is block 0)
                 let set = 
                     if microblocks {
-                        debug!("Neighbor {:?} now has confirmed microblock stream at {} ({})", neighbor_key, sn.block_height - 1, consensus_hash);
-                        stats.inv.set_microblocks_bit(sn.block_height - 1)
+                        debug!("Neighbor {:?} now has confirmed microblock stream at {} ({})", neighbor_key, sn.block_height, consensus_hash);
+                        stats.inv.set_microblocks_bit(sn.block_height)
                     }
                     else {
-                        debug!("Neighbor {:?} now has block at {} ({})", neighbor_key, sn.block_height - 1, consensus_hash);
-                        stats.inv.set_block_bit(sn.block_height - 1)
+                        debug!("Neighbor {:?} now has block at {} ({})", neighbor_key, sn.block_height, consensus_hash);
+                        stats.inv.set_block_bit(sn.block_height)
                     };
 
                 debug!("Neighbor {:?} stats: {:?}", neighbor_key, stats);
                 if set {
-                    let block_sortition_height = sn.block_height - 1 - sortdb.first_block_height;
+                    let block_sortition_height = sn.block_height - sortdb.first_block_height;
                     Ok(Some(block_sortition_height))
                 }
                 else {
@@ -1035,12 +1055,12 @@ impl InvState {
         }
     }
     
-    pub fn set_block_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash) -> Result<Option<u64>, net_error> {
-        self.set_data_available(neighbor_key, sortdb, consensus_hash, false)
+    pub fn set_block_available(&mut self, burnchain: &Burnchain, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash) -> Result<Option<u64>, net_error> {
+        self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, false)
     }
 
-    pub fn set_microblocks_available(&mut self, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash) -> Result<Option<u64>, net_error> {
-        self.set_data_available(neighbor_key, sortdb, consensus_hash, true)
+    pub fn set_microblocks_available(&mut self, burnchain: &Burnchain, neighbor_key: &NeighborKey, sortdb: &SortitionDB, consensus_hash: &ConsensusHash) -> Result<Option<u64>, net_error> {
+        self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, true)
     }
 
     /// Invalidate all block inventories at and after a given reward cycle
@@ -2110,6 +2130,8 @@ mod test {
         peer_1_config.burnchain.first_block_height = 5;
         peer_2_config.burnchain.first_block_height = 5;
 
+        let burnchain = peer_1_config.burnchain.clone();
+
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
@@ -2173,25 +2195,34 @@ mod test {
                     };
                    
                     // non-existent consensus hash
-                    let sh = inv.set_block_available(&nk, &sortdb, &ConsensusHash([0xfe; 20])).unwrap();
+                    let sh = inv.set_block_available(&burnchain, &nk, &sortdb, &ConsensusHash([0xfe; 20])).unwrap();
                     assert_eq!(None, sh);
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     assert!(!inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
                     
-                    // existing consensus hash
-                    let sh = inv.set_block_available(&nk, &sortdb, &sn.consensus_hash).unwrap();
+                    // existing consensus hash (mock num_reward_cycles)
+                    inv.block_stats.get_mut(&nk).unwrap().inv.num_reward_cycles = 10;
+                    let sh = inv.set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap();
 
                     assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
                     assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_block(i + first_stacks_block_height));
                     
                     // idempotent
-                    let sh = inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash).unwrap();
+                    let sh = inv.set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap();
 
                     assert_eq!(Some(i + first_stacks_block_height - sortdb.first_block_height), sh);
                     assert!(inv.block_stats.get(&nk).unwrap().inv.has_ith_microblock_stream(i + first_stacks_block_height));
 
-                    assert!(inv.set_block_available(&nk, &sortdb, &sn.consensus_hash).unwrap().is_none());
-                    assert!(inv.set_microblocks_available(&nk, &sortdb, &sn.consensus_hash).unwrap().is_none());
+                    assert!(inv.set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap().is_none());
+                    assert!(inv.set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap().is_none());
+                   
+                    // existing consensus hash, but too far ahead (mock)
+                    inv.block_stats.get_mut(&nk).unwrap().inv.num_reward_cycles = 0;
+                    let sh = inv.set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap();
+                    assert!(sh.is_none());
+                    
+                    let sh = inv.set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash).unwrap();
+                    assert!(sh.is_none());
                 },
                 None => {
                     panic!("No inv state");
