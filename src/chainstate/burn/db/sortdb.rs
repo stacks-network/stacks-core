@@ -1698,7 +1698,7 @@ impl <'a> SortitionDBConn <'a> {
                     None
                 };
 
-            debug!("CACHE MISS {}", &ancestor_consensus_hash);
+            debug!("CACHE MISS {} (height {})", &ancestor_consensus_hash, ancestor_snapshot.block_height);
 
             ret.push((ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
 
