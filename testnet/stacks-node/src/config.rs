@@ -134,7 +134,7 @@ impl ConfigFile {
             mode: Some("krypton".to_string()),
             rpc_port: Some(18443),
             peer_port: Some(18444),
-            peer_host: Some("krypton.blockstack.org".to_string()),
+            peer_host: Some("bitcoind.krypton.blockstack.org".to_string()),
             process_exit_at_block_height: Some(5130), // 1 block every 2m, 24 hours * 7 + 300 blocks initially mined for seeding faucet / miner
             ..BurnchainConfigFile::default()
         };

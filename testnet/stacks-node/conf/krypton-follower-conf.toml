@@ -6,7 +6,7 @@ bootstrap_node = "048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d
 [burnchain]
 chain = "bitcoin"
 mode = "krypton"
-peer_host = "krypton.blockstack.org"
+peer_host = "bitcoind.krypton.blockstack.org"
 rpc_port = 18443
 peer_port = 18444
 process_exit_at_block_height = 5130
