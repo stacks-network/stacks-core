@@ -1165,15 +1165,15 @@ pub mod test {
                     assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                     // two reward addresses, and they're Alice's and Bob's.
-                    // They are present in insertion order
+                    // They are present in sorted order
                     assert_eq!(reward_addrs.len(), 2);
-                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
-                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
-                    assert_eq!(reward_addrs[0].1, 1024 * 1000000);
-                    
                     assert_eq!((reward_addrs[1].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
-                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&bob).bytes);
-                    assert_eq!(reward_addrs[1].1, (4 * 1024 * 1000000) / 5);
+                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!(reward_addrs[1].1, 1024 * 1000000);
+                    
+                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&bob).bytes);
+                    assert_eq!(reward_addrs[0].1, (4 * 1024 * 1000000) / 5);
                 }
                 else {
                     // no reward addresses
@@ -1633,15 +1633,15 @@ pub mod test {
                     assert_eq!(first_reward_cycle, first_pox_reward_cycle);
                     assert_eq!(lock_period, 1);
 
-                    // two reward address, and it's Alice's and Charlie's
+                    // two reward address, and it's Alice's and Charlie's in sorted order
                     assert_eq!(reward_addrs.len(), 2);
-                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
-                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
-                    assert_eq!(reward_addrs[0].1, 1024 * 1000000);
-                    
                     assert_eq!((reward_addrs[1].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
-                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&charlie).bytes);
+                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
                     assert_eq!(reward_addrs[1].1, 1024 * 1000000);
+                    
+                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&charlie).bytes);
+                    assert_eq!(reward_addrs[0].1, 1024 * 1000000);
                
                     // All of Alice's and Charlie's tokens are locked
                     assert_eq!(alice_balance, 0);
@@ -1711,13 +1711,13 @@ pub mod test {
                     // one reward address, and it's Alice's
                     // either way, there's a single reward address
                     assert_eq!(reward_addrs.len(), 2);
-                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
-                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
-                    assert_eq!(reward_addrs[0].1, 512 * 1000000);
-
                     assert_eq!((reward_addrs[1].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
-                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&charlie).bytes);
+                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
                     assert_eq!(reward_addrs[1].1, 512 * 1000000);
+
+                    assert_eq!((reward_addrs[0].0).version, AddressHashMode::SerializeP2PKH.to_version_testnet());
+                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&charlie).bytes);
+                    assert_eq!(reward_addrs[0].1, 512 * 1000000);
                
                     // Half of Alice's tokens are locked
                     assert_eq!(alice_balance, 512 * 1000000);
@@ -1971,11 +1971,16 @@ pub mod test {
                     // in reward cycle
                     assert_eq!(reward_addrs.len(), expected_pox_addrs.len());
 
+                    // in sorted order
+                    let mut sorted_expected_pox_info: Vec<_> = expected_pox_addrs.iter().zip(balances_stacked.iter())
+                        .collect();
+                    sorted_expected_pox_info.sort_by_key(|(pox_addr, _)| (pox_addr.1).0);
+
                     // in stacker order
-                    for ((i, pox_addr), expected_stacked) in expected_pox_addrs.iter().enumerate().zip(balances_stacked.iter()) {
+                    for (i, (pox_addr, expected_stacked)) in sorted_expected_pox_info.iter().enumerate() {
                         assert_eq!((reward_addrs[i].0).version, pox_addr.0);
                         assert_eq!((reward_addrs[i].0).bytes, pox_addr.1);
-                        assert_eq!(reward_addrs[i].1, *expected_stacked);
+                        assert_eq!(reward_addrs[i].1, **expected_stacked);
                     }
 
                     // all stackers are present
