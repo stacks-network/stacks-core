@@ -64,7 +64,7 @@ pub struct AssetMap {
 
 #[derive(Debug, Clone)]
 pub struct EventBatch {
-    events: Vec<StacksTransactionEvent>,        
+    pub events: Vec<StacksTransactionEvent>,        
 }
 
 /** GlobalContext represents the outermost context for a single transaction's
@@ -644,7 +644,7 @@ impl <'a,'b> Environment <'a,'b> {
             match res {
                 Ok(value) => {
                     let sender_principal = self.sender.clone().map(|v| v.expect_principal());
-                    handle_contract_call_special_cases(&mut self.global_context.database, sender_principal.as_ref(), contract_identifier, tx_name, &value)?;
+                    handle_contract_call_special_cases(&mut self.global_context, sender_principal.as_ref(), contract_identifier, tx_name, &value)?;
                     Ok(value)
                 },
                 Err(e) => Err(e)
