@@ -2095,7 +2095,8 @@ pub mod test {
     #[test]
     #[ignore]
     pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
-        with_timeout(600, || {
+        // this one can go for a while
+        with_timeout(1200, || {
             run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed_sockets", 3240, 5,
                                            |ref mut peer_configs| {
                                                // build initial network topology -- a star with
