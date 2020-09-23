@@ -107,6 +107,7 @@ use std::collections::HashMap;
 
 use core::FIRST_STACKS_BLOCK_HASH;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use core::FIRST_BURNCHAIN_BLOCK_HASH;
 
 use vm::types::Value;
 use vm::representations::{ContractName, ClarityName};
@@ -617,7 +618,7 @@ impl db_keys {
 
     /// MARF index key for the highest arrival index processed in a fork
     pub fn stacks_block_max_arrival_index() -> String {
-        "sortdb::stacks::block::max_arrival_index".to_string()
+        "sortition_db::stacks::block::max_arrival_index".to_string()
     }
 
     pub fn reward_set_size_to_string(size: usize) -> String {
@@ -1063,8 +1064,14 @@ impl <'a> SortitionHandleTx <'a> {
 impl <'a> SortitionHandleConn <'a> {
     /// open a reader handle from a consensus hash
     pub fn open_reader_consensus(connection: &'a SortitionDBConn<'a>, chain_tip: &ConsensusHash) -> Result<SortitionHandleConn<'a>, db_error> {
-        let sn = match SortitionDB::get_block_snapshot_consensus(connection.conn(), chain_tip)? {
-            Some(sn) => sn,
+        let sn = match SortitionDB::get_block_snapshot_consensus(&connection.conn(), chain_tip)? {
+            Some(sn) => {
+                if !sn.pox_valid {
+                    warn!("No such chain tip consensus hash {}: not on a valid PoX fork", chain_tip);
+                    return Err(db_error::InvalidPoxSortition)
+                }
+                sn
+            },
             None => {
                 test_debug!("No such chain tip consensus hash {}", chain_tip);
                 return Err(db_error::NotFoundError);
@@ -1288,12 +1295,14 @@ impl <'a> SortitionHandleConn <'a> {
 
         // if this block is the _end_ of a prepare phase,
         if ! (my_height % pox_consts.reward_cycle_length == 0) {
+            test_debug!("My height = {}, reward cycle length == {}", my_height, pox_consts.reward_cycle_length);
             return Err(CoordinatorError::NotPrepareEndBlock)
         }
 
         let prepare_end = my_height;
         // if this block isn't greater than prepare_length, then this shouldn't be the end of a prepare block
         if prepare_end < pox_consts.prepare_length {
+            test_debug!("prepare_end = {}, pox_consts.prepare_length = {}", prepare_end, pox_consts.prepare_length);
             return Err(CoordinatorError::NotPrepareEndBlock)
         }
 
@@ -1357,6 +1366,10 @@ impl PoxId {
         PoxId(vec![true])
     }
 
+    pub fn from_bools(bools: Vec<bool>) -> PoxId {
+        PoxId(bools)
+    }
+
     pub fn extend_with_present_block(&mut self) {
         self.0.push(true);
     }
@@ -1366,6 +1379,40 @@ impl PoxId {
 
     pub fn stubbed() -> PoxId {
         PoxId(vec![])
+    }
+
+    pub fn has_ith_anchor_block(&self, i: usize) -> bool {
+        if i >= self.0.len() {
+            false
+        }
+        else {
+            self.0[i]
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn bit_slice(&self, start: usize, len: usize) -> (Vec<u8>, u64) {
+        let mut ret = vec![0x00];
+        let mut count = 0;
+        for bit in start..(start+len) {
+            if bit >= self.len() {
+                break;
+            }
+            let i = bit - start;
+            if i > 0 && i % 8 == 0 {
+                ret.push(0x00);
+            }
+
+            let sz = ret.len() - 1;
+            if self.0[bit] {
+                ret[sz] |= 1 << (i % 8);
+            }
+            count += 1;
+        }
+        (ret, count)
     }
 }
 
@@ -1605,10 +1652,15 @@ impl <'a> SortitionDBConn <'a> {
     /// Returns up to num_headers prior block header hashes.
     /// The list of hashes will be in ascending order -- the lowest-height block is item 0.
     /// The last hash will be the hash for the given consensus hash.
-    pub fn get_stacks_header_hashes(&self, num_headers: u64, tip_consensus_hash: &ConsensusHash, cache: Option<&BlockHeaderCache>) -> Result<Vec<(ConsensusHash, Option<BlockHeaderHash>)>, db_error> {
+    pub fn get_stacks_header_hashes(&self, num_headers: u64, tip_consensus_hash: &ConsensusHash, cache: &BlockHeaderCache) -> Result<Vec<(ConsensusHash, Option<BlockHeaderHash>)>, db_error> {
         let mut ret = vec![];
         let tip_snapshot = SortitionDB::get_block_snapshot_consensus(self, tip_consensus_hash)?
             .ok_or_else(|| db_error::NotFoundError)?;
+
+        if !tip_snapshot.pox_valid {
+            warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", tip_consensus_hash);
+            return Err(db_error::InvalidPoxSortition);
+        }
 
         assert!(tip_snapshot.block_height >= self.context.first_block_height, "DB corruption: have snapshot with a smaller block height than the first block height");
 
@@ -1625,18 +1677,19 @@ impl <'a> SortitionDBConn <'a> {
         let mut ancestor_consensus_hash = tip_snapshot.consensus_hash;
 
         for _i in 0..headers_count {
-            if let Some(ref cached) = cache {
-                if let Some((header_hash_opt, prev_consensus_hash)) = cached.get(&ancestor_consensus_hash) {
-                    // cache hit
-                    ret.push((ancestor_consensus_hash, header_hash_opt.clone()));
-                    ancestor_consensus_hash = prev_consensus_hash.clone();
-                    continue;
-                }
+            if let Some((header_hash_opt, prev_consensus_hash)) = cache.get(&ancestor_consensus_hash) {
+                // cache hit
+                ret.push((ancestor_consensus_hash, header_hash_opt.clone()));
+                ancestor_consensus_hash = prev_consensus_hash.clone();
+                continue;
             }
 
             // cache miss
             let ancestor_snapshot = SortitionDB::get_block_snapshot_consensus(db_handle.conn(), &ancestor_consensus_hash)?
                 .expect(&format!("Discontiguous index: missing block for consensus hash {}", ancestor_consensus_hash));
+
+            assert!(ancestor_snapshot.pox_valid, "BUG: ancestor is not on the valid PoX fork");
+
             let header_hash_opt = 
                 if ancestor_snapshot.sortition {
                     Some(ancestor_snapshot.winning_stacks_block_hash.clone())
@@ -1645,7 +1698,7 @@ impl <'a> SortitionDBConn <'a> {
                     None
                 };
 
-            debug!("CACHE MISS {}", &ancestor_consensus_hash);
+            debug!("CACHE MISS {} (height {})", &ancestor_consensus_hash, ancestor_snapshot.block_height);
 
             ret.push((ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
 
@@ -1687,7 +1740,7 @@ impl <'a> SortitionDBConn <'a> {
                 db_error::Corruption
             })?;
 
-        // get all consensus hashes between the chain tip, and the stable height back
+        // get all burn block hashes between the chain tip, and the stable height back
         // MAX_NEIGHBOR_BLOCK_DELAY
         let oldest_height = 
             if stable_snapshot.block_height < MAX_NEIGHBOR_BLOCK_DELAY {
@@ -1697,20 +1750,21 @@ impl <'a> SortitionDBConn <'a> {
                 stable_snapshot.block_height - MAX_NEIGHBOR_BLOCK_DELAY
             };
 
-        let mut last_consensus_hashes = HashMap::new();
+        let mut last_burn_block_hashes = HashMap::new();
         for height in oldest_height..chain_tip.block_height {
-            let ch = db_handle.get_consensus_at(height)?
-                .unwrap_or(ConsensusHash::empty());
-            last_consensus_hashes.insert(height, ch);
+            let ancestor_hash = SortitionDB::get_ancestor_snapshot(&self, height as u64, &chain_tip.sortition_id)?
+                .map(|sn| sn.burn_header_hash)
+                .unwrap_or(FIRST_BURNCHAIN_BLOCK_HASH.clone());
+            last_burn_block_hashes.insert(height, ancestor_hash);
         }
 
-        test_debug!("Chain view: {},{}-{},{}", chain_tip.block_height, chain_tip.consensus_hash, stable_block_height, stable_snapshot.consensus_hash);
+        test_debug!("Chain view: {},{}-{},{}", chain_tip.block_height, chain_tip.burn_header_hash, stable_block_height, stable_snapshot.burn_header_hash);
         Ok(BurnchainView {
             burn_block_height: chain_tip.block_height, 
-            burn_consensus_hash: chain_tip.consensus_hash,
+            burn_block_hash: chain_tip.burn_header_hash,
             burn_stable_block_height: stable_block_height,
-            burn_stable_consensus_hash: stable_snapshot.consensus_hash,
-            last_consensus_hashes: last_consensus_hashes
+            burn_stable_block_hash: stable_snapshot.burn_header_hash,
+            last_burn_block_hashes: last_burn_block_hashes
         })
     }
 
@@ -1983,6 +2037,7 @@ impl SortitionDB {
     }
 
     /// Get a snapshot for an existing burn chain block given its consensus hash.
+    /// The snapshot may not be valid.
     pub fn get_block_snapshot_consensus(conn: &Connection, consensus_hash: &ConsensusHash) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE consensus_hash = ?1";
         let args = [&consensus_hash];
@@ -2001,6 +2056,7 @@ impl SortitionDB {
     }
 
     /// Get a snapshot for an processed sortition.
+    /// The snapshot may not be valid
     pub fn get_block_snapshot(conn: &Connection, sortition_id: &SortitionId) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE sortition_id = ?1";
         let args = [&sortition_id];
@@ -2149,11 +2205,8 @@ impl SortitionDB {
             }
         };
 
-        // PoX TODO: note -- leader_keys table will index on burn_header_hash: if a leader key is reprocessed due to a PoX fork,
-        //                   it should be allowed to either overwrite the previous entry OR skip insertion (i.e., UNIQUE constraints
-        //                   should not be allowed to cause a panic)
-        let qry = "SELECT * FROM leader_keys WHERE burn_header_hash = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
-        let args : &[&dyn ToSql] = &[&ancestor_snapshot.burn_header_hash, &u64_to_sql(key_block_height)?, &key_vtxindex];
+        let qry = "SELECT * FROM leader_keys WHERE sortition_id = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
+        let args : &[&dyn ToSql] = &[&ancestor_snapshot.sortition_id, &u64_to_sql(key_block_height)?, &key_vtxindex];
         query_row_panic(ic, qry, args,
                         || format!("Multiple keys at {},{} in {}", key_block_height, key_vtxindex, tip))
     }
@@ -2161,7 +2214,13 @@ impl SortitionDB {
     /// Get a block commit by its committed block
     pub fn get_block_commit_for_stacks_block(conn: &Connection, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let sortition_id = match SortitionDB::get_block_snapshot_consensus(conn, consensus_hash)? {
-            Some(sn) => sn.sortition_id,
+            Some(sn) => {
+                if !sn.pox_valid {
+                    warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", consensus_hash);
+                    return Err(db_error::InvalidPoxSortition);
+                }
+                sn.sortition_id
+            }
             None => {
                 return Ok(None);
             }
@@ -3638,7 +3697,7 @@ mod tests {
 
         {
             let ic = db.index_conn();
-            let hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            let hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, &cache).unwrap();
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
             assert_eq!(hashes.len(), 256);
@@ -3663,10 +3722,10 @@ mod tests {
 
         {
             let ic = db.index_conn();
-            let hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, None).unwrap();
+            let hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, &mut BlockHeaderCache::new()).unwrap();
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
-            let cached_hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            let cached_hashes = ic.get_stacks_header_hashes(256, &canonical_tip.consensus_hash, &cache).unwrap();
 
             assert_eq!(hashes.len(), 256);
             assert_eq!(cached_hashes.len(), 256);
@@ -3692,10 +3751,10 @@ mod tests {
 
         {
             let ic = db.index_conn();
-            let hashes = ic.get_stacks_header_hashes(192, &canonical_tip.consensus_hash, None).unwrap();
+            let hashes = ic.get_stacks_header_hashes(192, &canonical_tip.consensus_hash, &mut BlockHeaderCache::new()).unwrap();
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
-            let cached_hashes = ic.get_stacks_header_hashes(192, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            let cached_hashes = ic.get_stacks_header_hashes(192, &canonical_tip.consensus_hash, &cache).unwrap();
 
             assert_eq!(hashes.len(), 192);
             assert_eq!(cached_hashes.len(), 192);
@@ -3719,10 +3778,10 @@ mod tests {
         
         {
             let ic = db.index_conn();
-            let hashes = ic.get_stacks_header_hashes(257, &canonical_tip.consensus_hash, None).unwrap();
+            let hashes = ic.get_stacks_header_hashes(257, &canonical_tip.consensus_hash, &mut BlockHeaderCache::new()).unwrap();
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
-            let cached_hashes = ic.get_stacks_header_hashes(257, &canonical_tip.consensus_hash, Some(&cache)).unwrap();
+            let cached_hashes = ic.get_stacks_header_hashes(257, &canonical_tip.consensus_hash, &cache).unwrap();
 
             assert_eq!(hashes.len(), 256);
             assert_eq!(cached_hashes.len(), 256);
@@ -3748,7 +3807,7 @@ mod tests {
         
         {
             let ic = db.index_conn();
-            let err = ic.get_stacks_header_hashes(256, &ConsensusHash([0x03; 20]), None).unwrap_err();
+            let err = ic.get_stacks_header_hashes(256, &ConsensusHash([0x03; 20]), &BlockHeaderCache::new()).unwrap_err();
             match err {
                 db_error::NotFoundError => {},
                 _ => {
@@ -3758,7 +3817,7 @@ mod tests {
                 }
             }
             
-            let err = ic.get_stacks_header_hashes(256, &ConsensusHash([0x03; 20]), Some(&cache)).unwrap_err();
+            let err = ic.get_stacks_header_hashes(256, &ConsensusHash([0x03; 20]), &cache).unwrap_err();
             match err {
                 db_error::NotFoundError => {},
                 _ => {

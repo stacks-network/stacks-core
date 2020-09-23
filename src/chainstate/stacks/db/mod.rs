@@ -128,7 +128,6 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String,       // path to clarity MARF
     pub clarity_state_index_root: String,       // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    cached_header_hashes: BlockHeaderCache,
     cached_miner_payments: MinerPaymentCache,
     pub block_limit: ExecutionCost,
     pub unconfirmed_state: Option<UnconfirmedState>,
@@ -761,7 +760,6 @@ impl StacksChainState {
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
-            cached_header_hashes: BlockHeaderCache::new(),
             cached_miner_payments: MinerPaymentCache::new(),
             block_limit: block_limit,
             unconfirmed_state: None
@@ -782,16 +780,6 @@ impl StacksChainState {
         }
     }
 
-    /// Get stacks header hashes cache reference
-    pub fn get_block_header_cache(&self) -> &BlockHeaderCache {
-        &self.cached_header_hashes
-    }
-
-    /// Get mutable stacks header hashes cache reference
-    pub fn borrow_block_header_cache(&mut self) -> &mut BlockHeaderCache {
-        &mut self.cached_header_hashes
-    }
-    
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     pub fn headers_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
         Ok(StacksDBTx::new(&mut self.headers_state_index, ()))

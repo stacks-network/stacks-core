@@ -107,20 +107,20 @@ impl StacksChainState {
     /// reward cycle
     #[cfg(test)]
     pub fn get_stacking_minimum(&mut self, sortdb: &SortitionDB, stacks_block_id: &StacksBlockId) -> Result<u128, Error> {
-        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(at-block 0x{} (get-stacking-minimum))", &stacks_block_id))
+        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(get-stacking-minimum)"))
             .map(|value| value.expect_u128())
     }
     
     /// Determine how many uSTX are stacked in a given reward cycle
     #[cfg(test)]
     pub fn get_total_ustx_stacked(&mut self, sortdb: &SortitionDB, stacks_block_id: &StacksBlockId, reward_cycle: u128) -> Result<u128, Error> {
-        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(at-block 0x{} (get-total-ustx-stacked u{}))", &stacks_block_id, reward_cycle))
+        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(get-total-ustx-stacked u{})", reward_cycle))
             .map(|value| value.expect_u128())
     }
 
     /// Is PoX active in the given reward cycle?
     pub fn is_pox_active(&mut self, sortdb: &SortitionDB, stacks_block_id: &StacksBlockId, reward_cycle: u128) -> Result<bool, Error> {
-        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(at-block 0x{} (is-pox-active u{}))", &stacks_block_id, reward_cycle))
+        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", &format!("(is-pox-active u{})", reward_cycle))
             .map(|value| value.expect_bool())
     }
 
@@ -207,7 +207,7 @@ pub mod test {
         StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(key)]).unwrap()
     }
     
-    fn instantiate_pox_peer(burnchain: &Burnchain, test_name: &str, port: u16) -> (TestPeer, Vec<StacksPrivateKey>) {
+    fn instantiate_pox_peer<'a>(burnchain: &Burnchain, test_name: &str, port: u16) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
         peer_config.burnchain = burnchain.clone();
         peer_config.setup_code = format!("(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
@@ -633,8 +633,6 @@ pub mod test {
                 ];
 
                 if tenure_id == 1 {
-                    // Alice locks up exactly 12.5% of the liquid STX supply, twice.
-                    // Only the first one succeeds.
                     let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1);
                     block_txs.push(alice_lockup_1);
                 }
@@ -646,6 +644,7 @@ pub mod test {
                     block_txs.push(alice_test_tx);   
                 }
                 if tenure_id == 8 {
+                    // alice locks 512_000_000 STX through her contract
                     let auth = TransactionAuth::from_p2pkh(&alice).unwrap();
                     let addr = auth.origin().address_testnet();
                     let mut contract_call = StacksTransaction::new(TransactionVersion::Testnet, auth,
@@ -670,20 +669,28 @@ pub mod test {
                 (anchored_block, vec![])
             });
 
-            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+            peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-
+            // before/after alice's tokens lock
             if tenure_id == 0 {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 1024 * 1000000);
             }
+            else if tenure_id == 1 {
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+                assert_eq!(alice_balance, 512 * 1000000);
+            }
+            // before/after alice's tokens unlock
             else if tenure_id == 4 {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 512 * 1000000);
             }
+            else if tenure_id == 5 {
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+                assert_eq!(alice_balance, 1024 * 1000000);
+            }
+            // before/after contract lockup
             else if tenure_id == 7 {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 1024 * 1000000);
@@ -692,7 +699,12 @@ pub mod test {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 512 * 1000000);
             }
+            // before/after contract-locked tokens unlock
             else if tenure_id == 13 {
+                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+                assert_eq!(alice_balance, 512 * 1000000);
+            }
+            else if tenure_id == 14 {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 1024 * 1000000);
             }
@@ -788,7 +800,7 @@ pub mod test {
                 (anchored_block, vec![])
             });
 
-            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
@@ -1440,7 +1452,7 @@ pub mod test {
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-pox-lockup-unlock-relock", 6014);
 
-        let num_blocks = 20;
+        let num_blocks = 25;
 
         let alice = keys.pop().unwrap();
         let bob = keys.pop().unwrap();

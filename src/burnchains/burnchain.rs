@@ -358,6 +358,19 @@ impl Burnchain {
         }
     }
 
+    pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
+        // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
+        // mod 0.
+        self.first_block_height + reward_cycle * (self.pox_constants.reward_cycle_length as u64) + 1
+    }
+
+    pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {
+        if block_height < self.first_block_height {
+            return None;
+        }
+        Some((block_height - self.first_block_height) / (self.pox_constants.reward_cycle_length as u64))
+    }
+
     #[cfg(test)]
     pub fn default_unittest(first_block_height: u64, first_block_hash: &BurnchainHeaderHash) -> Burnchain {
         let mut ret = Burnchain::new(&"/unit-tests".to_string(), &"bitcoin".to_string(), &"mainnet".to_string()).unwrap();

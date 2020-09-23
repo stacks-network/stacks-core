@@ -149,7 +149,7 @@ pub fn setup_states(paths: &[&str], vrf_keys: &[VRFPrivateKey], committers: &[St
 
     for path in paths.iter() {
         let chain_state_db = StacksChainState::open_and_exec(
-            false, 0xdeadbeef, &format!("{}/chainstate/", path),
+            false, 0x80000000, &format!("{}/chainstate/", path),
             initial_balances.clone(), |_| {}, block_limit.clone())
             .unwrap();
     }
@@ -181,29 +181,33 @@ fn make_reward_set_coordinator<'a>(path: &str, addrs: Vec<StacksAddress>) -> Cha
     ChainsCoordinator::test_new(&get_burnchain(path), path, StubbedRewardSetProvider(addrs))
 }
 
-fn get_burnchain(path: &str) -> Burnchain {
+pub fn get_burnchain(path: &str) -> Burnchain {
     let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
     b.pox_constants = PoxConstants::new(5, 3, 3, 25);
     b
 }
 
-fn get_sortition_db(path: &str) -> SortitionDB {
+pub fn get_sortition_db(path: &str) -> SortitionDB {
     let burnchain = get_burnchain(path);
     SortitionDB::open(&burnchain.get_db_path(), false).unwrap()
 }
 
-fn get_rw_sortdb(path: &str) -> SortitionDB {
+pub fn get_rw_sortdb(path: &str) -> SortitionDB {
     let burnchain = get_burnchain(path);
     SortitionDB::open(&burnchain.get_db_path(), true).unwrap()
 }
 
-fn get_burnchain_db(path: &str) -> BurnchainDB {
+pub fn get_burnchain_db(path: &str) -> BurnchainDB {
     let burnchain = get_burnchain(path);
     BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap()
 }
 
-fn get_chainstate(path: &str) -> StacksChainState {
-    StacksChainState::open(false, 0xdeadbeef, &format!("{}/chainstate/", path)).unwrap()
+pub fn get_chainstate_path(path: &str) -> String {
+    format!("{}/chainstate/", path)
+}
+
+pub fn get_chainstate(path: &str) -> StacksChainState {
+    StacksChainState::open(false, 0x80000000, &get_chainstate_path(path)).unwrap()
 }
 
 fn make_genesis_block(sort_db: &SortitionDB, state: &mut StacksChainState,
@@ -226,7 +230,7 @@ fn make_genesis_block_with_recipients(sort_db: &SortitionDB, state: &mut StacksC
         TransactionVersion::Testnet, 
         tx_auth,
         TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
-    tx.chain_id = 0xdeadbeef;
+    tx.chain_id = 0x80000000;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
     let mut tx_signer = StacksTransactionSigner::new(&tx);
     tx_signer.sign_origin(miner).unwrap();
@@ -302,7 +306,7 @@ fn make_stacks_block_with_recipients(sort_db: &SortitionDB, state: &mut StacksCh
         TransactionVersion::Testnet, 
         tx_auth,
         TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
-    tx.chain_id = 0xdeadbeef;
+    tx.chain_id = 0x80000000;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
     let mut tx_signer = StacksTransactionSigner::new(&tx);
     tx_signer.sign_origin(miner).unwrap();

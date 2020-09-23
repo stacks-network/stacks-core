@@ -68,7 +68,6 @@ use util::retry::BoundReader;
 use chainstate::burn::db::sortdb::*;
 
 use net::MAX_MESSAGE_LEN;
-use net::BLOCKS_INV_DATA_MAX_BITLEN;
 use net::BlocksInvData;
 use net::Error as net_error;
 
@@ -625,14 +624,14 @@ impl StacksChainState {
     /// Have we processed and stored a particular block?
     pub fn has_stored_block(blocks_db: &DBConn, blocks_dir: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
         let staging_status = StacksChainState::has_staging_block(blocks_db, consensus_hash, block_hash)?;
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         if staging_status {
             // not committed yet 
-            test_debug!("Block {}/{} is staging", consensus_hash, block_hash);
+            test_debug!("Block {}/{} ({}) is staging", consensus_hash, block_hash, &index_block_hash);
             return Ok(false);
         }
 
         // only accepted if we stored it
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         StacksChainState::has_block_indexed(blocks_dir, &index_block_hash)
     }
 
@@ -1380,12 +1379,8 @@ impl StacksChainState {
 
     /// Generate a blocks inventory message, given the output of
     /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
-    /// BLOCKS_INV_DATA_MAX_BITLEN in order to generate a valid BlocksInvData payload.
+    /// pox_constants.reward_cycle_length, in order to generate a valid BlocksInvData payload.
     pub fn get_blocks_inventory(&mut self, header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)]) -> Result<BlocksInvData, Error> {
-        if header_hashes.len() > (BLOCKS_INV_DATA_MAX_BITLEN as usize) {
-            return Err(Error::NetError(net_error::OverflowError("Resulting block inventory would be too big".to_string())));
-        }
-
         let mut block_bits = vec![];
         let mut microblock_bits = vec![];
 
@@ -2208,12 +2203,19 @@ impl StacksChainState {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();
         let (block_commit, stacks_chain_tip) =
-            match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash)? {
-                Some(bc) => bc,
-                None => {
+            match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash) {
+                Ok(Some(bc)) => bc,
+                Ok(None) => {
                     // unsoliciated
                     warn!("Received unsolicited block: {}/{}", consensus_hash, block_hash);
                     return Ok(None);
+                }
+                Err(db_error::InvalidPoxSortition) => {
+                    warn!("Received unsolicited block on non-canonical PoX fork: {}/{}", consensus_hash, block_hash);
+                    return Ok(None);
+                }
+                Err(e) => {
+                    return Err(e.into());
                 }
             };
 
@@ -2299,8 +2301,7 @@ impl StacksChainState {
         let mut block_tx = self.blocks_tx_begin()?;
 
         // does this block match the burnchain state? skip if not
-        let validation_res = StacksChainState::validate_anchored_block_burnchain(
-            &sort_handle, consensus_hash, block, mainnet, chain_id)?;
+        let validation_res = StacksChainState::validate_anchored_block_burnchain(&sort_handle, consensus_hash, block, mainnet, chain_id)?;
         let (commit_burn, sortition_burn) = match validation_res {
             Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
             None => { 
@@ -2402,7 +2403,7 @@ impl StacksChainState {
     #[cfg(test)]
     pub fn preprocess_stacks_epoch(&mut self, sort_ic: &SortitionDBConn, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
         let parent_sn = {
-            let db_handle = sort_ic.as_handle(&SortitionId::stubbed(&snapshot.burn_header_hash));
+            let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
             let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash)? {
                 Some(sn) => sn,
                 None => {
@@ -4969,7 +4970,7 @@ pub mod test {
         let mut consensus_hashes = vec![];
         let mut parent_consensus_hashes = vec![];
 
-        for i in 0..(BLOCKS_INV_DATA_MAX_BITLEN as usize) {
+        for i in 0..32 {
             test_debug!("Making block {}", i);
             let privk = StacksPrivateKey::new();
             let block = make_empty_coinbase_block(&privk);

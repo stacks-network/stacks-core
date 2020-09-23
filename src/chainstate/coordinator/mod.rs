@@ -38,7 +38,7 @@ pub mod comm;
 use chainstate::stacks::index::MarfTrieId;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 pub use self::comm::CoordinatorCommunication;
 
@@ -232,7 +232,7 @@ impl <'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator <'a, 
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let chain_state_db = StacksChainState::open(false, 0xdeadbeef, &format!("{}/chainstate/", path)).unwrap();
+        let chain_state_db = StacksChainState::open(false, 0x80000000, &format!("{}/chainstate/", path)).unwrap();
 
         let canonical_sortition_tip = SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
@@ -344,17 +344,19 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider> 
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in reward cycle.
             let reward_cycle_info = self.get_reward_cycle_info(&header)?;
-            let sortition_id = self.sortition_db.evaluate_sortition(
+            let next_snapshot = self.sortition_db.evaluate_sortition(
                 &header, ops, &self.burnchain, &canonical_sortition_tip, reward_cycle_info)
                 .map_err(|e| {
                     error!("ChainsCoordinator: unable to evaluate sortition {:?}", e);
                     Error::FailedToProcessSortition(e)
                 })?
-                .0.sortition_id;
+                .0;
+
+            let sortition_id = next_snapshot.sortition_id;
 
             self.notifier.notify_sortition_processed();
 
-            debug!("Sortition processed: {}", &sortition_id);
+            debug!("Sortition processed: {} (tip {})", &sortition_id, &next_snapshot.burn_header_hash);
 
             if sortition_tip_snapshot.block_height < header.block_height {
                 // bump canonical sortition...

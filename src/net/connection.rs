@@ -1242,6 +1242,8 @@ mod test {
     use chainstate::stacks::test::make_codec_test_block;
     use net::http::*;
 
+    use util::test::*;
+
     fn test_connection_relay_producer_consumer<P, F>(mut protocol: P, mut conn: NetworkConnection<P>, message_factory: F) 
     where
         P: ProtocolFamily + 'static + Send + Clone,
@@ -1554,9 +1556,9 @@ mod test {
         let nonce = rng.next_u32();
         let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                           12345,
-                                          &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                          &BurnchainHeaderHash([0x11; 32]),
                                           12339,
-                                          &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                          &BurnchainHeaderHash([0x22; 32]),
                                           StacksMessageType::Ping(PingData { nonce: nonce }));
         let privkey = Secp256k1PrivateKey::new();
         ping.sign(request_id, &privkey).unwrap();
@@ -1596,9 +1598,9 @@ mod test {
         // send
         let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                           12345,
-                                          &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                          &BurnchainHeaderHash([0x11; 32]),
                                           12339,
-                                          &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                          &BurnchainHeaderHash([0x22; 32]),
                                           StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
         let privkey = Secp256k1PrivateKey::new();
@@ -1747,9 +1749,9 @@ mod test {
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
-                                              &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                              &BurnchainHeaderHash([0x11; 32]),
                                               12339 + i,
-                                              &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                              &BurnchainHeaderHash([0x22; 32]),
                                               StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
             ping.sign(i as u32, &privkey).unwrap();
@@ -1804,107 +1806,109 @@ mod test {
     #[ignore] // fails intermittently when run via `cargo test`
     #[test]
     fn connection_send_recv() {
-        let privkey = Secp256k1PrivateKey::new();
-        let pubkey = Secp256k1PublicKey::from_private(&privkey);
+        with_timeout(100, || {
+            let privkey = Secp256k1PrivateKey::new();
+            let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
-        let neighbor = Neighbor {
-            addr: NeighborKey {
-                peer_version: 0x12345678,
-                network_id: 0x9abcdef0,
-                addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
-                port: 12345,
-            },
-            public_key: pubkey.clone(),
-            expire_block: 23456,
-            last_contact_time: 1552509642,
-            allowed: -1,
-            denied: -1,
-            asn: 34567,
-            org: 45678,
-            in_degree: 0,
-            out_degree: 0
-        };
-
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5;
-        conn_opts.outbox_maxlen = 5;
-        
-        let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
-
-        // send
-        let mut ping_vec = vec![];
-        let mut handle_vec = vec![];
-        let mut ping_size = 0;
-        for i in 0..5 {
-            let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
-                                              12345 + i,
-                                              &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
-                                              12339 + i,
-                                              &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
-                                              StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
-
-            ping.sign(i as u32, &privkey).unwrap();
-            
-            ping_size = {
-                let mut tmp = vec![];
-                ping.consensus_serialize(&mut tmp).unwrap();
-                tmp.len()
+            let neighbor = Neighbor {
+                addr: NeighborKey {
+                    peer_version: 0x12345678,
+                    network_id: 0x9abcdef0,
+                    addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
+                    port: 12345,
+                },
+                public_key: pubkey.clone(),
+                expire_block: 23456,
+                last_contact_time: 1552509642,
+                allowed: -1,
+                denied: -1,
+                asn: 34567,
+                org: 45678,
+                in_degree: 0,
+                out_degree: 0
             };
 
-            let mut handle = conn.make_request_handle(ping.request_id(), 60, 0).unwrap();
-            ping.consensus_serialize(&mut handle).unwrap();
+            let mut conn_opts = ConnectionOptions::default();
+            conn_opts.inbox_maxlen = 5;
+            conn_opts.outbox_maxlen = 5;
+            
+            let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
 
-            handle_vec.push(handle);
-            ping_vec.push(ping);
-        }
+            // send
+            let mut ping_vec = vec![];
+            let mut handle_vec = vec![];
+            let mut ping_size = 0;
+            for i in 0..5 {
+                let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
+                                                  12345 + i,
+                                                  &BurnchainHeaderHash([0x11; 32]),
+                                                  12339 + i,
+                                                  &BurnchainHeaderHash([0x22; 32]),
+                                                  StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
 
-        let (sx, rx) = sync_channel(1);
+                ping.sign(i as u32, &privkey).unwrap();
+                
+                ping_size = {
+                    let mut tmp = vec![];
+                    ping.consensus_serialize(&mut tmp).unwrap();
+                    tmp.len()
+                };
 
-        let pinger = thread::spawn(move || {
-            let mut rhs = vec![];
+                let mut handle = conn.make_request_handle(ping.request_id(), 60, 0).unwrap();
+                ping.consensus_serialize(&mut handle).unwrap();
 
-            while handle_vec.len() > 0 {
-                let mut handle = handle_vec.remove(0);
-                handle.flush().unwrap();
-                rhs.push(handle);
+                handle_vec.push(handle);
+                ping_vec.push(ping);
             }
 
-            sx.send(rhs).unwrap();
-        });
- 
-        let mut ping_buf = vec![0u8; 5*ping_size];
+            let (sx, rx) = sync_channel(1);
 
-        {
-            let len = ping_buf.len();
-            let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
-            let mut nw = 0;
-            while nw < len {
-                nw += conn.send_data(&mut ping_fd).unwrap();
+            let pinger = thread::spawn(move || {
+                let mut rhs = vec![];
+
+                while handle_vec.len() > 0 {
+                    let mut handle = handle_vec.remove(0);
+                    handle.flush().unwrap();
+                    rhs.push(handle);
+                }
+
+                sx.send(rhs).unwrap();
+            });
+     
+            let mut ping_buf = vec![0u8; 5*ping_size];
+
+            {
+                let len = ping_buf.len();
+                let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
+                let mut nw = 0;
+                while nw < len {
+                    nw += conn.send_data(&mut ping_fd).unwrap();
+                }
+                assert_eq!(len, ping_size * 5);
             }
-            assert_eq!(len, ping_size * 5);
-        }
-        
-        let flushed_handles = rx.recv().unwrap();
-        
-        {
-            let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
-            let num_read = conn.recv_data(&mut ping_fd).unwrap();
-            assert_eq!(num_read, 5*ping_size);
-        }
+            
+            let flushed_handles = rx.recv().unwrap();
+            
+            {
+                let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
+                let num_read = conn.recv_data(&mut ping_fd).unwrap();
+                assert_eq!(num_read, 5*ping_size);
+            }
 
-        // all messages are solicited, so inbox should be empty
-        let msgs = conn.drain_inbox();
-        assert_eq!(msgs, vec![]);
+            // all messages are solicited, so inbox should be empty
+            let msgs = conn.drain_inbox();
+            assert_eq!(msgs, vec![]);
 
-        let mut recved = vec![];
-        for rh in flushed_handles {
-            let res = rh.recv(0).unwrap();
-            recved.push(res);
-        }
+            let mut recved = vec![];
+            for rh in flushed_handles {
+                let res = rh.recv(0).unwrap();
+                recved.push(res);
+            }
 
-        assert_eq!(recved, ping_vec);
+            assert_eq!(recved, ping_vec);
 
-        pinger.join().unwrap();
+            pinger.join().unwrap();
+        })
     }
 
     #[test]
@@ -1943,9 +1947,9 @@ mod test {
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
-                                              &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                              &BurnchainHeaderHash([0x11; 32]),
                                               12339 + i,
-                                              &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                              &BurnchainHeaderHash([0x22; 32]),
                                               StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
 
             ping.sign(i as u32, &privkey).unwrap();

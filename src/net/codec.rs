@@ -171,15 +171,15 @@ where
 
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.
-    pub fn new(peer_version: u32, network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, payload_len: u32) -> Preamble {
+    pub fn new(peer_version: u32, network_id: u32, block_height: u64, burn_block_hash: &BurnchainHeaderHash, stable_block_height: u64, stable_burn_block_hash: &BurnchainHeaderHash, payload_len: u32) -> Preamble {
         Preamble {
             peer_version: peer_version,
             network_id: network_id,
             seq: 0,
             burn_block_height: block_height,
-            burn_consensus_hash: consensus_hash.clone(),
+            burn_block_hash: burn_block_hash.clone(),
             burn_stable_block_height: stable_block_height,
-            burn_stable_consensus_hash: stable_consensus_hash.clone(),
+            burn_stable_block_hash: stable_burn_block_hash.clone(),
             additional_data: 0,
             signature: MessageSignature::empty(),
             payload_len: payload_len,
@@ -249,9 +249,9 @@ impl StacksMessageCodec for Preamble {
         write_next(fd, &self.network_id)?;
         write_next(fd, &self.seq)?;
         write_next(fd, &self.burn_block_height)?;
-        write_next(fd, &self.burn_consensus_hash)?;
+        write_next(fd, &self.burn_block_hash)?;
         write_next(fd, &self.burn_stable_block_height)?;
-        write_next(fd, &self.burn_stable_consensus_hash)?;
+        write_next(fd, &self.burn_stable_block_hash)?;
         write_next(fd, &self.additional_data)?;
         write_next(fd, &self.signature)?;
         write_next(fd, &self.payload_len)?;
@@ -263,14 +263,12 @@ impl StacksMessageCodec for Preamble {
         let network_id: u32                             = read_next(fd)?;
         let seq: u32                                    = read_next(fd)?;
         let burn_block_height: u64                      = read_next(fd)?;
-        let burn_consensus_hash : ConsensusHash         = read_next(fd)?;
+        let burn_block_hash : BurnchainHeaderHash       = read_next(fd)?;
         let burn_stable_block_height: u64               = read_next(fd)?;
-        let burn_stable_consensus_hash : ConsensusHash  = read_next(fd)?;
+        let burn_stable_block_hash : BurnchainHeaderHash = read_next(fd)?;
         let additional_data : u32                       = read_next(fd)?;
         let signature : MessageSignature                = read_next(fd)?;
         let payload_len : u32                           = read_next(fd)?;
-
-        // test_debug!("preamble {}-{:?}/{}-{:?}, {} bytes", burn_block_height, burn_consensus_hash, burn_stable_block_height, burn_stable_consensus_hash, payload_len);
 
         // minimum is 5 bytes -- a zero-length vector (4 bytes of 0) plus a type identifier (1 byte)
         if payload_len < 5 {
@@ -293,9 +291,9 @@ impl StacksMessageCodec for Preamble {
             network_id,
             seq,
             burn_block_height,
-            burn_consensus_hash,
+            burn_block_hash,
             burn_stable_block_height,
-            burn_stable_consensus_hash,
+            burn_stable_block_hash,
             additional_data,
             signature,
             payload_len,
@@ -313,9 +311,8 @@ impl StacksMessageCodec for GetBlocksInv {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetBlocksInv, net_error> {
         let consensus_hash: ConsensusHash             = read_next(fd)?;
         let num_blocks : u16                          = read_next(fd)?;
-        if (num_blocks as u32) > BLOCKS_INV_DATA_MAX_BITLEN {
-            // requested too long of a range 
-            return Err(net_error::DeserializeError(format!("Block diff is too big for inv ({})", num_blocks)));
+        if num_blocks == 0 {
+            return Err(net_error::DeserializeError("GetBlocksInv must request at least one block".to_string()));
         }
 
         Ok(GetBlocksInv {
@@ -335,8 +332,8 @@ impl StacksMessageCodec for BlocksInvData {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksInvData, net_error> {
         let bitlen : u16 = read_next(fd)?;
-        if bitlen > BLOCKS_INV_DATA_MAX_BITLEN as u16 {
-            return Err(net_error::DeserializeError(format!("bitlen is bigger than max bitlen inv ({})", bitlen)));
+        if bitlen == 0 {
+            return Err(net_error::DeserializeError("BlocksInv must contain at least one block/microblock bit".to_string()));
         }
 
         let block_bitvec : Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
@@ -406,6 +403,53 @@ impl BlocksInvData {
     }
 }
 
+impl StacksMessageCodec for GetPoxInv {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.num_cycles)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetPoxInv, net_error> {
+        let ch : ConsensusHash = read_next(fd)?;
+        let num_rcs: u16 = read_next(fd)?;
+        if num_rcs == 0 || num_rcs as u64 > GETPOXINV_MAX_BITLEN {
+            return Err(net_error::DeserializeError("Invalid GetPoxInv bitlen".to_string()));
+        }
+        Ok(GetPoxInv { consensus_hash: ch, num_cycles: num_rcs })
+    }
+}
+
+impl PoxInvData {
+    pub fn has_ith_reward_cycle(&self, index: u16) -> bool {
+        if index >= self.bitlen {
+            return false;
+        }
+
+        let idx = index / 8;
+        let bit = index % 8;
+        (self.pox_bitvec[idx as usize] & (1 << bit)) != 0
+    }
+}
+
+impl StacksMessageCodec for PoxInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.bitlen)?;
+        write_next(fd, &self.pox_bitvec)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PoxInvData, net_error> {
+        let bitlen : u16 = read_next(fd)?;
+        if bitlen == 0 || (bitlen as u64) > GETPOXINV_MAX_BITLEN {
+            return Err(net_error::DeserializeError("Invalid PoxInvData bitlen".to_string()));
+        }
+
+        let pox_bitvec : Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        Ok(PoxInvData { bitlen: bitlen, pox_bitvec: pox_bitvec })
+    }
+}
+
 impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.0)?;
@@ -452,21 +496,21 @@ impl BlocksAvailableData {
     }
 }
 
-impl StacksMessageCodec for (BurnchainHeaderHash, StacksBlock) {
+impl StacksMessageCodec for (ConsensusHash, StacksBlock) {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.0)?;
         write_next(fd, &self.1)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<(BurnchainHeaderHash, StacksBlock), net_error> {
-        let bhh : BurnchainHeaderHash = read_next(fd)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<(ConsensusHash, StacksBlock), net_error> {
+        let ch : ConsensusHash = read_next(fd)?;
         let block = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_BLOCK_LEN as u64);
             read_next(&mut bound_read)
         }?;
 
-        Ok((bhh, block))
+        Ok((ch, block))
     }
 }
 
@@ -477,8 +521,8 @@ impl BlocksData {
         }
     }
 
-    pub fn push(&mut self, bhh: BurnchainHeaderHash, block: StacksBlock) -> () {
-        self.blocks.push((bhh, block))
+    pub fn push(&mut self, ch: ConsensusHash, block: StacksBlock) -> () {
+        self.blocks.push((ch, block))
     }
 }
 
@@ -489,22 +533,21 @@ impl StacksMessageCodec for BlocksData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksData, net_error> {
-        let blocks : Vec<(BurnchainHeaderHash, StacksBlock)> = {
+        let blocks : Vec<(ConsensusHash, StacksBlock)> = {
             // loose upper-bound
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next_at_most::<_, (BurnchainHeaderHash, StacksBlock)>(&mut bound_read, BLOCKS_PUSHED_MAX)
+            read_next_at_most::<_, (ConsensusHash, StacksBlock)>(&mut bound_read, BLOCKS_PUSHED_MAX)
         }?;
 
         // only valid if there are no dups
-        // TODO(PoX): replace burn_header_hash with consensus_hash
         let mut present = HashSet::new();
-        for (burn_header_hash, _block) in blocks.iter() {
-            if present.contains(burn_header_hash) {
+        for (consensus_hash, _block) in blocks.iter() {
+            if present.contains(consensus_hash) {
                 // no dups allowed
                 return Err(net_error::DeserializeError("Invalid BlocksData: duplicate block".to_string()));
             }
 
-            present.insert((*burn_header_hash).clone());
+            present.insert((*consensus_hash).clone());
         }
 
         Ok(BlocksData {
@@ -631,6 +674,10 @@ impl StacksMessageCodec for HandshakeData {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HandshakeData, net_error> {
         let addrbytes: PeerAddress                  = read_next(fd)?;
         let port : u16                              = read_next(fd)?;
+        if port == 0 {
+            return Err(net_error::DeserializeError("Invalid handshake data: port is 0".to_string()));
+        }
+
         let services : u16                          = read_next(fd)?;
         let node_public_key : StacksPublicKeyBuffer = read_next(fd)?;
         let expire_block_height : u64               = read_next(fd)?;
@@ -785,6 +832,8 @@ impl StacksMessageType {
             StacksMessageType::HandshakeReject => StacksMessageID::HandshakeReject,
             StacksMessageType::GetNeighbors => StacksMessageID::GetNeighbors,
             StacksMessageType::Neighbors(ref _m) => StacksMessageID::Neighbors,
+            StacksMessageType::GetPoxInv(ref _m) => StacksMessageID::GetPoxInv,
+            StacksMessageType::PoxInv(ref _m) => StacksMessageID::PoxInv,
             StacksMessageType::GetBlocksInv(ref _m) => StacksMessageID::GetBlocksInv,
             StacksMessageType::BlocksInv(ref _m) => StacksMessageID::BlocksInv,
             StacksMessageType::BlocksAvailable(ref _m) => StacksMessageID::BlocksAvailable,
@@ -807,6 +856,8 @@ impl StacksMessageType {
             StacksMessageType::HandshakeReject => "HandshakeReject",
             StacksMessageType::GetNeighbors => "GetNeighbors",
             StacksMessageType::Neighbors(ref _m) => "Neighbors",
+            StacksMessageType::GetPoxInv(ref _m) => "GetPoxInv",
+            StacksMessageType::PoxInv(ref _m) => "PoxInv",
             StacksMessageType::GetBlocksInv(ref _m) => "GetBlocksInv",
             StacksMessageType::BlocksInv(ref _m) => "BlocksInv",
             StacksMessageType::BlocksAvailable(ref _m) => "BlocksAvailable",
@@ -836,6 +887,8 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::HandshakeReject as u8 => StacksMessageID::HandshakeReject,
             x if x == StacksMessageID::GetNeighbors as u8 => StacksMessageID::GetNeighbors,
             x if x == StacksMessageID::Neighbors as u8 => StacksMessageID::Neighbors,
+            x if x == StacksMessageID::GetPoxInv as u8 => StacksMessageID::GetPoxInv,
+            x if x == StacksMessageID::PoxInv as u8 => StacksMessageID::PoxInv,
             x if x == StacksMessageID::GetBlocksInv as u8 => StacksMessageID::GetBlocksInv,
             x if x == StacksMessageID::BlocksInv as u8 => StacksMessageID::BlocksInv,
             x if x == StacksMessageID::BlocksAvailable as u8 => StacksMessageID::BlocksAvailable,
@@ -863,6 +916,8 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::HandshakeReject => {},
             StacksMessageType::GetNeighbors => {},
             StacksMessageType::Neighbors(ref m) => write_next(fd, m)?,
+            StacksMessageType::GetPoxInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::PoxInv(ref m) => write_next(fd, m)?,
             StacksMessageType::GetBlocksInv(ref m) => write_next(fd, m)?,
             StacksMessageType::BlocksInv(ref m) => write_next(fd, m)?,
             StacksMessageType::BlocksAvailable(ref m) => write_next(fd, m)?,
@@ -887,6 +942,8 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::HandshakeReject => { StacksMessageType::HandshakeReject },
             StacksMessageID::GetNeighbors => { StacksMessageType::GetNeighbors },
             StacksMessageID::Neighbors => { let m : NeighborsData = read_next(fd)?; StacksMessageType::Neighbors(m) },
+            StacksMessageID::GetPoxInv => { let m : GetPoxInv = read_next(fd)?; StacksMessageType::GetPoxInv(m) },
+            StacksMessageID::PoxInv => { let m : PoxInvData = read_next(fd)?; StacksMessageType::PoxInv(m) },
             StacksMessageID::GetBlocksInv => { let m : GetBlocksInv = read_next(fd)?; StacksMessageType::GetBlocksInv(m) },
             StacksMessageID::BlocksInv => { let m : BlocksInvData = read_next(fd)?; StacksMessageType::BlocksInv(m) },
             StacksMessageID::BlocksAvailable => { let m : BlocksAvailableData = read_next(fd)?; StacksMessageType::BlocksAvailable(m) },
@@ -933,8 +990,8 @@ impl StacksMessageCodec for StacksMessage {
 
 impl StacksMessage {
     /// Create an unsigned Stacks p2p message
-    pub fn new(peer_version: u32, network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, message: StacksMessageType) -> StacksMessage {
-        let preamble = Preamble::new(peer_version, network_id, block_height, consensus_hash, stable_block_height, stable_consensus_hash, 0);
+    pub fn new(peer_version: u32, network_id: u32, block_height: u64, burn_header_hash: &BurnchainHeaderHash, stable_block_height: u64, stable_burn_header_hash: &BurnchainHeaderHash, message: StacksMessageType) -> StacksMessage {
+        let preamble = Preamble::new(peer_version, network_id, block_height, burn_header_hash, stable_block_height, stable_burn_header_hash, 0);
         StacksMessage {
             preamble: preamble, 
             relayers: vec![],
@@ -944,7 +1001,7 @@ impl StacksMessage {
 
     /// Create an unsigned Stacks message
     pub fn from_chain_view(peer_version: u32, network_id: u32, chain_view: &BurnchainView, message: StacksMessageType) -> StacksMessage {
-        StacksMessage::new(peer_version, network_id, chain_view.burn_block_height, &chain_view.burn_consensus_hash, chain_view.burn_stable_block_height, &chain_view.burn_stable_consensus_hash, message)
+        StacksMessage::new(peer_version, network_id, chain_view.burn_block_height, &chain_view.burn_block_hash, chain_view.burn_stable_block_height, &chain_view.burn_stable_block_hash, message)
     }
 
     /// represent as neighbor key 
@@ -1270,9 +1327,9 @@ pub mod test {
             network_id: 0x05060708,
             seq: 0x090a0b0c,
             burn_block_height: 0x00001122,
-            burn_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 0x00001111,
-            burn_stable_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             additional_data: 0x33333333,
             signature: MessageSignature::from_raw(&vec![0x44; 65]),
             payload_len: 0x000007ff,
@@ -1286,12 +1343,12 @@ pub mod test {
             0x09, 0x0a, 0x0b, 0x0c,
             // burn_block_height
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22,
-            // burn_consensus_hash
-            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            // burn_block_hash
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
             // stable_burn_block_height
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x11,
-            // stable_burn_consensus_hash
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+            // stable_burn_block_hash
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             // additional_data
             0x33, 0x33, 0x33, 0x33,
             // signature
@@ -1305,6 +1362,91 @@ pub mod test {
 
         assert_eq!(preamble_bytes.len() as u32, PREAMBLE_ENCODED_SIZE);
         check_codec_and_corruption::<Preamble>(&preamble, &preamble_bytes);
+    }
+
+    #[test]
+    fn codec_GetPoxInv() {
+        let getpoxinv = GetPoxInv {
+            consensus_hash: ConsensusHash([0x55; 20]),
+            num_cycles: GETPOXINV_MAX_BITLEN as u16
+        };
+
+        let getpoxinv_bytes : Vec<u8> = vec![
+            // consensus hash
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            // num reward cycles
+            0x00, GETPOXINV_MAX_BITLEN as u8,
+        ];
+
+        check_codec_and_corruption::<GetPoxInv>(&getpoxinv, &getpoxinv_bytes);
+
+        // should fail to decode if the block range is too big
+        let getpoxinv_range_too_big = GetPoxInv {
+            consensus_hash: ConsensusHash([0x55; 20]),
+            num_cycles: (GETPOXINV_MAX_BITLEN + 1) as u16,
+        };
+
+        assert!(check_deserialize_failure::<GetPoxInv>(&getpoxinv_range_too_big));
+    }
+
+    #[test]
+    fn codec_PoxInvData() {
+        // maximially big PoxInvData
+        let maximal_bitvec = vec![0xffu8; (GETPOXINV_MAX_BITLEN / 8) as usize];
+        let mut too_big_bitvec : Vec<u8> = vec![];
+        for i in 0..GETPOXINV_MAX_BITLEN+1 {
+            too_big_bitvec.push(0xff);
+        }
+        
+        let maximal_poxinvdata = PoxInvData {
+            bitlen: GETPOXINV_MAX_BITLEN  as u16,
+            pox_bitvec: maximal_bitvec.clone(),
+        };
+
+        let mut maximal_poxinvdata_bytes : Vec<u8> = vec![];
+        // bitlen 
+        maximal_poxinvdata_bytes.append(&mut (GETPOXINV_MAX_BITLEN as u16).to_be_bytes().to_vec());
+        // pox bitvec
+        maximal_poxinvdata_bytes.append(&mut ((GETPOXINV_MAX_BITLEN / 8) as u32).to_be_bytes().to_vec());
+        maximal_poxinvdata_bytes.append(&mut maximal_bitvec.clone());
+
+        assert!((maximal_poxinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
+
+        check_codec_and_corruption::<PoxInvData>(&maximal_poxinvdata, &maximal_poxinvdata_bytes);
+        
+        // should fail to decode if the bitlen is too big 
+        let too_big_poxinvdata = PoxInvData {
+            bitlen: (GETPOXINV_MAX_BITLEN + 1) as u16,
+            pox_bitvec: too_big_bitvec.clone(),
+        };
+        assert!(check_deserialize_failure::<PoxInvData>(&too_big_poxinvdata));
+
+        // should fail to decode if the bitlen doesn't match the bitvec
+        let long_bitlen = PoxInvData {
+            bitlen: 1,
+            pox_bitvec: vec![0xff, 0x01],
+        };
+        assert!(check_deserialize_failure::<PoxInvData>(&long_bitlen));
+
+        let short_bitlen = PoxInvData {
+            bitlen: 9,
+            pox_bitvec: vec![0xff],
+        };
+        assert!(check_deserialize_failure::<PoxInvData>(&short_bitlen));
+
+        // empty 
+        let empty_inv = PoxInvData {
+            bitlen: 0,
+            pox_bitvec: vec![],
+        };
+        let empty_inv_bytes = vec![
+            // bitlen
+            0x00, 0x00, 0x00, 0x00,
+            // bitvec 
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        check_codec_and_corruption::<PoxInvData>(&maximal_poxinvdata, &maximal_poxinvdata_bytes);
     }
 
     #[test]
@@ -1322,53 +1464,33 @@ pub mod test {
         ];
 
         check_codec_and_corruption::<GetBlocksInv>(&getblocksdata, &getblocksdata_bytes);
-
-        // should fail to decode if the block range is too big 
-        let getblocksdata_range_too_big = GetBlocksInv {
-            consensus_hash: ConsensusHash([0x55; 20]),
-            num_blocks: (BLOCKS_INV_DATA_MAX_BITLEN + 1) as u16,
-        };
-
-        assert!(check_deserialize_failure::<GetBlocksInv>(&getblocksdata_range_too_big));
     }
 
     #[test]
     fn codec_BlocksInvData() {
-        // maximially big BlocksInvData
-        let maximal_bitvec = vec![0xffu8; (BLOCKS_INV_DATA_MAX_BITLEN / 8) as usize];
-        let mut too_big_bitvec : Vec<u8> = vec![];
-        for i in 0..BLOCKS_INV_DATA_MAX_BITLEN+1 {
-            too_big_bitvec.push(0xff);
-        }
-        
+        let blocks_bitlen : u32 = 32;
+
+        let maximal_bitvec = vec![0xffu8; (blocks_bitlen / 8) as usize];
         let maximal_blocksinvdata = BlocksInvData {
-            bitlen: BLOCKS_INV_DATA_MAX_BITLEN  as u16,
+            bitlen: blocks_bitlen as u16,
             block_bitvec: maximal_bitvec.clone(),
             microblocks_bitvec: maximal_bitvec.clone(),
         };
 
         let mut maximal_blocksinvdata_bytes : Vec<u8> = vec![];
         // bitlen 
-        maximal_blocksinvdata_bytes.append(&mut (BLOCKS_INV_DATA_MAX_BITLEN as u16).to_be_bytes().to_vec());
+        maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen as u16).to_be_bytes().to_vec());
         // block bitvec
-        maximal_blocksinvdata_bytes.append(&mut (BLOCKS_INV_DATA_MAX_BITLEN / 8).to_be_bytes().to_vec());
+        maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
         maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
         // microblock bitvec
-        maximal_blocksinvdata_bytes.append(&mut (BLOCKS_INV_DATA_MAX_BITLEN / 8).to_be_bytes().to_vec());
+        maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
         maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
 
         assert!((maximal_blocksinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
         check_codec_and_corruption::<BlocksInvData>(&maximal_blocksinvdata, &maximal_blocksinvdata_bytes);
         
-        // should fail to decode if the bitlen is too big 
-        let too_big_blocksinvdata = BlocksInvData {
-            bitlen: (BLOCKS_INV_DATA_MAX_BITLEN + 1) as u16,
-            block_bitvec: too_big_bitvec.clone(),
-            microblocks_bitvec: too_big_bitvec.clone(),
-        };
-        assert!(check_deserialize_failure::<BlocksInvData>(&too_big_blocksinvdata));
-
         // should fail to decode if the bitlen doesn't match the bitvec
         let long_bitlen = BlocksInvData {
             bitlen: 1,
@@ -1637,6 +1759,14 @@ pub mod test {
                     },
                 ]
             }),
+            StacksMessageType::GetPoxInv(GetPoxInv {
+                consensus_hash: ConsensusHash([0x55; 20]),
+                num_cycles: GETPOXINV_MAX_BITLEN as u16
+            }),
+            StacksMessageType::PoxInv(PoxInvData {
+                bitlen: 2,
+                pox_bitvec: vec![0x03],
+            }),
             StacksMessageType::GetBlocksInv(GetBlocksInv {
                 consensus_hash: ConsensusHash([0x55; 20]),
                 num_blocks: 32,
@@ -1712,9 +1842,9 @@ pub mod test {
                 network_id: 0x05060708,
                 seq: 0x090a0b0c,
                 burn_block_height: 0x00001122,
-                burn_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
+                burn_block_hash: BurnchainHeaderHash([0x11; 32]),
                 burn_stable_block_height: 0x00001111,
-                burn_stable_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+                burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 additional_data: 0x33333333,
                 signature: MessageSignature::from_raw(&vec![0x44; 65]),
                 payload_len: (relayers_bytes.len() + payload_bytes.len()) as u32,
@@ -1754,9 +1884,9 @@ pub mod test {
 
         let mut ping = StacksMessage::new(PEER_VERSION, 0x9abcdef0,
                                           12345,
-                                          &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                          &BurnchainHeaderHash([0x11; 32]),
                                           12339,
-                                          &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                          &BurnchainHeaderHash([0x22; 32]),
                                           StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
         ping.sign(444, &privkey).unwrap();

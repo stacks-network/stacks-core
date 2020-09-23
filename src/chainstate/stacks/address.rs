@@ -61,6 +61,9 @@ use vm::types::{
     StandardPrincipalData,
 };
 
+use chainstate::stacks::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
+use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+
 
 impl StacksMessageCodec for StacksAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -92,6 +95,13 @@ impl StacksAddress {
         StacksAddress {
             version,
             bytes: hash
+        }
+    }
+
+    pub fn burn_address(mainnet: bool) -> StacksAddress {
+        StacksAddress {
+            version: if mainnet { C32_ADDRESS_VERSION_MAINNET_SINGLESIG } else { C32_ADDRESS_VERSION_TESTNET_SINGLESIG },
+            bytes: Hash160([0u8; 20])
         }
     }
 
