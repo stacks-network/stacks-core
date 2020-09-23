@@ -176,9 +176,9 @@ impl RPCPeerInfoData {
 
         Ok(RPCPeerInfoData {
             peer_version: burnchain.peer_version,
-            pox_consensus: burnchain_tip.consensus_hash,
+            burn_consensus: burnchain_tip.consensus_hash,
             burn_block_height: burnchain_tip.block_height,
-            stable_pox_consensus: stable_burnchain_tip.consensus_hash,
+            stable_burn_consensus: stable_burnchain_tip.consensus_hash,
             stable_burn_block_height: stable_burnchain_tip.block_height,
             server_version,
             network_id: local_peer.network_id,

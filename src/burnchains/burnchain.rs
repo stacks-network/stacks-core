@@ -323,10 +323,10 @@ impl BurnchainBlock {
 
 impl Burnchain {
     pub fn new(working_dir: &str, chain_name: &str, network_name: &str) -> Result<Burnchain, burnchain_error> {
-        let (params, pox_constants) = match (chain_name, network_name) {
-            ("bitcoin", "mainnet") => (BurnchainParameters::bitcoin_mainnet(), PoxConstants::mainnet_default()),
-            ("bitcoin", "testnet") => (BurnchainParameters::bitcoin_testnet(), PoxConstants::testnet_default()),
-            ("bitcoin", "regtest") => (BurnchainParameters::bitcoin_regtest(), PoxConstants::testnet_default()),
+        let params = match (chain_name, network_name) {
+            ("bitcoin", "mainnet") => BurnchainParameters::bitcoin_mainnet(),
+            ("bitcoin", "testnet") => BurnchainParameters::bitcoin_testnet(),
+            ("bitcoin", "regtest") => BurnchainParameters::bitcoin_regtest(),
             (_, _) => {
                 return Err(burnchain_error::UnsupportedBurnchain);
             }
@@ -342,7 +342,7 @@ impl Burnchain {
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,
             first_block_hash: params.first_block_hash.clone(),
-            pox_constants,
+            pox_constants: PoxConstants::mainnet_default(),
         })
     }
 
