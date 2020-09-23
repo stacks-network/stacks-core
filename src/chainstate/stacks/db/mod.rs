@@ -609,11 +609,20 @@ impl StacksChainState {
         {
             let mut clarity_tx = chainstate.block_begin(&NULL_BURN_STATE_DB, &BURNCHAIN_BOOT_CONSENSUS_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
             for (boot_code_name, boot_code_contract) in STACKS_BOOT_CODE.iter() {
+                let boot_code_contract_string = 
+                    if *boot_code_name == "pox" {
+                        debug!("Instantiating PoX contract parameters for {}", if mainnet { "mainnet" } else { "testnet" });
+                        format!("{}\n{}", pox_boot_code_constants(mainnet), boot_code_contract)
+                    } else {
+                        boot_code_contract.to_string()
+                    };
+
                 debug!("Instantiate boot code contract '{}.{}' ({} bytes)...", &STACKS_BOOT_CODE_CONTRACT_ADDRESS, boot_code_name, boot_code_contract.len());
+
                 let smart_contract = TransactionPayload::SmartContract(
                     TransactionSmartContract {
                         name: ContractName::try_from(boot_code_name.to_string()).expect("FATAL: invalid boot-code contract name"),
-                        code_body: StacksString::from_str(&boot_code_contract.to_string()).expect("FATAL: invalid boot code body"),
+                        code_body: StacksString::from_string(&boot_code_contract_string).expect("FATAL: invalid boot code body"),
                     }
                 );
 

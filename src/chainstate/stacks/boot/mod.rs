@@ -68,6 +68,14 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
     QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::try_from(name.to_string()).unwrap())
 }
 
+pub fn pox_boot_code_constants(mainnet: bool) -> &'static str {
+    if mainnet {
+        std::include_str!("pox-mainnet.clar")
+    } else {
+        std::include_str!("pox-testnet.clar")
+    }
+}
+
 /// Extract a PoX address from its tuple representation
 fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
     let version_value = tuple_data.get("version").expect("FATAL: no 'version' field in pox-addr").to_owned();
@@ -169,6 +177,8 @@ impl StacksChainState {
 
             ret.push((StacksAddress::new(version, hash), total_ustx));
         }
+
+        ret.sort_by_key(|k| k.0.bytes.0);
 
         Ok(ret)
     }
