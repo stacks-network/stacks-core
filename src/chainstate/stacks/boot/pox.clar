@@ -229,36 +229,30 @@
                                                             (num-cycles uint)
                                                             (amount-ustx uint)
                                                             (i uint))))
-    (let (
-        (reward-cycle (+ (get first-reward-cycle params) (get i params)))
-        (i (get i params))
-    )
+    (let ((reward-cycle (+ (get first-reward-cycle params) (get i params)))
+          (i (get i params)))
     {
         pox-addr: (get pox-addr params),
         first-reward-cycle: (get first-reward-cycle params),
         num-cycles: (get num-cycles params),
         amount-ustx: (get amount-ustx params),
         i: (if (< i (get num-cycles params))
-            (let (
-                (total-ustx (get-total-ustx-stacked reward-cycle))
-            )
-            ;; record how many uSTX this pox-addr will stack for in the given reward cycle
-            (append-reward-cycle-pox-addr
+            (let ((total-ustx (get-total-ustx-stacked reward-cycle)))
+              ;; record how many uSTX this pox-addr will stack for in the given reward cycle
+              (append-reward-cycle-pox-addr
                 (get pox-addr params)
                 reward-cycle
                 (get amount-ustx params))
 
-            ;; update running total
-            (map-set reward-cycle-total-stacked
-                { reward-cycle: reward-cycle }
-                { total-ustx: (+ (get amount-ustx params) total-ustx) }
-            )
-            
-            ;; updated _this_ reward cycle
-            (+ i u1))
+              ;; update running total
+              (map-set reward-cycle-total-stacked
+                 { reward-cycle: reward-cycle }
+                 { total-ustx: (+ (get amount-ustx params) total-ustx) })
+
+              ;; updated _this_ reward cycle
+              (+ i u1))
             (+ i u0))
-    })
-)
+    }))
 
 ;; Add a PoX address to a given sequence of reward cycle lists.
 ;; A PoX address can be added to at most 12 consecutive cycles.
@@ -341,33 +335,28 @@
 (define-read-only (can-stacks-stx (amount-ustx uint)
                                   (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                   (lock-period uint))
-    (let (        
-        ;; this stacker's first reward cycle is the _next_ reward cycle
-        (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
-    )
-    ;; amount must be valid
-    (asserts! (> amount-ustx u0)
+    ;; this stacker's first reward cycle is the _next_ reward cycle
+    (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle))))
+      ;; amount must be valid
+      (asserts! (> amount-ustx u0)
         (err ERR_STACKING_INVALID_AMOUNT))
 
-    ;; tx-sender principal must not have rejected in this upcoming reward cycle
-    (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
+      ;; tx-sender principal must not have rejected in this upcoming reward cycle
+      (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
         (err ERR_STACKING_ALREADY_REJECTED))
 
-    ;; tx-sender principal must not be stacking
-    (asserts! (is-none (get-stacker-info tx-sender))
+      ;; tx-sender principal must not be stacking
+      (asserts! (is-none (get-stacker-info tx-sender))
         (err ERR_STACKING_ALREADY_STACKED))
 
-    ;; the Stacker must have sufficient unlocked funds
-    (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+      ;; the Stacker must have sufficient unlocked funds
+      (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
-    (ok {
-        amount-ustx: amount-ustx,
-        pox-addr: pox-addr,
-        first-reward-cycle: first-reward-cycle,
-        lock-period: lock-period
-    }))
-)
+      (ok { amount-ustx: amount-ustx,
+            pox-addr: pox-addr,
+            first-reward-cycle: first-reward-cycle,
+            lock-period: lock-period })))
 
 ;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
 ;; The STX will be locked for the given number of reward cycles (lock-period).

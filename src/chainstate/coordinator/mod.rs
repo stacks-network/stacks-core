@@ -142,27 +142,18 @@ impl From<DBError> for Error {
 }
 
 pub trait RewardSetProvider {
-    fn get_reward_set(&self, chainstate: &mut StacksChainState,
+    fn get_reward_set(&self, current_burn_height: u64, chainstate: &mut StacksChainState,
                       burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<StacksAddress>, Error>;
 }
 
-pub struct OnChainRewardSetProvider {
-
-}
+pub struct OnChainRewardSetProvider ();
 
 impl RewardSetProvider for OnChainRewardSetProvider {
-    fn get_reward_set(&self, chainstate: &mut StacksChainState,
+    fn get_reward_set(&self, current_burn_height: u64, chainstate: &mut StacksChainState,
                       burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<StacksAddress>, Error> {
-        let res = chainstate.get_reward_addresses(burnchain, sortdb, block_id)?;
+        let res = chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
         let addresses = res.iter().map(|a| a.0).collect::<Vec<StacksAddress>>();
         Ok(addresses)
-    }
-}
-
-impl OnChainRewardSetProvider {
-
-    pub fn new() -> OnChainRewardSetProvider {
-        OnChainRewardSetProvider {}
     }
 }
 
@@ -196,7 +187,7 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
             burnchain,
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
-            reward_set_provider: OnChainRewardSetProvider::new(),
+            reward_set_provider: OnChainRewardSetProvider(),
         };
 
         loop {
@@ -284,7 +275,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             let anchor_status = if anchor_block_known {
                 let block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block_hash);
                 let reward_set = provider.get_reward_set(
-                    chain_state, burnchain, sort_db, &block_id)?;
+                    burn_height, chain_state, burnchain, sort_db, &block_id)?;
                 PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, reward_set)
             } else {
                 PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash)

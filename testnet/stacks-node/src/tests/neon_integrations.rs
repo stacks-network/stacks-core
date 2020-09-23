@@ -1,12 +1,16 @@
 use super::{make_stacks_transfer_mblock_only, SK_1, ADDR_4, to_addr, make_microblock,
+            make_contract_call,
             make_contract_publish, make_contract_publish_microblock_only};
 use stacks::burnchains::{ Address, PublicKey };
+use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::chainstate::stacks::{
     StacksTransaction, StacksPrivateKey, StacksPublicKey, StacksAddress, db::StacksChainState, StacksBlock, StacksBlockHeader };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::net::StacksMessageCodec;
-use stacks::vm::types::PrincipalData;
+use stacks::vm::types::{PrincipalData};
 use stacks::vm::costs::ExecutionCost;
+use stacks::vm::Value;
+use stacks::vm::execute;
 
 use crate::{
     neon, Config, Keychain, config::InitialBalance, BitcoinRegtestController, BurnchainController,
@@ -27,6 +31,8 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let keychain = Keychain::default(conf.node.seed.clone());
 
     conf.node.miner = true;
+    conf.node.wait_time_for_microblocks = 500;
+
     conf.burnchain.mode = "neon".into(); 
     conf.burnchain.username = Some("neon-tester".into());
     conf.burnchain.password = Some("neon-tester-pass".into());
@@ -556,6 +562,141 @@ fn size_check_integration_test() {
 
     assert_eq!(anchor_block_txs, 2);
     assert_eq!(micro_block_txs, 1);
+
+    channel.stop_chains_coordinator();
+}
+
+
+#[test]
+#[ignore]
+fn pox_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return
+    }
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+
+    let pox_pubkey = Secp256k1PublicKey::from_hex("02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede").unwrap();
+    let pox_pubkey_hash = bytes_to_hex(&Hash160::from_data(&pox_pubkey.to_bytes()).to_bytes().to_vec());
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    let total_bal = 10_000_000_000;
+    let stacked_bal = 1_000_000_000;
+
+    conf.initial_balances.push(InitialBalance { 
+        address: spender_addr.clone(),
+        amount: total_bal,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller.start_bitcoind().map_err(|_e| ()).expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || {
+        run_loop.start(0)
+    });
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let path = format!("{}/v2/accounts/{}?proof=0",
+                       &http_origin, &miner_account);
+    eprintln!("Test: GET {}", path);
+    let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+    assert_eq!(res.nonce, 1);
+
+    // and our potential spenders:
+
+    let path = format!("{}/v2/accounts/{}?proof=0",
+                       &http_origin, spender_addr);
+    let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+    assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), total_bal as u128);
+    assert_eq!(res.nonce, 0);
+
+    let tx = make_contract_call(&spender_sk, 0, 243, &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                                "pox", "stack-stx", &[Value::UInt(stacked_bal),
+                                                      execute(&format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash)).unwrap().unwrap(),
+                                                      Value::UInt(3)]);
+
+    // okay, let's push that stacking transaction!
+    let path = format!("{}/v2/transactions", &http_origin);
+    let res = client.post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx.clone())
+        .send()
+        .unwrap();
+    eprintln!("{:#?}", res);
+    if res.status().is_success() {
+        let res: String = res
+            .json()
+            .unwrap();
+        assert_eq!(res, StacksTransaction::consensus_deserialize(&mut &tx[..]).unwrap().txid().to_string());
+    } else {
+        eprintln!("{}", res.text().unwrap());
+        panic!("");
+    }
+
+    // now let's mine a couple blocks, and then check the sender's nonce.
+    //  at the end of mining three blocks, there should be _one_ transaction from the microblock
+    //  only set that got mined (since the block before this one was empty, a microblock can
+    //  be added),
+    //  and _two_ transactions from the two anchor blocks that got mined (and processed)
+    //
+    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // this one will contain the sortition from above anchor block,
+    //    which *should* have also confirmed the microblock.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's figure out how many micro-only and anchor-only txs got accepted
+    //   by examining our account nonces:
+    let path = format!("{}/v2/accounts/{}?proof=0",
+                       &http_origin, spender_addr);
+    let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+    if res.nonce != 1 {        
+        assert_eq!(res.nonce, 1, "Spender address nonce should be 1");
+    }
+
+    // now let's mine until the next reward cycle starts ...
+    for _i in 0..35 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    // we should have received a Bitcoin commitment
+    let utxos = btc_regtest_controller.get_utxos(
+        &pox_pubkey, 1).expect("Should have been able to retrieve UTXOs for PoX recipient");
+
+    eprintln!("Got UTXOs: {}", utxos.len());
+    assert!(utxos.len() > 0, "Should have received an output during PoX");
 
     channel.stop_chains_coordinator();
 }

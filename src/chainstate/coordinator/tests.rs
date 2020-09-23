@@ -165,13 +165,13 @@ impl BlockEventDispatcher for NullEventDispatcher {
 }
 
 pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
-    ChainsCoordinator::test_new(&get_burnchain(path), path, OnChainRewardSetProvider::new())
+    ChainsCoordinator::test_new(&get_burnchain(path), path, OnChainRewardSetProvider())
 }
 
 struct StubbedRewardSetProvider(Vec<StacksAddress>);
 
 impl RewardSetProvider for StubbedRewardSetProvider {
-    fn get_reward_set(&self, chainstate: &mut StacksChainState,
+    fn get_reward_set(&self, _current_burn_height: u64, chainstate: &mut StacksChainState,
         burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<StacksAddress>, chainstate::coordinator::Error> {
         Ok(self.0.clone())
     }

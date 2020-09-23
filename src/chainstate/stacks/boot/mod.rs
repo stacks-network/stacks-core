@@ -100,15 +100,8 @@ impl StacksChainState {
     }
 
     /// Determine which reward cycle this particular block lives in.
-    pub fn get_reward_cycle(&mut self, burnchain: &Burnchain, block_id: &StacksBlockId) -> Result<u128, Error> {
-        let parent_block_id = StacksChainState::get_parent_block_id(self.headers_db(), block_id)?
-            .ok_or(Error::PoxNoRewardCycle)?;
-
-        let parent_header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(self.headers_db(), &parent_block_id)?
-            .ok_or(Error::PoxNoRewardCycle)?;
-
-        // NOTE: the parent's burn block height is what's exposed as burn-block-height in the VM
-        Ok((((parent_header_info.burn_header_height as u64) - burnchain.first_block_height) / burnchain.pox_constants.reward_cycle_length as u64) as u128)
+    pub fn get_reward_cycle(&mut self, burnchain: &Burnchain, burn_block_height: u64) -> u128 {
+        ((burn_block_height - burnchain.first_block_height) / burnchain.pox_constants.reward_cycle_length as u64) as u128
     }
 
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
@@ -132,10 +125,9 @@ impl StacksChainState {
             .map(|value| value.expect_bool())
     }
 
-    /// List all PoX addresses and amount of uSTX stacked, at a particular block.
     /// Each address will have at least (get-stacking-minimum) tokens.
-    pub fn get_reward_addresses(&mut self, burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<(StacksAddress, u128)>, Error> {
-        let reward_cycle = self.get_reward_cycle(burnchain, block_id)?;
+    pub fn get_reward_addresses(&mut self, burnchain: &Burnchain, sortdb: &SortitionDB, current_burn_height: u64, block_id: &StacksBlockId) -> Result<Vec<(StacksAddress, u128)>, Error> {
+        let reward_cycle = self.get_reward_cycle(burnchain, current_burn_height);
         if !self.is_pox_active(sortdb, block_id, reward_cycle)? {
             debug!("PoX was voted disabled in block {} (reward cycle {})", block_id, reward_cycle);
             return Ok(vec![]);
@@ -560,6 +552,11 @@ pub mod test {
         tx_signer.get_tx().unwrap()
     }
 
+    fn get_reward_addresses_with_par_tip(state: &mut StacksChainState, burnchain: &Burnchain, sortdb: &SortitionDB, block_id: &StacksBlockId) -> Result<Vec<(StacksAddress, u128)>, Error> {
+        let burn_block_height = get_par_burn_block_height(state, block_id);
+        state.get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
+    }
+
     fn get_parent_tip(parent_opt: &Option<&StacksBlock>, chainstate: &StacksChainState, sortdb: &SortitionDB) -> StacksHeaderInfo {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
@@ -769,6 +766,16 @@ pub mod test {
             }
         }
     }
+
+    fn get_par_burn_block_height(state: &mut StacksChainState, block_id: &StacksBlockId) -> u64 {
+        let parent_block_id = StacksChainState::get_parent_block_id(state.headers_db(), block_id)
+            .unwrap().unwrap();
+
+        let parent_header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(state.headers_db(), &parent_block_id)
+            .unwrap().unwrap();
+
+        parent_header_info.burn_header_height as u64
+    }
     
     #[test]
     fn test_pox_lockup_single_tx_sender() {
@@ -831,25 +838,27 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
-                alice_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+                alice_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 eprintln!("\nalice reward cycle: {}\ncur reward cycle: {}\n", alice_reward_cycle, cur_reward_cycle);
             }
             else {
                 // Alice's address is locked as of the next reward cycle
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 // Alice has locked up STX no matter what
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 0);
                  
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)).unwrap();
                 
                 eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
@@ -951,24 +960,26 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
-                alice_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+                alice_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 eprintln!("\nalice reward cycle: {}\ncur reward cycle: {}\n", alice_reward_cycle, cur_reward_cycle);
             }
             else {
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 // Alice's tokens got sent to the contract, so her balance is 0
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 0);
 
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)).unwrap();
                 
                 eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
@@ -1111,18 +1122,20 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / 20000);
                 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
-                first_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+                first_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 eprintln!("\nalice reward cycle: {}\ncur reward cycle: {}\n", first_reward_cycle, cur_reward_cycle);
             }
             else {
                 // Alice's and Bob's addresses are locked as of the next reward cycle
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 // Alice and Bob have locked up STX no matter what
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -1132,7 +1145,7 @@ pub mod test {
                 assert_eq!(bob_balance, 1024 * 1000000 - (4 * 1024 * 1000000) / 5);
                 
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 
                 eprintln!("\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\n", cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx);
 
@@ -1291,12 +1304,14 @@ pub mod test {
 
             if tenure_id <= 1 {
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
-                first_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+
+                first_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 eprintln!("\nalice reward cycle: {}\ncur reward cycle: {}\n", first_reward_cycle, cur_reward_cycle);
             }
@@ -1372,23 +1387,25 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / 20000);
                 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
-                alice_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+                alice_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 eprintln!("\nalice reward cycle: {}\ncur reward cycle: {}\n", alice_reward_cycle, cur_reward_cycle);
             }
             else {
                 // Alice's address is locked as of the next reward cycle
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)).unwrap();
                 
                 eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
@@ -1523,12 +1540,13 @@ pub mod test {
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
             let tip_index_block = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-            let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+            let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+            let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
             let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
             let charlie_balance = get_balance(&mut peer, &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into());
             
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
             let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)).unwrap();
 
@@ -1550,7 +1568,7 @@ pub mod test {
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
-                first_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                first_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
                 eprintln!("\nfirst reward cycle: {}\ncur reward cycle: {}\n", first_reward_cycle, cur_reward_cycle);
 
                 assert!(first_reward_cycle > cur_reward_cycle);
@@ -1574,7 +1592,7 @@ pub mod test {
                 assert_eq!(reward_addrs.len(), 0);
                 
                 // record the first reward cycle when Alice's tokens get stacked
-                second_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                second_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
                 assert!(second_reward_cycle > cur_reward_cycle);
                 eprintln!("\nsecond reward cycle: {}\ncur reward cycle: {}\n", second_reward_cycle, cur_reward_cycle);
             }
@@ -1848,7 +1866,9 @@ pub mod test {
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
             let tip_index_block = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-            let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+            let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+
+            let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
             let stacker_addrs : Vec<PrincipalData> = vec![
                 key_to_stacks_addr(&alice).into(),
@@ -1912,7 +1932,7 @@ pub mod test {
             ];
             
             let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)).unwrap();
             
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
@@ -1929,11 +1949,11 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / 20000);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
-                reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
                 eprintln!("first reward cycle: {}\ncur reward cycle: {}\n", reward_cycle, cur_reward_cycle);
 
                 assert!(reward_cycle > cur_reward_cycle);
@@ -2126,11 +2146,13 @@ pub mod test {
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
             let tip_index_block = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-            let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+            let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+
+            let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
             let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
 
             let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_stacking_minimum(sortdb, &tip_index_block)).unwrap();
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_reward_addresses(&burnchain, sortdb, &tip_index_block)).unwrap();
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)).unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)).unwrap();
             let total_stacked_next = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| chainstate.get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle + 1)).unwrap();
             
@@ -2155,8 +2177,8 @@ pub mod test {
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
-                alice_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
-                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, &tip_index_block).unwrap();
+                alice_reward_cycle = 1 + peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
+                let cur_reward_cycle = peer.chainstate().get_reward_cycle(&burnchain, tip_burn_block_height);
 
                 eprintln!("\nalice reward cycle: {}\ncur reward cycle: {}\n", alice_reward_cycle, cur_reward_cycle);
             }
