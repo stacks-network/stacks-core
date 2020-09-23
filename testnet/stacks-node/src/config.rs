@@ -134,13 +134,13 @@ impl ConfigFile {
             mode: Some("krypton".to_string()),
             rpc_port: Some(18443),
             peer_port: Some(18444),
-            peer_host: Some("krypton.blockstack.org".to_string()),
+            peer_host: Some("bitcoind.krypton.blockstack.org".to_string()),
             process_exit_at_block_height: Some(5130), // 1 block every 2m, 24 hours * 7 + 300 blocks initially mined for seeding faucet / miner
             ..BurnchainConfigFile::default()
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@argon.blockstack.org:20444".to_string()),
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@krypton.blockstack.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };

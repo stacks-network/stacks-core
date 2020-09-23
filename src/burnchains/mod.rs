@@ -284,12 +284,12 @@ pub struct PoxConstants {
     pub anchor_threshold: u32,
     /// fraction of liquid STX that must vote to reject PoX for
     /// it to revert to PoB in the next reward cycle
-    pub pox_rejection_fraction: u32,
+    pub pox_rejection_fraction: u64,
     _shadow: PhantomData<()>,
 }
 
 impl PoxConstants {
-    pub fn new(reward_cycle_length: u32, prepare_length: u32, anchor_threshold: u32, pox_rejection_fraction: u32) -> PoxConstants {
+    pub fn new(reward_cycle_length: u32, prepare_length: u32, anchor_threshold: u32, pox_rejection_fraction: u64) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
 
         PoxConstants {
@@ -307,6 +307,14 @@ impl PoxConstants {
 
     pub fn mainnet_default() -> PoxConstants {
         PoxConstants::new(1000, 240, 192, 25)
+    }
+
+    pub fn testnet_default() -> PoxConstants {
+    PoxConstants::new(
+        120, 
+        30, 
+        20,
+        3333333333333333) // total liquid supply is 40000000000000000 µSTX
     }
 }
 
