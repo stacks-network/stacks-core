@@ -1218,7 +1218,7 @@ impl HttpRequestType {
     
     fn parse_getpoxinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
-            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetInfo".to_string()));
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetPoxInfo".to_string()));
         }
 
         let tip = HttpRequestType::get_chain_tip_query(query);
