@@ -3869,7 +3869,7 @@ impl StacksChainState {
                 };
 
             let microblock_cost = clarity_tx.cost_so_far();
-            debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
+            info!("Append block {}/{} off of {}/{}. Stacks block height: {}, Total Burns: {}. Microblock parent: {} (seq {}) (count {})", 
                    chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
                    block.header.total_work.work, block.header.total_work.burn,
                    last_microblock_hash, last_microblock_seq, microblocks.len());

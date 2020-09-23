@@ -424,6 +424,7 @@ impl Config {
                     poll_time_secs: burnchain
                         .poll_time_secs
                         .unwrap_or(default_burnchain_config.poll_time_secs),
+                    miner_exit_at_block_height: burnchain.miner_exit_at_block_height,
                 }
             }
             None => default_burnchain_config,
@@ -732,6 +733,7 @@ pub struct BurnchainConfig {
     pub burnchain_op_tx_fee: u64,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
+    pub miner_exit_at_block_height: Option<u64>, // only usable by tests
 }
 
 impl BurnchainConfig {
@@ -755,6 +757,7 @@ impl BurnchainConfig {
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
             poll_time_secs: 30, // TODO: this is a testnet specific value.
+            miner_exit_at_block_height: None,
         }
     }
 
@@ -806,6 +809,7 @@ pub struct BurnchainConfigFile {
     pub burnchain_op_tx_fee: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
+    pub miner_exit_at_block_height: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -15,12 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::BTreeMap;
+use std::thread;
 
 use rusqlite::Connection;
 
 use chainstate::burn::{BurnchainHeaderHash, ConsensusHash, OpsHash, SortitionHash, Txid, VRFSeed};
 
 use util::db::Error as db_error;
+use util::get_epoch_time_secs;
 
 use core::*;
 
@@ -61,6 +63,7 @@ impl BlockSnapshot {
             block_height: first_block_height,
             burn_header_hash: first_burn_header_hash.clone(),
             burn_header_timestamp: first_burn_header_timestamp,
+            burn_header_received_timestamp: first_burn_header_timestamp,
             parent_burn_header_hash: BurnchainHeaderHash::sentinel(),
             consensus_hash: ConsensusHash([0u8; 20]),
             ops_hash: OpsHash([0u8; 32]),
@@ -212,6 +215,7 @@ impl BlockSnapshot {
             block_height: block_height,
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
+            burn_header_received_timestamp: get_epoch_time_secs(),
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: ch,
             ops_hash: ops_hash,
@@ -235,7 +239,7 @@ impl BlockSnapshot {
         })
     }
 
-    /// Make a block snapshot from is block's data and the previous block.
+    /// Make a block snapshot from its block's data and the previous block.
     /// This process will:
     /// * calculate the new consensus hash
     /// * calculate the total burn so far
@@ -351,15 +355,13 @@ impl BlockSnapshot {
             my_pox_id,
         )?;
 
-        debug!(
-            "SORTITION({}): WINNER IS {:?} (from {:?})",
-            block_height, &winning_block.block_header_hash, &winning_block.txid
-        );
+        debug!("SORTITION({}): WINNER IS {:?}/{:?}/{:?} (from {:?})", block_height, block_hash, next_ch, &winning_block.block_header_hash, &winning_block.txid);
 
         Ok(BlockSnapshot {
             block_height: block_height,
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
+            burn_header_received_timestamp: get_epoch_time_secs(),
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: next_ch,
             ops_hash: next_ops_hash,

@@ -583,6 +583,7 @@ pub mod tests {
                     pox_valid: true,
                     block_height: i + 1 + first_block_height,
                     burn_header_timestamp: get_epoch_time_secs(),
+                    burn_header_received_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i as usize].clone(),
                     sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),

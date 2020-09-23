@@ -77,6 +77,21 @@ impl RunLoop {
     #[cfg(not(test))]
     fn bump_blocks_processed(&self) {}
 
+    #[cfg(test)]
+    fn should_stop(&self, block_height: u64) -> bool {
+        if let Some(miner_exit_at_block_height) = self.config.burnchain.miner_exit_at_block_height {
+            println!("  should_stop [{:?}] {:?} : {:?} = {:?}", thread::current().id(), block_height, miner_exit_at_block_height, block_height > miner_exit_at_block_height);
+            block_height > miner_exit_at_block_height
+        } else {
+            false
+        }
+    }
+
+    #[cfg(not(test))]
+    fn should_stop(&self, _block_height: u64) -> bool {
+        false
+    }
+
     /// Starts the testnet runloop.
     ///
     /// This function will block by looping infinitely.
@@ -152,6 +167,7 @@ impl RunLoop {
         let coordinator_burnchain_config = burnchain_config.clone();
 
         thread::spawn(move || {
+            debug!("Starting chain coordinator");
             ChainsCoordinator::run(
                 &chainstate_path,
                 coordinator_burnchain_config,
@@ -275,12 +291,15 @@ impl RunLoop {
 
             if block_height >= burnchain_height {
                 // at tip. proceed to mine.
-                debug!("Synchronized full burnchain. Proceeding to mine blocks");
+                debug!("Synchronized full burnchain. Proceeding to mine blocks");  // TODO(psq): this is not enough to start mining, need recent stack blocks as well
                 if !node.relayer_issue_tenure() {
                     // relayer hung up, exit.
                     error!("Block relayer and miner hung up, exiting.");
                     return;
                 }
+            if self.should_stop(block_height) {
+                println!("  stopping [{:?}] {:?}", thread::current().id(), block_height);
+                return
             }
         }
     }

@@ -119,6 +119,8 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
+        let burn_header_received_timestamp =
+            u64::from_column(row, "burn_header_received_timestamp")?;
         let parent_burn_header_hash =
             BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
@@ -156,6 +158,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let snapshot = BlockSnapshot {
             block_height: block_height,
             burn_header_timestamp: burn_header_timestamp,
+            burn_header_received_timestamp: burn_header_received_timestamp,
             burn_header_hash: burn_header_hash,
             parent_burn_header_hash: parent_burn_header_hash,
             consensus_hash: consensus_hash,
@@ -338,6 +341,7 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         burn_header_hash TEXT NOT NULL,
         sortition_id TEXT UNIQUE NOT NULL,
         burn_header_timestamp INT NOT NULL,
+        burn_header_received_timestamp INT NOT NULL,
         parent_burn_header_hash TEXT NOT NULL,
         consensus_hash TEXT UNIQUE NOT NULL,
         ops_hash TEXT NOT NULL,
@@ -3112,6 +3116,7 @@ impl<'a> SortitionHandleTx<'a> {
             &u64_to_sql(snapshot.block_height)?,
             &snapshot.burn_header_hash,
             &u64_to_sql(snapshot.burn_header_timestamp)?,
+            &u64_to_sql(snapshot.burn_header_received_timestamp)?,
             &snapshot.parent_burn_header_hash,
             &snapshot.consensus_hash,
             &snapshot.ops_hash,
@@ -3133,9 +3138,9 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("INSERT INTO snapshots \
-                      (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
+                      (block_height, burn_header_hash, burn_header_timestamp, burn_header_received_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
                       stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, pox_valid) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -3340,12 +3345,15 @@ impl<'a> SortitionHandleTx<'a> {
                 assert_eq!(sn, arrival_sn);
 
                 debug!(
-                    "New Stacks anchored block arrived since {}: block {} ({}) ari={} tip={}",
+                    "New Stacks anchored block arrived since {}: block {} ({}/{}/{}) ari={} tip={}/{}",
                     parent_tip.burn_header_hash,
                     sn.stacks_block_height,
+                    sn.burn_header_hash,
+                    sn.consensus_hash,
                     sn.winning_stacks_block_hash,
                     ari,
-                    &parent_tip.burn_header_hash
+                    &parent_tip.burn_header_hash,
+                    parent_tip.block_height
                 );
                 new_block_arrivals.push((
                     sn.consensus_hash,
@@ -4000,6 +4008,7 @@ mod tests {
                     pox_valid: true,
                     block_height: i as u64 + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
+                    burn_header_received_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
@@ -4239,6 +4248,7 @@ mod tests {
                     pox_valid: true,
                     block_height: i as u64 + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
+                    burn_header_received_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
@@ -4502,6 +4512,7 @@ mod tests {
             pox_valid: true,
             block_height: block_height - 2,
             burn_header_timestamp: get_epoch_time_secs(),
+            burn_header_received_timestamp: get_epoch_time_secs(),
             burn_header_hash: first_burn_hash.clone(),
             sortition_id: SortitionId(first_burn_hash.0.clone()),
             parent_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
@@ -4536,6 +4547,7 @@ mod tests {
             pox_valid: true,
             block_height: block_height,
             burn_header_timestamp: get_epoch_time_secs(),
+            burn_header_received_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 2,
@@ -4584,6 +4596,7 @@ mod tests {
             pox_valid: true,
             block_height: block_height - 1,
             burn_header_timestamp: get_epoch_time_secs(),
+            burn_header_received_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 1,
@@ -4640,6 +4653,7 @@ mod tests {
 
         first_snapshot.index_root = initial_snapshot.index_root.clone();
         first_snapshot.burn_header_timestamp = initial_snapshot.burn_header_timestamp;
+        first_snapshot.burn_header_received_timestamp = initial_snapshot.burn_header_timestamp;
         assert_eq!(initial_snapshot, first_snapshot);
 
         {
@@ -4667,6 +4681,7 @@ mod tests {
 
         next_snapshot.index_root = initial_snapshot.index_root.clone();
         next_snapshot.burn_header_timestamp = initial_snapshot.burn_header_timestamp;
+        next_snapshot.burn_header_received_timestamp = initial_snapshot.burn_header_received_timestamp;
         assert_eq!(initial_snapshot, next_snapshot);
 
         {
@@ -4687,6 +4702,7 @@ mod tests {
 
         snapshot_with_sortition.index_root = next_snapshot_2.index_root.clone();
         snapshot_with_sortition.burn_header_timestamp = next_snapshot_2.burn_header_timestamp;
+        snapshot_with_sortition.burn_header_received_timestamp = next_snapshot_2.burn_header_received_timestamp;
         assert_eq!(snapshot_with_sortition, next_snapshot_2);
     }
 
@@ -5152,6 +5168,7 @@ mod tests {
                         pox_valid: true,
                         block_height: i + 1,
                         burn_header_timestamp: get_epoch_time_secs(),
+                        burn_header_received_timestamp: get_epoch_time_secs(),
                         burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                             0, 0, 0, 0, 0, 0, 0, i as u8,
@@ -5226,6 +5243,7 @@ mod tests {
                         pox_valid: true,
                         block_height: i + 1,
                         burn_header_timestamp: get_epoch_time_secs(),
+                        burn_header_received_timestamp: get_epoch_time_secs(),
                         burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                             0, 0, 0, 0, 0, 0, 0, i as u8,
@@ -5516,6 +5534,7 @@ mod tests {
                 pox_valid: true,
                 block_height: last_snapshot.block_height + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
+                burn_header_received_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),
                 sortition_id: SortitionId([(i as u8) | bit_pattern; 32]),
                 parent_burn_header_hash: last_snapshot.burn_header_hash.clone(),

@@ -117,6 +117,7 @@ pub enum Opcodes {
 pub struct BlockSnapshot {
     pub block_height: u64,
     pub burn_header_timestamp: u64,
+    pub burn_header_received_timestamp: u64,
     pub burn_header_hash: BurnchainHeaderHash,
     pub parent_burn_header_hash: BurnchainHeaderHash,
     pub consensus_hash: ConsensusHash,
@@ -399,6 +400,7 @@ mod tests {
                     pox_valid: true,
                     block_height: i,
                     burn_header_timestamp: get_epoch_time_secs(),
+                    burn_header_received_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,

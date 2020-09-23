@@ -83,9 +83,11 @@ pub struct InitializedNeonNode {
     sleep_before_tenure: u64,
     wait_time_for_stacks_block: u64,
     run_tenure_with_missing_block: bool,
+    master_node: bool,
     is_miner: bool,
     blocks_db: DBConn,
     blocks_path: String,
+    got_first_block: u8,
 }
 
 pub struct NeonGenesisNode {
@@ -106,6 +108,7 @@ type BlocksProcessedCounter = ();
 #[cfg(test)]
 fn bump_processed_counter(blocks_processed: &BlocksProcessedCounter) {
     blocks_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    debug!("bump_processed_counter [{:?}] {:?}", thread::current().id(), &blocks_processed);
 }
 
 #[cfg(not(test))]
@@ -136,6 +139,7 @@ fn inner_process_tenure(
         )?;
     }
 
+    info!("Announce_new_stacks_block consensus={}", &consensus_hash);
     if !coord_comms.announce_new_stacks_block() {
         return Ok(false);
     }
@@ -147,7 +151,7 @@ fn inner_process_tenure(
         SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn())?;
 
     let canonical_tip = StacksBlockId::new(&canonical_consensus_hash, &canonical_block_hash);
-    debug!("Reload unconfirmed state");
+    debug!("Reload unconfirmed state {}/{}", &canonical_consensus_hash, &canonical_block_hash);
     chain_state.reload_unconfirmed_state(&burn_db.index_conn(), canonical_tip)?;
 
     Ok(true)
@@ -275,6 +279,7 @@ fn spawn_peer(
     let mut results_with_data = VecDeque::new();
 
     let server_thread = thread::spawn(move || {
+        debug!("P2P thread start...");
         let handler_args = RPCHandlerArgs {
             exit_at_block_height: exit_at_block_height.as_ref(),
             ..RPCHandlerArgs::default()
@@ -559,13 +564,16 @@ fn spawn_miner_relayer(
                                 }
                             }
                         } else {
-                            warn!("Did not win sortition, my blocks [burn_hash= {}, block_hash= {}], their blocks [parent_consenus_hash= {}, burn_hash= {}, block_hash ={}]",
-                                  mined_burn_hash, mined_block.block_hash(), parent_consensus_hash, burn_hash, block_header_hash);
+                            warn!("Did not win sortition, my blocks [burn_hash={}, block_hash={}], their blocks [parent_consenus_hash={}, burn_hash={}, block_hash={}]",
+                                 mined_burn_hash, mined_block.block_hash(), parent_consensus_hash, burn_hash, block_header_hash);
                         }
+                    } else {
+                        info!("No committed block, skipping tenure");
                     }
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
-                    debug!("Relayer: Run tenure");
+                    let block_height = last_burn_block.block_height;
+                    debug!("Relayer: Run tenure {:?}", block_height);
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
                         &config,
                         registered_key,
@@ -629,7 +637,7 @@ impl InitializedNeonNode {
             initial_neighbors.push(bootstrap_node.clone());
         }
 
-        println!("BOOTSTRAP WITH {:?}", initial_neighbors);
+        debug!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
         let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
             "Failed to parse socket: {}",
@@ -729,8 +737,6 @@ impl InitializedNeonNode {
         let is_miner = miner;
 
         let active_keys = vec![];
-        let wait_time_for_stacks_block = config.node.wait_time_for_stacks_block;
-        let run_tenure_with_missing_block = config.node.run_tenure_with_missing_block;
 
         InitializedNeonNode {
             relay_channel: relay_send,
@@ -738,11 +744,13 @@ impl InitializedNeonNode {
             burnchain_signer,
             is_miner,
             sleep_before_tenure,
-            wait_time_for_stacks_block,
-            run_tenure_with_missing_block,
+            wait_time_for_stacks_block: config.node.wait_time_for_stacks_block,
+            run_tenure_with_missing_block: config.node.run_tenure_with_missing_block,
+            master_node: config.node.bootstrap_node.is_none(),
             active_keys,
             blocks_db,
             blocks_path,
+            got_first_block: 0,
         }
     }
 
@@ -770,29 +778,47 @@ impl InitializedNeonNode {
                 let start = Instant::now();
                 let mut has_block = false;
 
+                // TOTO(psq): try using `wait_for_stacks_blocks_processed` instead?  except this code is more precise
+                // TODO(psq): consider moving this to a separate function `wait_for_block` or similar
+
                 while !done {
                     has_block = burnchain_tip.winning_stacks_block_hash == BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap() || match StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, &burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash) {
                         Ok(has_block) => {
                             has_block
                         },
                         _ => {
-                            // TODO(psq): panic instead?
+                            // TODO(psq): panic instead?  Except panic in a thread is only stopping the mining thread...
                             warn!("block not found in storage");
                             false
                         }
                     };
-                    println!("has_block [{:?}] {:?}", thread::current().id(), has_block);
+                    println!("  has_block [{:?}] ({:?}) {:?}/{:?} {:?}/{:?}/{:?}", thread::current().id(), burnchain_tip.block_height, has_block, self.got_first_block, &burnchain_tip.burn_header_hash, &burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash);
                     thread::sleep(Duration::from_millis(1_000));
                     done = has_block || start.elapsed() > Duration::from_millis(self.wait_time_for_stacks_block);
                 }
-                println!("has_block - final [{:?}] {:?} {:?} ms", thread::current().id(), has_block, start.elapsed().as_millis());
-                debug_assert!(has_block, "did not get Stacks block in time");
-                if has_block || self.run_tenure_with_missing_block {
+                println!("  has_block - final [{:?}] ({:?}) {:?}/{:?} {:?} ms {:?}/{:?}/{:?}", thread::current().id(), burnchain_tip.block_height, has_block, self.got_first_block, start.elapsed().as_millis(), &burnchain_tip.burn_header_hash, &burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash);
+                if has_block && self.got_first_block == 0 {
+                    println!("  got first block [{:?}] {:?}", thread::current().id(), self.got_first_block);
+                    // TODO(psq): this should not be in regular code
+                    if self.master_node {
+                        self.got_first_block = 2;  // master should start, but not other nodes
+                    } else {
+                        self.got_first_block = 1;
+                    }
+                } else if has_block && self.got_first_block == 1 {
+                    println!("  got first block [{:?}] {:?}", thread::current().id(), self.got_first_block);
+                    self.got_first_block = 2
+                } else if !has_block && self.got_first_block == 0 {
+                    println!("  still waiting for first block [{:?}] {:?}", thread::current().id(), self.got_first_block);
+                } else if !has_block && !self.run_tenure_with_missing_block {
+                    println!("  did not get Stacks block in time [{:?}]", thread::current().id());
+                }
+                if self.got_first_block == 2 && (has_block || self.run_tenure_with_missing_block) {
                     self.relay_channel
                         .send(RelayerDirective::RunTenure(key.clone(), burnchain_tip))
                         .is_ok()
                 } else {
-                    println!("skiping block [{:?}]", thread::current().id());
+                    println!("  skipping block [{:?}] {:?}", thread::current().id(), self.got_first_block);
                     true
                 }
             } else {
@@ -1103,10 +1129,11 @@ impl InitializedNeonNode {
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
-                    "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
+                    "Received burnchain block #{} including block_commit_op (winning) - {} {}/{}",
                     block_height,
                     op.input.to_testnet_address(),
-                    &op.block_header_hash
+                    &op.block_header_hash,
+                    block_snapshot.consensus_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
                 // Release current registered key if leader won the sortition

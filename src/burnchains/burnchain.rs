@@ -669,6 +669,7 @@ impl Burnchain {
                         new_block_commit.key_vtxindex as u32,
                     );
                     if let Some(existing_block_commit) = collisions.get_mut(&key_loc) {
+<<<<<<< HEAD
                         if let BlockstackOperationType::LeaderBlockCommit(existing_block_commit) =
                             existing_block_commit
                         {
@@ -677,14 +678,28 @@ impl Burnchain {
                                 &new_block_commit.block_header_hash,
                                 &existing_block_commit.block_header_hash
                             );
+=======
+                        if let BlockstackOperationType::LeaderBlockCommit(existing_block_commit) = existing_block_commit {
+                            warn!("Block commit {} consumes the same VRF key as {}", &new_block_commit.block_header_hash, &existing_block_commit.block_header_hash);
+
+                            // TODO(psq): this should use `>=`, if there's a newer commit with same fee, the older one may be stale
+                            // TODO(psq): what should we do if there are 2 commits in the same block, try to use one against later block if possible to tell
+>>>>>>> improve wait, and fix faulty test logic, not the wait algo itself
                             if new_block_commit.burn_fee > existing_block_commit.burn_fee {
-                                warn!("REJECTED({}) block-commit {} for {}: later competing commit {} for {} has a higher burn",
-                                      existing_block_commit.block_height, &existing_block_commit.txid, &existing_block_commit.block_header_hash, &new_block_commit.txid, &new_block_commit.block_header_hash);
+                                warn!("REJECTED({}) block-commit {} for {}: later ({}) competing commit {} for {} has a higher burn",
+                                      existing_block_commit.block_height, &existing_block_commit.txid, &existing_block_commit.block_header_hash,
+                                      new_block_commit.block_height, &new_block_commit.txid, &new_block_commit.block_header_hash);
                                 collisions.insert(key_loc, op);
+<<<<<<< HEAD
                             } else {
                                 warn!("REJECTED({}) block-commit {} for {}: keeping earlier commit {} for {} which has a higher burn",
+=======
+                            }
+                            else {
+                                warn!("REJECTED({}) block-commit {} for {}: keeping earlier ({}) commit {} for {} which has a higher burn",
+>>>>>>> improve wait, and fix faulty test logic, not the wait algo itself
                                       new_block_commit.block_height, &new_block_commit.txid, &new_block_commit.block_header_hash,
-                                      &existing_block_commit.txid, &existing_block_commit.block_header_hash);
+                                      existing_block_commit.block_height, &existing_block_commit.txid, &existing_block_commit.block_header_hash);
                             }
                         } else {
                             unreachable!("Inserted non-block-commit");
@@ -1734,6 +1749,7 @@ pub mod tests {
             burn_header_hash: block_121_hash.clone(),
             sortition_id: SortitionId(block_121_hash.0.clone()),
             burn_header_timestamp: 121,
+            burn_header_received_timestamp: 121,
             parent_burn_header_hash: first_burn_hash.clone(),
             ops_hash: block_opshash_121.clone(),
             consensus_hash: ConsensusHash::from_ops(
@@ -1778,6 +1794,7 @@ pub mod tests {
             burn_header_hash: block_122_hash.clone(),
             sortition_id: SortitionId(block_122_hash.0.clone()),
             burn_header_timestamp: 122,
+            burn_header_received_timestamp: 122,
             parent_burn_header_hash: block_121_hash.clone(),
             ops_hash: block_opshash_122.clone(),
             consensus_hash: ConsensusHash::from_ops(
@@ -1829,6 +1846,7 @@ pub mod tests {
             burn_header_hash: block_123_hash.clone(),
             sortition_id: SortitionId(block_123_hash.0.clone()),
             burn_header_timestamp: 123,
+            burn_header_received_timestamp: 123,
             parent_burn_header_hash: block_122_hash.clone(),
             ops_hash: block_opshash_123.clone(),
             consensus_hash: ConsensusHash::from_ops(
@@ -2039,6 +2057,7 @@ pub mod tests {
                 burn_header_hash: block_124_hash.clone(),
                 sortition_id: SortitionId(block_124_hash.0.clone()),
                 burn_header_timestamp: 124,
+                burn_header_received_timestamp: 124,
                 parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
                 ops_hash: block_opshash_124.clone(),
                 consensus_hash: ConsensusHash::from_ops(

@@ -968,6 +968,7 @@ impl Relayer {
                 let mut new_dled_blocks =
                     Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
                 for new_dled_block in new_dled_blocks.drain() {
+                    info!("preprocessing downloaded block {:?}", new_dled_block);
                     new_blocks.insert(new_dled_block);
                 }
             }

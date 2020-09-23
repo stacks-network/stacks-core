@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
+use std::thread;
+use std::time::Duration;
 use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
 
@@ -582,7 +584,13 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     ))
                     .get_canonical_stacks_block_id();
                     self.canonical_chain_tip = Some(new_canonical_stacks_block);
-                    debug!("Bump blocks processed");
+                    debug!(
+                        "Bump blocks processed {:?} {:?}/{:?}/{:?}",
+                        new_canonical_stacks_block.block_height,
+                        &new_canonical_stacks_block.burn_header_hash,
+                        &new_canonical_stacks_block.consensus_hash,
+                        &new_canonical_stacks_block.winning_stacks_block_hash
+                    );
                     self.notifier.notify_stacks_block_processed();
                     increment_stx_blocks_processed_counter();
                     let block_hash = block_receipt.header.anchored_header.block_hash();

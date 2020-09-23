@@ -668,7 +668,8 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {}, parent block {}, state root = {}",
+            "Miner {}: mined anchored block {}, parent block {}, state root = {}",
+            self.miner_id,
             block.block_hash(),
             &self.header.parent_block,
             state_root_hash
@@ -750,7 +751,7 @@ impl StacksBlockBuilder {
         let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
-        test_debug!(
+        info!(
             "\n\nMiner {} epoch begin off of {}/{}\n",
             self.miner_id,
             self.chain_tip.consensus_hash,
@@ -836,8 +837,8 @@ impl StacksBlockBuilder {
         // write out the trie...
         let consumed = tx.commit_mined_block(&index_block_hash);
 
-        test_debug!(
-            "\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n",
+        info!(
+            "Miner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.",
             self.miner_id,
             self.chain_tip.consensus_hash,
             self.chain_tip.anchored_header.block_hash()
@@ -1776,6 +1777,11 @@ pub mod test {
             "\n\nPreprocess Stacks block {}/{} ({})",
             &commit_snapshot.consensus_hash,
             &block_hash,
+            StacksBlockHeader::make_index_block_hash(&commit_snapshot.consensus_hash, &block_hash)
+        );
+        info!(
+            "Preprocess Stacks block {}/{} ({})",
+            &commit_snapshot.consensus_hash, &block_hash,
             StacksBlockHeader::make_index_block_hash(&commit_snapshot.consensus_hash, &block_hash)
         );
         let block_res = node
