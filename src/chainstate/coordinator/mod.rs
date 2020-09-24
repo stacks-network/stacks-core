@@ -169,7 +169,7 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let chain_state_db = StacksChainState::open_and_exec(
+        let (chain_state_db, _) = StacksChainState::open_and_exec(
             stacks_mainnet, stacks_chain_id, chain_state_path,
             initial_balances, boot_block_exec, block_limit).unwrap();
 

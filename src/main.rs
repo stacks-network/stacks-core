@@ -314,7 +314,7 @@ fn main() {
         use chainstate::burn::db::sortdb::SortitionDB;
         let path = &argv[2];
         let sort_path = &argv[3];
-        let mut chainstate = StacksChainState::open(false, 0x80000000, path).unwrap();
+        let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path).unwrap();
         let mut sortition_db = SortitionDB::open(sort_path, true).unwrap();
         let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap().sortition_id;
         let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
@@ -354,7 +354,7 @@ fn main() {
         let new_chainstate_path = &argv[5];
         let burnchain_db_path = &argv[6];
 
-        let old_chainstate = StacksChainState::open(false, 0x80000000, old_chainstate_path).unwrap();
+        let (old_chainstate, _) = StacksChainState::open(false, 0x80000000, old_chainstate_path).unwrap();
         let old_sortition_db = SortitionDB::open(old_sort_path, true).unwrap();
 
         // initial argon balances -- see testnet/stacks-node/conf/argon-follower-conf.toml
@@ -380,7 +380,7 @@ fn main() {
         
         let old_burnchaindb = BurnchainDB::connect(&old_burnchaindb_path, burnchain.first_block_height, &burnchain.first_block_hash, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, true).unwrap();
 
-        let mut new_chainstate = StacksChainState::open_and_exec(false, 0x80000000, new_chainstate_path, Some(initial_argon_balances), |_| {}, argon_block_limit).unwrap();
+        let (mut new_chainstate, _) = StacksChainState::open_and_exec(false, 0x80000000, new_chainstate_path, Some(initial_argon_balances), |_| {}, argon_block_limit).unwrap();
     
         let all_snapshots = old_sortition_db.get_all_snapshots().unwrap();
         let all_stacks_blocks = StacksChainState::get_all_staging_block_headers(&old_chainstate.blocks_db).unwrap();
@@ -416,7 +416,7 @@ fn main() {
         let mut next_arrival = 0;
         
         let (p2p_new_sortition_db, _) = burnchain.connect_db(&indexer, true).unwrap();
-        let mut p2p_chainstate = StacksChainState::open_with_block_limit(false, 0x80000000, new_chainstate_path, ExecutionCost::max_value()).unwrap();
+        let (mut p2p_chainstate, _) = StacksChainState::open_with_block_limit(false, 0x80000000, new_chainstate_path, ExecutionCost::max_value()).unwrap();
         
         let _ = thread::spawn(move || {
             loop {
