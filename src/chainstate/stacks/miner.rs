@@ -1773,12 +1773,6 @@ pub mod test {
         };
 
         // "discover" this stacks block
-        test_debug!(
-            "\n\nPreprocess Stacks block {}/{} ({})",
-            &commit_snapshot.consensus_hash,
-            &block_hash,
-            StacksBlockHeader::make_index_block_hash(&commit_snapshot.consensus_hash, &block_hash)
-        );
         info!(
             "Preprocess Stacks block {}/{} ({})",
             &commit_snapshot.consensus_hash, &block_hash,

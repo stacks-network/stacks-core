@@ -25,6 +25,9 @@ fn master_miner_test_conf_master() -> Config {
     conf.node.wait_time_for_stacks_block = 20_000;
     conf.node.run_tenure_with_missing_block = true;
 
+    conf.connection_options.download_interval = 5;  // TODO(psq): is this too low?
+    conf.connection_options.inv_sync_interval = 5;
+
     let keychain = Keychain::default(conf.node.seed.clone());
 
     conf.burnchain.mode = "neon".into(); 
@@ -59,6 +62,9 @@ fn master_miner_test_conf_miner() -> Config {
     // conf.connection_options.max_inflight_blocks = 1; // TODO(psq): slow down as much as possible???
     // conf.connection_options.download_interval = 30;  // TODO(psq): 30 seconds is the default, but does this have any effect?
     // conf.connection_options.inv_sync_interval = 45;  // TODO(psq): would that help maybe delaying starting the block download, default is 45 seconds
+
+    conf.connection_options.download_interval = 5;  // TODO(psq): is this too low?
+    conf.connection_options.inv_sync_interval = 5;
 
     let keychain = Keychain::default(conf.node.seed.clone());
 
@@ -172,6 +178,10 @@ fn master_miner_test() {
     println!("done generating blocks, stopping");
     master_thread.join().expect("failure during master thread run");
     miner_thread.join().expect("failure during miner thread run");
+
+    // TODO(psq): test that both miners got all blocks
+    // TODO(psq): test that everything was mined to a single branch
+    // TODO(psq): test that both miners mined some blocks (yes, this could lead to spurious failures in about .1% of the cases)
 
     channel_master.stop_chains_coordinator();
     channel_miner.stop_chains_coordinator();
