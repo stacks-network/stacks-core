@@ -231,9 +231,9 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128();
 
-        let registration_window_length = res
-            .get("registration-window-length")
-            .expect(&format!("FATAL: no 'registration-window-length'"))
+        let prepare_cycle_length = res
+            .get("prepare-cycle-length")
+            .expect(&format!("FATAL: no 'prepare-cycle-length'"))
             .to_owned()
             .expect_u128();
 
@@ -259,7 +259,7 @@ impl RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox").to_string(),
             first_burnchain_block_height,
             min_amount_ustx,
-            registration_window_length,
+            prepare_cycle_length,
             rejection_fraction,
             reward_cycle_id,
             reward_cycle_length,

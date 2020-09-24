@@ -20,7 +20,7 @@
 (define-constant MAX-POX-REWARD-CYCLES u12)
 
 ;; Default length of the PoX registration window, in burnchain blocks.
-(define-constant REGISTRATION-WINDOW-LENGTH u250)
+(define-constant PREPARE_CYCLE_LENGTH u250)
 
 ;; Default length of the PoX reward cycle, in burnchain blocks.
 (define-constant REWARD-CYCLE-LENGTH u1000)
@@ -42,20 +42,20 @@
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
-(define-data-var pox-registration-window-length uint REGISTRATION-WINDOW-LENGTH)
 (define-data-var pox-reward-cycle-length uint REWARD-CYCLE-LENGTH)
 (define-data-var pox-rejection-fraction uint POX-REJECTION-FRACTION)
+(define-data-var pox-prepare-cycle-length uint PREPARE_CYCLE_LENGTH)
 (define-data-var first-burnchain-block-height uint u0)
 (define-data-var configured bool false)
 
 ;; This function can only be called once, when it boots up
-(define-public (set-burnchain-parameters (first-burn-height uint) (pox-reg-window-len uint) (pox-reward-cycle-len uint) (pox-rejection-frac uint))
+(define-public (set-burnchain-parameters (first-burn-height uint) (prepare-cycle-length uint) (reward-cycle-length uint) (rejection-fraction uint))
     (begin
         (asserts! (and is-in-regtest (not (var-get configured))) (err ERR_NOT_ALLOWED))
         (var-set first-burnchain-block-height first-burn-height)
-        (var-set pox-registration-window-length pox-reg-window-len)
-        (var-set pox-reward-cycle-length pox-reward-cycle-len)
-        (var-set pox-rejection-fraction pox-rejection-frac)
+        (var-set pox-prepare-cycle-length prepare-cycle-length)
+        (var-set pox-reward-cycle-length reward-cycle-length)
+        (var-set pox-rejection-fraction rejection-fraction)
         (var-set configured true)
         (ok true))
 )
@@ -456,7 +456,7 @@
     (ok {
         min-amount-ustx: (get-stacking-minimum),
         reward-cycle-id: (current-pox-reward-cycle),
-        registration-window-length: (var-get pox-registration-window-length),
+        prepare-cycle-length: (var-get pox-prepare-cycle-length),
         first-burnchain-block-height: (var-get first-burnchain-block-height),
         reward-cycle-length: (var-get pox-reward-cycle-length),
         rejection-fraction: (var-get pox-rejection-fraction)

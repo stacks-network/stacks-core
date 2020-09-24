@@ -953,7 +953,7 @@ pub struct RPCPoxInfoData {
     pub contract_id: String,
     pub first_burnchain_block_height: u128,
     pub min_amount_ustx: u128,
-    pub registration_window_length: u128,
+    pub prepare_cycle_length: u128,
     pub rejection_fraction: u128,
     pub reward_cycle_id: u128,
     pub reward_cycle_length: u128,
