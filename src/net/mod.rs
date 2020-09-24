@@ -2010,7 +2010,7 @@ pub mod test {
                 },
                 ExecutionCost::max_value()).unwrap();
 
-            let mut coord = ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider::new());
+            let mut coord = ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider());
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
@@ -2479,7 +2479,7 @@ pub mod test {
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
 
             // patch in reward set info
-            match get_next_recipients(&last_sortition_block, &mut stacks_node.chainstate, &mut sortdb, &self.config.burnchain, &OnChainRewardSetProvider::new()) {
+            match get_next_recipients(&last_sortition_block, &mut stacks_node.chainstate, &mut sortdb, &self.config.burnchain, &OnChainRewardSetProvider()) {
                 Ok(recipients) => {
                     block_commit_op.commit_outs = match recipients {
                         Some(info) => vec![info.recipient.0],
