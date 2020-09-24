@@ -1414,7 +1414,6 @@ impl PeerNetwork {
                     // is the peer network still working?
                     if !self.is_connecting(*event_id) {
                         debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", &self.local_peer, *event_id, nk);
-                        walk.connecting.remove(&nk);
                         return Err(net_error::PeerNotConnected);
                     }
 
@@ -1697,7 +1696,7 @@ impl PeerNetwork {
                 Some(ref neighbor_addrs) => {
                     // got neighbors -- proceed to ask each one for *its* neighbors so we can
                     // estimate cur_neighbor's in-degree and grow our frontier.
-                    test_debug!("{:?}: will try to connect to {} neighbors of {:?}", &network.local_peer, neighbor_addrs.len(), &walk.cur_neighbor.addr);
+                    debug!("{:?}: will try to connect to {} neighbors of {:?}", &network.local_peer, neighbor_addrs.len(), &walk.cur_neighbor.addr);
 
                     let mut pending = false;
                     for na in neighbor_addrs {
