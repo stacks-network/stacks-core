@@ -37,7 +37,7 @@ use net::HttpRequestMetadata;
 use net::HttpResponseMetadata;
 use net::PeerAddress;
 use net::ClientError;
-use net::RPCPeerInfoData;
+use net::{RPCPeerInfoData, RPCPoxInfoData};
 use net::NeighborAddress;
 use net::NeighborsData;
 use net::StacksHttp;
@@ -91,6 +91,7 @@ use vm::{
     costs::{ LimitedCostTracker,
              ExecutionCost },
     types::{ PrincipalData,
+             StandardPrincipalData,
              QualifiedContractIdentifier },
     database::{ ClarityDatabase,
                 MarfedKV,
@@ -187,7 +188,81 @@ impl RPCPeerInfoData {
             stacks_tip,
             stacks_tip_consensus_hash: stacks_tip_consensus_hash.to_hex(),
             unanchored_tip: unconfirmed_tip,
-            exit_at_block_height: exit_at_block_height.cloned()
+            exit_at_block_height: exit_at_block_height.cloned(),
+        })
+    }
+}
+
+impl RPCPoxInfoData {
+
+    pub fn from_db(sortdb: &SortitionDB, chainstate: &mut StacksChainState, tip: &StacksBlockId, options: &ConnectionOptions) -> Result<RPCPoxInfoData, net_error> {
+
+        let contract_identifier = boot::boot_code_id("pox");
+        let function = "get-pox-info";
+        let cost_track = LimitedCostTracker::new(options.read_only_call_limit.clone());
+        let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+            clarity_tx.with_readonly_clarity_env(sender, cost_track, |env| {
+                env.execute_contract(&contract_identifier, function, &vec![], true)
+            })
+        });
+
+        let res = match data {
+            Ok(res) => {
+                res
+                    .expect_result_ok()
+                    .expect_tuple()
+            }
+            Err(_e) => {
+                return Err(net_error::DBError(db_error::NotFoundError))
+            }
+        };
+
+        let first_burnchain_block_height = res
+            .get("first-burnchain-block-height")
+            .expect(&format!("FATAL: no 'first-burnchain-block-height'"))
+            .to_owned()
+            .expect_u128();
+
+        let min_amount_ustx = res
+            .get("min-amount-ustx")
+            .expect(&format!("FATAL: no 'min-amount-ustx'"))
+            .to_owned()
+            .expect_u128();
+
+        let prepare_cycle_length = res
+            .get("prepare-cycle-length")
+            .expect(&format!("FATAL: no 'prepare-cycle-length'"))
+            .to_owned()
+            .expect_u128();
+
+        let rejection_fraction = res
+            .get("rejection-fraction")
+            .expect(&format!("FATAL: no 'rejection-fraction'"))
+            .to_owned()
+            .expect_u128();
+
+        let reward_cycle_id = res
+            .get("reward-cycle-id")
+            .expect(&format!("FATAL: no 'reward-cycle-id'"))
+            .to_owned()
+            .expect_u128();
+
+        let reward_cycle_length = res
+            .get("reward-cycle-length")
+            .expect(&format!("FATAL: no 'reward-cycle-length'"))
+            .to_owned()
+            .expect_u128();        
+
+        Ok(RPCPoxInfoData {
+            contract_id: boot::boot_code_id("pox").to_string(),
+            first_burnchain_block_height,
+            min_amount_ustx,
+            prepare_cycle_length,
+            rejection_fraction,
+            reward_cycle_id,
+            reward_cycle_length,
         })
     }
 }
@@ -329,6 +404,24 @@ impl ConversationHttp {
         match RPCPeerInfoData::from_db(burnchain, sortdb, chainstate, peerdb, &handler_args.exit_at_block_height) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
+                response.send(http, fd)
+            }
+            Err(e) => {
+                warn!("Failed to get peer info {:?}: {:?}", req, &e);
+                let response = HttpResponseType::ServerError(response_metadata, "Failed to query peer info".to_string());
+                response.send(http, fd)
+            }
+        }
+    }
+
+        /// Handle a GET pox info.
+    /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
+    fn handle_getpoxinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+        sortdb: &SortitionDB, chainstate: &mut StacksChainState, tip: &StacksBlockId, options: &ConnectionOptions) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        match RPCPoxInfoData::from_db(sortdb, chainstate, tip, options) {
+            Ok(pi) => {
+                let response = HttpResponseType::PoxInfo(response_metadata, pi);
                 response.send(http, fd)
             }
             Err(e) => {
@@ -772,6 +865,13 @@ impl ConversationHttp {
                                                  sortdb, chainstate, peerdb, handler_opts)?;
                 None
             },
+            HttpRequestType::GetPoxInfo(ref _md, ref tip_opt) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
+                    ConversationHttp::handle_getpoxinfo(&mut self.connection.protocol, &mut reply, &req,
+                                                    sortdb, chainstate, &tip, &self.connection.options)?;
+                }
+                None
+            },
             HttpRequestType::GetNeighbors(ref _md) => {
                 ConversationHttp::handle_getneighbors(&mut self.connection.protocol, &mut reply, &req, self.network_id, chain_view, peers, peerdb)?;
                 None
@@ -1192,6 +1292,11 @@ impl ConversationHttp {
     pub fn new_getinfo(&self) -> HttpRequestType {
         HttpRequestType::GetInfo(HttpRequestMetadata::from_host(self.peer_host.clone()))
     }
+
+    /// Make a new getinfo request to this endpoint
+    pub fn new_getpoxinfo(&self, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+        HttpRequestType::GetPoxInfo(HttpRequestMetadata::from_host(self.peer_host.clone()), tip_opt)
+    }    
     
     /// Make a new getneighbors request to this endpoint
     pub fn new_getneighbors(&self) -> HttpRequestType {
@@ -1582,6 +1687,38 @@ mod test {
                     }
                  });
     }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_getpoxinfo() {
+        let pox_server_info = RefCell::new(None);
+        test_rpc("test_rpc_getpoxinfo", 40000, 40001, 50000, 50001,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                    let mut sortdb = peer_server.sortdb.as_mut().unwrap();
+                    let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
+                    let stacks_block_id = {
+                        let tip = chainstate.get_stacks_chain_tip(sortdb).unwrap().unwrap();
+                        StacksBlockHeader::make_index_block_hash(&tip.consensus_hash, &tip.anchored_block_hash)
+                    };
+                    let pox_info = RPCPoxInfoData::from_db(&mut sortdb, chainstate, &stacks_block_id, &ConnectionOptions::default()).unwrap();
+                    *pox_server_info.borrow_mut() = Some(pox_info);
+                    convo_client.new_getpoxinfo(None)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                        HttpResponseType::PoxInfo(response_md, pox_data) => {
+                            assert_eq!(Some((*pox_data).clone()), *pox_server_info.borrow());
+                            true
+                        },
+                        _ => {
+                            error!("Invalid response: {:?}", &http_response);
+                            false
+                        }
+                    }
+                 });
+    }
+
 
     #[test]
     #[ignore]

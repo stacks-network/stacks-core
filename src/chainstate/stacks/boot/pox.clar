@@ -15,47 +15,26 @@
 (define-constant ERR_STACKING_INVALID_AMOUNT 18)
 (define-constant ERR_NOT_ALLOWED 19)
 
-;; Min/max number of reward cycles uSTX can be locked for
-(define-constant MIN-POX-REWARD-CYCLES u1)
-(define-constant MAX-POX-REWARD-CYCLES u12)
-
-;; Default length of the PoX registration window, in burnchain blocks.
-(define-constant REGISTRATION-WINDOW-LENGTH u250)
-
-;; Default length of the PoX reward cycle, in burnchain blocks.
-(define-constant REWARD-CYCLE-LENGTH u1000)
-
-;; Valid values for burnchain address versions.
-;; These correspond to address hash modes in Stacks 2.0.
-(define-constant ADDRESS-VERSION-P2PKH 0x00)
-(define-constant ADDRESS-VERSION-P2SH 0x01)
-(define-constant ADDRESS-VERSION-P2WPKH 0x02)
-(define-constant ADDRESS-VERSION-P2WSH 0x03)
-
-;; Stacking thresholds
-(define-constant STACKING-THRESHOLD-25 u20000)
-(define-constant STACKING-THRESHOLD-100 u5000)
-
 ;; PoX disabling threshold (a percent)
-(define-constant POX-REJECTION-FRACTION u25)
+(define-constant POX_REJECTION_FRACTION u25)
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
-(define-data-var pox-registration-window-length uint REGISTRATION-WINDOW-LENGTH)
-(define-data-var pox-reward-cycle-length uint REWARD-CYCLE-LENGTH)
-(define-data-var pox-rejection-fraction uint POX-REJECTION-FRACTION)
+(define-data-var pox-prepare-cycle-length uint PREPARE_CYCLE_LENGTH)
+(define-data-var pox-reward-cycle-length uint REWARD_CYCLE_LENGTH)
+(define-data-var pox-rejection-fraction uint POX_REJECTION_FRACTION)
 (define-data-var first-burnchain-block-height uint u0)
 (define-data-var configured bool false)
 
 ;; This function can only be called once, when it boots up
-(define-public (set-burnchain-parameters (first-burn-height uint) (pox-reg-window-len uint) (pox-reward-cycle-len uint) (pox-rejection-frac uint))
+(define-public (set-burnchain-parameters (first-burn-height uint) (prepare-cycle-length uint) (reward-cycle-length uint) (rejection-fraction uint))
     (begin
         (asserts! (and is-in-regtest (not (var-get configured))) (err ERR_NOT_ALLOWED))
         (var-set first-burnchain-block-height first-burn-height)
-        (var-set pox-registration-window-length pox-reg-window-len)
-        (var-set pox-reward-cycle-length pox-reward-cycle-len)
-        (var-set pox-rejection-fraction pox-rejection-frac)
+        (var-set pox-prepare-cycle-length prepare-cycle-length)
+        (var-set pox-reward-cycle-length reward-cycle-length)
+        (var-set pox-rejection-fraction rejection-fraction)
         (var-set configured true)
         (ok true))
 )
@@ -250,36 +229,30 @@
                                                             (num-cycles uint)
                                                             (amount-ustx uint)
                                                             (i uint))))
-    (let (
-        (reward-cycle (+ (get first-reward-cycle params) (get i params)))
-        (i (get i params))
-    )
+    (let ((reward-cycle (+ (get first-reward-cycle params) (get i params)))
+          (i (get i params)))
     {
         pox-addr: (get pox-addr params),
         first-reward-cycle: (get first-reward-cycle params),
         num-cycles: (get num-cycles params),
         amount-ustx: (get amount-ustx params),
         i: (if (< i (get num-cycles params))
-            (let (
-                (total-ustx (get-total-ustx-stacked reward-cycle))
-            )
-            ;; record how many uSTX this pox-addr will stack for in the given reward cycle
-            (append-reward-cycle-pox-addr
+            (let ((total-ustx (get-total-ustx-stacked reward-cycle)))
+              ;; record how many uSTX this pox-addr will stack for in the given reward cycle
+              (append-reward-cycle-pox-addr
                 (get pox-addr params)
                 reward-cycle
                 (get amount-ustx params))
 
-            ;; update running total
-            (map-set reward-cycle-total-stacked
-                { reward-cycle: reward-cycle }
-                { total-ustx: (+ (get amount-ustx params) total-ustx) }
-            )
-            
-            ;; updated _this_ reward cycle
-            (+ i u1))
+              ;; update running total
+              (map-set reward-cycle-total-stacked
+                 { reward-cycle: reward-cycle }
+                 { total-ustx: (+ (get amount-ustx params) total-ustx) })
+
+              ;; updated _this_ reward cycle
+              (+ i u1))
             (+ i u0))
-    })
-)
+    }))
 
 ;; Add a PoX address to a given sequence of reward cycle lists.
 ;; A PoX address can be added to at most 12 consecutive cycles.
@@ -317,77 +290,54 @@
 
 ;; Is the address mode valid for a PoX burn address?
 (define-private (check-pox-addr-version (version (buff 1)))
-    (or (is-eq version ADDRESS-VERSION-P2PKH)
-        (is-eq version ADDRESS-VERSION-P2SH)
-        (is-eq version ADDRESS-VERSION-P2WPKH)
-        (is-eq version ADDRESS-VERSION-P2WSH)))
+    (or (is-eq version ADDRESS_VERSION_P2PKH)
+        (is-eq version ADDRESS_VERSION_P2SH)
+        (is-eq version ADDRESS_VERSION_P2WPKH)
+        (is-eq version ADDRESS_VERSION_P2WSH)))
 
 ;; Is the given lock period valid?
 (define-private (check-pox-lock-period (lock-period uint)) 
-    (and (>= lock-period MIN-POX-REWARD-CYCLES) 
-         (<= lock-period MAX-POX-REWARD-CYCLES)))
+    (and (>= lock-period MIN_POX_REWARD_CYCLES) 
+         (<= lock-period MAX_POX_REWARD_CYCLES)))
 
-;; Register a PoX address for one or more reward cycles, and set how many uSTX it locks up initially.
-;; Will fail if the PoX address is already registered in one of the reward cycles.
-;; Will fail if the number of uSTX is beneath the lowest allowed Stacking threshold at the time of the call.
-(define-private (register-pox-addr-checked (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-                                           (amount-ustx uint)
-                                           (first-reward-cycle uint)
-                                           (num-cycles uint))
-    (let (
-        (ustx-min (get-stacking-minimum))
-        (is-registered (is-pox-addr-registered pox-addr first-reward-cycle num-cycles))
-    )
-    ;; can't be registered yet
-    (asserts! (not is-registered)
-        (err ERR_STACKING_POX_ADDRESS_IN_USE))
+;; Evaluate if a participant can stack an amount of STX for a given period.
+;; This method is designed as a read-only method so that it can be used as 
+;; a set of guard conditions and also as a read-only RPC call that can be
+;; performed beforehand.
+(define-read-only (can-stack-stx (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                                  (amount-ustx uint)
+                                  (first-reward-cycle uint)
+                                  (num-cycles uint))
+    (let ((is-registered (is-pox-addr-registered pox-addr first-reward-cycle num-cycles)))
+      ;; amount must be valid
+      (asserts! (> amount-ustx u0)
+          (err ERR_STACKING_INVALID_AMOUNT))
 
-    ;; minimum uSTX must be met
-    (asserts! (<= ustx-min amount-ustx)
-        (err ERR_STACKING_THRESHOLD_NOT_MET))
+      ;; tx-sender principal must not have rejected in this upcoming reward cycle
+      (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
+          (err ERR_STACKING_ALREADY_REJECTED))
 
-    ;; lock period must be in acceptable range.
-    (asserts! (check-pox-lock-period num-cycles)
-        (err ERR_STACKING_INVALID_LOCK_PERIOD))
+      ;; can't be registered yet
+      (asserts! (not is-registered)
+          (err ERR_STACKING_POX_ADDRESS_IN_USE))
 
-    ;; address version must be valid
-    (asserts! (check-pox-addr-version (get version pox-addr))
-        (err ERR_STACKING_INVALID_POX_ADDRESS))
+      ;; the Stacker must have sufficient unlocked funds
+      (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+          (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
-    ;; register address and stacking
-    (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle num-cycles amount-ustx))
-    (ok true))
-)
+      ;; minimum uSTX must be met
+      (asserts! (<= (get-stacking-minimum) amount-ustx)
+          (err ERR_STACKING_THRESHOLD_NOT_MET))
 
-(define-read-only (can-stacks-stx (amount-ustx uint)
-                                  (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-                                  (lock-period uint))
-    (let (        
-        ;; this stacker's first reward cycle is the _next_ reward cycle
-        (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
-    )
-    ;; amount must be valid
-    (asserts! (> amount-ustx u0)
-        (err ERR_STACKING_INVALID_AMOUNT))
+      ;; lock period must be in acceptable range.
+      (asserts! (check-pox-lock-period num-cycles)
+          (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
-    ;; tx-sender principal must not have rejected in this upcoming reward cycle
-    (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
-        (err ERR_STACKING_ALREADY_REJECTED))
+      ;; address version must be valid
+      (asserts! (check-pox-addr-version (get version pox-addr))
+          (err ERR_STACKING_INVALID_POX_ADDRESS))
 
-    ;; tx-sender principal must not be stacking
-    (asserts! (is-none (get-stacker-info tx-sender))
-        (err ERR_STACKING_ALREADY_STACKED))
-
-    ;; the Stacker must have sufficient unlocked funds
-    (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
-        (err ERR_STACKING_INSUFFICIENT_FUNDS))
-
-    (ok {
-        amount-ustx: amount-ustx,
-        pox-addr: pox-addr,
-        first-reward-cycle: first-reward-cycle,
-        lock-period: lock-period
-    }))
+      (ok true))
 )
 
 ;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
@@ -404,30 +354,30 @@
 (define-public (stack-stx (amount-ustx uint)
                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                           (lock-period uint))
-    (let (
-        ;; this stacker's first reward cycle is the _next_ reward cycle
-        (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
-    )
-    ;; ensure that stacking can be performed
-    (try! (can-stacks-stx amount-ustx pox-addr lock-period))
+    ;; this stacker's first reward cycle is the _next_ reward cycle
+    (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle))))
 
-    ;; register the PoX address with the amount stacked
-    (try!
-        (register-pox-addr-checked pox-addr amount-ustx first-reward-cycle lock-period))
+      ;; tx-sender principal must not be stacking
+      (asserts! (is-none (get-stacker-info tx-sender))
+        (err ERR_STACKING_ALREADY_STACKED))
 
-    ;; add stacker record
-    (map-set stacking-state
+      ;; ensure that stacking can be performed
+      (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
+
+      ;; register the PoX address with the amount stacked
+      (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx))
+
+      ;; add stacker record
+      (map-set stacking-state
         { stacker: tx-sender }
         {
-            amount-ustx: amount-ustx,
-            pox-addr: pox-addr,
-            first-reward-cycle: first-reward-cycle,
-            lock-period: lock-period
-        }
-    )
-    
-    ;; return the lock-up information, so the node can actually carry out the lock. 
-    (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))
+          amount-ustx: amount-ustx,
+          pox-addr: pox-addr,
+          first-reward-cycle: first-reward-cycle,
+          lock-period: lock-period })
+
+      ;; return the lock-up information, so the node can actually carry out the lock. 
+      (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))
 )
 
 ;; Reject Stacking for this reward cycle.
@@ -466,4 +416,16 @@
     )
 
     (ok true)))
+)
+
+;; Used for PoX parameters discovery
+(define-read-only (get-pox-info)
+    (ok {
+        min-amount-ustx: (get-stacking-minimum),
+        reward-cycle-id: (current-pox-reward-cycle),
+        prepare-cycle-length: (var-get pox-prepare-cycle-length),
+        first-burnchain-block-height: (var-get first-burnchain-block-height),
+        reward-cycle-length: (var-get pox-reward-cycle-length),
+        rejection-fraction: (var-get pox-rejection-fraction)
+    })
 )

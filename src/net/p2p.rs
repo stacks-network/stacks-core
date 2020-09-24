@@ -585,7 +585,7 @@ impl PeerNetwork {
     /// Idempotent -- will not re-connect if already connected.
     /// Fails if the peer is denied.
     fn connect_peer_deny_checks(&mut self, neighbor: &NeighborKey, check_denied: bool) -> Result<usize, net_error> {
-        test_debug!("{:?}: connect to {:?}", &self.local_peer, neighbor);
+        debug!("{:?}: connect to {:?}", &self.local_peer, neighbor);
 
         if check_denied {
             // don't talk to our bind address
@@ -603,7 +603,7 @@ impl PeerNetwork {
 
         // already connected?
         if let Some(event_id) = self.get_event_id(neighbor) {
-            test_debug!("{:?}: already connected to {:?} as event {}", &self.local_peer, neighbor, event_id);
+            debug!("{:?}: already connected to {:?} as event {}", &self.local_peer, neighbor, event_id);
             return Ok(event_id);
         }
 
@@ -978,7 +978,7 @@ impl PeerNetwork {
         let client_addr = match socket.peer_addr() {
             Ok(addr) => addr,
             Err(e) => {
-                warn!("Failed to get peer address of {:?}: {:?}", &socket, &e);
+                debug!("Failed to get peer address of {:?}: {:?}", &socket, &e);
                 self.deregister_socket(event_id, socket);
                 return Err(net_error::SocketError);
             }
@@ -1092,6 +1092,7 @@ impl PeerNetwork {
         }
 
         let mut to_remove : Vec<usize> = vec![];
+
         match self.network {
             None => {},
             Some(ref mut network) => {
@@ -1104,6 +1105,9 @@ impl PeerNetwork {
                 }
             }
         }
+
+        // always clear connecting socket state
+        self.connecting.remove(&event_id);
 
         for event_id in to_remove {
             // remove socket
@@ -1417,7 +1421,7 @@ impl PeerNetwork {
         let mut to_remove = vec![];
         for (event_id, (socket, _, ts)) in self.connecting.iter() {
             if ts + self.connection_opts.connect_timeout < now {
-                debug!("{:?}: Disconnect unresponsive connecting peer {:?}: timed out after {} ({} < {})s", &self.local_peer, socket, self.connection_opts.timeout, ts + self.connection_opts.timeout, now);
+                debug!("{:?}: Disconnect unresponsive connecting peer {:?} (event {}): timed out after {} ({} < {})s", &self.local_peer, socket, event_id, self.connection_opts.timeout, ts + self.connection_opts.timeout, now);
                 to_remove.push(*event_id);
             }
         }
