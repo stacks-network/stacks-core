@@ -63,7 +63,7 @@ pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
 
 // TODO: change MANINET once we have a target block
 pub const FIRST_BLOCK_MAINNET: u64 = 373601;
-pub const FIRST_BLOCK_TESTNET: u64 = 0;
+pub const FIRST_BLOCK_TESTNET: u64 = 300;
 pub const FIRST_BLOCK_REGTEST: u64 = 0;
 
 // batch size for searching for a reorg 
