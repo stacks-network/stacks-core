@@ -51,13 +51,28 @@ use std::boxed::Box;
 
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "ST000000000000000000002AMW42H";
 
-pub const STACKS_BOOT_CODE : &'static [(&'static str, &'static str)] = &[
-    ("pox", std::include_str!("pox.clar")),
-    ("lookup", std::include_str!("lockup.clar"))
-];
+const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
+const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
+const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
+const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+
+lazy_static! {
+    static ref BOOT_CODE_POX_MAINNET: String = format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
+    static ref BOOT_CODE_POX_TESTNET: String = format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
+
+    pub static ref STACKS_BOOT_CODE_MAINNET : [(&'static str, &'static str); 2] = [
+        ("pox", &BOOT_CODE_POX_MAINNET),
+        ("lockup", BOOT_CODE_LOCKUP)
+    ];
+
+    pub static ref STACKS_BOOT_CODE_TESTNET : [(&'static str, &'static str); 2] = [
+        ("pox", &BOOT_CODE_POX_TESTNET),
+        ("lockup", BOOT_CODE_LOCKUP)
+    ];
+}
 
 pub fn boot_code_addr() -> StacksAddress {
-    StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.clone()).unwrap()
+    StacksAddress::from_string(STACKS_BOOT_CODE_CONTRACT_ADDRESS).unwrap()
 }    
 
 pub fn boot_code_id(name: &str) -> QualifiedContractIdentifier {
@@ -66,14 +81,6 @@ pub fn boot_code_id(name: &str) -> QualifiedContractIdentifier {
 
 pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::try_from(name.to_string()).unwrap())
-}
-
-pub fn pox_boot_code_constants(mainnet: bool) -> &'static str {
-    if mainnet {
-        std::include_str!("pox-mainnet.clar")
-    } else {
-        std::include_str!("pox-testnet.clar")
-    }
 }
 
 /// Extract a PoX address from its tuple representation

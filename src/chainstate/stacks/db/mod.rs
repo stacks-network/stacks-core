@@ -608,21 +608,18 @@ impl StacksChainState {
 
         {
             let mut clarity_tx = chainstate.block_begin(&NULL_BURN_STATE_DB, &BURNCHAIN_BOOT_CONSENSUS_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-            for (boot_code_name, boot_code_contract) in STACKS_BOOT_CODE.iter() {
-                let boot_code_contract_string = 
-                    if *boot_code_name == "pox" {
-                        debug!("Instantiating PoX contract parameters for {}", if mainnet { "mainnet" } else { "testnet" });
-                        format!("{}\n{}", pox_boot_code_constants(mainnet), boot_code_contract)
-                    } else {
-                        boot_code_contract.to_string()
-                    };
-
+            let boot_code = if mainnet {
+                *boot::STACKS_BOOT_CODE_MAINNET
+            } else {
+                *boot::STACKS_BOOT_CODE_TESTNET
+            };
+            for (boot_code_name, boot_code_contract) in boot_code.iter() {
                 debug!("Instantiate boot code contract '{}.{}' ({} bytes)...", &STACKS_BOOT_CODE_CONTRACT_ADDRESS, boot_code_name, boot_code_contract.len());
 
                 let smart_contract = TransactionPayload::SmartContract(
                     TransactionSmartContract {
                         name: ContractName::try_from(boot_code_name.to_string()).expect("FATAL: invalid boot-code contract name"),
-                        code_body: StacksString::from_string(&boot_code_contract_string).expect("FATAL: invalid boot code body"),
+                        code_body: StacksString::from_str(boot_code_contract).expect("FATAL: invalid boot code body"),
                     }
                 );
 
@@ -1111,7 +1108,7 @@ pub mod test {
         let mut conn = chainstate.block_begin(&NULL_BURN_STATE_DB, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
         let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
-        for (boot_contract_name, _) in STACKS_BOOT_CODE.iter() {
+        for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {
             let boot_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::try_from(boot_contract_name.to_string()).unwrap());
             let contract_res = StacksChainState::get_contract(&mut conn, &boot_contract_id).unwrap();
             assert!(contract_res.is_some());
