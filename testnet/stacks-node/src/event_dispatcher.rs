@@ -308,12 +308,20 @@ impl EventDispatcher {
                 formatted_bytes
             };
 
+            let contract_interface_json = {
+                match &receipt.contract_analysis {
+                    Some(analysis) => json!(build_contract_interface(analysis)),
+                    None => json!(null)
+                }
+            };
+
             let val = json!({
                 "txid": format!("0x{}", receipt.transaction.txid()),
                 "tx_index": tx_index,
                 "status": true,
                 "raw_tx": format!("0x{}", raw_tx.join("")),
                 "events": serialized_events,
+                "contract_abi": contract_interface_json
             });
             tx_index += 1;
             encoded_receipts.push(val);
