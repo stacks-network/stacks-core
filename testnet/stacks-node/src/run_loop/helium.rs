@@ -52,7 +52,7 @@ impl RunLoop {
 
         self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 
-        let initial_state = burnchain.start()?;
+        let (initial_state, _) = burnchain.start()?;
 
         // Update each node with the genesis block.
         self.node.process_burnchain_state(&initial_state);
@@ -65,7 +65,7 @@ impl RunLoop {
         let mut round_index: u64 = 0;
 
         // Sync and update node with this new block.
-        let burnchain_tip = burnchain.sync()?;
+        let (burnchain_tip, _) = burnchain.sync()?;
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
         let mut chain_tip = ChainTip::genesis(self.config.get_initial_liquid_ustx());
 
@@ -100,7 +100,7 @@ impl RunLoop {
             &mut burnchain, 
             artifacts_from_1st_tenure.burn_fee);
 
-        let mut burnchain_tip = burnchain.sync()?;
+        let (mut burnchain_tip, _) = burnchain.sync()?;
         self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
 
         let mut leader_tenure = None;
@@ -159,7 +159,9 @@ impl RunLoop {
                 None => {}
             }
 
-            burnchain_tip = burnchain.sync()?;
+            let (new_burnchain_tip, _) = burnchain.sync()?;
+            burnchain_tip = new_burnchain_tip;
+
             self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
     
             leader_tenure = None;
