@@ -774,7 +774,7 @@ impl InitializedNeonNode {
 
         // let's figure out the recipient set!
         let recipients = match get_next_recipients(&burn_block, chain_state, burn_db,
-                                                   burnchain, &OnChainRewardSetProvider::new()) {
+                                                   burnchain, &OnChainRewardSetProvider()) {
             Ok(x) => x,
             Err(e) => {
                 error!("Failure fetching recipient set: {:?}", e);
