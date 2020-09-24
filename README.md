@@ -20,12 +20,14 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 
 ## Roadmap
 
+- [x] [SIP 001: Burn Election](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-001-burn-election.md)
 - [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-002-smart-contract-language.md)
 - [X] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md)
 - [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-004-materialized-view.md)
 - [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md)
 - [ ] SIP 006: Clarity Execution Cost Assessment
-- [ ] SIP 007: Stacking Consensus
+- [x] [SIP 007: Stacking Consensus](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-007-stacking-consensus.md)
+- [ ] SIP 008: Clarity Parsing and Analysis Cost Assessment
 
 Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
@@ -35,9 +37,15 @@ See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/si
 
 - [x] **Helium** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
 
-- [X] **Neon** is the upcoming version of our public testnet, that we're anticipating will ship in Q2 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [X] **Neon** is the first version of our public testnet, which shipped in Q2 2020. This testnet added SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
 
-- [ ] **Mainnet** is the fully functional version, that is estimated for Fall 2020.
+- [X] **Argon** is the second version of our public testnet, which shipped in Q2 2020. This testnet improved on the stability of the Neon testnet.
+
+- [X] **Krypton** is the third version of our public testnet, which incorporates a partial implementation of SIP 007.  It allows developers to test a simple version of Stacking and PoX consensus.
+
+- [ ] **Xenon** is the upcoming version of our public testnet, which will run on the Bitcoin testnet.  It will include SIP 006 and SIP 008, and will contain bugfixes and improvements to the implementation of SIP 007.
+
+- [ ] **Mainnet** is the fully functional version, that is estimated for Q4 2020.
 
 See the [testnet website](https://testnet.blockstack.org) and ["when mainnet?" FAQ](https://github.com/blockstack/stacks/blob/master/whenmainnet.md) for details.
 
