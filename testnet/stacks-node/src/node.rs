@@ -86,7 +86,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                     continue;
                 },
             };
-            let mut chainstate = match StacksChainState::open(
+            let (mut chainstate, _) = match StacksChainState::open(
                 false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
                 Ok(x) => x,
                 Err(e) => {
@@ -132,7 +132,7 @@ impl Node {
             false, TESTNET_CHAIN_ID, &config.get_chainstate_path(),
             Some(initial_balances), boot_block_exec, config.block_limit.clone());
 
-        let chain_state = match chain_state_result {
+        let (chain_state, receipts) = match chain_state_result {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
@@ -141,6 +141,8 @@ impl Node {
         for observer in &config.events_observers {
             event_dispatcher.register_observer(observer);
         }
+
+        event_dispatcher.process_boot_receipts(receipts);
 
         Self {
             active_registered_key: None,
@@ -171,7 +173,7 @@ impl Node {
         let chainstate_path = config.get_chainstate_path();
         let sortdb_path = config.get_burn_db_file_path();
 
-        let chain_state = match StacksChainState::open(
+        let (chain_state, _) = match StacksChainState::open(
             false, 
             TESTNET_CHAIN_ID, 
             &chainstate_path) {

@@ -77,7 +77,7 @@ impl <'a> Tenure {
         } 
 
 
-        let mut chain_state = StacksChainState::open_with_block_limit(
+        let (mut chain_state, _) = StacksChainState::open_with_block_limit(
             false, 
             TESTNET_CHAIN_ID, 
             &self.config.get_chainstate_path(),

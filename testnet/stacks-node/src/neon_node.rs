@@ -239,7 +239,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     let sortdb = SortitionDB::open(&burn_db_path, false)
         .map_err(NetError::DBError)?;
 
-    let mut chainstate = StacksChainState::open_with_block_limit(
+    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path, block_limit)
         .map_err(|e| NetError::ChainstateError(e.to_string()))?;
     
@@ -336,7 +336,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     let mut sortdb = SortitionDB::open(&burn_db_path, true)
         .map_err(NetError::DBError)?;
 
-    let mut chainstate = StacksChainState::open_with_block_limit(
+    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path, config.block_limit.clone())
         .map_err(|e| NetError::ChainstateError(e.to_string()))?;
     

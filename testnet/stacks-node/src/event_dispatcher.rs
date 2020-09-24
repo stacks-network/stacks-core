@@ -36,6 +36,7 @@ const STATUS_RESP_POST_CONDITION: &str  = "abort_by_post_condition";
 
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
+pub const PATH_BOOT_EVENTS: &str = "boot_events";
 
 impl EventObserver {
 
@@ -106,6 +107,10 @@ impl EventObserver {
 
     fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
+    }
+
+    fn send_boot_receipts(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_BOOT_EVENTS);
     }
 
     fn send(&self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip,
@@ -283,6 +288,33 @@ impl EventDispatcher {
 
         for (_, observer) in interested_observers.iter() {
             observer.send_new_mempool_txs(&payload);
+        }
+    }
+
+    pub fn process_boot_receipts(&self, receipts: Vec<StacksTransactionReceipt>) {
+        // lazily assemble payload only if we have observers
+
+        let mut encoded_receipts = vec![];
+        let mut tx_index = 0;
+        for receipt in receipts.iter() {
+            let serialized_events: Vec<serde_json::Value> = receipt.events.iter().map(|event|
+                event.json_serialize(&receipt.transaction.txid(), true)
+            ).collect();
+
+            let val = json!({
+                "txid": format!("0x{}", receipt.transaction.txid()),
+                "tx_index": tx_index,
+                "status": true,
+                "events": serialized_events,
+            });
+            tx_index += 1;
+            encoded_receipts.push(val);
+        }
+
+        let encoded_receipts = serde_json::Value::Array(encoded_receipts);
+
+        for observer in self.registered_observers.iter() {
+            observer.send_boot_receipts(&encoded_receipts);
         }
     }
 
