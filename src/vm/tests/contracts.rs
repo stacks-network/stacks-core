@@ -10,10 +10,11 @@ use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
-use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, ClarityDatabase};
+use vm::database::{MemoryBackingStore, MarfedKV, NULL_BURN_STATE_DB, NULL_HEADER_DB, ClarityDatabase};
 use vm::clarity::ClarityInstance;
 use vm::ast;
 use vm::costs::ExecutionCost;
+use chainstate::stacks::index::MarfTrieId;
 
 use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
 
@@ -169,9 +170,10 @@ fn test_simple_token_system() {
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
 
     {
-        let mut block = clarity.begin_block(&TrieFileStorage::block_sentinel(),
-                                        &test_block_headers(0),
-                                        &NULL_HEADER_DB);
+        let mut block = clarity.begin_block(&StacksBlockId::sentinel(),
+                                            &test_block_headers(0),
+                                            &NULL_HEADER_DB,
+                                            &NULL_BURN_STATE_DB);
 
         let tokens_contract = SIMPLE_TOKENS;
 
@@ -231,7 +233,8 @@ fn test_simple_token_system() {
         {
             let block = clarity.begin_block(&test_block_headers(i),
                                             &test_block_headers(i+1),
-                                            &NULL_HEADER_DB);
+                                            &NULL_HEADER_DB,
+                                            &NULL_BURN_STATE_DB);
             block.commit_block();
         }
     }
@@ -239,7 +242,8 @@ fn test_simple_token_system() {
     {
         let mut block = clarity.begin_block(&test_block_headers(25),
                                         &test_block_headers(26),
-                                        &NULL_HEADER_DB);
+                                        &NULL_HEADER_DB,
+                                        &NULL_BURN_STATE_DB);
         assert!(is_committed(
             &block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                      "mint-after", 

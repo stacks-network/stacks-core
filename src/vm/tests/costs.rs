@@ -12,12 +12,16 @@ use vm::tests::{with_memory_environment, with_marfed_environment, symbols_from_v
 use vm::contexts::{Environment};
 use vm::costs::{ExecutionCost};
 use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
-                   NULL_HEADER_DB};
+                   NULL_HEADER_DB, NULL_BURN_STATE_DB};
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::StacksBlockId;
+
+use chainstate::stacks::StacksBlockHeader;
+use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use core::FIRST_STACKS_BLOCK_HASH;
 
 pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     use vm::functions::NativeFunctions::*;
@@ -34,6 +38,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         CmpGreater => "(> 2 1)",
         Modulo => "(mod 2 1)",
         Power => "(pow 2 3)",
+        Sqrti => "(sqrti 81)",
         BitwiseXOR => "(xor 1 2)",
         And => "(and true false)",
         Or => "(or true false)",
@@ -63,9 +68,12 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Sha512 => "(sha512 1)",
         Sha512Trunc256 => "(sha512/256 1)",
         Keccak256 => "(keccak256 1)",
+        Secp256k1Recover => "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)",
+        Secp256k1Verify => "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         Print => "(print 1)",
         ContractCall => "(contract-call? .contract-other foo-exec 1)",
         ContractOf => "(contract-of contract)",
+        PrincipalOf => "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         AsContract => "(as-contract 1)",
         GetBlockInfo => "(get-block-info? time u1)",
         ConsOkay => "(ok 1)",
@@ -89,7 +97,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetAssetOwner => "(nft-get-owner? nft-foo 1)",
         TransferToken => "(ft-transfer? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         TransferAsset => "(nft-transfer? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        AtBlock => "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 1)",
+        AtBlock => "(at-block 0x55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee 1)",   // first stacksblockid
         GetStxBalance => "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxTransfer => "(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxBurn => "(stx-burn? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
@@ -133,19 +141,19 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let trait_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
     let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(&TrieFileStorage::block_sentinel(),
-                  &StacksBlockId([0 as u8; 32]));
+    marf_kv.begin(&StacksBlockId::sentinel(),
+                  &StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH));
 
     {
-        marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
+        marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB).initialize();
     }
 
     marf_kv.test_commit();
-    marf_kv.begin(&StacksBlockId([0 as u8; 32]),
+    marf_kv.begin(&StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
                   &StacksBlockId([1 as u8; 32]));
 
 
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
 
 
     owned_env.initialize_contract(trait_contract_id.clone(), contract_trait).unwrap();

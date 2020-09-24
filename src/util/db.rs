@@ -17,6 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use chainstate::stacks::index::storage::TrieStorageConnection;
 use std::fmt;
 use std::error;
 use std::fs;
@@ -25,6 +26,7 @@ use std::io::Error as IOError;
 use std::path::PathBuf;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::convert::TryInto;
 
 use util::hash::to_hex;
 use util::sleep_ms;
@@ -40,10 +42,13 @@ use rusqlite::Transaction;
 use rusqlite::types::{ToSql, ToSqlOutput, FromSql, FromSqlResult, FromSqlError, Value as RusqliteValue, ValueRef as RusqliteValueRef};
 
 use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::marf::MarfTransaction;
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::index::MARFValue;
+use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::Error as MARFError;
+use chainstate::stacks::index::storage::TrieStorageTransaction;
 
 use rand::Rng;
 use rand::RngCore;
@@ -77,6 +82,8 @@ pub enum Error {
     NotFoundError,
     /// Data already exists
     ExistsError,
+    /// Data corresponds to a non-canonical PoX sortition
+    InvalidPoxSortition,
     /// Sqlite3 error
     SqliteError(sqlite_error),
     /// I/O error
@@ -100,6 +107,7 @@ impl fmt::Display for Error {
             Error::Overflow => write!(f, "Numeric overflow"),
             Error::NotFoundError => write!(f, "Not found"),
             Error::ExistsError => write!(f, "Already exists"),
+            Error::InvalidPoxSortition => write!(f, "Invalid PoX sortition"),
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
@@ -121,6 +129,7 @@ impl error::Error for Error {
             Error::Overflow => None,
             Error::NotFoundError => None,
             Error::ExistsError => None,
+            Error::InvalidPoxSortition => None,
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
             Error::IndexError(ref e) => Some(e),
@@ -132,6 +141,12 @@ impl error::Error for Error {
 impl From<sqlite_error> for Error {
     fn from(e: sqlite_error) -> Error {
         Error::SqliteError(e)
+    }
+}
+
+impl From<MARFError> for Error {
+    fn from(e: MARFError) -> Error {
+        Error::IndexError(e)
     }
 }
 
@@ -287,11 +302,9 @@ where
     P::Item: ToSql,
     T: FromColumn<T>
 {
-    let mut stmt = conn.prepare(sql_query)
-        .map_err(Error::SqliteError)?;
+    let mut stmt = conn.prepare(sql_query)?;
 
-    let mut rows = stmt.query(sql_args)
-        .map_err(Error::SqliteError)?;
+    let mut rows = stmt.query(sql_args)?;
 
     // gather 
     let mut row_data = vec![];
@@ -316,11 +329,9 @@ where
     P: IntoIterator,
     P::Item: ToSql
 {
-    let mut stmt = conn.prepare(sql_query)
-        .map_err(Error::SqliteError)?;
+    let mut stmt = conn.prepare(sql_query)?;
 
-    let mut rows = stmt.query(sql_args)
-        .map_err(Error::SqliteError)?;
+    let mut rows = stmt.query(sql_args)?;
 
     let mut row_data = vec![];
     while let Some(row_res) = rows.next() {
@@ -388,17 +399,15 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
 
 /// Read-only connection to a MARF-indexed DB
 pub struct IndexDBConn<'a, C, T: MarfTrieId> {
-    pub conn: &'a Connection,
     pub index: &'a MARF<T>,
     pub context: C
 }
 
 impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
-    pub fn new(conn: &'a Connection, index: &'a MARF<T>, context: C) -> IndexDBConn<'a, C, T> {
+    pub fn new(index: &'a MARF<T>, context: C) -> IndexDBConn<'a, C, T> {
         IndexDBConn {
-            conn: conn,
-            index: index,
-            context: context
+            index,
+            context
         }
     }
     
@@ -414,27 +423,24 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     
     /// Get a value from the fork index
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        get_indexed(self.conn, self.index, header_hash, key)
+        let mut ro_index = self.index.reopen_readonly()?;
+        get_indexed(&mut ro_index, header_hash, key)
+    }
+
+    pub fn conn(&self) -> &DBConn {
+        self.index.sqlite_conn()
     }
 }
 
 impl <'a, C, T: MarfTrieId> Deref for IndexDBConn<'a, C, T> {
     type Target = DBConn;
     fn deref(&self) -> &DBConn {
-        self.conn
+        self.conn()
     }
 }
 
 pub struct IndexDBTx<'a, C: Clone, T: MarfTrieId> {
-    _tx: Option<DBTx<'a>>,      // the reason this is Option<..> is because we
-                                // need to implement Drop for this struct, and
-                                // Drop is already implemented for DBTx<'a>.
-                                // Using an Option lets us clear the tx, commit
-                                // it, and when the instance drops, run the
-                                // Drop() method safely.  However, by design,
-                                // _tx is always Some(..) over this struct's 
-                                // lifetime, so .unwrap() is safe.
-    pub index: &'a mut MARF<T>,
+    _index: Option<MarfTransaction<'a, T>>,
     pub context: C,
     block_linkage: Option<(T, T)>
 }
@@ -443,12 +449,6 @@ impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
     type Target = DBTx<'a>;
     fn deref(&self) -> &DBTx<'a> {
         self.tx()
-    }
-}
-
-impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
-    fn deref_mut(&mut self) -> &mut DBTx<'a> {
-        self.tx_mut()
     }
 }
 
@@ -472,27 +472,25 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
 /// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
 /// then we don't have to worry about any extra rollback logic.
 pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Error> {
-    conn.busy_handler(Some(tx_busy_handler)).map_err(Error::SqliteError)?;
-    let tx = Transaction::new(conn, TransactionBehavior::Immediate).map_err(Error::SqliteError)?;
+    conn.busy_handler(Some(tx_busy_handler))?;
+    let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
     Ok(tx)
 }
 
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
 pub fn get_ancestor_block_hash<T: MarfTrieId>(index: &MARF<T>, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
     assert!(block_height < u32::max_value() as u64);
-    MARF::get_block_at_height(&mut index.reopen_storage_readonly().map_err(Error::IndexError)?, block_height as u32, tip_block_hash).map_err(Error::IndexError)
+    let mut read_only = index.reopen_readonly()?;
+    let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
+    Ok(bh)
 }
 
 /// Get the height of an ancestor block, if it is indeed the ancestor.
 pub fn get_ancestor_block_height<T: MarfTrieId>(index: &MARF<T>, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
-    match MARF::get_block_height(&mut index.reopen_storage_readonly().map_err(Error::IndexError)?, ancestor_block_hash, tip_block_hash).map_err(Error::IndexError)? {
-        Some(height_u32) => {
-            Ok(Some(height_u32 as u64))
-        }
-        None => {
-            Ok(None)
-        }
-    }
+    let mut read_only = index.reopen_readonly()?;
+    let height_opt = read_only.get_block_height(ancestor_block_hash, tip_block_hash)?
+        .map(|height| height as u64);
+    Ok(height_opt)
 }
 
 /// Load some index data
@@ -520,70 +518,49 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
 }
 
 /// Get a value from the fork index
-pub fn get_indexed<T: MarfTrieId>(conn: &DBConn, index: &MARF<T>, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-    let mut ro_index = index.reopen_readonly().map_err(Error::IndexError)?;
-    let parent_index_root = match ro_index.get_root_hash_at(header_hash) {
-        Ok(root) => {
-            root
+fn get_indexed<T: MarfTrieId, M: MarfConnection<T>>(index: &mut M, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+    match index.get(header_hash, key) {
+        Ok(Some(marf_value)) => {
+            let value = load_indexed(index.sqlite_conn(), &marf_value)?
+                .expect(&format!("FATAL: corrupt index: key '{}' from {} is present in the index but missing a value in the DB", &key, &header_hash));
+            Ok(Some(value))
+        },
+        Ok(None) => {
+            Ok(None)
+        },
+        Err(MARFError::NotFoundError) => {
+            Ok(None)
         },
         Err(e) => {
-            match e {
-                MARFError::NotFoundError => {
-                    test_debug!("Not found: Get '{}' off of {} (parent index root not found)", key, header_hash);
-                    return Ok(None);
-                },
-                _ => {
-                    error!("Failed to get root hash of {}: {:?}", &header_hash, &e);
-                    return Err(Error::Corruption);
-                }
-            }
-        }
-    };
-
-    match ro_index.get(header_hash, key) {
-        Ok(marf_value_opt) => { 
-            match marf_value_opt {
-                Some(marf_value) => {
-                    let value = load_indexed(conn, &marf_value)?
-                        .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash, &parent_index_root));
-
-                    return Ok(Some(value));
-                },
-                None => {
-                    return Ok(None);
-                }
-            }
-        },
-        Err(e) => {
-            match e {
-                MARFError::NotFoundError => {
-                    return Ok(None);
-                },
-                _ => {
-                    error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash, &e);
-                    return Err(Error::Corruption);
-                }
-            }
+            error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash, &e);
+            Err(Error::Corruption)
         }
     }
 }
 
 impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
-    pub fn new(tx: DBTx<'a>, index: &'a mut MARF<T>, context: C) -> IndexDBTx<'a, C, T> {
+    pub fn new(index: &'a mut MARF<T>, context: C) -> IndexDBTx<'a, C, T> {
+        let tx = index.begin_tx()
+            .expect("BUG: failure to begin MARF transaction");
         IndexDBTx {
-            _tx: Some(tx),
-            index: index,
+            _index: Some(tx),
             block_linkage: None,
             context: context
         }
     }
 
-    pub fn tx(&self) -> &DBTx<'a> {
-        self._tx.as_ref().unwrap()
+    pub fn index(&self) -> &MarfTransaction<'a, T> {
+        self._index.as_ref()
+            .expect("BUG: MarfTransaction lost, but IndexDBTx still exists")
     }
-    
-    pub fn tx_mut(&mut self) -> &mut DBTx<'a> {
-        self._tx.as_mut().unwrap()
+
+    fn index_mut(&mut self) -> &mut MarfTransaction<'a, T> {
+        self._index.as_mut()
+            .expect("BUG: MarfTransaction lost, but IndexDBTx still exists")
+    }
+
+    pub fn tx(&self) -> &DBTx<'a> {
+        self.index().sqlite_tx()
     }
 
     pub fn instantiate_index(&mut self) -> Result<(), Error> {
@@ -600,44 +577,35 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(())
     }
 
-    pub fn as_conn<'b> (&'b self) -> IndexDBConn<'b, C, T> {
-        IndexDBConn {
-            conn: self.tx(),
-            index: self.index,
-            context: self.context.clone()
-        }
-    }
-
     /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
     pub fn get_ancestor_block_hash(&mut self, block_height: u64, tip_block_hash: &T) -> Result<Option<T>, Error> {
-        get_ancestor_block_hash(self.index, block_height, tip_block_hash)
+        self.index_mut().get_block_at_height(block_height.try_into().expect("Height > u32::max()"), tip_block_hash)
+            .map_err(Error::from)
     }
 
     /// Get the height of an ancestor block, if it is indeed the ancestor.
     pub fn get_ancestor_block_height(&mut self, ancestor_block_hash: &T, tip_block_hash: &T) -> Result<Option<u64>, Error> {
-        get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
+        let height_opt = self.index_mut().get_block_height(ancestor_block_hash, tip_block_hash)?
+            .map(|height| height as u64);
+        Ok(height_opt)
     }
 
     /// Store some data to the index storage.
     fn store_indexed(&mut self, value: &String) -> Result<MARFValue, Error> {
         let marf_value = MARFValue::from_value(value);
-        self.tx().execute("INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)", &[&to_hex(&marf_value.to_vec()), value]).map_err(Error::SqliteError)?;
+        self.tx().execute("INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)", &[&to_hex(&marf_value.to_vec()), value])?;
         Ok(marf_value)
     }
 
     /// Get a value from the fork index
-    /// NOTE: until the TrieFileStorage implementation of reopen_readonly() is made zero-copy --
-    /// namely, made so it doesn't just naively clone the underlying TrieRAM when reopening
-    /// read-only, the caller should make sure to only use the get_indexed() _before_ writing any
-    /// MARF key/value pairs.  Doing so afterwards will clone all uncommitted trie state.
-    pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        get_indexed(self.tx(), &self.index, header_hash, key)
+    pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+        get_indexed(self.index_mut(), header_hash, key)
     }
 
     pub fn put_indexed_begin(&mut self, parent_header_hash: &T, header_hash: &T) -> Result<(), Error> {
         match self.block_linkage {
             None => {
-                self.index.begin(parent_header_hash, header_hash).map_err(Error::IndexError)?;
+                self.index_mut().begin(parent_header_hash, header_hash)?;
                 self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
                 Ok(())
             },
@@ -659,27 +627,24 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
             marf_values.push(marf_value);
         }
 
-        self.index.insert_batch(&keys, marf_values).map_err(Error::IndexError)?;
-        let root_hash = self.index.get_root_hash().map_err(Error::IndexError)?;
+        self.index_mut().insert_batch(&keys, marf_values)?;
+        let root_hash = self.index_mut().get_root_hash()?;
         Ok(root_hash)
     }
 
     /// Commit the tx
     pub fn commit(mut self) -> Result<(), Error> {
-        let tx = self._tx.take();
-        test_debug!("Indexed-commit: storage");
-        tx.unwrap().commit().map_err(Error::SqliteError)?;
-        if self.block_linkage.is_some() {
-            test_debug!("Indexed-commit: MARF index");
-            self.index.commit().map_err(Error::IndexError)?;
-            self.block_linkage = None;
-        }
+        self.block_linkage = None;
+        debug!("Indexed-commit: MARF index");
+        let index_tx = self._index.take()
+            .expect("BUG: MarfTransaction lost, but IndexDBTx still exists");
+        index_tx.commit()?;
         Ok(())
     }
 
     /// Get the root hash
     pub fn get_root_hash_at(&mut self, bhh: &T) -> Result<TrieHash, Error> {
-        let root_hash = self.index.get_root_hash_at(bhh).map_err(Error::IndexError)?;
+        let root_hash = self.index_mut().get_root_hash_at(bhh)?;
         Ok(root_hash)
     }
 }
@@ -687,8 +652,10 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
 impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
     fn drop(&mut self) {
         if let Some((ref parent, ref child)) = self.block_linkage {
+            let index_tx = self._index.take()
+                .expect("BUG: MarfTransaction lost, but IndexDBTx still exists");
             debug!("Dropping MARF linkage ({},{})", parent, child);
-            self.index.drop_current();
+            index_tx.drop_current();
         }
     }
 }

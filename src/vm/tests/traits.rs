@@ -1,6 +1,4 @@
 use vm::types::{Value, TypeSignature, QualifiedContractIdentifier, ResponseData, PrincipalData};
-use vm::types::TypeSignature::{IntType, UIntType, BoolType, ListType, BufferType};
-use vm::types::signatures::{ListTypeData};
 use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::execute as vm_execute;
 use vm::errors::{CheckErrors, RuntimeErrorType, Error};

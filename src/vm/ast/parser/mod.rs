@@ -8,7 +8,7 @@ use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName, ClarityName, MAX_STRING_LEN};
 use vm::types::{Value, PrincipalData, TraitIdentifier, QualifiedContractIdentifier};
 
-pub const CONTRACT_MIN_NAME_LENGTH : usize = 5;
+pub const CONTRACT_MIN_NAME_LENGTH : usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH : usize = 40;
 
 pub enum LexItem {
@@ -32,7 +32,7 @@ enum TokenType {
     Whitespace, Comma, Colon,
     LParens, RParens,
     LCurly, RCurly,
-    StringLiteral, HexStringLiteral,
+    StringASCIILiteral, StringUTF8Literal, HexStringLiteral,
     UIntLiteral, IntLiteral,
     Variable, TraitReferenceLiteral, PrincipalLiteral,
     SugaredContractIdentifierLiteral,
@@ -96,7 +96,8 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
 
     let lex_matchers: &[LexMatcher] = &[
-        LexMatcher::new(r##""(?P<value>((\\")|([[ -~]&&[^"]]))*)""##, TokenType::StringLiteral),
+        LexMatcher::new(r##"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""##, TokenType::StringUTF8Literal),
+        LexMatcher::new(r##""(?P<value>((\\")|([[ -~]&&[^"]]))*)""##, TokenType::StringASCIILiteral),
         LexMatcher::new(";;[ -~]*", TokenType::Whitespace), // ;; comments.
         LexMatcher::new("[\n]+", TokenType::Whitespace),
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
@@ -107,7 +108,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[{]", TokenType::LCurly),
         LexMatcher::new("[}]", TokenType::RCurly),
         LexMatcher::new("<(?P<value>([[:word:]]|[-])+)>", TokenType::TraitReferenceLiteral),
-        LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
+        LexMatcher::new("0x(?P<value>[[:xdigit:]]*)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new(&format!(r#"'(?P<value>{}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
@@ -290,17 +291,32 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::StringLiteral => {
+                    TokenType::StringASCIILiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        let quote_unescaped = str_value.replace("\\\"","\"");
-                        let slash_unescaped = quote_unescaped.replace("\\\\","\\");
-                        let byte_vec = slash_unescaped.as_bytes().to_vec();
-                        let value = match Value::buff_from(byte_vec) {
+                        let str_value_len = str_value.len();
+                        let unescaped_str = unescape_ascii_chars(str_value, false)?;
+                        let byte_vec = unescaped_str
+                            .as_bytes()
+                            .to_vec();
+
+                        let value = match Value::string_ascii_from_bytes(byte_vec) {
                             Ok(parsed) => Ok(parsed),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingBuffer(str_value.clone())))
+                            Err(_e) => Err(ParseError::new(ParseErrors::InvalidCharactersDetected))
                         }?;
-                        Ok(LexItem::LiteralValue(str_value.len(), value))
+                        Ok(LexItem::LiteralValue(str_value_len, value))
                     },
+                    TokenType::StringUTF8Literal => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let str_value_len = str_value.len();
+                        let unescaped_str = unescape_ascii_chars(str_value, true)?;
+                        
+                        let value = match Value::string_utf8_from_string_utf8_literal(unescaped_str) {
+                            Ok(parsed) => Ok(parsed),
+                            Err(_e) => Err(ParseError::new(ParseErrors::InvalidCharactersDetected))
+                        }?;
+                        Ok(LexItem::LiteralValue(str_value_len, value))
+                    },
+
                 }?;
 
                 result.push((token, current_line, column_pos));
@@ -316,6 +332,34 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     } else {
         Err(ParseError::new(ParseErrors::FailedParsingRemainder(input[munch_index..].to_string())))
     }
+}
+
+fn unescape_ascii_chars(escaped_str: String, allow_unicode_escape: bool) -> ParseResult<String> {
+    let mut unescaped_str = String::new();
+    let mut chars = escaped_str.chars().into_iter();
+    while let Some(char) = chars.next() {
+        if char == '\\' {
+            if let Some(next) = chars.next() {
+                match next {
+                    // ASCII escapes based on Rust list (https://doc.rust-lang.org/reference/tokens.html#ascii-escapes)
+                    '\\' => unescaped_str.push('\\'),
+                    '\"' => unescaped_str.push('\"'),
+                    'n' => unescaped_str.push('\n'),
+                    't' => unescaped_str.push('\t'),
+                    'r' => unescaped_str.push('\r'),
+                    '0' => unescaped_str.push('\0'),
+                    'u' if allow_unicode_escape == true => 
+                        unescaped_str.push_str("\\u"),
+                    _ => return Err(ParseError::new(ParseErrors::InvalidEscaping))
+                }
+            } else {
+                return Err(ParseError::new(ParseErrors::InvalidEscaping))
+            }
+        } else {
+            unescaped_str.push(char);
+        } 
+    }
+    Ok(unescaped_str)
 }
 
 enum ParseStackItem {
@@ -367,10 +411,13 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                             handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         },
                         ParseContext::CollectTuple => {
-                            return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
+                            let mut error = ParseError::new(ParseErrors::ClosingTupleLiteralExpected);
+                            error.diagnostic.add_span(start_line, start_column, line_pos, column_pos);
+                            return Err(error)
                         }
                     }
                 } else {
+                    debug!("Closing parenthesis expected ({}, {})", line_pos, column_pos);
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
                 }
             },
@@ -416,10 +463,13 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                             handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         },
                         ParseContext::CollectList => {
-                            return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                            let mut error = ParseError::new(ParseErrors::ClosingParenthesisExpected);
+                            error.diagnostic.add_span(start_line, start_column, line_pos, column_pos);
+                            return Err(error)
                         }
                     }
                 } else {
+                    debug!("Closing tuple literal unexpected ({}, {})", line_pos, column_pos);
                     return Err(ParseError::new(ParseErrors::ClosingTupleLiteralUnexpected))
                 }
             },
@@ -501,7 +551,12 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
     // check unfinished stack:
     if parse_stack.len() > 0 {
-        Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+        let mut error = ParseError::new(ParseErrors::ClosingParenthesisExpected);
+        if let Some((_list, start_line, start_column, _parse_context)) = parse_stack.pop() {
+            error.diagnostic.add_span(start_line, start_column, 0, 0); 
+            debug!("Unfinished stack: {} items remaining starting at ({}, {})", parse_stack.len() + 1, start_line, start_column);
+        }
+        Err(error)
     } else {
         Ok(output_list)
     }
@@ -516,8 +571,8 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 #[cfg(test)]
 mod test {
     use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
-    use vm::{Value, ast};
-    use vm::types::{QualifiedContractIdentifier, PrincipalData};
+    use vm::ast;
+    use vm::types::{QualifiedContractIdentifier, PrincipalData, Value, CharType, SequenceData};
     use vm::ast::errors::{ParseErrors, ParseError};
     use vm::types::{TraitIdentifier};
 
@@ -626,6 +681,19 @@ r#"z (let ((x 1) (y 2))
             },
             _ => false
         });
+
+        let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.a";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match x1.match_atom_value() {
+            Some(Value::Principal(PrincipalData::Contract(identifier))) => {
+                format!("{}", 
+                    PrincipalData::Standard(identifier.issuer.clone())) == "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    identifier.name == "a".into()
+            },
+            _ => false
+        });
     }
 
     #[test]
@@ -699,8 +767,22 @@ r#"z (let ((x 1) (y 2))
         let function_with_NEL = "(define (foo (x y)) \u{0085} (+ 1 2 3) \u{0085} (- 1 2 3))";
         let function_with_LS = "(define (foo (x y)) \u{2028} (+ 1 2 3) \u{2028} (- 1 2 3))";
         let function_with_PS = "(define (foo (x y)) \u{2029} (+ 1 2 3) \u{2029} (- 1 2 3))";
-        // good case
         let function_with_LF = "(define (foo (x y)) \n (+ 1 2 3) \n (- 1 2 3))";
+        let string_with_invalid_escape = r#"
+        "hello\eworld"
+        "#;
+        let ascii_string_with_unicode_escape = r#"
+        "hello\u{1F436}world"
+        "#;
+        let string_with_valid_escape = r#"
+        "hello\nworld"
+        "#;
+        let string_with_valid_double_escape = r#"
+        "hello\\eworld"
+        "#;
+        let string_with_multiple_slashes = r#"
+        "hello\\\"world"
+        "#;
 
         assert!(match ast::parser::parse(&split_tokens).unwrap_err().err {
             ParseErrors::SeparatorExpected(_) => true, _ => false });
@@ -718,7 +800,7 @@ r#"z (let ((x 1) (y 2))
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err {
-            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+            ParseErrors::SeparatorExpected(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&wrong_tuple_literal_close).unwrap_err().err {
             ParseErrors::ClosingTupleLiteralExpected => true, _ => false });
@@ -773,6 +855,20 @@ r#"z (let ((x 1) (y 2))
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
         ast::parser::parse(&function_with_LF).unwrap();
-    }
 
+        assert!(match ast::parser::parse(&string_with_invalid_escape).unwrap_err().err {
+            ParseErrors::InvalidEscaping => true, _ => false });
+
+        assert!(match ast::parser::parse(&ascii_string_with_unicode_escape).unwrap_err().err {
+            ParseErrors::InvalidEscaping => true, _ => false });
+    
+        assert!(match ast::parser::parse(&string_with_valid_escape).unwrap()[0].pre_expr {
+            PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(CharType::ASCII(ref v)))) if v.data.len() == 11 => true, _ => false });
+
+        assert!(match ast::parser::parse(&string_with_valid_double_escape).unwrap()[0].pre_expr {
+            PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(CharType::ASCII(ref v)))) if v.data.len() == 12 => true, _ => false });
+    
+        assert!(match ast::parser::parse(&string_with_multiple_slashes).unwrap()[0].pre_expr {
+            PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(CharType::ASCII(ref v)))) if v.data.len() == 12 => true, _ => false });    
+    }
 }

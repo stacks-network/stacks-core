@@ -4,6 +4,9 @@ pub mod signatures;
 use std::{fmt, cmp};
 use std::convert::{TryInto, TryFrom};
 use std::collections::BTreeMap;
+use std::{char, str};
+
+use regex::Regex;
 
 use address::c32;
 use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
@@ -12,8 +15,8 @@ use util::hash;
 
 pub use vm::types::signatures::{
     TupleTypeSignature, AssetIdentifier, FixedFunction, FunctionSignature,
-    TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    BUFF_64, BUFF_32, BUFF_20, BufferLength
+    TypeSignature, SequenceSubtype, StringSubtype, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
+    BUFF_65, BUFF_64, BUFF_33, BUFF_32, BUFF_20, BUFF_1, BufferLength, StringUTF8Length
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -174,12 +177,255 @@ pub enum Value {
     Int(i128),
     UInt(u128),
     Bool(bool),
-    Buffer(BuffData),
-    List(ListData),
+    Sequence(SequenceData),
     Principal(PrincipalData),
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SequenceData {
+    Buffer(BuffData),
+    List(ListData),
+    String(CharType),
+}
+
+impl SequenceData {
+
+    pub fn atom_values(&mut self) -> Vec<SymbolicExpression> {
+        match self {
+            SequenceData::Buffer(ref mut data) => data.atom_values(),
+            SequenceData::List(ref mut data) => data.atom_values(),
+            SequenceData::String(CharType::ASCII(ref mut data)) => data.atom_values(),
+            SequenceData::String(CharType::UTF8(ref mut data)) => data.atom_values(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match &self {
+            SequenceData::Buffer(data) => data.items().len(),
+            SequenceData::List(data) => data.items().len(),
+            SequenceData::String(CharType::ASCII(data)) => data.items().len(),
+            SequenceData::String(CharType::UTF8(data)) => data.items().len(),
+        }
+    }
+
+    pub fn filter<F>(&mut self, filter: &mut F) -> Result<()> where F: FnMut(SymbolicExpression) -> Result<bool> {
+        
+        // Note: this macro can probably get removed once 
+        // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
+        // is available in rust stable channel (experimental at this point).
+        macro_rules! drain_filter {
+            ($data:expr, $seq_type:ident) => {
+                let mut i = 0;
+                while i != $data.data.len() {
+                    let atom_value = SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i]));
+                    match filter(atom_value) {
+                        Ok(res) if res == false => { $data.data.remove(i); },
+                        Ok(_) => { i += 1; },
+                        Err(err) => return Err(err),
+                    }
+                }
+            };
+        }
+
+        match self {
+            SequenceData::Buffer(ref mut data) => {
+                drain_filter!(data, BuffData);
+            },
+            SequenceData::List(ref mut data) => {
+                drain_filter!(data, ListData);
+            },
+            SequenceData::String(CharType::ASCII(ref mut data)) => {
+                drain_filter!(data, ASCIIData);
+            },
+            SequenceData::String(CharType::UTF8(ref mut data)) => {
+                drain_filter!(data, UTF8Data);
+            },
+        }
+        Ok(())
+    }
+
+    pub fn append(&mut self, other_seq: &mut SequenceData) -> Result<()> {
+
+        match (self, other_seq) {
+            (SequenceData::List(ref mut inner_data), SequenceData::List(ref mut other_inner_data)) => {
+                inner_data.append(other_inner_data)
+            },
+            (SequenceData::Buffer(ref mut inner_data), SequenceData::Buffer(ref mut other_inner_data)) => {
+                inner_data.append(other_inner_data)
+            },
+            (SequenceData::String(CharType::ASCII(ref mut inner_data)), SequenceData::String(CharType::ASCII(ref mut other_inner_data))) => {
+                inner_data.append(other_inner_data)
+            },
+            (SequenceData::String(CharType::UTF8(ref mut inner_data)), SequenceData::String(CharType::UTF8(ref mut other_inner_data))) => {
+                inner_data.append(other_inner_data)
+            },
+            _ => Err(RuntimeErrorType::BadTypeConstruction.into())
+        }?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum CharType {
+    UTF8(UTF8Data),
+    ASCII(ASCIIData),
+}
+
+impl fmt::Display for CharType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CharType::ASCII(string) => write!(f, "{}", string),
+            CharType::UTF8(string) => write!(f, "{}", string), 
+        }
+    }
+}
+
+impl fmt::Debug for CharType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ASCIIData {
+    pub data: Vec<u8>,
+}
+
+impl fmt::Display for ASCIIData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut escaped_str = String::new();
+        for c in self.data.iter() {
+            let escaped_char = format!("{}", std::ascii::escape_default(*c));
+            escaped_str.push_str(&escaped_char);
+        }
+        write!(f, "{}", format!("\"{}\"", escaped_str))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UTF8Data {
+    pub data: Vec<Vec<u8>>,
+}
+
+impl fmt::Display for UTF8Data {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut result = String::new();
+        for c in self.data.iter() {
+            if c.len() > 1 {
+                // We escape extended charset
+                result.push_str(&format!("\\u{{{}}}", hash::to_hex(&c[..])));
+            } else {
+                // We render an ASCII char, escaped
+                let escaped_char = format!("{}", std::ascii::escape_default(c[0]));
+                result.push_str(&escaped_char);
+            }
+        }
+        write!(f, "{}", format!("u\"{}\"", result))
+    }
+}
+
+pub trait SequencedValue<T> {
+
+    fn type_signature(&self) -> TypeSignature;
+    
+    fn items(&self) -> &Vec<T>;
+
+    fn drained_items(&mut self) -> Vec<T>;
+
+    fn to_value(v: &T) -> Value;
+
+    fn atom_values(&mut self) -> Vec<SymbolicExpression> {
+        self.drained_items().iter().map(|item| {
+            SymbolicExpression::atom_value(Self::to_value(&item))
+        }).collect()
+    }
+}
+
+impl SequencedValue<Value> for ListData {
+    
+    fn items(&self) -> &Vec<Value> {
+        &self.data
+    }
+
+    fn drained_items(&mut self) -> Vec<Value> {
+        self.data.drain(..).collect()
+    }
+    
+    fn type_signature(&self) -> TypeSignature {
+        TypeSignature::SequenceType(SequenceSubtype::ListType(self.type_signature.clone()))
+    }
+
+    fn to_value(v: &Value) -> Value {
+        v.clone()
+    }
+}
+
+impl SequencedValue<u8> for BuffData {
+    
+    fn items(&self) -> &Vec<u8> {
+        &self.data
+    }
+
+    fn drained_items(&mut self) -> Vec<u8> {
+        self.data.drain(..).collect()
+    }
+
+    fn type_signature(&self) -> TypeSignature {
+        let buff_length = BufferLength::try_from(self.data.len())
+            .expect("ERROR: Too large of a buffer successfully constructed.");
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(buff_length))
+    }
+
+    fn to_value(v: &u8) -> Value {
+        Value::buff_from_byte(*v)
+    }
+}
+
+impl SequencedValue<u8> for ASCIIData {
+    
+    fn items(&self) -> &Vec<u8> {
+        &self.data
+    }
+
+    fn drained_items(&mut self) -> Vec<u8> {
+        self.data.drain(..).collect()
+    }
+
+    fn type_signature(&self) -> TypeSignature {
+        let buff_length = BufferLength::try_from(self.data.len())
+            .expect("ERROR: Too large of a buffer successfully constructed.");
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_length)))
+    }
+
+    fn to_value(v: &u8) -> Value {
+        Value::string_ascii_from_bytes(vec![*v])
+            .expect("ERROR: Invalid ASCII string successfully constructed")
+    }
+}
+
+impl SequencedValue<Vec<u8>> for UTF8Data {
+    
+    fn items(&self) -> &Vec<Vec<u8>> {
+        &self.data
+    }
+
+    fn drained_items(&mut self) -> Vec<Vec<u8>> {
+        self.data.drain(..).collect()
+    }
+
+    fn type_signature(&self) -> TypeSignature {
+        let str_len = StringUTF8Length::try_from(self.data.len())
+            .expect("ERROR: Too large of a buffer successfully constructed.");
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(str_len)))
+    }
+
+    fn to_value(v: &Vec<u8>) -> Value {
+        Value::string_utf8_from_bytes(v.clone())
+            .expect("ERROR: Invalid UTF8 string successfully constructed")
+    }
 }
 
 define_named_enum!(BlockInfoProperty {
@@ -319,7 +565,7 @@ impl Value {
             }
         }
 
-        Ok(Value::List(ListData { data: list_data, type_signature: expected_type }))
+        Ok(Value::Sequence(SequenceData::List(ListData { data: list_data, type_signature: expected_type })))
     }
 
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
@@ -330,18 +576,194 @@ impl Value {
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
         let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
-        Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
+        Ok(Value::Sequence(SequenceData::List(ListData { data: list_data, type_signature: type_sig })))
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;
         // construct the buffer
-        Ok(Value::Buffer(BuffData { data: buff_data }))
+        Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: buff_data })))
     }
 
     pub fn buff_from_byte(byte: u8) -> Value {
-        Value::Buffer(BuffData { data: vec![byte] })
+        Value::Sequence(SequenceData::Buffer(BuffData { data: vec![byte] }))
+    }
+
+    pub fn string_ascii_from_bytes(bytes: Vec<u8>) -> Result<Value> {
+        // check the string size
+        BufferLength::try_from(bytes.len())?;
+
+        for b in bytes.iter() {
+            if !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace() {
+                return Err(CheckErrors::InvalidCharactersDetected.into());
+            }
+        }
+        // construct the string        
+        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: bytes }))))
+    }
+
+    pub fn string_utf8_from_string_utf8_literal(tokenized_str: String) -> Result<Value> {
+        let wrapped_codepoints_matcher = Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}").unwrap();
+        let mut window = tokenized_str.as_str();
+        let mut cursor = 0;
+        let mut data: Vec<Vec<u8>> = vec![];
+        while !window.is_empty() {
+            if let Some(captures) = wrapped_codepoints_matcher.captures(window) {
+                let matched = captures.name("value").unwrap();
+                let scalar_value = window[matched.start()..matched.end()].to_string();
+                let unicode_char = {
+                    let u = u32::from_str_radix(&scalar_value, 16).unwrap();
+                    let c = char::from_u32(u).unwrap();
+                    let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
+                    c.encode_utf8(&mut encoded_char[..]);
+                    encoded_char
+                };
+
+                data.push(unicode_char);
+                cursor += scalar_value.len() + 4;
+            } else {
+                let ascii_char = window[0..1].to_string().into_bytes();
+                data.push(ascii_char);
+                cursor += 1;
+            }
+            // check the string size
+            StringUTF8Length::try_from(data.len())?;
+
+            window = &tokenized_str[cursor..];
+        }
+        // construct the string        
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
+    }
+
+    pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value> {
+        let validated_utf8_str = match str::from_utf8(&bytes) {
+            Ok(string) => string,
+            _ => return Err(CheckErrors::InvalidCharactersDetected.into())
+        };
+        let mut data = vec![];
+        for char in validated_utf8_str.chars() {
+            let mut encoded_char: Vec<u8> = vec![0; char.len_utf8()];
+            char.encode_utf8(&mut encoded_char[..]);
+            data.push(encoded_char);
+        }
+        // check the string size
+        StringUTF8Length::try_from(data.len())?;
+
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
+    }
+
+    pub fn expect_u128(self) -> u128 {
+        if let Value::UInt(inner) = self {
+            inner
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a u128", &self));
+        }
+    }
+
+    pub fn expect_i128(self) -> i128 {
+        if let Value::Int(inner) = self {
+            inner
+        }
+        else {
+            panic!(format!("Value '{:?}' is not an i128", &self));
+        }
+    }
+
+    pub fn expect_buff(self, sz: usize) -> Vec<u8> {
+        if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
+            if buffdata.data.len() == sz {
+                buffdata.data
+            }
+            else {
+                panic!(format!("Value buffer has len {}, expected {}", buffdata.data.len(), sz));
+            }
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a buff", &self));
+        }
+    }
+
+    pub fn expect_bool(self) -> bool {
+        if let Value::Bool(b) = self {
+            b
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a bool", &self));
+        }
+    }
+
+    pub fn expect_tuple(self) -> TupleData {
+        if let Value::Tuple(data) = self {
+            data
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a tuple", &self));
+        }
+    }
+
+    pub fn expect_optional(self) -> Option<Value> {
+        if let Value::Optional(opt) = self {
+            match opt.data {
+                Some(boxed_value) => Some(*boxed_value),
+                None => None
+            }
+        }
+        else {
+            panic!(format!("Value '{:?}' is not an optional", &self));
+        }
+    }
+
+    pub fn expect_principal(self) -> PrincipalData {
+        if let Value::Principal(p) = self {
+            p
+        }
+        else {
+            panic!(format!("Value '{:?}' is not a principal", &self));
+        }
+    }
+
+    pub fn expect_result(self) -> std::result::Result<Value, Value> {
+        if let Value::Response(res_data) = self {
+            if res_data.committed {
+                Ok(*res_data.data)
+            }
+            else {
+                Err(*res_data.data)
+            }
+        }
+        else {
+            panic!("FATAL: not a response");
+        }
+    }
+    
+    pub fn expect_result_ok(self) -> Value {
+        if let Value::Response(res_data) = self {
+            if res_data.committed {
+                *res_data.data
+            }
+            else {
+                panic!("FATAL: not a (ok ..)");
+            }
+        }
+        else {
+            panic!("FATAL: not a response");
+        }
+    }
+
+    pub fn expect_result_err(self) -> Value {
+        if let Value::Response(res_data) = self {
+            if !res_data.committed {
+                *res_data.data
+            }
+            else {
+                panic!("FATAL: not a (err ..)");
+            }
+        }
+        else {
+            panic!("FATAL: not a response");
+        }
     }
 }
 
@@ -349,10 +771,47 @@ impl BuffData {
     pub fn len(&self) -> BufferLength {
         self.data.len().try_into().unwrap()
     }
+
+    fn append(&mut self, other_seq: &mut BuffData) -> Result<()> {
+        self.data.append(&mut other_seq.data);
+        Ok(())
+    }
 }
 
 impl ListData {
     pub fn len(&self) -> u32 {
+        self.data.len().try_into().unwrap()
+    }
+
+    fn append(&mut self, other_seq: &mut ListData) -> Result<()> {
+        let entry_type_a = self.type_signature.get_list_item_type();
+        let entry_type_b = other_seq.type_signature.get_list_item_type();
+        let entry_type = TypeSignature::factor_out_no_type(&entry_type_a, &entry_type_b)?;
+        let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
+        self.type_signature = ListTypeData::new_list(entry_type, max_len)?;
+        self.data.append(&mut other_seq.data);
+        Ok(())
+    }
+}
+
+impl ASCIIData {
+    fn append(&mut self, other_seq: &mut ASCIIData) -> Result<()> {
+        self.data.append(&mut other_seq.data);
+        Ok(())
+    }
+
+    pub fn len(&self) -> BufferLength {
+        self.data.len().try_into().unwrap()
+    }
+}
+
+impl UTF8Data {
+    fn append(&mut self, other_seq: &mut UTF8Data) -> Result<()> {
+        self.data.append(&mut other_seq.data);
+        Ok(())
+    }
+
+    pub fn len(&self) -> BufferLength {
         self.data.len().try_into().unwrap()
     }
 }
@@ -393,12 +852,13 @@ impl fmt::Display for Value {
             Value::Int(int) => write!(f, "{}", int),
             Value::UInt(int) => write!(f, "u{}", int),
             Value::Bool(boolean) => write!(f, "{}", boolean),
-            Value::Buffer(vec_bytes) => write!(f, "0x{}", &vec_bytes),
             Value::Tuple(data) => write!(f, "{}", data),
             Value::Principal(principal_data) => write!(f, "{}", principal_data),
             Value::Optional(opt_data) => write!(f, "{}", opt_data),
             Value::Response(res_data) => write!(f, "{}", res_data),
-            Value::List(list_data) => {
+            Value::Sequence(SequenceData::Buffer(vec_bytes)) => write!(f, "0x{}", &vec_bytes),
+            Value::Sequence(SequenceData::String(string)) => write!(f, "{}", string),
+            Value::Sequence(SequenceData::List(list_data)) => {
                 write!(f, "(")?;
                 for (ix, v) in list_data.data.iter().enumerate() {
                     if ix > 0 {

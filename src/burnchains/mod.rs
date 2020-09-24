@@ -30,6 +30,7 @@ use std::io;
 use std::default::Default;
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 use self::bitcoin::Error as btc_error;
 
@@ -268,17 +269,63 @@ pub struct Burnchain {
     pub consensus_hash_lifetime: u32,
     pub stable_confirmations: u32,
     pub first_block_height: u64,
-    pub first_block_hash: BurnchainHeaderHash
+    pub first_block_hash: BurnchainHeaderHash,
+    pub pox_constants: PoxConstants,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct PoxConstants {
+    /// the length (in burn blocks) of the reward cycle
+    pub reward_cycle_length: u32,
+    /// the length (in burn blocks) of the prepare phase
+    pub prepare_length: u32,
+    /// the number of confirmations a PoX anchor block must
+    ///  receive in order to become the anchor. must be at least > prepare_length/2
+    pub anchor_threshold: u32,
+    /// fraction of liquid STX that must vote to reject PoX for
+    /// it to revert to PoB in the next reward cycle
+    pub pox_rejection_fraction: u64,
+    _shadow: PhantomData<()>,
+}
+
+impl PoxConstants {
+    pub fn new(reward_cycle_length: u32, prepare_length: u32, anchor_threshold: u32, pox_rejection_fraction: u64) -> PoxConstants {
+        assert!(anchor_threshold > (prepare_length / 2));
+
+        PoxConstants {
+            reward_cycle_length,
+            prepare_length,
+            anchor_threshold,
+            pox_rejection_fraction,
+            _shadow: PhantomData,
+        }
+    }
+    #[cfg(test)]
+    pub fn test_default() -> PoxConstants {
+        PoxConstants::new(10, 5, 3, 25)
+    }
+
+    pub fn mainnet_default() -> PoxConstants {
+        PoxConstants::new(1000, 240, 192, 25)
+    }
+
+    pub fn testnet_default() -> PoxConstants {
+    PoxConstants::new(
+        120, 
+        30, 
+        20,
+        3333333333333333) // total liquid supply is 40000000000000000 µSTX
+    }
 }
 
 /// Structure for encoding our view of the network 
 #[derive(Debug, PartialEq, Clone)]
 pub struct BurnchainView {
-    pub burn_block_height: u64,                     // last-seen block height (at chain tip)
-    pub burn_consensus_hash: ConsensusHash,         // consensus hash at block_height
-    pub burn_stable_block_height: u64,              // latest stable block height (e.g. chain tip minus 7)
-    pub burn_stable_consensus_hash: ConsensusHash,  // consensus hash for burn_stable_block_height
-    pub last_consensus_hashes: HashMap<u64, ConsensusHash>,     // map all block heights from burn_block_height back to the oldest one we'll take for considering the peer a neighbor
+    pub burn_block_height: u64,                         // last-seen block height (at chain tip)
+    pub burn_block_hash: BurnchainHeaderHash,           // last-seen burn block hash
+    pub burn_stable_block_height: u64,                  // latest stable block height (e.g. chain tip minus 7)
+    pub burn_stable_block_hash: BurnchainHeaderHash,    // latest stable burn block hash
+    pub last_burn_block_hashes: HashMap<u64, BurnchainHeaderHash>,     // map all block heights from burn_block_height back to the oldest one we'll take for considering the peer a neighbor
 }
 
 /// The burnchain block's encoded state transition:
@@ -288,6 +335,16 @@ pub struct BurnchainView {
 #[derive(Debug, Clone)]
 pub struct BurnchainStateTransition {
     pub burn_dist: Vec<BurnSamplePoint>,
+    pub accepted_ops: Vec<BlockstackOperationType>,
+    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
+}
+
+/// The burnchain block's state transition's ops:
+/// -- the new burn distribution
+/// -- the sequence of valid blockstack operations that went into it
+/// -- the set of previously-accepted leader VRF keys consumed
+#[derive(Debug, Clone)]
+pub struct BurnchainStateTransitionOps {
     pub accepted_ops: Vec<BlockstackOperationType>,
     pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
 }
@@ -320,11 +377,12 @@ pub enum Error {
     TrySyncAgain,
     UnknownBlock(BurnchainHeaderHash),
     NonCanonicalPoxId(PoxId, PoxId),
+    CoordinatorClosed,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Error::UnsupportedBurnchain => write!(f, "Unsupported burnchain"),
             Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
@@ -340,6 +398,7 @@ impl fmt::Display for Error {
             Error::UnknownBlock(block) => write!(f, "Unknown burnchain block {}", block),
             Error::NonCanonicalPoxId(parent, child) => write!(f, "{} is not a descendant of the canonical parent PoXId: {}",
                                                               parent, child),
+            Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
         }
     }
 }
@@ -361,6 +420,7 @@ impl error::Error for Error {
             Error::TrySyncAgain => None,
             Error::UnknownBlock(_) => None,
             Error::NonCanonicalPoxId(_, _) => None,
+            Error::CoordinatorClosed => None,
         }
     }
 }
@@ -397,16 +457,25 @@ impl BurnchainView {
         let mut ret = HashMap::new();
         for i in oldest_height..self.burn_block_height+1 {
             if i == self.burn_stable_block_height {
-                ret.insert(i, self.burn_stable_consensus_hash.clone());
+                ret.insert(i, self.burn_stable_block_hash.clone());
             }
             else if i == self.burn_block_height {
-                ret.insert(i, self.burn_consensus_hash.clone());
+                ret.insert(i, self.burn_block_hash.clone());
             }
             else {
-                ret.insert(i, ConsensusHash::from_data(&i.to_le_bytes()));
+                let data = {
+                    use sha2::Digest;
+                    use sha2::Sha256;
+                    let mut hasher = Sha256::new();
+                    hasher.input(&i.to_le_bytes());
+                    hasher.result()
+                };
+                let mut data_32 = [0x00; 32];
+                data_32.copy_from_slice(&data[0..32]);
+                ret.insert(i, BurnchainHeaderHash(data_32));
             }
         }
-        self.last_consensus_hashes = ret;
+        self.last_burn_block_hashes = ret;
     }
 }  
 
@@ -430,6 +499,10 @@ pub mod test {
     use chainstate::stacks::*;
 
     use burnchains::*;
+    use burnchains::db::*;
+
+    use chainstate::coordinator::*;
+    use chainstate::coordinator::comm::*;
 
     use address::*;
 
@@ -489,6 +562,7 @@ pub mod test {
         pub mined: u64,
         pub tip_index_root: TrieHash,
         pub tip_header_hash: BurnchainHeaderHash,
+        pub tip_sortition_id: SortitionId,
         pub pending_blocks: Vec<TestBurnchainBlock>,
         pub blocks: Vec<TestBurnchainBlock>,
         pub fork_id: u64
@@ -756,7 +830,7 @@ pub mod test {
             
             let last_snapshot = match fork_snapshot {
                 Some(sn) => sn.clone(),
-                None => SortitionDB::get_canonical_burn_chain_tip_stubbed(ic).unwrap()
+                None => SortitionDB::get_canonical_burn_chain_tip(ic).unwrap()
             };
 
             let last_snapshot_with_sortition = match parent_block_snapshot {
@@ -770,9 +844,9 @@ pub mod test {
 
             let new_seed = VRFSeed::from_proof(&proof);
 
-            let get_commit_res = ic.as_handle(&last_snapshot_with_sortition.sortition_id)
-                .get_block_commit(&last_snapshot_with_sortition.winning_block_txid,
-                                  &last_snapshot_with_sortition.burn_header_hash)
+            let get_commit_res = SortitionDB::get_block_commit(ic.conn(),
+                                                               &last_snapshot_with_sortition.winning_block_txid,
+                                                               &last_snapshot_with_sortition.sortition_id)
                 .expect("FATAL: failed to read block commit");
             let mut txop = match get_commit_res {
                 Some(parent) => {
@@ -831,17 +905,35 @@ pub mod test {
             let sort_id = SortitionId::stubbed(&header.parent_block_hash);
             let mut sortition_db_handle = SortitionHandleTx::begin(db, &sort_id).unwrap();
 
-            let parent_snapshot = sortition_db_handle.as_conn().get_block_snapshot(&header.parent_block_hash)
+            let parent_snapshot = sortition_db_handle.get_block_snapshot(&header.parent_block_hash, &sort_id)
                 .unwrap()
                 .expect("FATAL: failed to get burnchain linkage info");
 
             let blockstack_txs = self.txs.clone();
 
-            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs)
+            let new_snapshot = sortition_db_handle.process_block_txs(&parent_snapshot, &header, burnchain, blockstack_txs, None, PoxId::stubbed(), None)
                 .unwrap();
             sortition_db_handle.commit().unwrap();
 
             new_snapshot.0
+        }
+        
+        pub fn mine_pox<'a, T: BlockEventDispatcher, N: CoordinatorNotices, R: RewardSetProvider>(&self, db: &mut SortitionDB, burnchain: &Burnchain, coord: &mut ChainsCoordinator<'a, T, N, R>) -> BlockSnapshot {
+            let block_hash = BurnchainHeaderHash::from_test_data(self.block_height, &self.parent_snapshot.index_root, self.fork_id);
+            let mock_bitcoin_block = BitcoinBlock::new(self.block_height, &block_hash, &self.parent_snapshot.burn_header_hash, &vec![], get_epoch_time_secs());
+            let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
+            
+            test_debug!("Process PoX block {} {}", block.block_height(), &block.block_hash());
+
+            let header = block.header();
+
+            let mut burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
+            burnchain_db.raw_store_burnchain_block(header.clone(), self.txs.clone()).unwrap();
+
+            coord.handle_new_burnchain_block().unwrap();
+
+            let snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+            snapshot
         }
     }
 
@@ -851,6 +943,7 @@ pub mod test {
                 start_height,
                 mined: 0,
                 tip_header_hash: start_header_hash.clone(),
+                tip_sortition_id: SortitionId([0x00; 32]),
                 tip_index_root: start_index_root.clone(),
                 blocks: vec![],
                 pending_blocks: vec![],
@@ -869,8 +962,8 @@ pub mod test {
         }
 
         pub fn get_tip(&mut self, ic: &SortitionDBConn) -> BlockSnapshot {
-            test_debug!("Get tip snapshot at {}", &self.tip_header_hash);
-            SortitionDB::get_block_snapshot(ic, &SortitionId(self.tip_header_hash.0.clone()))
+            test_debug!("Get tip snapshot at {} (sortition ID {})", &self.tip_header_hash, &self.tip_sortition_id);
+            SortitionDB::get_block_snapshot(ic, &self.tip_sortition_id)
                 .unwrap().unwrap()
         }
 
@@ -896,6 +989,31 @@ pub mod test {
                 self.mined += 1;
                 self.tip_index_root = snapshot.index_root;
                 self.tip_header_hash = snapshot.burn_header_hash;
+                self.tip_sortition_id = snapshot.sortition_id;
+            }
+
+            // give back the new chain tip
+            snapshot
+        }
+        
+        pub fn mine_pending_blocks_pox<'a, T: BlockEventDispatcher, N: CoordinatorNotices, R: RewardSetProvider>(&mut self, db: &mut SortitionDB, burnchain: &Burnchain, coord: &mut ChainsCoordinator<'a, T, N, R>) -> BlockSnapshot {
+            let mut snapshot = {
+                let ic = db.index_conn();
+                self.get_tip(&ic)
+            };
+
+            for mut block in self.pending_blocks.drain(..) {
+                // fill in consensus hash and block hash, which we may not have known at the call
+                // to next_block (since we can call next_block() many times without mining blocks)
+                block.patch_from_chain_tip(&snapshot);
+                
+                snapshot = block.mine_pox(db, burnchain, coord);
+
+                self.blocks.push(block);
+                self.mined += 1;
+                self.tip_index_root = snapshot.index_root;
+                self.tip_header_hash = snapshot.burn_header_hash;
+                self.tip_sortition_id = snapshot.sortition_id;
             }
 
             // give back the new chain tip

@@ -37,7 +37,7 @@ use net::HttpRequestMetadata;
 use net::HttpResponseMetadata;
 use net::PeerAddress;
 use net::ClientError;
-use net::RPCPeerInfoData;
+use net::{RPCPeerInfoData, RPCPoxInfoData};
 use net::NeighborAddress;
 use net::NeighborsData;
 use net::StacksHttp;
@@ -62,6 +62,7 @@ use burnchains::BurnchainHeaderHash;
 
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{
     StacksChainState,
     BlockStreamData,
@@ -90,11 +91,13 @@ use vm::{
     costs::{ LimitedCostTracker,
              ExecutionCost },
     types::{ PrincipalData,
+             StandardPrincipalData,
              QualifiedContractIdentifier },
     database::{ ClarityDatabase,
                 MarfedKV,
                 ClaritySerializable,
-                marf::ContractCommitment },
+                marf::ContractCommitment,
+                STXBalance },
 };
 
 use rand::prelude::*;
@@ -146,7 +149,7 @@ impl fmt::Debug for ConversationHttp {
 
 impl RPCPeerInfoData {
     pub fn from_db(burnchain: &Burnchain, sortdb: &SortitionDB, chainstate: &StacksChainState, peerdb: &PeerDB, exit_at_block_height: &Option<&u64>) -> Result<RPCPeerInfoData, net_error> {
-        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn)?;
+        let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let local_peer = PeerDB::get_local_peer(peerdb.conn())?;
         let stable_burnchain_tip = {
             let ic = sortdb.index_conn();
@@ -164,7 +167,7 @@ impl RPCPeerInfoData {
         let server_version = version_string(
             option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
             option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0"));
-        let stacks_tip_burn_block = burnchain_tip.canonical_stacks_tip_burn_hash;
+        let stacks_tip_consensus_hash = burnchain_tip.canonical_stacks_tip_consensus_hash;
         let stacks_tip = burnchain_tip.canonical_stacks_tip_hash;
         let stacks_tip_height = burnchain_tip.canonical_stacks_tip_height;
         let unconfirmed_tip = match chainstate.unconfirmed_state {
@@ -174,18 +177,92 @@ impl RPCPeerInfoData {
 
         Ok(RPCPeerInfoData {
             peer_version: burnchain.peer_version,
-            burn_consensus: burnchain_tip.consensus_hash,
+            pox_consensus: burnchain_tip.consensus_hash,
             burn_block_height: burnchain_tip.block_height,
-            stable_burn_consensus: stable_burnchain_tip.consensus_hash,
+            stable_pox_consensus: stable_burnchain_tip.consensus_hash,
             stable_burn_block_height: stable_burnchain_tip.block_height,
             server_version,
             network_id: local_peer.network_id,
             parent_network_id: local_peer.parent_network_id,
             stacks_tip_height,
             stacks_tip,
-            stacks_tip_burn_block: stacks_tip_burn_block.to_hex(),
+            stacks_tip_consensus_hash: stacks_tip_consensus_hash.to_hex(),
             unanchored_tip: unconfirmed_tip,
-            exit_at_block_height: exit_at_block_height.cloned()
+            exit_at_block_height: exit_at_block_height.cloned(),
+        })
+    }
+}
+
+impl RPCPoxInfoData {
+
+    pub fn from_db(sortdb: &SortitionDB, chainstate: &mut StacksChainState, tip: &StacksBlockId, options: &ConnectionOptions) -> Result<RPCPoxInfoData, net_error> {
+
+        let contract_identifier = boot::boot_code_id("pox");
+        let function = "get-pox-info";
+        let cost_track = LimitedCostTracker::new(options.read_only_call_limit.clone());
+        let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+            clarity_tx.with_readonly_clarity_env(sender, cost_track, |env| {
+                env.execute_contract(&contract_identifier, function, &vec![], true)
+            })
+        });
+
+        let res = match data {
+            Ok(res) => {
+                res
+                    .expect_result_ok()
+                    .expect_tuple()
+            }
+            Err(_e) => {
+                return Err(net_error::DBError(db_error::NotFoundError))
+            }
+        };
+
+        let first_burnchain_block_height = res
+            .get("first-burnchain-block-height")
+            .expect(&format!("FATAL: no 'first-burnchain-block-height'"))
+            .to_owned()
+            .expect_u128();
+
+        let min_amount_ustx = res
+            .get("min-amount-ustx")
+            .expect(&format!("FATAL: no 'min-amount-ustx'"))
+            .to_owned()
+            .expect_u128();
+
+        let prepare_cycle_length = res
+            .get("prepare-cycle-length")
+            .expect(&format!("FATAL: no 'prepare-cycle-length'"))
+            .to_owned()
+            .expect_u128();
+
+        let rejection_fraction = res
+            .get("rejection-fraction")
+            .expect(&format!("FATAL: no 'rejection-fraction'"))
+            .to_owned()
+            .expect_u128();
+
+        let reward_cycle_id = res
+            .get("reward-cycle-id")
+            .expect(&format!("FATAL: no 'reward-cycle-id'"))
+            .to_owned()
+            .expect_u128();
+
+        let reward_cycle_length = res
+            .get("reward-cycle-length")
+            .expect(&format!("FATAL: no 'reward-cycle-length'"))
+            .to_owned()
+            .expect_u128();        
+
+        Ok(RPCPoxInfoData {
+            contract_id: boot::boot_code_id("pox").to_string(),
+            first_burnchain_block_height,
+            min_amount_ustx,
+            prepare_cycle_length,
+            rejection_fraction,
+            reward_cycle_id,
+            reward_cycle_length,
         })
     }
 }
@@ -337,6 +414,24 @@ impl ConversationHttp {
         }
     }
 
+        /// Handle a GET pox info.
+    /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
+    fn handle_getpoxinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+        sortdb: &SortitionDB, chainstate: &mut StacksChainState, tip: &StacksBlockId, options: &ConnectionOptions) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        match RPCPoxInfoData::from_db(sortdb, chainstate, tip, options) {
+            Ok(pi) => {
+                let response = HttpResponseType::PoxInfo(response_metadata, pi);
+                response.send(http, fd)
+            }
+            Err(e) => {
+                warn!("Failed to get peer info {:?}: {:?}", req, &e);
+                let response = HttpResponseType::ServerError(response_metadata, "Failed to query peer info".to_string());
+                response.send(http, fd)
+            }
+        }
+    }
+
     /// Handle a GET neighbors
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
     fn handle_getneighbors<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, network_id: u32, chain_view: &BurnchainView, peers: &PeerMap, peerdb: &PeerDB) -> Result<(), net_error> {
@@ -457,16 +552,17 @@ impl ConversationHttp {
     /// Handle a GET on an existing account, given the current chain tip.  Optionally supplies a
     /// MARF proof for each account detail loaded from the chain tip.
     fn handle_get_account_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                          chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                          account: &PrincipalData, with_proof: bool) -> Result<(), net_error> {
+                                          sortdb: &SortitionDB, chainstate: &mut StacksChainState, 
+                                          tip: &StacksBlockId, account: &PrincipalData, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
-                let (balance, balance_proof) = clarity_db.get_with_proof::<u128>(&key)
+                let block_height = clarity_db.get_current_burnchain_block_height() as u64;
+                let (balance, balance_proof) = clarity_db.get_with_proof::<STXBalance>(&key)
                     .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                    .unwrap_or_else(|| (0, "".into()));
+                    .unwrap_or_else(|| (STXBalance::zero(), "".into()));
                 let balance_proof = if with_proof {
                     Some(balance_proof)
                 } else {
@@ -482,7 +578,7 @@ impl ConversationHttp {
                     None
                 };
 
-                let balance = format!("0x{}", to_hex(&balance.to_be_bytes()));
+                let balance = format!("0x{}", to_hex(&balance.get_available_balance_at_block(block_height).to_be_bytes()));
                 AccountEntryResponse { balance, nonce, balance_proof, nonce_proof }
             })
         });
@@ -496,13 +592,13 @@ impl ConversationHttp {
     /// Handle a GET on a smart contract's data map, given the current chain tip.  Optionally
     /// supplies a MARF proof for the value.
     fn handle_get_map_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                      chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                      contract_addr: &StacksAddress, contract_name: &ContractName,
+                                      sortdb: &SortitionDB, chainstate: &mut StacksChainState, 
+                                      tip: &StacksBlockId, contract_addr: &StacksAddress, contract_name: &ContractName,
                                       map_name: &ClarityName, key: &Value, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
                 let (value, marf_proof) = clarity_db.get_with_proof::<Value>(&key)
@@ -532,8 +628,8 @@ impl ConversationHttp {
     /// Handle a POST to run a read-only function call with the given parameters on the given chain
     /// tip.  Returns the result of the function call.  Returns a CallReadOnlyResponse on success.
     fn handle_readonly_function_call<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                               chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                               contract_addr: &StacksAddress, contract_name: &ContractName,
+                                               sortdb: &SortitionDB, chainstate: &mut StacksChainState,
+                                               tip: &StacksBlockId, contract_addr: &StacksAddress, contract_name: &ContractName,
                                                function: &ClarityName, sender: &PrincipalData, args: &[Value], options: &ConnectionOptions) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
@@ -542,7 +638,7 @@ impl ConversationHttp {
 
         let args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
                 env.execute_contract(&contract_identifier, function.as_str(), &args, true)
             })
@@ -563,12 +659,12 @@ impl ConversationHttp {
     /// Handle a GET to fetch a contract's source code, given the chain tip.  Optionally returns a
     /// MARF proof as well.
     fn handle_get_contract_src<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                         chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                         contract_addr: &StacksAddress, contract_name: &ContractName, with_proof: bool) -> Result<(), net_error> {
+                                         sortdb: &SortitionDB, chainstate: &mut StacksChainState,
+                                         tip: &StacksBlockId, contract_addr: &StacksAddress, contract_name: &ContractName, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|db| {
                 let source = db.get_contract_src(&contract_identifier)?;
                 let contract_commit_key = MarfedKV::make_contract_hash_key(&contract_identifier);
@@ -598,12 +694,12 @@ impl ConversationHttp {
     /// Callers who don't trust the Stacks node should just fetch the contract source
     /// code and analyze it offline.
     fn handle_get_contract_abi<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
-                                         chainstate: &mut StacksChainState, tip: &StacksBlockId,
-                                         contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
+                                         sortdb: &SortitionDB, chainstate: &mut StacksChainState,
+                                         tip: &StacksBlockId, contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let data = chainstate.maybe_read_only_clarity_tx(tip, |clarity_tx| {
+        let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_analysis_db_readonly(|db| {
                 let contract = db.load_contract(&contract_identifier)?;
                 contract.contract_interface
@@ -662,7 +758,7 @@ impl ConversationHttp {
             Some(tip) => Ok(Some(*tip).clone()),
             None => {
                 match chainstate.get_stacks_chain_tip(sortdb)? {
-                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(&tip.burn_header_hash, &tip.anchored_block_hash))),
+                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(&tip.consensus_hash, &tip.anchored_block_hash))),
                     None => {
                         let response_metadata = HttpResponseMetadata::from(req);
                         warn!("Failed to load Stacks chain tip");
@@ -674,12 +770,12 @@ impl ConversationHttp {
         }
     }
     
-    fn handle_load_stacks_chain_tip_hashes<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, tip_opt: Option<&StacksBlockId>, sortdb: &SortitionDB, chainstate: &StacksChainState) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+    fn handle_load_stacks_chain_tip_hashes<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, tip_opt: Option<&StacksBlockId>, sortdb: &SortitionDB, chainstate: &StacksChainState) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, net_error> {
         match tip_opt {
             Some(tip) => {
                 match chainstate.get_block_header_hashes(&tip)? {
-                    Some((bh, bl)) => {
-                        return Ok(Some((bh, bl)));
+                    Some((ch, bl)) => {
+                        return Ok(Some((ch, bl)));
                     }
                     None => {}
                 }
@@ -687,7 +783,7 @@ impl ConversationHttp {
             None => {
                 match chainstate.get_stacks_chain_tip(sortdb)? {
                     Some(tip) => {
-                        return Ok(Some((tip.burn_header_hash, tip.anchored_block_hash)));
+                        return Ok(Some((tip.consensus_hash, tip.anchored_block_hash)));
                     }
                     None => {}
                 }
@@ -703,7 +799,7 @@ impl ConversationHttp {
     /// rejection reasons up-front (different from how the peer network handles it).  Indicate
     /// whether or not the transaction was accepted (and thus needs to be forwarded) in the return
     /// value.
-    fn handle_post_transaction<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burn_header_hash: BurnchainHeaderHash, block_hash: BlockHeaderHash, mempool: &mut MemPoolDB, tx: StacksTransaction) -> Result<bool, net_error> {
+    fn handle_post_transaction<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, consensus_hash: ConsensusHash, block_hash: BlockHeaderHash, mempool: &mut MemPoolDB, tx: StacksTransaction) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
         let (response, accepted) = 
@@ -711,7 +807,7 @@ impl ConversationHttp {
                 (HttpResponseType::TransactionID(response_metadata, txid), false)
             }
             else {
-                match mempool.submit(&burn_header_hash, &block_hash, tx) {
+                match mempool.submit(&consensus_hash, &block_hash, tx) {
                     Ok(_) => {
                         (HttpResponseType::TransactionID(response_metadata, txid), true)
                     }
@@ -728,15 +824,15 @@ impl ConversationHttp {
     /// rejection reasons up-front (different from how the peer network handles it).  Indicate
     /// whether or not the microblock was accepted (and thus needs to be forwarded) in the return
     /// value.
-    fn handle_post_microblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burn_header_hash: BurnchainHeaderHash, block_hash: BlockHeaderHash, chainstate: &mut StacksChainState, microblock: StacksMicroblock) -> Result<bool, net_error> {
+    fn handle_post_microblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, consensus_hash: ConsensusHash, block_hash: BlockHeaderHash, chainstate: &mut StacksChainState, microblock: StacksMicroblock) -> Result<bool, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        let (response, accepted) = match chainstate.preprocess_streamed_microblock(&burn_header_hash, &block_hash, &microblock) {
+        let (response, accepted) = match chainstate.preprocess_streamed_microblock(&consensus_hash, &block_hash, &microblock) {
             Ok(accepted) => {
                 if accepted {
-                    debug!("Accepted uploaded microblock {}/{}-{}", &burn_header_hash, &block_hash, &microblock.block_hash());
+                    debug!("Accepted uploaded microblock {}/{}-{}", &consensus_hash, &block_hash, &microblock.block_hash());
                 }
                 else {
-                    debug!("Did not accept microblock {}/{}-{}", &burn_header_hash, &block_hash, &microblock.block_hash());
+                    debug!("Did not accept microblock {}/{}-{}", &consensus_hash, &block_hash, &microblock.block_hash());
                 }
 
                 (HttpResponseType::MicroblockHash(response_metadata, microblock.block_hash()), accepted)
@@ -769,6 +865,13 @@ impl ConversationHttp {
                                                  sortdb, chainstate, peerdb, handler_opts)?;
                 None
             },
+            HttpRequestType::GetPoxInfo(ref _md, ref tip_opt) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
+                    ConversationHttp::handle_getpoxinfo(&mut self.connection.protocol, &mut reply, &req,
+                                                    sortdb, chainstate, &tip, &self.connection.options)?;
+                }
+                None
+            },
             HttpRequestType::GetNeighbors(ref _md) => {
                 ConversationHttp::handle_getneighbors(&mut self.connection.protocol, &mut reply, &req, self.network_id, chain_view, peers, peerdb)?;
                 None
@@ -787,15 +890,15 @@ impl ConversationHttp {
             },
             HttpRequestType::GetAccount(ref _md, ref principal, ref tip_opt, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate,
+                    ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
                                                                &tip, principal, *with_proof)?;
                 }
                 None
             },
             HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key, ref tip_opt, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
-                                                           contract_addr, contract_name, map_name, key, *with_proof)?;
+                    ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
+                                                           &tip, contract_addr, contract_name, map_name, key, *with_proof)?;
                 }
                 None
             },
@@ -805,30 +908,30 @@ impl ConversationHttp {
             },
             HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name, ref tip_opt) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
-                                                              contract_addr, contract_name)?;
+                    ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
+                                                              &tip, contract_addr, contract_name)?;
                 }
                 None
             },
             HttpRequestType::CallReadOnlyFunction(ref _md, ref ctrct_addr, ref ctrct_name, ref as_sender, ref func_name, ref args, ref tip_opt) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
                     ConversationHttp::handle_readonly_function_call(
-                        &mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
-                        ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
+                        &mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
+                        &tip, ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
                 }
                 None
             },
             HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name, ref tip_opt, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &tip,
-                                                              contract_addr, contract_name, *with_proof)?;
+                    ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, sortdb, chainstate,
+                                                              &tip, contract_addr, contract_name, *with_proof)?;
                 }
                 None
             },
             HttpRequestType::PostTransaction(ref _md, ref tx) => {
                 match chainstate.get_stacks_chain_tip(sortdb)? {
                     Some(tip) => {
-                        let accepted = ConversationHttp::handle_post_transaction(&mut self.connection.protocol, &mut reply, &req, tip.burn_header_hash, tip.anchored_block_hash, mempool, tx.clone())?;
+                        let accepted = ConversationHttp::handle_post_transaction(&mut self.connection.protocol, &mut reply, &req, tip.consensus_hash, tip.anchored_block_hash, mempool, tx.clone())?;
                         if accepted {
                             // forward to peer network
                             ret = Some(StacksMessageType::Transaction(tx.clone()));
@@ -844,11 +947,11 @@ impl ConversationHttp {
                 None
             },
             HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {
-                if let Some((burn_header_hash, block_hash)) = ConversationHttp::handle_load_stacks_chain_tip_hashes(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
-                    let accepted = ConversationHttp::handle_post_microblock(&mut self.connection.protocol, &mut reply, &req, burn_header_hash, block_hash, chainstate, mblock.clone())?;
+                if let Some((consensus_hash, block_hash)) = ConversationHttp::handle_load_stacks_chain_tip_hashes(&mut self.connection.protocol, &mut reply, &req, tip_opt.as_ref(), sortdb, chainstate)? {
+                    let accepted = ConversationHttp::handle_post_microblock(&mut self.connection.protocol, &mut reply, &req, consensus_hash, block_hash, chainstate, mblock.clone())?;
                     if accepted {
                         // forward to peer network
-                        let tip = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &block_hash);
+                        let tip = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
                         ret = Some(StacksMessageType::Microblocks(MicroblocksData { index_anchor_block: tip, microblocks: vec![(*mblock).clone()] }));
                     }
                 }
@@ -1189,6 +1292,11 @@ impl ConversationHttp {
     pub fn new_getinfo(&self) -> HttpRequestType {
         HttpRequestType::GetInfo(HttpRequestMetadata::from_host(self.peer_host.clone()))
     }
+
+    /// Make a new getinfo request to this endpoint
+    pub fn new_getpoxinfo(&self, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+        HttpRequestType::GetPoxInfo(HttpRequestMetadata::from_host(self.peer_host.clone()), tip_opt)
+    }    
     
     /// Make a new getneighbors request to this endpoint
     pub fn new_getneighbors(&self) -> HttpRequestType {
@@ -1265,6 +1373,7 @@ mod test {
     use burnchains::BurnchainHeaderHash;
 
     use chainstate::burn::BlockHeaderHash;
+    use chainstate::burn::ConsensusHash;
     use chainstate::stacks::test::*;
     use chainstate::stacks::db::StacksChainState;
     use chainstate::stacks::db::BlockStreamData;
@@ -1410,7 +1519,7 @@ mod test {
         tx_signer.sign_origin(&privk1).unwrap();
         let tx_unconfirmed_contract_signed = tx_signer.get_tx().unwrap();
             
-        let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn()).unwrap();
         let mut anchor_cost = ExecutionCost::zero();
         let mut anchor_size = 0;
 
@@ -1420,17 +1529,17 @@ mod test {
         let (burn_ops, stacks_block, microblocks) = peer_1.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
             let parent_tip = match parent_opt {
                 None => {
-                    StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                    StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                 }
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                    StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                 }
             };
 
             let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
-            let (anchored_block, anchored_block_size, anchored_block_cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, vec![tx_coinbase_signed.clone(), tx_contract_signed.clone()]).unwrap();
+            let (anchored_block, anchored_block_size, anchored_block_cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), vec![tx_coinbase_signed.clone(), tx_contract_signed.clone()]).unwrap();
 
             anchor_size = anchored_block_size;
             anchor_cost = anchored_block_cost;
@@ -1438,7 +1547,7 @@ mod test {
             (anchored_block, vec![])
         });
         
-        let (_, burn_header_hash) = peer_1.next_burnchain_block(burn_ops.clone());
+        let (_, _, consensus_hash) = peer_1.next_burnchain_block(burn_ops.clone());
         peer_2.next_burnchain_block(burn_ops.clone());
 
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
@@ -1446,24 +1555,34 @@ mod test {
 
         // build 1-block microblock stream with the contract-call and the unconfirmed contract
         let microblock = {
-            let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), burn_header_hash.clone(), peer_1.chainstate(), anchor_cost.clone(), anchor_size).unwrap();
-            let microblock = microblock_builder.mine_next_microblock_from_txs(
-                vec![
-                    MemPoolTxInfo::from_tx(tx_cc_signed, 0, burn_header_hash.clone(), stacks_block.block_hash(), tip.block_height),
-                    MemPoolTxInfo::from_tx(tx_unconfirmed_contract_signed, 0, burn_header_hash.clone(), stacks_block.block_hash(), tip.block_height)
-                ], 
-                &microblock_privkey).unwrap();
-            microblock
+            let sortdb = peer_1.sortdb.take().unwrap();
+            let mblock = {
+                let sort_iconn = sortdb.index_conn();
+                let mut microblock_builder = StacksMicroblockBuilder::new(stacks_block.block_hash(), consensus_hash.clone(), peer_1.chainstate(), &sort_iconn, anchor_cost.clone(), anchor_size).unwrap();
+                let microblock = microblock_builder.mine_next_microblock_from_txs(
+                    vec![
+                        MemPoolTxInfo::from_tx(tx_cc_signed, 0, consensus_hash.clone(), stacks_block.block_hash(), tip.block_height),
+                        MemPoolTxInfo::from_tx(tx_unconfirmed_contract_signed, 0, consensus_hash.clone(), stacks_block.block_hash(), tip.block_height)
+                    ], 
+                    &microblock_privkey).unwrap();
+                microblock
+            };
+            peer_1.sortdb = Some(sortdb);
+            mblock
         };
 
         // store microblock stream
-        peer_1.chainstate().preprocess_streamed_microblock(&burn_header_hash, &stacks_block.block_hash(), &microblock).unwrap();
-        peer_2.chainstate().preprocess_streamed_microblock(&burn_header_hash, &stacks_block.block_hash(), &microblock).unwrap();
+        peer_1.chainstate().preprocess_streamed_microblock(&consensus_hash, &stacks_block.block_hash(), &microblock).unwrap();
+        peer_2.chainstate().preprocess_streamed_microblock(&consensus_hash, &stacks_block.block_hash(), &microblock).unwrap();
 
         // process microblock stream to generate unconfirmed state
-        let canonical_tip = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &stacks_block.block_hash());
-        peer_1.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
-        peer_2.chainstate().reload_unconfirmed_state(canonical_tip.clone(), anchor_cost.clone()).unwrap();
+        let canonical_tip = StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
+        let sortdb1 = peer_1.sortdb.take().unwrap();
+        let sortdb2 = peer_2.sortdb.take().unwrap();
+        peer_1.chainstate().reload_unconfirmed_state(&sortdb1.index_conn(), canonical_tip.clone()).unwrap();
+        peer_2.chainstate().reload_unconfirmed_state(&sortdb2.index_conn(), canonical_tip.clone()).unwrap();
+        peer_1.sortdb = Some(sortdb1);
+        peer_2.sortdb = Some(sortdb2);
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
@@ -1571,6 +1690,38 @@ mod test {
 
     #[test]
     #[ignore]
+    fn test_rpc_getpoxinfo() {
+        let pox_server_info = RefCell::new(None);
+        test_rpc("test_rpc_getpoxinfo", 40000, 40001, 50000, 50001,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                    let mut sortdb = peer_server.sortdb.as_mut().unwrap();
+                    let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
+                    let stacks_block_id = {
+                        let tip = chainstate.get_stacks_chain_tip(sortdb).unwrap().unwrap();
+                        StacksBlockHeader::make_index_block_hash(&tip.consensus_hash, &tip.anchored_block_hash)
+                    };
+                    let pox_info = RPCPoxInfoData::from_db(&mut sortdb, chainstate, &stacks_block_id, &ConnectionOptions::default()).unwrap();
+                    *pox_server_info.borrow_mut() = Some(pox_info);
+                    convo_client.new_getpoxinfo(None)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                        HttpResponseType::PoxInfo(response_md, pox_data) => {
+                            assert_eq!(Some((*pox_data).clone()), *pox_server_info.borrow());
+                            true
+                        },
+                        _ => {
+                            error!("Invalid response: {:?}", &http_response);
+                            false
+                        }
+                    }
+                 });
+    }
+
+
+    #[test]
+    #[ignore]
     fn test_rpc_getneighbors() {
         test_rpc("test_rpc_getneighbors", 40010, 40011, 50010, 50011,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
@@ -1593,6 +1744,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_unconfirmed_getblock() {
         let server_block_cell = RefCell::new(None);
 
@@ -1600,11 +1752,11 @@ mod test {
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      // have "server" peer store a block to staging
                      let peer_server_block = make_codec_test_block(25);
-                     let peer_server_burn_block_hash = BurnchainHeaderHash([0x02; 32]);
-                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
+                     let peer_server_consensus_hash = ConsensusHash([0x02; 20]);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                      test_debug!("Store peer server index block {:?}", &index_block_hash);
-                     store_staging_block(peer_server.chainstate(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([0x03; 32]), 456, 123);
+                     store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([0x03; 20]), 456, 123);
 
                      *server_block_cell.borrow_mut() = Some(peer_server_block);
 
@@ -1636,12 +1788,12 @@ mod test {
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      // have "server" peer store a block to staging
                      let peer_server_block = make_codec_test_block(25);
-                     let peer_server_burn_block_hash = BurnchainHeaderHash([0x02; 32]);
-                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
+                     let peer_server_consensus_hash = ConsensusHash([0x02; 20]);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                      test_debug!("Store peer server index block {:?}", &index_block_hash);
-                     store_staging_block(peer_server.chainstate(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([0x03; 32]), 456, 123);
-                     set_block_processed(peer_server.chainstate(), &peer_server_burn_block_hash, &peer_server_block.block_hash(), true);
+                     store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([0x03; 20]), 456, 123);
+                     set_block_processed(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block.block_hash(), true);
 
                      *server_block_cell.borrow_mut() = Some(peer_server_block);
 
@@ -1672,19 +1824,19 @@ mod test {
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
 
-                     let burn_header_hash = BurnchainHeaderHash([0x02; 32]);
+                     let consensus_hash = ConsensusHash([0x02; 20]);
                      let anchored_block_hash = BlockHeaderHash([0x03; 32]);
 
                      let mut mblocks = make_sample_microblock_stream(&privk, &anchored_block_hash);
                      mblocks.truncate(15);
                      
-                     let index_microblock_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &mblocks[0].block_hash());
+                     let index_microblock_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &mblocks[0].block_hash());
 
                      for mblock in mblocks.iter() {
-                         store_staging_microblock(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, &mblock);
+                         store_staging_microblock(peer_server.chainstate(), &consensus_hash, &anchored_block_hash, &mblock);
                      }
 
-                     set_microblocks_confirmed(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, mblocks.last().unwrap().header.sequence);
+                     set_microblocks_confirmed(peer_server.chainstate(), &consensus_hash, &anchored_block_hash, mblocks.last().unwrap().header.sequence);
 
                      *server_microblocks_cell.borrow_mut() = mblocks;
 
@@ -1715,18 +1867,18 @@ mod test {
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
 
-                     let burn_header_hash = BurnchainHeaderHash([0x02; 32]);
+                     let consensus_hash = ConsensusHash([0x02; 20]);
                      let anchored_block_hash = BlockHeaderHash([0x03; 32]);
-                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &anchored_block_hash);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
 
                      let mut mblocks = make_sample_microblock_stream(&privk, &anchored_block_hash);
                      mblocks.truncate(15);
                      
                      for mblock in mblocks.iter() {
-                         store_staging_microblock(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, &mblock);
+                         store_staging_microblock(peer_server.chainstate(), &consensus_hash, &anchored_block_hash, &mblock);
                      }
 
-                     set_microblocks_confirmed(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, mblocks.last().unwrap().header.sequence);
+                     set_microblocks_confirmed(peer_server.chainstate(), &consensus_hash, &anchored_block_hash, mblocks.last().unwrap().header.sequence);
 
                      *server_microblocks_cell.borrow_mut() = mblocks;
 
@@ -1757,15 +1909,15 @@ mod test {
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
 
-                     let burn_header_hash = BurnchainHeaderHash([0x02; 32]);
+                     let consensus_hash = ConsensusHash([0x02; 20]);
                      let anchored_block_hash = BlockHeaderHash([0x03; 32]);
-                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &anchored_block_hash);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
 
                      let mut mblocks = make_sample_microblock_stream(&privk, &anchored_block_hash);
                      mblocks.truncate(15);
                      
                      for mblock in mblocks.iter() {
-                         store_staging_microblock(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, &mblock);
+                         store_staging_microblock(peer_server.chainstate(), &consensus_hash, &anchored_block_hash, &mblock);
                      }
 
                      *server_microblocks_cell.borrow_mut() = mblocks;
@@ -1795,8 +1947,8 @@ mod test {
         test_rpc("test_rpc_missing_getblock", 40060, 40061, 50060, 50061,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let peer_server_block_hash = BlockHeaderHash([0x04; 32]);
-                     let peer_server_burn_block_hash = BurnchainHeaderHash([0x02; 32]);
-                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block_hash);
+                     let peer_server_consensus_hash = ConsensusHash([0x02; 20]);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block_hash);
 
                      // now ask for it
                      convo_client.new_getblock(index_block_hash)
@@ -1819,8 +1971,8 @@ mod test {
         test_rpc("test_rpc_missing_index_getmicroblocks", 40070, 40071, 50070, 50071,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let peer_server_block_hash = BlockHeaderHash([0x04; 32]);
-                     let peer_server_burn_block_hash = BurnchainHeaderHash([0x02; 32]);
-                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block_hash);
+                     let peer_server_consensus_hash = ConsensusHash([0x02; 20]);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block_hash);
 
                      // now ask for it
                      convo_client.new_getmicroblocks_indexed(index_block_hash)
@@ -1843,8 +1995,8 @@ mod test {
         test_rpc("test_rpc_missing_confirmed_getmicroblocks", 40070, 40071, 50070, 50071,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let peer_server_block_hash = BlockHeaderHash([0x04; 32]);
-                     let peer_server_burn_block_hash = BurnchainHeaderHash([0x02; 32]);
-                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block_hash);
+                     let peer_server_consensus_hash = ConsensusHash([0x02; 20]);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block_hash);
 
                      // now ask for it
                      convo_client.new_getmicroblocks_confirmed(index_block_hash)
@@ -1870,15 +2022,15 @@ mod test {
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
 
-                     let burn_header_hash = BurnchainHeaderHash([0x02; 32]);
+                     let consensus_hash = ConsensusHash([0x02; 20]);
                      let anchored_block_hash = BlockHeaderHash([0x03; 32]);
-                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &anchored_block_hash);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
 
                      let mut mblocks = make_sample_microblock_stream(&privk, &anchored_block_hash);
                      mblocks.truncate(15);
                      
                      for mblock in mblocks.iter() {
-                         store_staging_microblock(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, &mblock);
+                         store_staging_microblock(peer_server.chainstate(), &consensus_hash, &anchored_block_hash, &mblock);
                      }
 
                      *server_microblocks_cell.borrow_mut() = mblocks;

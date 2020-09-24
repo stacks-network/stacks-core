@@ -331,20 +331,17 @@ pub struct Preamble {
     /// If the peer is all caught up, this is the height of the burn chain tip.
     pub burn_block_height: u64,
 
-    /// This is the consensus hash calculated at the burn_block_height above.
-    /// The consensus hash identifies the _fork set_ this peer belongs to, and
-    /// is calculated as a digest over all burn chain transactions it has
-    /// processed.
-    pub burn_consensus_hash: ConsensusHash,
+    /// This is the burn block hash calculated at the burn_block_height above.
+    /// It uniquely identifies a burn chain block.
+    pub burn_header_hash: BurnchainHeaderHash,
 
     /// This is the height of the last stable block height -- i.e. the largest
     /// block height at which a block can be considered stable in the burn
     /// chain history.  In Bitcoin, this is at least 7 blocks behind block_height.
     pub stable_burn_block_height: u64,
 
-    /// This is the height of the last stable consensus hash -- the consensus
-    /// hash calculated for the stable_block_height above.
-    pub stable_burn_consensus_hash: ConsensusHash,
+    /// This is the hash of the last stable block's header.
+    pub stable_burn_header_hash: BurnchainHeaderHash,
 
     /// This is a pointer to additional data that follows the payload.
     /// This is a reserved field; for now, it should all be 0's.
@@ -371,6 +368,8 @@ pub enum StacksMessageType {
     Neighbors(NeighborsData),
     GetBlocksInv(GetBlocksData),
     BlocksInv(BlocksInvData),
+    GetPoxInv(GetPoxInv),
+    PoxInv(PoxInvData),
     BlocksAvailable(BlocksAvailableData),
     MicroblocksAvailable(MicroblocksAvailableData),
     Blocks(BlocksData),
@@ -465,9 +464,9 @@ Structure:
 
 ```
 pub struct GetBlocksInv {
-    /// The consensus hash at the _end_ of the requested block range
+    /// The consensus hash at the start of the requested reward cycle block range
     pub consensus_hash: ConsensusHash, 
-    /// The number of blocks _prior_ to this consensus hash, including the block
+    /// The number of blocks after to this consensus hash, including the block
     /// that corresponds to this consensus hash.
     pub num_blocks: u16 
 }
@@ -475,8 +474,9 @@ pub struct GetBlocksInv {
 
 Notes:
 
-* Expected reply is a `BlocksInvData`.
-* `num_blocks` cannot be more than 4096.
+* Expected reply is a `BlocksInv`.
+* `consensus_hash` must correspond to a (burnchain) block at the start of a PoX reward cycle
+* `num_blocks` cannot be more than the PoX reward cycle length (see SIP-007).
 
 **BlocksInv**
 
@@ -511,14 +511,56 @@ Notes:
 * `BlocksInvData.block_bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
 * `BlocksInvData.microblocks_bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
 
-**BlocksAvailable**
+**GetPoxInv**
 
 Type identifier: 7
 
 Structure:
 
 ```
+pub struct GetPoxInv {
+    /// The consensus hash at the _beginning_ of the requested reward cycle range
+    pub consensus_hash: ConsensusHash,
+    /// The number of reward cycles to request (number of bits to expect)
+    pub num_cycles: u16
+}
+```
+
+Notes:
+
+* Expected reply is a `PoxInv`
+* `num_cycles` cannot be more than 4096
+
+**PoxInv**
+
+Type identifier: 8
+
+Structure:
+
+```
+pub struct PoxInvData {
+    /// Number of reward cycles encoded
+    pub bitlen: u16,
+    /// Bit vector representing the remote node's PoX vector.
+    /// A bit will be `1` if the node is certain about the status of the 
+    /// reward cycle's PoX anchor block (it either cannot exist, or the
+    /// node has a copy), or `0` if the node is uncertain (i.e. it may exist
+    /// but the node does not have a copy if it does).
+    pub pox_bitvec: Vec<u8>
+}
+
+Notes:
+* `bitlen` should be at most `num_cycles` from the corresponding `GetPoxInv`.
+
+**BlocksAvailable**
+
+Type identifier: 9
+
+Structure:
+
+```
 pub struct BlocksAvailableData {
+    /// List of blocks available
     pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
 }
 ```
@@ -534,7 +576,7 @@ Notes:
 
 **MicroblocksAvailable**
 
-Type identifier: 8
+Type identifier: 10
 
 Structure:
 
@@ -551,14 +593,15 @@ Notes:
    
 **Blocks**
 
-Type identifier: 8
+Type identifier: 11
 
 Structure:
 
 ```
 pub struct BlocksData {
-    /// A list of blocks pushed
-    pub blocks: Vec<StacksBlock>
+    /// A list of blocks pushed, paired with the consensus hashes of the
+    /// burnchain blocks that selected them
+    pub blocks: Vec<(ConsensusHash, StacksBlock)>
 }
 
 pub struct StacksBlock {
@@ -568,12 +611,17 @@ pub struct StacksBlock {
 
 **Microblocks**
 
-Type identifier: 9
+Type identifier: 12
 
 Structure:
 
 ```
 pub struct MicroblocksData {
+    /// "Index" hash of the StacksBlock that produced these microblocks.
+    /// This is the hash of both the consensus hash of the burn chain block
+    /// operations that selected the StacksBlock, as well as the StacksBlock's
+    /// hash itself.
+    pub index_anchor_hash: StacksBlockId,
     /// A contiguous sequence of microblocks.
     pub microblocks: Vec<StacksMicroblock>
 }
@@ -585,7 +633,7 @@ pub struct StacksMicroblock {
 
 **Transaction**
 
-Type identifier: 10
+Type identifier: 13
 
 Structure:
 
@@ -597,7 +645,7 @@ pub struct StacksTransaction {
 
 **Nack**
 
-Type identifier: 11
+Type identifier: 14
 
 Structure:
 
@@ -610,7 +658,7 @@ pub struct NackData {
 
 **Ping**
 
-Type identifier: 12
+Type identifier: 15
 
 Structure:
 
@@ -623,7 +671,7 @@ pub struct PingData {
 
 **Pong**
 
-Type identifier: 13
+Type identifier: 16
 
 Structure:
 
@@ -636,7 +684,7 @@ pub struct PongData {
 
 **NatPunchRequest**
 
-Type identifier: 14
+Type identifier: 17
 
 Structure:
 
@@ -647,7 +695,7 @@ u32
 
 **NatPunchReply**
 
-Type identifier: 15
+Type identifier: 18
 
 Structure:
 
@@ -747,16 +795,12 @@ Different aspects of the control-plane protocol will reply with different error 
 convey exactly what went wrong.  However, in all cases, if the preamble is
 well-formed but identifies a different network ID, a version field
 with a different major version than the local peer, or different stable
-consensus hash values, then both the sender and receiver peers should blacklist each other, 
-with one exception:  if the peer is sending a missing reward window anchor
-block (see SIP-007), then it will be considered even if it is paired with an unrecognized
-consensus hash.  This is because the arrival of a missing reward window anchor
-block can change all subsequent consensus hashes due to a chain reorganization.
+burn header hash values, then both the sender and receiver peers should blacklist each other.
 
 Because peers process the burn chain up to its chain tip, it is possible for
 peers to temporarily be on different fork sets (i.e. they will have different
-consensus hashes for the given chain tip, but will have the same values for
-the locally-calculated consensus hashes at each other's `stable_block_height`'s).
+burn header hashes for the given chain tip, but will have the same values for
+the stable burn header hashes at each other's `stable_block_height`'s).
 In this case, both peers should take it as a hint to first check
 that their view of the burn chain is consistent (if they have not done so
 recently).  They may otherwise process and react to each other's messages
@@ -804,21 +848,20 @@ The peer may take an operator-given public IP address.  If no public IP address
 is given, the peer will learn the IP address using the `NatPunchRequest` and
 `NatPunchReply` messages as follows:
 
-1. The peer sends a `NatPunchRequest` to a randomly-chosen neighbor it has
+1. The peer sends a `NatPunchRequest` to a randomly-chosen initial neighbor it has
    already handshaked with.  It uses a random nonce value.
 2. The remote neighbor replies with a (signed) `NatPunchReply` message, with its
    `addrbytes` and `port` set to what it believes the public IP is (based on the
    underlying socket's peer address).
-3. The peer, upon receipt and authentication of the `NatPunchReply`, will
-   confirm the public IP address by attempting to connect to itself.  To do so,
-   it sends a `NatPunchRequest` to the public IP address it learned (with a
-   random nonce).
-4. If the peer successfully connects to itself via the public IP address, it
-   will send a `NatPunchReply` back to itself with the nonce used in step 3.
-5. Upon receipt of the `NatPunchReply`, the peer will have confirmed its public
+3. Upon receipt of the `NatPunchReply`, the peer will have confirmed its public
    IP address, and will send it in all future `HandshakeAccept` messages.  It
    will periodically re-learn its IP address, if it was not given by the
    operator.
+
+Because the peer's initial neighbors are chosen by the operator as being
+sufficiently trustworthy to supply network information for network walks, it is
+reasonable to assume that they can also be trusted to tell a bootstrapping peer
+its public IP address.
 
 ### Checking a Peer's Liveness
 
@@ -873,21 +916,58 @@ receiver for the blocks it has via the control-plane,
 and then queries individual blocks and microblocks on the data-plane.
 
 On the control-plane, the sender builds up a locally-cached inventory of which
-blocks the receiver has.  To do so, the sender and receiver do the following:
+blocks the receiver has.  To do so, the sender and receiver execute a two-phase
+protocol to synchronize the sender's view of the receiver's block inventroy.
+First, the sender downloads the receiver's knowledge of PoX reward cycles,
+encoded as a bit vector where a `1` in the _ith_ position means that the
+receiver is certain about the status of the PoX anchor block in the _ith_ reward
+cycle (i.e. it either does not exist, or it does exist and the receiver has a
+copy).  It is `0` otherwise -- i.e. it may exist, but the receiver does not have
+a copy.
 
-1.  The sender creates a `GetBlocksInv` message for a range of blocks it wants,
+To synchronize the PoX anchor block knowledge, the sender and receiver do the following:
+
+1.  The sender creates a `GetPoxInv` message for the range of PoX reward cycles
+    it wants, and sends it to the receiver.
+2.  If the receiver recognizes the consensus hash in the `GetPoxInv` message, it
+    means that the receiver agrees on all PoX state that the sender does, up to the
+burn chain block that this consensus hash represents (note that the consensus
+hash must correspond to a burn chain block at the start of a reward cycle).  The receiver replies with
+a `PoxInv` with its knowledge of all reward cycles at and after the reward cycle
+identified by that consensus hash.
+3.  The sender and receiver continue to execute this protocol until the receiver
+    shares all of its PoX reward cycle knowledge, or it encounters a consensus
+hash from the sender that it does not recognize.  If the latter happens, the
+receiver shall reply with a `Nack` with the appropriate error code.
+
+Once the sender has downloaded the PoX anchor block knowledge from the receiver,
+it proceeds to fetch an inventory of all block and microblock knowledge from the
+receiver for all PoX reward cycles that it agrees with the receiver on.  That
+is, it will fetch block and microblock inventory data for all reward cycles in
+which the sender and receiver both have a `1` or both have a `0` in the _ith_ bit position,
+starting from the first-ever reward cycle, and up to either the lowest reward cycle in
+which they do not agree (or the end of the PoX vector, whichever comes first).
+They proceed as follows:
+
+1.  The sender creates a `GetBlocksInv` message for reward cycle _i_,
     and sends it to the receiver.
 2.  If the receiver has processed the range of blocks represented by the `GetBlocksInv` 
-    block range, then the receiver creates a `BlocksInv` message and replies
+    block range -- i.e. it recognizes the consensus hash in `GetBlocksInv` as
+the start of a reward cycle -- then the receiver creates a `BlocksInv` message and replies
 with it.  The receiver's inventory bit vectors may be _shorter_ than the
 requested range if the request refers to blocks at the burn chain tip.  The
-receiver sets the ith bit in the blocks inventory if it has the corresponding
-block, and sets the ith bit in the microblocks inventory if it has the
+receiver sets the _ith_ bit in the blocks inventory if it has the corresponding
+block, and sets the _ith_ bit in the microblocks inventory if it has the
 corresponding _confirmed_ microblock stream.
+3.  The sender repeats the process for reward cycle _i+1_, so long as both it
+    and the receiver are both certain about the PoX anchor block for reward
+cycle _i+1_, or both are uncertain.  If this is not true, then the sender stops
+downloading block and microblock inventory from the receiver, and will assume
+that any blocks in or after this reward cycle are unavailable from the receiver.
 
-The receiver peer may reply with a `BlocksInv` with as few
-block inventory bits or block contents as it wants, but it must reply with at
-least one inventory bit or at least one block.  If the receiver does not do so,
+The receiver peer may reply with a `PoxInv` or `BlocksInv` with as few
+inventory bits as it wants, but it must reply with at
+least one inventory bit.  If the receiver does not do so,
 the sender should terminate the connection to the receiver and refrain from
 contacting it for a time.
 
@@ -910,7 +990,7 @@ anchored block to do so.
 
 When the sender receives a block or microblock stream, it validates them against
 the burn chain state.  It ensures that the block hashes to a block-commit
-message that won sortition (see SIP-001), and it ensures that a confirmed
+message that won sortition (see SIP-001 and SIP-007), and it ensures that a confirmed
 microblock stream connects a known parent and child anchored block.  This means
 that the sender **does not need to trust the receiver** to validate block data
 -- it can receive block data from any HTTP endpoint on the web.
@@ -927,6 +1007,17 @@ microblocks -- the receiver may send the URL to a Gaia hub in its
 `HandshakeAcceptData`'s `data_url` field.  In doing so, the receiver can direct
 the sender to fetch blocks and microblocks from a well-provisioned,
 always-online network endpoint that is more reliable than the receiver node.
+
+Blocks and microblocks are downloaded incrementally by reward cycle.
+As the sender requests and receives blocks and microblocks for reward cycle _i_,
+it learns the anchor block for reward cycle _i+1_ (if it exists at all), and
+will only then be able to determine the true sequence of consensus hashes for
+reward cycle _i+1_.  As nodes do this, their PoX knowledge my change -- i.e.
+they will become certain of the presences of PoX anchor blocks that they had
+previously been uncertain of.  As such, nodes periodically re-download each
+other's PoX inventory vectors, and if they have changed -- i.e. the _ith_ bit flipped
+from a `0` to a `1` -- the block and microblock inventory state representing blocks and
+microblocks in or after reward cycle _i_ will be dropped and re-downloaded.
 
 ### Announcing New Data
 

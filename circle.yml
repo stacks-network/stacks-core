@@ -48,7 +48,7 @@ jobs:
       - run:
           no_output_timeout: 200m
           command: |
-            cargo test --workspace
+            cargo test -j 1 --workspace
   all_tests:
     docker:
       - image: rust:1.40-stretch
@@ -65,10 +65,12 @@ workflows:
     jobs:
       - unit_tests
       - test_demo
-      - all_tests:
-          filters:
-            branches:
-              only:
-                - master
-                - /.*net.*/
-                - /.*marf.*/
+# disable `all_tests` for now, because the circle builder
+#   OOMs on compile...
+#      - all_tests:
+#          filters:
+#            branches:
+#              only:
+#                - master
+#                - /.*net.*/
+#                - /.*marf.*/

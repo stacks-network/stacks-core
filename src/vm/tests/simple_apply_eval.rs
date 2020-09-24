@@ -2,6 +2,8 @@ use vm::{eval, execute as vm_execute};
 use vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, ShortReturnType, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
+use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
+use vm::types::signatures::BufferLength;
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, BuffData, QualifiedContractIdentifier};
@@ -10,6 +12,15 @@ use vm::costs::LimitedCostTracker;
 use util::hash::{hex_bytes, to_hex};
 use std::collections::HashMap;
 use vm::tests::{execute};
+
+use chainstate::stacks::StacksPublicKey;
+use address::AddressHashMode;
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    StacksPrivateKey, StacksAddress
+};
+use address::c32;
+
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -55,13 +66,13 @@ fn test_simple_let() {
 #[test]
 fn test_sha256() {
     let sha256_evals = [
-        "(sha256 \"\")",
+        "(sha256 0x)",
         "(sha256 0)",
-        "(sha256 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Buffer(BuffData { data: hex_bytes(hex).unwrap() });
+        return Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hex).unwrap() }));
     }
 
     let expectations = [
@@ -77,14 +88,14 @@ fn test_sha256() {
 #[test]
 fn test_sha512() {
     let sha512_evals = [
-        "(sha512 \"\")",
+        "(sha512 0x)",
         "(sha512 0)",
-        "(sha512 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha512 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn p_to_hex(val: Value) -> String {
         match val {
-            Value::Buffer(BuffData { data }) => to_hex(&data),
+            Value::Sequence(SequenceData::Buffer(BuffData { data })) => to_hex(&data),
             _ => panic!("Failed")
         }
     }
@@ -102,14 +113,14 @@ fn test_sha512() {
 #[test]
 fn test_sha512trunc256() {
     let sha512_evals = [
-        "(sha512/256 \"\")",
+        "(sha512/256 0x)",
         "(sha512/256 0)",
-        "(sha512/256 \"The quick brown fox jumps over the lazy dog\")",
+        "(sha512/256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn p_to_hex(val: Value) -> String {
         match val {
-            Value::Buffer(BuffData { data }) => to_hex(&data),
+            Value::Sequence(SequenceData::Buffer(BuffData { data })) => to_hex(&data),
             _ => panic!("Failed")
         }
     }
@@ -127,13 +138,13 @@ fn test_sha512trunc256() {
 #[test]
 fn test_keccak256() {
     let keccak256_evals = [
-        "(keccak256 \"\")",
+        "(keccak256 0x)",
         "(keccak256 0)",
-        "(keccak256 \"The quick brown fox jumps over the lazy dog\")",
+        "(keccak256 0x54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67)", // The quick brown fox jumps over the lazy dog
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Buffer(BuffData { data: hex_bytes(hex).unwrap() });
+        return Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hex).unwrap() }));
     }
 
     let expectations = [
@@ -145,6 +156,92 @@ fn test_keccak256() {
     keccak256_evals.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(to_buffer(expectation), execute(program)));
 }
+
+#[test]
+fn test_secp256k1() {
+    let secp256k1_evals = [
+        "(unwrap! (secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301) 2)",
+        "(unwrap-err! (secp256k1-recover? 0x0000000000000000000000000000000000000000000000000000000000000000 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000) 3)",
+        "(unwrap-err! (secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1306) 3)",
+        "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a13 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        "(secp256k1-verify 0x0000000000000000000000000000000000000000000000000000000000000000 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1305 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        "(unwrap! (principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) 4)", // (buff 33)
+        "(unwrap-err! (principal-of? 0x000000000000000000000000000000000000000000000000000000000000000000) 3)",
+    ];
+
+    let privk = StacksPrivateKey::from_hex("510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101").unwrap();  // need the "compressed extra 0x01 to match, as this changes the address"
+    eprintln!("privk {:?}", &privk);
+    eprintln!("from_private {:?}", &StacksPublicKey::from_private(&privk));
+    let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk)]).unwrap();
+    eprintln!("addr from privk {:?}", &addr);
+    let principal = addr.to_account_principal();
+    if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
+        eprintln!("test_secp256k1 principal {:?}", data.to_address());
+    }
+
+    let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_hex("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110").unwrap()]).unwrap();
+    eprintln!("addr from hex {:?}", addr);
+    let principal = addr.to_account_principal();
+    if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
+        eprintln!("test_secp256k1 principal {:?}", data.to_address());
+    }
+
+    let expectations = [
+        Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110").unwrap() })),
+        Value::UInt(1),
+        Value::UInt(2),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(false),
+        Value::Principal(principal),
+        Value::UInt(1),
+    ];
+
+    secp256k1_evals.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_secp256k1_errors() {
+    let secp256k1_evals = [
+        "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)",
+        "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100)",
+        "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04)",
+        "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 3)",
+
+        "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+        "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7)",
+        "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)",
+
+        "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba77861 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba77861)",
+        "(principal-of?)",
+    ];
+
+    let expectations: &[Error] = &[
+        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(32))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
+        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(65))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() }))).into(),
+        CheckErrors::IncorrectArgumentCount(2, 1).into(),
+        CheckErrors::IncorrectArgumentCount(2, 3).into(),
+
+        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(32))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
+        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(65))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() }))).into(),
+        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(33))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() }))).into(),
+        CheckErrors::IncorrectArgumentCount(3, 2).into(),
+
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 0).into(),
+    ];
+
+    for (program, expectation) in secp256k1_evals.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+
 
 #[test]
 fn test_buffer_equality() {
@@ -265,7 +362,8 @@ fn test_concat_append_supertype() {
     ];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+        .for_each(|(program, expectation)| {
+        assert_eq!(expectation.clone(), execute(program))});
 }
 
 #[test]
@@ -287,6 +385,18 @@ fn test_simple_arithmetic_functions() {
          "(>= 1 1)",
          "(pow 2 16)",
          "(pow 2 32)",
+         "(pow 0 0)",
+         "(pow 170141183460469231731687303715884105727 1)",
+         "(pow u340282366920938463463374607431768211455 u1)",
+         "(pow 0 170141183460469231731687303715884105727)",
+         "(pow u1 u340282366920938463463374607431768211455)",
+         "(sqrti u81)",
+         "(sqrti u80)",
+         "(sqrti 81)",
+         "(sqrti 80)",
+         // from https://en.wikipedia.org/wiki/128-bit_computing
+         "(sqrti 170141183460469231731687303715884105727)",  // max i128
+         "(sqrti u340282366920938463463374607431768211455)", // max u128
          "(+ (pow u2 u127) (- (pow u2 u127) u1))",
          "(+ (to-uint 127) u10)",
          "(to-int (- (pow u2 u127) u1))",
@@ -308,6 +418,17 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Int(65536),
         Value::Int(u32::max_value() as i128 + 1),
+        Value::Int(1),
+        Value::Int(170_141_183_460_469_231_731_687_303_715_884_105_727),
+        Value::UInt(340_282_366_920_938_463_463_374_607_431_768_211_455),
+        Value::Int(0),
+        Value::UInt(1),
+        Value::UInt(9),
+        Value::UInt(8),
+        Value::Int(9),
+        Value::Int(8),
+        Value::Int(13_043_817_825_332_782_212),
+        Value::UInt(18_446_744_073_709_551_615),
         Value::UInt(u128::max_value()),
         Value::UInt(137),
         Value::Int(i128::max_value()),
@@ -319,7 +440,7 @@ fn test_simple_arithmetic_functions() {
 }
 
 #[test]
-fn test_arithmetic_errors() {
+fn test_simple_arithmetic_errors() {
     let tests = [
         "(>= 1)",
         "(+ 1 true)",
@@ -333,6 +454,9 @@ fn test_arithmetic_errors() {
         "(/)",
         "(mod 1)",
         "(pow 1)",
+        "(sqrti)",
+        "(sqrti 256 16)",
+        "(sqrti -1)",
         "(xor 1)",
         "(pow 2 (pow 2 32))",
         "(pow 2 (- 1))",
@@ -351,6 +475,9 @@ fn test_arithmetic_errors() {
         CheckErrors::IncorrectArgumentCount(1,0).into(),
         CheckErrors::IncorrectArgumentCount(2,1).into(),
         CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(1,0).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        RuntimeErrorType::Arithmetic("sqrti must be passed a positive number".to_string()).into(),
         CheckErrors::IncorrectArgumentCount(2,1).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),

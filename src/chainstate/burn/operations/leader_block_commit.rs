@@ -24,8 +24,14 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
-use chainstate::burn::db::sortdb::SortitionHandleConn;
+use chainstate::burn::db::sortdb::{
+    SortitionHandleTx,
+    SortitionDB
+};
 
+use chainstate::stacks::{
+    StacksAddress, StacksPublicKey, StacksPrivateKey
+};
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -37,9 +43,6 @@ use chainstate::burn::operations::{
     parse_u32_from_be,
     parse_u16_from_be
 };
-
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::StacksPrivateKey;
 
 use burnchains::{BurnchainTransaction, PublicKey};
 use burnchains::Txid;
@@ -58,9 +61,9 @@ use net::Error as net_error;
 
 use util::log;
 use util::hash::to_hex;
-use util::vrf::VRF;
-use util::vrf::VRFPublicKey;
-use util::vrf::VRFPrivateKey;
+use util::vrf::{
+    VRF, VRFPublicKey, VRFPrivateKey
+};
 
 use chainstate::stacks::index::storage::TrieFileStorage;
 
@@ -75,7 +78,10 @@ struct ParsedData {
     memo: Vec<u8>
 }
 
+pub static OUTPUTS_PER_COMMIT: usize = 1;
+
 impl LeaderBlockCommitOp {
+    #[cfg(test)]
     pub fn initial(block_header_hash: &BlockHeaderHash, block_height: u64, new_seed: &VRFSeed, paired_key: &LeaderKeyRegisterOp, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             block_height: block_height,
@@ -88,6 +94,7 @@ impl LeaderBlockCommitOp {
             burn_fee: burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
+            commit_outs: vec![],
 
             // to be filled in 
             txid: Txid([0u8; 32]),
@@ -108,6 +115,7 @@ impl LeaderBlockCommitOp {
             burn_fee: burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
+            commit_outs: vec![],
 
             // to be filled in
             txid: Txid([0u8; 32]),
@@ -157,7 +165,7 @@ impl LeaderBlockCommitOp {
         })
     }
 
-    fn parse_from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
+    pub fn parse_from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
         let inputs = tx.get_signers();
         let outputs = tx.get_recipients();
@@ -177,27 +185,10 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         }
 
-        // outputs[0] should be the burn output
-        if !outputs[0].address.is_burn() {
-            // wrong burn output
-            warn!("Invalid tx: burn output missing (got {:?})", outputs[0]);
-            return Err(op_error::ParseError);
-        }
-
-        let burn_fee = outputs[0].amount;
-        if burn_fee == 0 {
-            // didn't burn
-            warn!("Invalid tx: no burn quantity");
-            return Err(op_error::ParseError);
-        }
-
-        let data = match LeaderBlockCommitOp::parse_data(&tx.data()) {
-            None => {
-                warn!("Invalid tx data");
-                return Err(op_error::ParseError);
-            },
-            Some(d) => d
-        };
+        let data = LeaderBlockCommitOp::parse_data(&tx.data()).ok_or_else(|| {
+            warn!("Invalid tx data");
+            op_error::ParseError
+        })?;
 
         // basic sanity checks 
         if data.parent_block_ptr == 0 {
@@ -224,6 +215,72 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
+        let mut commit_outs = vec![];
+        let mut pox_fee = None;
+        let mut burn_fee = None;
+
+        for (ix, output) in outputs.into_iter().enumerate() {
+            // only look at the first OUTPUTS_PER_COMMIT outputs
+            //   or until first _burn_ output
+            if ix >= OUTPUTS_PER_COMMIT {
+                break;
+            }
+            if output.address.is_burn() {
+                burn_fee.replace(output.amount);
+                break;
+            } else {
+                // all pox outputs must have the same fee
+                if let Some(pox_fee) = pox_fee {
+                    if output.amount != pox_fee {
+                        warn!("Invalid commit tx: different output amounts for different PoX reward addresses");
+                        return Err(op_error::ParseError);
+                    }
+                } else {
+                    pox_fee.replace(output.amount);
+                }
+                commit_outs.push(output.address);
+            }
+        }
+
+        // EITHER there was an amount burned _or_ there were OUTPUTS_PER_COMMIT pox outputs
+        if burn_fee.is_none() && commit_outs.len() != OUTPUTS_PER_COMMIT {
+            warn!("Invalid commit tx: if fewer than {} PoX addresses are committed to, remainder must be burnt", OUTPUTS_PER_COMMIT);
+            return Err(op_error::ParseError);
+        }
+
+        // compute the total amount transfered/burned, and check that the burn amount
+        //   is expected given the amount transfered.
+        let burn_fee = 
+            match (burn_fee, pox_fee) {
+                (Some(burned_amount), Some(pox_amount)) => {
+                    // burned amount must be equal to the "missing"
+                    //   PoX slots
+                    let expected_burn_amount = pox_amount.checked_mul((OUTPUTS_PER_COMMIT - commit_outs.len()) as u64)
+                        .ok_or_else(|| op_error::ParseError)?;
+                    if expected_burn_amount != burned_amount {
+                        warn!("Invalid commit tx: burned output different from PoX reward output");
+                        return Err(op_error::ParseError);
+                    }
+                    pox_amount.checked_mul(OUTPUTS_PER_COMMIT as u64)
+                        .ok_or_else(|| op_error::ParseError)?
+                },
+                (Some(burned_amount), None) => {
+                    burned_amount
+                },
+                (None, Some(pox_amount)) => {
+                    pox_amount.checked_mul(OUTPUTS_PER_COMMIT as u64)
+                        .ok_or_else(|| op_error::ParseError)?
+                },
+                (None, None) => {
+                    unreachable!("A 0-len output should have already errored");
+                },
+            };
+
+        if burn_fee == 0 {
+            warn!("Invalid commit tx: burn/transfer amount is 0");
+            return Err(op_error::ParseError)
+        }
+
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
             new_seed: data.new_seed,
@@ -233,7 +290,8 @@ impl LeaderBlockCommitOp {
             key_vtxindex: data.key_vtxindex,
             memo: data.memo,
 
-            burn_fee: burn_fee,
+            commit_outs,
+            burn_fee,
             input: inputs[0].clone(),
 
             txid: tx.txid(),
@@ -281,10 +339,19 @@ impl BlockstackOperation for LeaderBlockCommitOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
         LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
-        
-    fn check(&self, _burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
+}
+
+pub struct RewardSetInfo {
+    pub anchor_block: BlockHeaderHash,
+    pub recipient: (StacksAddress, u16)
+}
+
+impl LeaderBlockCommitOp {
+    pub fn check(&self, _burnchain: &Burnchain, tx: &mut SortitionHandleTx, reward_set_info: Option<&RewardSetInfo>) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
+
+        let tx_tip = tx.context.chain_tip.clone();
         
         /////////////////////////////////////////////////////////////////////////////////////
         // There must be a burn
@@ -294,12 +361,63 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             warn!("Invalid block commit: no burn amount");
             return Err(op_error::BlockCommitBadInput);
         }
-        
+
+        /////////////////////////////////////////////////////////////////////////////////////
+        // This tx must have the expected commit or burn outputs:
+        //    * if there is a known anchor block for the current reward cycle, and this
+        //       block commit descends from that block 
+        //       the commit outputs must = the expected set of commit outputs
+        //    * otherwise, there must be no block commits
+        /////////////////////////////////////////////////////////////////////////////////////
+        if let Some(reward_set_info) = reward_set_info {
+            // we do some check-inversion here so that we check the commit_outs _before_
+            //   we check whether or not the block is descended from the anchor.
+            // we do this because the descended_from check isn't particularly cheap, so
+            //   we want to make sure that any TX that forces us to perform the check
+            //   has either burned BTC or sent BTC to the PoX recipients
+            let expect_pox_descendant = if self.commit_outs.len() == 0 {
+                false
+            } else {
+                if self.commit_outs.len() != 1 {
+                    warn!("Invalid block commit: expected {} PoX transfers, but commit has {}",
+                          1, self.commit_outs.len());
+                    return Err(op_error::BlockCommitBadOutputs)
+                }
+                let (expected_commit, _) = reward_set_info.recipient;
+                if !self.commit_outs.contains(&expected_commit) {
+                    warn!("Invalid block commit: expected to send funds to {}, but that address is not in the committed output set",
+                          expected_commit);
+                    return Err(op_error::BlockCommitBadOutputs)
+                }
+                true
+            };
+
+            let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
+                .map_err(|e| {
+                    error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
+                           parent_block_height, &reward_set_info.anchor_block, e);
+                    op_error::BlockCommitAnchorCheck})?;
+            if descended_from_anchor != expect_pox_descendant {
+                if descended_from_anchor {
+                    warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
+                } else {
+                    warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs");
+                }
+                return Err(op_error::BlockCommitBadOutputs)
+            }
+        } else {
+            // no recipient info for this sortition, so expect all burns
+            if self.commit_outs.len() != 0 {
+                warn!("Invalid block commit: this transaction should only have burn outputs.");
+                return Err(op_error::BlockCommitBadOutputs)
+            }
+        };
+
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must occur after the start of the network
         /////////////////////////////////////////////////////////////////////////////////////
     
-        let first_block_snapshot = tx.get_first_block_snapshot()?;
+        let first_block_snapshot = SortitionDB::get_first_block_snapshot(tx.tx())?;
 
         if self.block_height < first_block_snapshot.block_height {
             warn!("Invalid block commit: predates genesis height {}", first_block_snapshot.block_height);
@@ -318,7 +436,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
-        // There must exist a previously-accepted *unused* key from a LeaderKeyRegister
+        // There must exist a previously-accepted key from a LeaderKeyRegister
         /////////////////////////////////////////////////////////////////////////////////////
 
         if leader_key_block_height >= self.block_height {
@@ -326,18 +444,11 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoLeaderKey);
         }
 
-        let register_key = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into())?
+        let register_key = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into(), &tx_tip)?
             .ok_or_else(|| {
                 warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, &tx.context.chain_tip);
                 op_error::BlockCommitNoLeaderKey
             })?;
-
-        let is_key_consumed = tx.is_leader_key_consumed(&register_key)?;
-
-        if is_key_consumed {
-            warn!("Invalid block commit: leader key at ({},{}) is already used as in fork {}", register_key.block_height, register_key.vtxindex, &tx.context.chain_tip);
-            return Err(op_error::BlockCommitLeaderKeyAlreadyUsed);
-        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // There must exist a previously-accepted block from a LeaderBlockCommit, or this
@@ -353,7 +464,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
-            let has_parent = tx.get_block_commit_parent(parent_block_height, self.parent_vtxindex.into())?
+            let has_parent = tx.get_block_commit_parent(parent_block_height, self.parent_vtxindex.into(), &tx_tip)?
                 .is_some();
             if !has_parent {
                 warn!("Invalid block commit: no parent block in this fork");
@@ -390,13 +501,10 @@ impl BlockstackOperation for LeaderBlockCommitOp {
 mod tests {
     use super::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::Txid;
-    use burnchains::BLOCKSTACK_MAGIC_MAINNET;
-    use burnchains::BurnchainBlockHeader;
-
-    use burnchains::bitcoin::BitcoinNetworkType;
+    use burnchains::*;
+    use burnchains::bitcoin::*;
+    use burnchains::bitcoin::address::*;
 
     use address::AddressHashMode;
 
@@ -405,17 +513,10 @@ mod tests {
     
     use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
     
-    use chainstate::burn::operations::{
-        LeaderBlockCommitOp,
-        LeaderKeyRegisterOp,
-        UserBurnSupportOp,
-        BlockstackOperation,
-        BlockstackOperationType
-    };
+    use chainstate::burn::operations::*;
 
     use util::vrf::VRFPublicKey;
-    use util::hash::{hex_bytes, to_hex};
-    use util::log;
+    use util::hash::*;
     use util::get_epoch_time_secs;
     
     use chainstate::stacks::StacksAddress;
@@ -445,6 +546,104 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_pox_commits() {
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+            ],
+        });
+
+        let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap();
+
+        // should have 1 commit outputs, and a burn
+        assert_eq!(op.commit_outs.len(), 1);
+        assert_eq!(op.burn_fee, 10);
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+            ],
+        });
+
+        let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap();
+
+        // should have 1 commit outputs
+        assert_eq!(op.commit_outs.len(), 1);
+        assert_eq!(op.burn_fee, 13);
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+            ],
+        });
+
+        // not enough PoX outputs
+        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
+            op_error::InvalidInput => {},
+            _ => unreachable!(),
+        };
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+            ],
+        });
+
+        // 0 total burn
+        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
+            op_error::ParseError => {},
+            _ => unreachable!(),
+        };
+
+    }
+
+    #[test]
     fn test_parse() {
         let vtxindex = 1;
         let block_height = 0x71706363;  // epoch number must be strictly smaller than block height
@@ -463,6 +662,8 @@ mod tests {
                     key_block_ptr: 0x60616263,
                     key_vtxindex: 0x7071,
                     memo: vec![0x80],
+
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -573,6 +774,7 @@ mod tests {
         ];
         
         let burnchain = Burnchain {
+            pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -581,7 +783,7 @@ mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone()
+            first_block_hash: first_burn_hash.clone(),
         };
         
         let leader_key_1 = LeaderKeyRegisterOp { 
@@ -617,6 +819,7 @@ mod tests {
             key_block_ptr: 124,
             key_vtxindex: 456,
             memo: vec![0x80],
+            commit_outs: vec![],
 
             burn_fee: 12345,
             input: BurnchainSigner {
@@ -671,11 +874,11 @@ mod tests {
             let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap(); 
             for i in 0..block_header_hashes.len() {
                 let mut snapshot_row = BlockSnapshot {
+                    pox_valid: true,
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
                     sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
-                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -691,10 +894,10 @@ mod tests {
                     arrival_index: 0,
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
-                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
+                    canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i]).unwrap();
+                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i], None, None).unwrap();
                 
                 snapshot_row.index_root = next_index_root;
                 tx.commit().unwrap();
@@ -718,6 +921,7 @@ mod tests {
                     key_block_ptr: 1,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -745,6 +949,7 @@ mod tests {
                     key_block_ptr: 2,
                     key_vtxindex: 400,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -763,33 +968,6 @@ mod tests {
                 res: Err(op_error::BlockCommitNoLeaderKey),
             },
             CheckFixture {
-                // reject -- leader key consumed already
-                op: LeaderBlockCommitOp {
-                    block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-                    new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_ptr: 124,
-                    parent_vtxindex: 444,
-                    key_block_ptr: 124,
-                    key_vtxindex: 456,
-                    memo: vec![0x80],
-
-                    burn_fee: 12345,
-                    input: BurnchainSigner {
-                        public_keys: vec![
-                            StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                        ],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH
-                    },
-
-                    txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
-                    vtxindex: 445,
-                    block_height: 126,
-                    burn_header_hash: block_126_hash.clone(),
-                },
-                res: Err(op_error::BlockCommitLeaderKeyAlreadyUsed),
-            },
-            CheckFixture {
                 // reject -- previous block must exist 
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
@@ -798,6 +976,7 @@ mod tests {
                     parent_vtxindex: 445,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
+                    commit_outs: vec![],
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -826,6 +1005,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -853,6 +1033,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -880,6 +1061,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 0,
                     input: BurnchainSigner {
@@ -907,6 +1089,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -934,6 +1117,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     memo: vec![0x80],
+                    commit_outs: vec![],
 
                     burn_fee: 12345,
                     input: BurnchainSigner {
@@ -961,9 +1145,8 @@ mod tests {
                 num_txs: 1,
                 timestamp: get_epoch_time_secs()
             };
-            let ic = db.index_handle(&SortitionId::stubbed(&fixture.op.burn_header_hash));
-            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic)));
+            let mut ic = SortitionHandleTx::begin(&mut db, &SortitionId::stubbed(&fixture.op.burn_header_hash)).unwrap();
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &mut ic, None)));
         }
     }
 }
-

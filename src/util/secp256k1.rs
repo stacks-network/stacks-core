@@ -23,9 +23,9 @@ use secp256k1::constants as LibSecp256k1Constants;
 use secp256k1::PublicKey as LibSecp256k1PublicKey;
 use secp256k1::SecretKey as LibSecp256k1PrivateKey;
 use secp256k1::Message as LibSecp256k1Message;
-use secp256k1::RecoverableSignature as LibSecp256k1RecoverableSignature;
+use secp256k1::recovery::RecoverableSignature as LibSecp256k1RecoverableSignature;
 use secp256k1::Signature as LibSecp256k1Signature;
-use secp256k1::RecoveryId as LibSecp256k1RecoveryID;
+use secp256k1::recovery::RecoveryId as LibSecp256k1RecoveryID;
 use secp256k1::Error as LibSecp256k1Error;
 
 use burnchains::PublicKey;
@@ -44,6 +44,9 @@ use rusqlite::Row;
 
 use rand::RngCore;
 use rand::thread_rng;
+
+use chainstate::stacks::StacksPublicKey;
+
 
 // per-thread Secp256k1 context
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
@@ -90,16 +93,14 @@ impl MessageSignature {
     }
 
     pub fn from_secp256k1_recoverable(sig: &LibSecp256k1RecoverableSignature) -> MessageSignature {
-        _secp256k1.with(|ctx| {
-            let (recid, bytes) = sig.serialize_compact(&ctx);
-            let mut ret_bytes = [0u8; 65];
-            let recovery_id_byte = recid.to_i32() as u8;        // recovery ID will be 0, 1, 2, or 3
-            ret_bytes[0] = recovery_id_byte;
-            for i in 0..64 {
-                ret_bytes[i+1] = bytes[i];
-            }
-            MessageSignature(ret_bytes)
-        })
+        let (recid, bytes) = sig.serialize_compact();
+        let mut ret_bytes = [0u8; 65];
+        let recovery_id_byte = recid.to_i32() as u8;        // recovery ID will be 0, 1, 2, or 3
+        ret_bytes[0] = recovery_id_byte;
+        for i in 0..64 {
+            ret_bytes[i+1] = bytes[i];
+        }
+        MessageSignature(ret_bytes)
     }
 
     pub fn to_secp256k1_recoverable(&self) -> Option<LibSecp256k1RecoverableSignature> {
@@ -116,20 +117,23 @@ impl MessageSignature {
             sig_bytes[i] = self.0[i+1];
         }
 
-        _secp256k1.with(|ctx| {
-            match LibSecp256k1RecoverableSignature::from_compact(&ctx, &sig_bytes, recid) {
-                Ok(sig) => {
-                    Some(sig)
-                },
-                Err(_) => {
-                    None
-                }
+        match LibSecp256k1RecoverableSignature::from_compact(&sig_bytes, recid) {
+            Ok(sig) => {
+                Some(sig)
+            },
+            Err(_) => {
+                None
             }
-        })
+        }
     }
 }
 
 impl Secp256k1PublicKey {
+    #[cfg(test)]
+    pub fn new() -> Secp256k1PublicKey {
+        Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new())
+    }
+
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PublicKey, &'static str> {
         let data = hex_bytes(hex_string)
             .map_err(|_e| "Failed to decode hex public key")?;
@@ -138,16 +142,14 @@ impl Secp256k1PublicKey {
     }
     
     pub fn from_slice(data: &[u8]) -> Result<Secp256k1PublicKey, &'static str> {
-        _secp256k1.with(|ctx| {
-            match LibSecp256k1PublicKey::from_slice(&ctx, data) {
-                Ok(pubkey_res) => 
-                    Ok(Secp256k1PublicKey {
-                        key: pubkey_res,
-                        compressed: data.len() == LibSecp256k1Constants::PUBLIC_KEY_SIZE
-                    }),
-                Err(_e) => Err("Invalid public key: failed to load")
-            }
-        })
+        match LibSecp256k1PublicKey::from_slice(data) {
+            Ok(pubkey_res) => 
+                Ok(Secp256k1PublicKey {
+                    key: pubkey_res,
+                    compressed: data.len() == LibSecp256k1Constants::PUBLIC_KEY_SIZE
+                }),
+            Err(_e) => Err("Invalid public key: failed to load")
+        }
     }
 
     pub fn from_private(privk: &Secp256k1PrivateKey) -> Secp256k1PublicKey {
@@ -237,11 +239,11 @@ impl PublicKey for Secp256k1PublicKey {
 
             // NOTE: libsecp256k1 _should_ ensure that the S is low,
             // but add this check just to be safe.
-            let secp256k1_sig_standard = secp256k1_sig.to_standard(&ctx);
+            let secp256k1_sig_standard = secp256k1_sig.to_standard();
 
             // must be low-S
             let mut secp256k1_sig_low_s = secp256k1_sig_standard.clone();
-            secp256k1_sig_low_s.normalize_s(ctx);
+            secp256k1_sig_low_s.normalize_s();
             if secp256k1_sig_low_s != secp256k1_sig_standard {
                 return Err("Invalid signature: high-S");
             }
@@ -263,26 +265,24 @@ impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
 
 impl Secp256k1PrivateKey {
     pub fn new() -> Secp256k1PrivateKey {
-        _secp256k1.with(|ctx| {
-            let mut rng = rand::thread_rng();
-            loop {
-                // keep trying to generate valid bytes
-                let mut random_32_bytes = [0u8; 32];
-                rng.fill_bytes(&mut random_32_bytes);
-                let pk_res = LibSecp256k1PrivateKey::from_slice(&ctx, &random_32_bytes);
-                match pk_res {
-                    Ok(pk) => {
-                        return Secp256k1PrivateKey {
-                            key: pk,
-                            compress_public: true
-                        };
-                    },
-                    Err(_) => {
-                        continue;
-                    }
+        let mut rng = rand::thread_rng();
+        loop {
+            // keep trying to generate valid bytes
+            let mut random_32_bytes = [0u8; 32];
+            rng.fill_bytes(&mut random_32_bytes);
+            let pk_res = LibSecp256k1PrivateKey::from_slice(&random_32_bytes);
+            match pk_res {
+                Ok(pk) => {
+                    return Secp256k1PrivateKey {
+                        key: pk,
+                        compress_public: true
+                    };
+                },
+                Err(_) => {
+                    continue;
                 }
             }
-        })
+        }
     }
 
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PrivateKey, &'static str> {
@@ -293,34 +293,32 @@ impl Secp256k1PrivateKey {
     }
 
     pub fn from_slice(data: &[u8]) -> Result<Secp256k1PrivateKey, &'static str> {
-        _secp256k1.with(|ctx| {
-            if data.len() < 32 {
-                return Err("Invalid private key: shorter than 32 bytes");
-            }
-            if data.len() > 33 {
-                return Err("Invalid private key: greater than 33 bytes");
-            }
-            let compress_public =
-                if data.len() == 33 {
-                    // compressed byte tag?
-                    if data[32] != 0x01 {
-                        return Err("Invalid private key: invalid compressed byte marker");
-                    }
-                    true
+        if data.len() < 32 {
+            return Err("Invalid private key: shorter than 32 bytes");
+        }
+        if data.len() > 33 {
+            return Err("Invalid private key: greater than 33 bytes");
+        }
+        let compress_public =
+            if data.len() == 33 {
+                // compressed byte tag?
+                if data[32] != 0x01 {
+                    return Err("Invalid private key: invalid compressed byte marker");
                 }
-                else {
-                    false
-                };
-            match LibSecp256k1PrivateKey::from_slice(&ctx, &data[0..32]) {
-                Ok(privkey_res) => { 
-                    Ok(Secp256k1PrivateKey {
-                        key: privkey_res,
-                        compress_public: compress_public
-                    })
-                },
-                Err(_e) => Err("Invalid private key: failed to load")
+                true
             }
-        })
+            else {
+                false
+            };
+        match LibSecp256k1PrivateKey::from_slice(&data[0..32]) {
+            Ok(privkey_res) => { 
+                Ok(Secp256k1PrivateKey {
+                    key: privkey_res,
+                    compress_public: compress_public
+                })
+            },
+            Err(_e) => Err("Invalid private key: failed to load")
+        }
     }
 
     pub fn compress_public(&self) -> bool {
@@ -380,10 +378,8 @@ fn secp256k1_pubkey_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Resul
     let key_bytes = hex_bytes(&key_hex)
         .map_err(de_Error::custom)?;
 
-    _secp256k1.with(|ctx| {
-        LibSecp256k1PublicKey::from_slice(&ctx, &key_bytes[..])
-            .map_err(de_Error::custom)
-    })
+    LibSecp256k1PublicKey::from_slice(&key_bytes[..])
+        .map_err(de_Error::custom)
 }
 
 fn secp256k1_privkey_serialize<S: serde::Serializer>(privk: &LibSecp256k1PrivateKey, s: S) -> Result<S::Ok, S::Error> {
@@ -396,9 +392,30 @@ fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Resu
     let key_bytes = hex_bytes(&key_hex)
         .map_err(de_Error::custom)?;
 
+    LibSecp256k1PrivateKey::from_slice(&key_bytes[..])
+        .map_err(de_Error::custom)
+}
+
+pub fn secp256k1_recover(message_arr: &[u8], serialized_signature_arr: &[u8]) -> Result<[u8; 33], LibSecp256k1Error> {
     _secp256k1.with(|ctx| {
-        LibSecp256k1PrivateKey::from_slice(&ctx, &key_bytes[..])
-            .map_err(de_Error::custom)
+        let message = LibSecp256k1Message::from_slice(message_arr)?;
+
+        let rec_id = LibSecp256k1RecoveryID::from_i32(serialized_signature_arr[64] as i32)?;
+        let recovered_sig = LibSecp256k1RecoverableSignature::from_compact(&serialized_signature_arr[..64], rec_id)?;
+        let recovered_pub = ctx.recover(&message, &recovered_sig)?;
+        let recovered_serialized = recovered_pub.serialize();  // 33 bytes version
+
+        Ok(recovered_serialized)
+    })
+}
+
+pub fn secp256k1_verify(message_arr: &[u8], serialized_signature_arr: &[u8], pubkey_arr: &[u8]) -> Result<(), LibSecp256k1Error> {
+    _secp256k1.with(|ctx| {
+        let message = LibSecp256k1Message::from_slice(message_arr)?;
+        let expanded_sig = LibSecp256k1Signature::from_compact(&serialized_signature_arr[..64])?;  // ignore 65th byte if present
+        let pubkey = LibSecp256k1PublicKey::from_slice(pubkey_arr)?;
+
+        ctx.verify(&message, &expanded_sig, &pubkey)
     })
 }
 
@@ -463,14 +480,14 @@ mod tests {
             KeyFixture {
                 input: "0233d78f74de8ef4a1de815b6d5c5c129c073786305c0826c499b1811c9a12cee5",
                 result: Some(Secp256k1PublicKey {
-                    key: LibSecp256k1PublicKey::from_slice(&ctx, &hex_bytes("0233d78f74de8ef4a1de815b6d5c5c129c073786305c0826c499b1811c9a12cee5").unwrap()[..]).unwrap(),
+                    key: LibSecp256k1PublicKey::from_slice(&hex_bytes("0233d78f74de8ef4a1de815b6d5c5c129c073786305c0826c499b1811c9a12cee5").unwrap()[..]).unwrap(),
                     compressed: true
                 })
             },
             KeyFixture {
                 input: "044a83ad59dbae1e2335f488dbba5f8604d00f612a43ebaae784b5b7124cc38c3aaf509362787e1a8e25131724d57fec81b87889aabb4edf7bd89f5c4daa4f8aa7",
                 result: Some(Secp256k1PublicKey {
-                    key: LibSecp256k1PublicKey::from_slice(&ctx, &hex_bytes("044a83ad59dbae1e2335f488dbba5f8604d00f612a43ebaae784b5b7124cc38c3aaf509362787e1a8e25131724d57fec81b87889aabb4edf7bd89f5c4daa4f8aa7").unwrap()[..]).unwrap(),
+                    key: LibSecp256k1PublicKey::from_slice(&hex_bytes("044a83ad59dbae1e2335f488dbba5f8604d00f612a43ebaae784b5b7124cc38c3aaf509362787e1a8e25131724d57fec81b87889aabb4edf7bd89f5c4daa4f8aa7").unwrap()[..]).unwrap(),
                     compressed: false
                 })
             },

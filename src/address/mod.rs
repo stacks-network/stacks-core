@@ -30,6 +30,8 @@ use util::hash::Hash160;
 use sha2::Sha256;
 use sha2::Digest;
 
+use std::convert::TryFrom;
+
 pub mod b58;
 pub mod c32;
 
@@ -95,13 +97,17 @@ pub enum AddressHashMode {
 }
 
 /// Given the u8 of an AddressHashMode, deduce the AddressHashNode
-pub fn address_serialization_flag(flags: u8) -> AddressHashMode {
-    match flags & 0x03 {
-        x if x == AddressHashMode::SerializeP2PKH as u8 => AddressHashMode::SerializeP2PKH,
-        x if x == AddressHashMode::SerializeP2SH as u8 => AddressHashMode::SerializeP2SH,
-        x if x == AddressHashMode::SerializeP2WPKH as u8 => AddressHashMode::SerializeP2WPKH,
-        x if x == AddressHashMode::SerializeP2WSH as u8 => AddressHashMode::SerializeP2WSH,
-        _ => unreachable!()
+impl TryFrom<u8> for AddressHashMode {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<AddressHashMode, Self::Error> {
+        match value {
+            x if x == AddressHashMode::SerializeP2PKH as u8 => Ok(AddressHashMode::SerializeP2PKH),
+            x if x == AddressHashMode::SerializeP2SH as u8 => Ok(AddressHashMode::SerializeP2SH),
+            x if x == AddressHashMode::SerializeP2WPKH as u8 => Ok(AddressHashMode::SerializeP2WPKH),
+            x if x == AddressHashMode::SerializeP2WSH as u8 => Ok(AddressHashMode::SerializeP2WSH),
+            _ => Err(Error::InvalidVersion(value))
+        }
     }
 }
 

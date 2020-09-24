@@ -55,8 +55,15 @@ struct DefineAPI {
 const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
     name: "block-height",
     output_type: "uint",
-    description: "Returns the current block height of the Stacks blockchain as an int",
+    description: "Returns the current block height of the Stacks blockchain as an uint",
     example: "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks."
+};
+
+const BURN_BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
+    name: "burn-block-height",
+    output_type: "uint",
+    description: "Returns the current block height of the underlying burn blockchain as a uint",
+    example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks."
 };
 
 const CONTRACT_CALLER_KEYWORD: KeywordAPI = KeywordAPI {
@@ -75,6 +82,20 @@ const TX_SENDER_KEYWORD: KeywordAPI = KeywordAPI {
     description: "Returns the original sender of the current transaction, or if `as-contract` was called to modify the sending context, it returns that
 contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
+};
+
+const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "stx-liquid-supply",
+    output_type: "uint",
+    description: "Returns the total number of micro-STX (uSTX) that are liquid in the system as of this block.",
+    example: "(print stx-liquid-supply) ;; Will print out the total number of liquid uSTX"
+};
+
+const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "is-in-regtest",
+    output_type: "bool",
+    description: "Returns whether or not the code is running in a regression test",
+    example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test"
 };
 
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
@@ -182,6 +203,17 @@ const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
 "
 };
 
+const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(sqrti n)",
+    description: "Returns the largest integer that is less than or equal to the square root of `n`.  Fails on a negative numbers.",
+    example: "(sqrti u11) ;; Returns u3
+(sqrti 1000000) ;; Returns 1000
+(sqrti u1) ;; Returns u1
+(sqrti 0) ;; Returns 0
+"
+};
+
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(xor i1 i2)",
@@ -273,13 +305,14 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions, n
                     in_types.join(" | ")
                 },
                 FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
+                FunctionType::ArithmeticUnary => "int | uint".to_string(),
                 FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => "int, int | uint, uint".to_string(),
             };
             let output_type = match function_type {
                 FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
                 FunctionType::Fixed(FixedFunction{ ref returns, .. }) => format!("{}", returns),
                 FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
-                FunctionType::ArithmeticVariadic | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+                FunctionType::ArithmeticVariadic | FunctionType::ArithmeticUnary | FunctionType::ArithmeticBinary => "int | uint".to_string(),
                 FunctionType::ArithmeticComparison => "bool".to_string(),
             };
             (input_type, output_type)
@@ -387,10 +420,8 @@ has to be a literal function name.",
 (fold * (list 2 2 2) 0) ;; Returns 0
 ;; calculates (- 11 (- 7 (- 3 2)))
 (fold - (list 3 7 11) 2) ;; Returns 5 
-(fold concat \"cdef\" \"ab\")   ;; Returns 0x666564636162
-                                ;; hex form of \"fedcab\"  
-(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns 0x656663646162
-                                            ;; hex form of \"efcdab\""
+(fold concat \"cdef\" \"ab\")   ;; Returns \"fedcab\"
+(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\""
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -399,8 +430,7 @@ const CONCAT_API: SpecialAPI = SpecialAPI {
     signature: "(concat buff-a buff-b)",
     description: "The `concat` function takes two buffers or two lists with the same entry type,
 and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
-    example: "(concat \"hello \" \"world\") ;; Returns 0x68656c6c6f20776f726c64
-                                            ;; hex form of \"hello world\""
+    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
@@ -419,8 +449,8 @@ const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
 or buffer of length M and outputs that same list or buffer, but typed with max length N.
 
-This function returns an optional type with the resulting iterable. If the input iterable is less than
-or equal to the supplied max-len, it returns `(some <iterable>)`, otherwise it returns `none`.",
+This function returns an optional type with the resulting sequence. If the input sequence is less than
+or equal to the supplied max-len, it returns `(some <sequence>)`, otherwise it returns `none`.",
     example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (2 2 2))
 (as-max-len? (list 1 2 3) u2) ;; Returns none"
 };
@@ -470,7 +500,7 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(define-map names-map ((name (buff 10))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (map-get? names-map (tuple (name \"blockstack\"))) ;; Returns (some (tuple (id 1337)))
 (map-get? names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
@@ -487,7 +517,7 @@ with the key, the function overwrites that existing association.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(define-map names-map ((name (buff 10))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
@@ -504,7 +534,7 @@ this key in the data map, the function returns `false`.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(define-map names-map ((name (buff 10))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns false
 (map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
@@ -518,7 +548,7 @@ const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-delete` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(define-map names-map ((name (buff 10))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 10))) ((id int)))
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-delete names-map { name: \"blockstack\" }) ;; Returns true
 (map-delete names-map { name: \"blockstack\" }) ;; Returns false
@@ -544,7 +574,7 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
 the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
-    example: "(define-map names-map ((name (buff 12))) ((id int)))
+    example: "(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
 (get id (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
@@ -603,6 +633,39 @@ is supplied the hash is computed over the little-endian representation of the in
     example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
 };
 
+const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 65)",
+    output_type: "(response (buff 33) uint)",
+    signature: "(secp256k1-recover? message-hash signature)",
+    description: "The `secp256k1-recover?` function recovers the public key used to sign the message  which sha256 is `message-hash`
+    with the provided `signature`.
+    If the signature does not match, it will return the error code `(err u1).`.
+    If the signature is invalid, it will return the error code `(err u2).`.
+    The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.",
+    example: "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)
+ ;; Returns (ok 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)"
+};
+
+const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 64) | (buff 65), (buff 33)",
+    output_type: "bool",
+    signature: "(secp256k1-verify message-hash signature public-key)",
+    description: "The `secp256k1-verify` function verifies that the provided signature of the message-hash
+was signed with the private key that generated the public key.
+The `message-hash` is the `sha256` of the message.
+The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.",
+    example: "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
+(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
+ 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a13
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
+(secp256k1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
+ 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns false"
+};
+
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     output_type: "(response A B)",
@@ -629,10 +692,20 @@ const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
 "
 };
 
+const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 33)",
+    output_type: "(response principal uint)",
+    signature: "(principal-of? public-key)",
+    description: "The `principal-of?` function returns the principal derived from the provided public key.
+    If the `public-key` is invalid, it will return the error code `(err u1).`.
+    ",
+    example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)"
+};
+
 const AT_BLOCK: SpecialAPI = SpecialAPI {
     input_type: "(buff 32), A",
     output_type: "A",
-    signature: "(at-block block-hash expr)",
+    signature: "(at-block id-block-hash expr)",
     description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
 block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
 
@@ -679,9 +752,9 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
-(define-private (get-name-or-err (name (buff 12)))
+(define-private (get-name-or-err (name (string-ascii 12)))
   (let ((raw-name (unwrap! (map-get? names-map { name: name }) (err 1))))
        (ok raw-name)))
 
@@ -699,7 +772,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (try! (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
@@ -723,7 +796,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (unwrap-panic (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (unwrap-panic (map-get? names-map { name: \"non-existant\" })) ;; Throws a runtime exception
@@ -792,7 +865,7 @@ is untyped, you should use `unwrap-panic` or `unwrap-err-panic` instead of `matc
 (add-10 (some 5)) ;; returns 15
 (add-10 none) ;; returns 10
 
-(define-private (add-or-pass-err (x (response int (buff 10))) (to-add int))
+(define-private (add-or-pass-err (x (response int (string-ascii 10))) (to-add int))
   (match x
    value (+ to-add value)
    err-value (err err-value)))
@@ -808,7 +881,7 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
 a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
 `default-to` it returns the value of `default-value`.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
 (default-to 0 (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 0
@@ -861,7 +934,7 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     description: "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-none (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns false
 (is-none (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns true"
@@ -884,7 +957,7 @@ const IS_SOME_API: SpecialAPI = SpecialAPI {
     description: "`is-some` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
     example: "
-(define-map names-map ((name (buff 12))) ((id int)))
+(define-map names-map ((name (string-ascii 12))) ((id int)))
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-some (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns true
 (is-some (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns false"
@@ -1143,7 +1216,7 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
     signature: "(ft-mint? token-name amount recipient)",
     description: "`ft-mint?` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
-rather minted.
+rather minted.  
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
 returns `(ok true)`.
@@ -1169,7 +1242,7 @@ If an asset identified by `asset-identifier` _already exists_, this function wil
 Otherwise, on successfuly mint, it returns `(ok true)`.
 ",
     example: "
-(define-non-fungible-token stackaroo (buff 40))
+(define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
 "
 };
@@ -1182,7 +1255,7 @@ const GET_OWNER: SpecialAPI = SpecialAPI {
 The asset type must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
 that definition.",
     example: "
-(define-non-fungible-token stackaroo (buff 40))
+(define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)
 (nft-get-owner? stackaroo \"Roo\") ;; Returns (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)
 (nft-get-owner? stackaroo \"Too\") ;; Returns none
@@ -1241,7 +1314,7 @@ one of the following error codes:
 `(err u3)` -- asset identified by asset-identifier does not exist
 ",
     example: "
-(define-non-fungible-token stackaroo (buff 40))
+(define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
 (nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (ok true)
 (nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; returns (err u1)
@@ -1322,6 +1395,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         CmpGreater => make_for_simple_native(&GREATER_API, &CmpGreater, name),
         Modulo => make_for_simple_native(&MOD_API, &Modulo, name),
         Power => make_for_simple_native(&POW_API, &Power, name),
+        Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
         BitwiseXOR => make_for_simple_native(&XOR_API, &BitwiseXOR, name),
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),
@@ -1351,9 +1425,12 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Sha512 => make_for_special(&SHA512_API, name),
         Sha512Trunc256 => make_for_special(&SHA512T256_API, name),
         Keccak256 => make_for_special(&KECCAK256_API, name),
+        Secp256k1Recover => make_for_special(&SECP256K1RECOVER_API, name),
+        Secp256k1Verify => make_for_special(&SECP256K1VERIFY_API, name),
         Print => make_for_special(&PRINT_API, name),
         ContractCall => make_for_special(&CONTRACT_CALL_API, name),
         ContractOf => make_for_special(&CONTRACT_OF_API, name),
+        PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
         AsContract => make_for_special(&AS_CONTRACT_API, name),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, name),
         ConsOkay => make_for_special(&CONS_OK_API, name),
@@ -1392,7 +1469,9 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::NativeTrue => Some(TRUE_KEYWORD.clone()),
         NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
-        NativeVariables::BurnBlockHeight => None,
+        NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
+        NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
+        NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
     }
 }
 
@@ -1468,10 +1547,11 @@ mod test {
     use super::make_all_api_reference;
     use chainstate::stacks::{StacksAddress, StacksBlockId, index::MarfTrieId};
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
+    use chainstate::burn::db::sortdb::SortitionId;
     use burnchains::BurnchainHeaderHash;
 
     use vm::{ execute, ast, eval_all, Value, QualifiedContractIdentifier, ContractContext,
-              database::{ MarfedKV, HeadersDB },
+              database::{ MarfedKV, HeadersDB, BurnStateDB, STXBalance },
               LimitedCostTracker, GlobalContext, Error, contexts::OwnedEnvironment };
 
     struct DocHeadersDB {}
@@ -1490,11 +1570,28 @@ mod test {
         fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
             Some(1557860301)
         }
+        fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
+            Some(567890)
+        }
         fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
             None
         }
+        fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
+            1592653589333333u128
+        }
     }
 
+    struct DocBurnStateDB {}
+    const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
+
+    impl BurnStateDB for DocBurnStateDB {
+        fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+            Some(5678)
+        }
+        fn get_burn_header_hash(&self, height: u32, _sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+            Some(BurnchainHeaderHash::from_hex("e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8").unwrap())
+        }
+    }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
         // start the next block,
@@ -1518,7 +1615,7 @@ mod test {
             segments.push(current_segment);
         }
 
-        let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+        let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
         let mut contract_context = ContractContext::new(contract_id.clone());
         let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
@@ -1568,14 +1665,15 @@ mod test {
         // first, load the samples for contract-call
         // and give the doc environment's contract some STX
         {
-            let conn = marf.as_clarity_db(&DOC_HEADER_DB);
+            let conn = marf.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
             let mut env = OwnedEnvironment::new(conn);
+            let balance = STXBalance::initial(1000);
             env.execute_in_env(QualifiedContractIdentifier::local("tokens").unwrap().into(),
                                |e| {
                                    e.global_context.database.set_account_stx_balance(
                                        &QualifiedContractIdentifier::local("docs-test").unwrap().into(),
-                                       10000);
+                                       &balance);
                                    Ok(())
                                }).unwrap();
             env.initialize_contract(contract_id, 

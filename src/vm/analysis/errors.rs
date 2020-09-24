@@ -15,6 +15,7 @@ pub enum CheckErrors {
     MemoryBalanceExceeded(u64, u64),
 
     ValueTooLarge,
+    ValueOutOfBounds,
     TypeSignatureTooDeep,
     ExpectedName,
 
@@ -111,7 +112,7 @@ pub enum CheckErrors {
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,
-    ExpectedListOrBuffer(TypeSignature),
+    ExpectedSequence(TypeSignature),
     MaxLengthOverflow,
 
     // let syntax
@@ -146,6 +147,12 @@ pub enum CheckErrors {
     UnexpectedTraitOrFieldReference,
     TraitBasedContractCallInReadOnly,
     ContractOfExpectsTrait,
+
+    // strings
+    InvalidCharactersDetected,
+
+    // secp256k1 signature
+    InvalidSecp65k1Signature,
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -287,6 +294,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
             CheckErrors::UnknownTypeName(name) => format!("failed to parse type: '{}'", name),
             CheckErrors::ValueTooLarge => format!("created a type which was greater than maximum allowed value size"),
+            CheckErrors::ValueOutOfBounds => format!("created a type which value size was out of defined bounds"),
             CheckErrors::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
             CheckErrors::ExpectedName => format!("expected a name argument to this function"),
             CheckErrors::NoSuperType(a, b) => format!("unable to create a supertype for the two types: '{}' and '{}'", a, b),
@@ -335,7 +343,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
-            CheckErrors::ExpectedListOrBuffer(found_type) => format!("expecting expression of type 'list' or 'buff', found '{}'", found_type),
+            CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::max_value()),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
             CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
@@ -368,6 +376,8 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
+            CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
+            CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },

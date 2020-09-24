@@ -20,6 +20,7 @@
 pub mod address;
 pub mod auth;
 pub mod block;
+pub mod boot;
 pub mod db;
 pub mod events;
 pub mod index;
@@ -36,6 +37,10 @@ use std::io::prelude::*;
 use std::io;
 use std::io::{Read, Write};
 
+use sha2::{
+    Sha512Trunc256,
+    Digest
+};
 use util::secp256k1;
 use util::db::Error as db_error;
 use util::db::DBConn;
@@ -49,8 +54,10 @@ use util::secp256k1::MessageSignature;
 use address::AddressHashMode;
 use burnchains::Txid;
 use burnchains::BurnchainHeaderHash;
-
-use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::{
+    ConsensusHash,
+    BlockHeaderHash
+};
 use chainstate::burn::operations::LeaderBlockCommitOp;
 
 use chainstate::stacks::index::{TrieHash, TRIEHASH_ENCODED_SIZE};
@@ -59,7 +66,7 @@ use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::db::accounts::MinerReward;
 
 use chainstate::stacks::db::blocks::MemPoolRejection;
-
+use rusqlite::Error as RusqliteError;
 use net::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
@@ -100,6 +107,17 @@ impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
 impl_byte_array_from_column!(StacksBlockId);
 impl_byte_array_serde!(StacksBlockId);
+
+impl StacksBlockId {
+    pub fn new(sortition_consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> StacksBlockId {
+        let mut hasher = Sha512Trunc256::new();
+        hasher.input(block_hash);
+        hasher.input(sortition_consensus_hash);
+
+        let h = Sha512Trunc256Sum::from_hasher(hasher);
+        StacksBlockId(h.0)
+    }
+}
 
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
@@ -152,6 +170,15 @@ pub enum Error {
     ReadError(io::Error),
     WriteError(io::Error),
     MemPoolError(String),
+    PoxAlreadyLocked,
+    PoxInsufficientBalance,
+    PoxNoRewardCycle
+}
+
+impl From<marf_error> for Error {
+    fn from(e: marf_error) -> Error {
+        Error::MARFError(e)
+    }
 }
 
 impl fmt::Display for Error {
@@ -177,6 +204,9 @@ impl fmt::Display for Error {
             Error::WriteError(ref e) => fmt::Display::fmt(e, f),
             Error::MemPoolError(ref s) => fmt::Display::fmt(s, f),
             Error::NoTransactionsToMine => write!(f, "No transactions to mine"),
+            Error::PoxAlreadyLocked => write!(f, "Account has already locked STX for PoX"),
+            Error::PoxInsufficientBalance => write!(f, "Not enough STX to lock"),
+            Error::PoxNoRewardCycle => write!(f, "No such reward cycle"),
         }
     }
 }
@@ -204,6 +234,9 @@ impl error::Error for Error {
             Error::WriteError(ref e) => Some(e),
             Error::MemPoolError(ref _s) => None,
             Error::NoTransactionsToMine => None,
+            Error::PoxAlreadyLocked => None,
+            Error::PoxInsufficientBalance => None,
+            Error::PoxNoRewardCycle => None,
         }
     }
 }
@@ -231,6 +264,9 @@ impl Error {
             Error::WriteError(ref _e) => "WriteError",
             Error::MemPoolError(ref _s) => "MemPoolError",
             Error::NoTransactionsToMine => "NoTransactionsToMine",
+            Error::PoxAlreadyLocked => "PoxAlreadyLocked",
+            Error::PoxInsufficientBalance => "PoxInsufficientBalance",
+            Error::PoxNoRewardCycle => "PoxNoRewardCycle"
         }
     }
 
@@ -243,6 +279,12 @@ impl Error {
             "reason_data": reason_data
         });
         result
+    }
+}
+
+impl From<RusqliteError> for Error {
+    fn from(e: RusqliteError) -> Error {
+        Error::DBError(db_error::SqliteError(e))
     }
 }
 
@@ -758,7 +800,7 @@ pub struct StacksMicroblock {
 }
 
 // values a miner uses to produce the next block
-pub const MINER_BLOCK_BURN_HEADER_HASH : BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
+pub const MINER_BLOCK_CONSENSUS_HASH : ConsensusHash = ConsensusHash([1u8; 20]);
 pub const MINER_BLOCK_HEADER_HASH : BlockHeaderHash = BlockHeaderHash([1u8; 32]);
 
 /// A structure for incrementially building up a block

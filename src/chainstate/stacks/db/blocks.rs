@@ -39,6 +39,7 @@ use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use chainstate::stacks::index::MarfTrieId;
 
 use chainstate::burn::BlockSnapshot;
 
@@ -67,7 +68,6 @@ use util::retry::BoundReader;
 use chainstate::burn::db::sortdb::*;
 
 use net::MAX_MESSAGE_LEN;
-use net::BLOCKS_INV_DATA_MAX_BITLEN;
 use net::BlocksInvData;
 use net::Error as net_error;
 
@@ -97,6 +97,7 @@ use vm::clarity::{
 pub use vm::analysis::errors::{CheckErrors, CheckError};
 
 use vm::database::ClarityDatabase;
+use vm::database::BurnStateDB;
 
 use vm::contracts::Contract;
 
@@ -110,7 +111,7 @@ use rusqlite::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
-    pub burn_header_hash: BurnchainHeaderHash,
+    pub consensus_hash: ConsensusHash,
     pub anchored_block_hash: BlockHeaderHash,
     pub microblock_hash: BlockHeaderHash,
     pub sequence: u16,
@@ -121,10 +122,9 @@ pub struct StagingMicroblock {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingBlock {
-    pub burn_header_hash: BurnchainHeaderHash,
-    pub burn_header_timestamp: u64,
+    pub consensus_hash: ConsensusHash,
     pub anchored_block_hash: BlockHeaderHash,
-    pub parent_burn_header_hash: BurnchainHeaderHash,
+    pub parent_consensus_hash: ConsensusHash,
     pub parent_anchored_block_hash: BlockHeaderHash,
     pub parent_microblock_hash: BlockHeaderHash,
     pub parent_microblock_seq: u16,
@@ -140,7 +140,7 @@ pub struct StagingBlock {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingUserBurnSupport {
-    pub burn_header_hash: BurnchainHeaderHash,
+    pub consensus_hash: ConsensusHash,
     pub anchored_block_hash: BlockHeaderHash,
     pub address: StacksAddress,
     pub burn_amount: u64,
@@ -164,7 +164,7 @@ pub enum MemPoolRejection {
     InvalidMicroblocks,
     BadAddressVersionByte,
     NoCoinbaseViaMempool,
-    NoSuchChainTip(BurnchainHeaderHash,BlockHeaderHash),
+    NoSuchChainTip(ConsensusHash,BlockHeaderHash),
     ConflictingNonceInMempool,
     TooMuchChaining,
     DBError(db_error),
@@ -254,7 +254,7 @@ impl StagingBlock {
 impl FromRow<StagingMicroblock> for StagingMicroblock {
     fn from_row<'a>(row: &'a Row) -> Result<StagingMicroblock, db_error> {
         let anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-        let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let consensus_hash : ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
         let microblock_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "microblock_hash")?;
         let sequence : u16 = row.get("sequence");
         let processed_i64 : i64 = row.get("processed");
@@ -265,7 +265,7 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
         let orphaned = orphaned_i64 != 0;
 
         Ok(StagingMicroblock {
-            burn_header_hash,
+            consensus_hash,
             anchored_block_hash,
             microblock_hash,
             sequence,
@@ -280,9 +280,8 @@ impl FromRow<StagingBlock> for StagingBlock {
     fn from_row<'a>(row: &'a Row) -> Result<StagingBlock, db_error> {
         let anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
         let parent_anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "parent_anchored_block_hash")?;
-        let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
-        let parent_burn_header_hash: BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
+        let consensus_hash : ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
+        let parent_consensus_hash: ConsensusHash = ConsensusHash::from_column(row, "parent_consensus_hash")?;
         let parent_microblock_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "parent_microblock_hash")?;
         let parent_microblock_seq : u16 = row.get("parent_microblock_seq");
         let microblock_pubkey_hash : Hash160 = Hash160::from_column(row, "microblock_pubkey_hash")?;
@@ -301,9 +300,8 @@ impl FromRow<StagingBlock> for StagingBlock {
         Ok(StagingBlock {
             anchored_block_hash,
             parent_anchored_block_hash,
-            burn_header_hash,
-            burn_header_timestamp,
-            parent_burn_header_hash,
+            consensus_hash,
+            parent_consensus_hash,
             parent_microblock_hash,
             parent_microblock_seq,
             microblock_pubkey_hash,
@@ -321,14 +319,14 @@ impl FromRow<StagingBlock> for StagingBlock {
 impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
     fn from_row<'a>(row: &'a Row) -> Result<StagingUserBurnSupport, db_error> {
         let anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-        let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let consensus_hash : ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
         let address : StacksAddress = StacksAddress::from_column(row, "address")?;
         let burn_amount = u64::from_column(row, "burn_amount")?;
         let vtxindex : u32 = row.get("vtxindex");
 
         Ok(StagingUserBurnSupport {
             anchored_block_hash,
-            burn_header_hash,
+            consensus_hash,
             address,
             burn_amount,
             vtxindex
@@ -400,13 +398,13 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
     r#"
     -- Staging microblocks -- preprocessed microblocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_microblocks(anchored_block_hash TEXT NOT NULL,     -- this is the hash of the parent anchored block
-                                     burn_header_hash TEXT NOT NULL,        -- this is the hash of the burn chain block that holds the parent anchored block's block-commit
+                                     consensus_hash TEXT NOT NULL,        -- this is the hash of the burn chain block that holds the parent anchored block's block-commit
                                      index_block_hash TEXT NOT NULL,        -- this is the anchored block's index hash
                                      microblock_hash TEXT NOT NULL,
                                      sequence INT NOT NULL,
                                      processed INT NOT NULL,
                                      orphaned INT NOT NULL,
-                                     PRIMARY KEY(anchored_block_hash,burn_header_hash,microblock_hash)
+                                     PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
     );
     "#,
     r#"
@@ -420,9 +418,9 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
     -- Staging blocks -- preprocessed blocks queued up for subsequent processing and inclusion in the chunk store.
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
-                                burn_header_hash TEXT NOT NULL,
-                                burn_header_timestamp INT NOT NULL,
-                                parent_burn_header_hash TEXT NOT NULL,
+                                consensus_hash TEXT NOT NULL,
+     -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
+                                parent_consensus_hash TEXT NOT NULL,
                                 parent_microblock_hash TEXT NOT NULL,
                                 parent_microblock_seq INT NOT NULL,
                                 microblock_pubkey_hash TEXT NOT NULL,
@@ -433,15 +431,15 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
                                 commit_burn INT NOT NULL,
                                 sortition_burn INT NOT NULL,
                                 index_block_hash TEXT NOT NULL,        -- used internally; hash of burn header and block header
-                                PRIMARY KEY(anchored_block_hash,burn_header_hash)
+                                PRIMARY KEY(anchored_block_hash,consensus_hash)
     );
-    CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,burn_header_hash);
-    CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,burn_header_hash);
+    CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,consensus_hash);
+    CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);
     "#,
     r#"
     -- users who burned in support of a block
     CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
-                                           burn_header_hash TEXT NOT NULL,
+                                           consensus_hash TEXT NOT NULL,
                                            address TEXT NOT NULL,
                                            burn_amount INT NOT NULL,
                                            vtxindex INT NOT NULL
@@ -501,14 +499,14 @@ impl StacksChainState {
     }
     
     /// Get the path to a block in the chunk store, given the burn header hash and block hash.
-    pub fn get_block_path(blocks_dir: &str, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<String, Error> {
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, block_hash);
+    pub fn get_block_path(blocks_dir: &str, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<String, Error> {
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         StacksChainState::get_index_block_path(blocks_dir, &index_block_hash)
     }
     
     /// Make a directory tree for storing this block to the chunk store, and return the block's path
-    fn make_block_dir(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<String, Error> {
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, block_hash);
+    fn make_block_dir(blocks_dir: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<String, Error> {
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         let block_hash_bytes = index_block_hash.as_bytes();
         let mut block_path = PathBuf::from(blocks_dir);
 
@@ -624,40 +622,40 @@ impl StacksChainState {
     }
 
     /// Have we processed and stored a particular block?
-    pub fn has_stored_block(blocks_db: &DBConn, blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
-        let staging_status = StacksChainState::has_staging_block(blocks_db, burn_header_hash, block_hash)?;
+    pub fn has_stored_block(blocks_db: &DBConn, blocks_dir: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        let staging_status = StacksChainState::has_staging_block(blocks_db, consensus_hash, block_hash)?;
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         if staging_status {
             // not committed yet 
-            test_debug!("Block {}/{} is staging", burn_header_hash, block_hash);
+            test_debug!("Block {}/{} ({}) is staging", consensus_hash, block_hash, &index_block_hash);
             return Ok(false);
         }
 
         // only accepted if we stored it
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, block_hash);
         StacksChainState::has_block_indexed(blocks_dir, &index_block_hash)
     }
 
     /// Have we committed to and stored a microblock stream in the chunk store?
-    /// The given burn_header_hash is the burnchain header hash of the snapshot that selected this
+    /// The given consensus_hash is the burnchain header hash of the snapshot that selected this
     /// stream's anchored block.
-    pub fn has_stored_microblocks(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, first_header: &BlockHeaderHash) -> Result<bool, Error> {
+    pub fn has_stored_microblocks(blocks_dir: &String, consensus_hash: &ConsensusHash, first_header: &BlockHeaderHash) -> Result<bool, Error> {
         if *first_header == EMPTY_MICROBLOCK_PARENT_HASH {
             // empty
             Ok(true)
         }
         else {
             // only accepted if we stored it
-            let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, first_header);
+            let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, first_header);
             StacksChainState::has_block_indexed(blocks_dir, &index_block_hash)
         }
     }
 
     /// Store a block to the chunk store, named by its hash
-    pub fn store_block(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<(), Error> {
+    pub fn store_block(blocks_dir: &String, consensus_hash: &ConsensusHash, block: &StacksBlock) -> Result<(), Error> {
         let block_hash = block.block_hash();
-        let block_path = StacksChainState::make_block_dir(blocks_dir, burn_header_hash, &block_hash)?;
+        let block_path = StacksChainState::make_block_dir(blocks_dir, consensus_hash, &block_hash)?;
         
-        test_debug!("Store {}/{} to {}", burn_header_hash, &block_hash, &block_path);
+        test_debug!("Store {}/{} to {}", consensus_hash, &block_hash, &block_path);
         StacksChainState::atomic_file_store(&block_path, true, |ref mut fd| {
             block.consensus_serialize(fd).map_err(Error::NetError)
         })
@@ -665,15 +663,15 @@ impl StacksChainState {
     
     /// Store an empty block to the chunk store, named by its hash.
     /// Used to mark an invalid block
-    pub fn store_empty_block(blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<(), Error> {
-        let block_path = StacksChainState::make_block_dir(blocks_path, burn_header_hash, &block_hash)?;
+    pub fn store_empty_block(blocks_path: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<(), Error> {
+        let block_path = StacksChainState::make_block_dir(blocks_path, consensus_hash, &block_hash)?;
         StacksChainState::atomic_file_write(&block_path, &vec![])
     }
 
     /// Truncate an (invalid) block.  Frees up space while marking the block as processed so we
     /// don't process it again.
-    fn free_block(blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash) -> () {
-        let block_path = StacksChainState::make_block_dir(blocks_path, burn_header_hash, &block_header_hash)
+    fn free_block(blocks_path: &String, consensus_hash: &ConsensusHash, block_header_hash: &BlockHeaderHash) -> () {
+        let block_path = StacksChainState::make_block_dir(blocks_path, consensus_hash, &block_header_hash)
             .expect("FATAL: failed to create block directory");
 
         fs::OpenOptions::new()
@@ -685,17 +683,17 @@ impl StacksChainState {
     }
 
     /// Free up all state for an invalid block
-    pub fn free_block_state(blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, block_header: &StacksBlockHeader) -> () {
-        StacksChainState::free_block(blocks_path, burn_header_hash, &block_header.block_hash())
+    pub fn free_block_state(blocks_path: &String, consensus_hash: &ConsensusHash, block_header: &StacksBlockHeader) -> () {
+        StacksChainState::free_block(blocks_path, consensus_hash, &block_header.block_hash())
     }
 
     /// Get a list of all anchored blocks' hashes, and their burnchain headers
-    pub fn list_blocks(blocks_conn: &DBConn) -> Result<Vec<(BurnchainHeaderHash, BlockHeaderHash)>, Error> {
-        let list_block_sql = "SELECT * FROM staging_blocks".to_string();
+    pub fn list_blocks(blocks_conn: &DBConn) -> Result<Vec<(ConsensusHash, BlockHeaderHash)>, Error> {
+        let list_block_sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
         let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
             .map_err(Error::DBError)?;
 
-        Ok(blocks.drain(..).map(|b| (b.burn_header_hash, b.anchored_block_hash)).collect())
+        Ok(blocks.drain(..).map(|b| (b.consensus_hash, b.anchored_block_hash)).collect())
     }
 
     /// Get all stacks block headers.  Great for testing!
@@ -707,18 +705,18 @@ impl StacksChainState {
 
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
     #[cfg(test)]
-    pub fn list_microblocks(blocks_conn: &DBConn, blocks_dir: &String) -> Result<Vec<(BurnchainHeaderHash, BlockHeaderHash, Vec<BlockHeaderHash>)>, Error> {
+    pub fn list_microblocks(blocks_conn: &DBConn, blocks_dir: &String) -> Result<Vec<(ConsensusHash, BlockHeaderHash, Vec<BlockHeaderHash>)>, Error> {
         let mut blocks = StacksChainState::list_blocks(blocks_conn)?;
         let mut ret = vec![];
         
-        for (burn_hash, block_hash) in blocks.drain(..) {
-            let list_microblock_sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 ORDER BY sequence".to_string();
-            let list_microblock_args: [&dyn ToSql; 2] = [&block_hash, &burn_hash];
+        for (consensus_hash, block_hash) in blocks.drain(..) {
+            let list_microblock_sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 ORDER BY sequence".to_string();
+            let list_microblock_args: [&dyn ToSql; 2] = [&block_hash, &consensus_hash];
             let mut microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &list_microblock_sql, &list_microblock_args)
                 .map_err(Error::DBError)?;
 
             let microblock_hashes = microblocks.drain(..).map(|mb| mb.microblock_hash).collect();
-            ret.push((burn_hash, block_hash, microblock_hashes));
+            ret.push((consensus_hash, block_hash, microblock_hashes));
         }
         
         Ok(ret)
@@ -728,8 +726,8 @@ impl StacksChainState {
     /// Returns Ok(Some(bytes)) on success, if found.
     /// Returns Ok(none) if this block was found, but is known to be invalid
     /// Returns Err(...) on not found or I/O error
-    pub fn load_block_bytes(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<Vec<u8>>, Error> {
-        let block_path = StacksChainState::get_block_path(blocks_dir, burn_header_hash, block_hash)?;
+    pub fn load_block_bytes(blocks_dir: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<Vec<u8>>, Error> {
+        let block_path = StacksChainState::get_block_path(blocks_dir, consensus_hash, block_hash)?;
         let sz = StacksChainState::get_file_size(&block_path)?;
         if sz == 0 {
             debug!("Zero-sized block {}", block_hash);
@@ -762,8 +760,8 @@ impl StacksChainState {
     /// Returns Ok(Some(block)) if found.
     /// Returns Ok(None) if this block was found, but is known to be invalid 
     /// Returns Err(...) on not found or I/O error
-    pub fn load_block(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksBlock>, Error> {
-        let block_path = StacksChainState::get_block_path(blocks_dir, burn_header_hash, block_hash)?;
+    pub fn load_block(blocks_dir: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksBlock>, Error> {
+        let block_path = StacksChainState::get_block_path(blocks_dir, consensus_hash, block_hash)?;
         let sz = StacksChainState::get_file_size(&block_path)?;
         if sz == 0 {
             debug!("Zero-sized block {}", &block_hash);
@@ -778,8 +776,8 @@ impl StacksChainState {
     /// Returns Ok(Some(blockheader)) if found.
     /// Returns Ok(None) if this block was found, but is known to be invalid 
     /// Returns Err(...) on not found or I/O error
-    pub fn load_block_header(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksBlockHeader>, Error> {
-        let block_path = StacksChainState::get_block_path(blocks_dir, burn_header_hash, block_hash)?;
+    pub fn load_block_header(blocks_dir: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksBlockHeader>, Error> {
+        let block_path = StacksChainState::get_block_path(blocks_dir, consensus_hash, block_hash)?;
         let sz = StacksChainState::get_file_size(&block_path)?;
         if sz == 0 {
             debug!("Zero-sized block {}", &block_hash);
@@ -791,7 +789,7 @@ impl StacksChainState {
     }
 
     /// Store a stream of microblocks to the chunk store, named by its header block's hash.
-    /// The given burn_header_hash is the burnchain header hash of the snapshot that selected this
+    /// The given consensus_hash is the burnchain header hash of the snapshot that selected this
     /// stream's anchored block.
     ///
     /// The stored file is effectively an append-only file.  Microblocks may be appended to it
@@ -800,14 +798,14 @@ impl StacksChainState {
     /// so far.
     ///
     /// The file stored is a serialized Vec<StacksMicroblock> 
-    pub fn store_microblock_stream(blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
+    pub fn store_microblock_stream(blocks_path: &String, consensus_hash: &ConsensusHash, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
         if microblocks.len() == 0 {
-            StacksChainState::store_empty_block(blocks_path, burn_header_hash, &EMPTY_MICROBLOCK_PARENT_HASH)?;
+            StacksChainState::store_empty_block(blocks_path, consensus_hash, &EMPTY_MICROBLOCK_PARENT_HASH)?;
             return Ok(())
         }
 
         let block_hash = microblocks[0].block_hash();
-        let block_path = StacksChainState::make_block_dir(blocks_path, burn_header_hash, &block_hash)?;
+        let block_path = StacksChainState::make_block_dir(blocks_path, consensus_hash, &block_hash)?;
 
         StacksChainState::atomic_file_store(&block_path, false, |ref mut fd| {
             microblocks.consensus_serialize(fd).map_err(Error::NetError)
@@ -815,13 +813,13 @@ impl StacksChainState {
     }
 
     /// Load a stream of microblocks from the chunk store, given its first block's hash.
-    /// The given burn_header_hash is the burnchain header hash of the snapshot that selected this
+    /// The given consensus_hash is the burnchain header hash of the snapshot that selected this
     /// stream's anchored block.
     /// Returns Ok(Some(microblocks)) if the data was found
     /// Returns Ok(None) if the microblocks stream was previously processed and is known to be invalid
     /// Returns Err(...) for not found, I/O error, etc.
-    fn load_microblock_stream(blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, microblock_head_hash: &BlockHeaderHash) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        let block_path = StacksChainState::get_block_path(blocks_path, burn_header_hash, microblock_head_hash)?;
+    fn load_microblock_stream(blocks_path: &String, consensus_hash: &ConsensusHash, microblock_head_hash: &BlockHeaderHash) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+        let block_path = StacksChainState::get_block_path(blocks_path, consensus_hash, microblock_head_hash)?;
         let sz = StacksChainState::get_file_size(&block_path)?;
         if sz == 0 {
             // known-invalid
@@ -911,9 +909,9 @@ impl StacksChainState {
     }
 
     /// Load up a preprocessed (queued) but still unprocessed block.
-    pub fn load_staging_block(block_conn: &DBConn, blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StagingBlock>, Error> {
-        let sql = "SELECT * FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND orphaned = 0 AND processed = 0".to_string();
-        let args: &[&dyn ToSql] = &[&block_hash, &burn_header_hash];
+    pub fn load_staging_block(block_conn: &DBConn, blocks_path: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<StagingBlock>, Error> {
+        let sql = "SELECT * FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND orphaned = 0 AND processed = 0".to_string();
+        let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
         let mut rows = query_rows::<StagingBlock, _>(block_conn, &sql, args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
@@ -924,7 +922,7 @@ impl StacksChainState {
                 let mut staging_block = rows.pop().unwrap();
 
                 // load up associated block data 
-                staging_block.block_data = StacksChainState::load_block_bytes(blocks_path, burn_header_hash, block_hash)?.unwrap_or(vec![]);
+                staging_block.block_data = StacksChainState::load_block_bytes(blocks_path, consensus_hash, block_hash)?.unwrap_or(vec![]);
                 Ok(Some(staging_block))
             },
             _ => {
@@ -935,8 +933,8 @@ impl StacksChainState {
     }
 
     #[cfg(test)]
-    fn load_staging_block_data(block_conn: &DBConn, blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksBlock>, Error> {
-        match StacksChainState::load_staging_block(block_conn, blocks_path, burn_header_hash, block_hash)? {
+    fn load_staging_block_data(block_conn: &DBConn, blocks_path: &String, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksBlock>, Error> {
+        match StacksChainState::load_staging_block(block_conn, blocks_path, consensus_hash, block_hash)? {
             Some(staging_block) => {
                 if staging_block.block_data.len() == 0 {
                     return Ok(None);
@@ -952,17 +950,17 @@ impl StacksChainState {
     }
 
     /// Load up the list of users who burned for an unprocessed block.
-    fn load_staging_block_user_supports(block_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Vec<StagingUserBurnSupport>, Error> {
-        let sql = "SELECT * FROM staging_user_burn_support WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2".to_string();
-        let args: &[&dyn ToSql] = &[&block_hash, &burn_header_hash];
+    fn load_staging_block_user_supports(block_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Vec<StagingUserBurnSupport>, Error> {
+        let sql = "SELECT * FROM staging_user_burn_support WHERE anchored_block_hash = ?1 AND consensus_hash = ?2".to_string();
+        let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
         let rows = query_rows::<StagingUserBurnSupport, _>(block_conn, &sql, args).map_err(Error::DBError)?;
         Ok(rows)
     }
     
     /// Load up a queued block's queued pubkey hash
-    fn load_staging_block_pubkey_hash(block_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<Hash160>, Error> {
-        let sql = format!("SELECT microblock_pubkey_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND processed = 0 AND orphaned = 0");
-        let args: &[&dyn ToSql] = &[&block_hash, &burn_header_hash];
+    fn load_staging_block_pubkey_hash(block_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<Hash160>, Error> {
+        let sql = format!("SELECT microblock_pubkey_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0");
+        let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
         let rows = query_row_columns::<Hash160, _>(block_conn, &sql, args, "microblock_pubkey_hash").map_err(Error::DBError)?;
         match rows.len() {
             0 => {
@@ -979,9 +977,9 @@ impl StacksChainState {
     }
 
     /// Load up a preprocessed microblock (processed or not)
-    pub fn load_staging_microblock(blocks_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<StagingMicroblock>, Error> {
-        let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND orphaned = 0".to_string();
-        let args: &[&dyn ToSql] = &[&burn_header_hash, &block_hash, &microblock_hash];
+    pub fn load_staging_microblock(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<StagingMicroblock>, Error> {
+        let sql = "SELECT * FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND orphaned = 0".to_string();
+        let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash, &microblock_hash];
         let mut rows = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
@@ -1066,15 +1064,15 @@ impl StacksChainState {
     ///
     /// Note that it's possible that some of the microblock data was already processed and moved to the chunk store.  If so,
     /// then this method goes and fetches them as well.
-    pub fn load_staging_microblock_stream(blocks_conn: &DBConn, blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        let sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND sequence <= ?3 AND orphaned = 0 ORDER BY sequence".to_string();
-        let args: &[&dyn ToSql] = &[&anchored_block_hash, &burn_header_hash, &last_seq];
+    pub fn load_staging_microblock_stream(blocks_conn: &DBConn, blocks_path: &String, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+        let sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND sequence <= ?3 AND orphaned = 0 ORDER BY sequence".to_string();
+        let args: &[&dyn ToSql] = &[&anchored_block_hash, &consensus_hash, &last_seq];
         let mut staging_microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args)
             .map_err(Error::DBError)?;
 
         if staging_microblocks.len() == 0 {
             // haven't seen any microblocks that descend from this block yet
-            test_debug!("No microblocks built on {}/{} up to {}", &burn_header_hash, &anchored_block_hash, last_seq);
+            test_debug!("No microblocks built on {}/{} up to {}", &consensus_hash, &anchored_block_hash, last_seq);
             return Ok(None);
         }
 
@@ -1087,7 +1085,7 @@ impl StacksChainState {
 
         // load any matching already-confirmed microblocks up.  This block may also confirm them
         // (but in a different fork).
-        let disk_microblocks = match StacksChainState::load_microblock_stream(blocks_path, burn_header_hash, microblock_head_hash).or_else(StacksChainState::empty_stream)? {
+        let disk_microblocks = match StacksChainState::load_microblock_stream(blocks_path, consensus_hash, microblock_head_hash).or_else(StacksChainState::empty_stream)? {
             Some(mblocks) => mblocks,
             None => vec![]
         };
@@ -1096,9 +1094,15 @@ impl StacksChainState {
         Ok(Some(microblocks))
     }
 
-    pub fn get_parent_burn_header_hash(sort_ic: &SortitionDBConn, parent_block_hash: &BlockHeaderHash,
-                                       my_burn_header_hash: &BurnchainHeaderHash) -> Result<Option<BurnchainHeaderHash>, Error> {
-        let sort_handle = SortitionHandleConn::open_reader_stubbed(sort_ic, my_burn_header_hash)?;
+    /// stacks_block _must_ have been committed, or this will return an error
+    pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
+        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?";
+        self.headers_db().query_row(sql, &[stacks_block], |row| row.get(0))
+            .map_err(|e| Error::from(db_error::from(e)))
+    }
+
+    pub fn get_parent_consensus_hash(sort_ic: &SortitionDBConn, parent_block_hash: &BlockHeaderHash, my_consensus_hash: &ConsensusHash) -> Result<Option<ConsensusHash>, Error> {
+        let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, my_consensus_hash)?;
 
         // find all blocks that we have that could be this block's parent
         let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
@@ -1107,7 +1111,7 @@ impl StacksChainState {
             let burn_ancestor = sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
             if let Some(_ancestor) = burn_ancestor {
                 // found!
-                return Ok(Some(possible_parent.burn_header_hash));
+                return Ok(Some(possible_parent.consensus_hash));
             }
         }
         return Ok(None)
@@ -1115,16 +1119,15 @@ impl StacksChainState {
 
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
-    pub fn load_parent_block_header(sort_ic: &SortitionDBConn, blocks_path: &String, 
-                                    burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<(StacksBlockHeader, BurnchainHeaderHash)>, Error> {
-        let header = match StacksChainState::load_block_header(blocks_path, burn_header_hash, anchored_block_hash)? {
+    pub fn load_parent_block_header(sort_ic: &SortitionDBConn, blocks_path: &String, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<(StacksBlockHeader, ConsensusHash)>, Error> {
+        let header = match StacksChainState::load_block_header(blocks_path, consensus_hash, anchored_block_hash)? {
             Some(hdr) => hdr,
             None => {
                 return Ok(None);
             }
         };
         
-        let sort_handle = SortitionHandleConn::open_reader_stubbed(sort_ic, burn_header_hash)?;
+        let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
 
         // find all blocks that we have that could be this block's parent
         let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
@@ -1133,9 +1136,8 @@ impl StacksChainState {
             let burn_ancestor = sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
             if let Some(ancestor) = burn_ancestor {
                 // found!
-                // NOTE: this will be None if the parent block was orphaned
-                let ret = StacksChainState::load_block_header(blocks_path, &ancestor.burn_header_hash, &header.parent_block)?
-                    .map(|header| { (header, ancestor.burn_header_hash) });
+                let ret = StacksChainState::load_block_header(blocks_path, &ancestor.consensus_hash, &ancestor.winning_stacks_block_hash)?
+                        .map(|header| { (header, ancestor.consensus_hash) });
 
                 return Ok(ret);
             }
@@ -1146,23 +1148,22 @@ impl StacksChainState {
     /// Store a preprocessed block, queuing it up for subsequent processing.
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
-    fn store_staging_block<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
-        debug!("Store anchored block {}/{}, parent in {}", burn_hash, block.block_hash(), parent_burn_header_hash);
+    fn store_staging_block<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
+        debug!("Store anchored block {}/{}, parent in {}", consensus_hash, block.block_hash(), parent_consensus_hash);
         assert!(commit_burn < i64::max_value() as u64);
         assert!(sortition_burn < i64::max_value() as u64);
-        assert!(burn_header_timestamp < i64::max_value() as u64);
 
         let block_hash = block.block_hash();
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(&burn_hash, &block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
 
         let attachable = {
             // if this block has an unprocessed staging parent, then it's not attachable until its parent is.
-            let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1".to_string();
-            let has_parent_args: &[&dyn ToSql] = &[&block.header.parent_block, &parent_burn_header_hash];
+            let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1".to_string();
+            let has_parent_args: &[&dyn ToSql] = &[&block.header.parent_block, &parent_consensus_hash];
             let rows = query_row_columns::<BlockHeaderHash, _>(&tx, &has_parent_sql, has_parent_args, "anchored_block_hash").map_err(Error::DBError)?;
             if rows.len() > 0 {
                 // still have unprocessed parent -- this block is not attachable 
-                debug!("Store non-attachable anchored block {}/{}", burn_hash, block.block_hash());
+                debug!("Store non-attachable anchored block {}/{}", consensus_hash, block.block_hash());
                 0
             }
             else {
@@ -1175,9 +1176,8 @@ impl StacksChainState {
         let sql = "INSERT OR REPLACE INTO staging_blocks \
                    (anchored_block_hash, \
                    parent_anchored_block_hash, \
-                   burn_header_hash, \
-                   burn_header_timestamp, \
-                   parent_burn_header_hash, \
+                   consensus_hash, \
+                   parent_consensus_hash, \
                    parent_microblock_hash, \
                    parent_microblock_seq, \
                    microblock_pubkey_hash, \
@@ -1188,13 +1188,12 @@ impl StacksChainState {
                    commit_burn, \
                    sortition_burn, \
                    index_block_hash) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)";
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
         let args: &[&dyn ToSql] = &[
             &block_hash,
             &block.header.parent_block,
-            &burn_hash,
-            &u64_to_sql(burn_header_timestamp)?,
-            &parent_burn_header_hash,
+            &consensus_hash,
+            &parent_consensus_hash,
             &block.header.parent_microblock,
             &block.header.parent_microblock_sequence,
             &block.header.microblock_pubkey_hash,
@@ -1209,7 +1208,7 @@ impl StacksChainState {
         tx.execute(&sql, args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        StacksChainState::store_block(tx.get_blocks_path(), burn_hash, block)?;
+        StacksChainState::store_block(tx.get_blocks_path(), consensus_hash, block)?;
 
         // mark all children of this new block as unattachable -- need to attach this block first!
         // this should be done across all burnchains.
@@ -1226,19 +1225,19 @@ impl StacksChainState {
     /// The caller should at least verify that this block was signed by the miner of the ancestor
     /// anchored block that this microblock builds off of.  Because microblocks may arrive out of
     /// order, this method does not check that.
-    /// The burn_header_hash and anchored_block_hash correspond to the _parent_ Stacks block.
+    /// The consensus_hash and anchored_block_hash correspond to the _parent_ Stacks block.
     /// Microblocks ought to only be stored if they are first confirmed to have been signed.
-    fn store_staging_microblock<'a>(tx: &mut BlocksDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
-        test_debug!("Store staging microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
+    fn store_staging_microblock<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
+        test_debug!("Store staging microblock {}/{}-{}", consensus_hash, anchored_block_hash, microblock.block_hash());
 
         let mut microblock_bytes = vec![];
         microblock.consensus_serialize(&mut microblock_bytes).map_err(Error::NetError)?;
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, anchored_block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, anchored_block_hash);
 
         // store microblock metadata
-        let sql = "INSERT OR REPLACE INTO staging_microblocks (anchored_block_hash, burn_header_hash, index_block_hash, microblock_hash, sequence, processed, orphaned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
-        let args: &[&dyn ToSql] = &[&anchored_block_hash, &burn_header_hash, &index_block_hash, &microblock.block_hash(), &microblock.header.sequence, &0, &0];
+        let sql = "INSERT OR REPLACE INTO staging_microblocks (anchored_block_hash, consensus_hash, index_block_hash, microblock_hash, sequence, processed, orphaned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+        let args: &[&dyn ToSql] = &[&anchored_block_hash, &consensus_hash, &index_block_hash, &microblock.block_hash(), &microblock.header.sequence, &0, &0];
 
         tx.execute(&sql, args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1256,14 +1255,14 @@ impl StacksChainState {
     }
 
     /// Store users who burned in support of a block
-    fn store_staging_block_user_burn_supports<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, burn_supports: &Vec<UserBurnSupportOp>) -> Result<(), Error> {
+    fn store_staging_block_user_burn_supports<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash, burn_supports: &Vec<UserBurnSupportOp>) -> Result<(), Error> {
         for burn_support in burn_supports.iter() {
             assert!(burn_support.burn_fee < i64::max_value() as u64);
         }
 
         for burn_support in burn_supports.iter() {
-            let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, burn_header_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
-            let args: &[&dyn ToSql] = &[&burn_hash, &block_hash, &burn_support.address.to_string(), &u64_to_sql(burn_support.burn_fee)?, &burn_support.vtxindex];
+            let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, consensus_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
+            let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash, &burn_support.address.to_string(), &u64_to_sql(burn_support.burn_fee)?, &burn_support.vtxindex];
 
             tx.execute(&sql, args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1301,8 +1300,8 @@ impl StacksChainState {
     /// Do we have a block queued up, and if so, is it being processed?.
     /// Return Some(processed) if the block is queued up -- true if processed, false if not
     /// Return None if the block is not queued up
-    fn get_staging_block_status(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<bool>, Error> {
-        StacksChainState::read_i64s(blocks_conn, "SELECT processed FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2", &[block_hash, burn_hash])
+    fn get_staging_block_status(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<bool>, Error> {
+        StacksChainState::read_i64s(blocks_conn, "SELECT processed FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
             .and_then(|processed| {
                 if processed.len() == 0 {
                     Ok(None)
@@ -1317,8 +1316,8 @@ impl StacksChainState {
     }
     
     /// Is a block orphaned?
-    pub fn is_block_orphaned(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
-        StacksChainState::read_i64s(blocks_conn, "SELECT orphaned FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2", &[block_hash, burn_hash])
+    pub fn is_block_orphaned(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        StacksChainState::read_i64s(blocks_conn, "SELECT orphaned FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
             .and_then(|orphaned| {
                 if orphaned.len() == 0 {
                     Ok(false)
@@ -1335,8 +1334,8 @@ impl StacksChainState {
     /// Do we have a microblock queued up, and if so, is it being processed?
     /// Return Some(processed) if the microblock is queued up
     /// Return None if the microblock is not queued up
-    pub fn get_staging_microblock_status(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<bool>, Error> {
-        StacksChainState::read_i64s(blocks_conn, "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND burn_header_hash = ?3", &[block_hash, microblock_hash, burn_hash])
+    pub fn get_staging_microblock_status(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<bool>, Error> {
+        StacksChainState::read_i64s(blocks_conn, "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND consensus_hash = ?3", &[block_hash, microblock_hash, consensus_hash])
             .and_then(|processed| {
                 if processed.len() == 0 {
                     Ok(None)
@@ -1351,8 +1350,8 @@ impl StacksChainState {
     }
     
     /// Is a microblock orphaned?
-    pub fn is_microblock_orphaned(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
-        StacksChainState::read_i64s(blocks_conn, "SELECT orphaned FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND burn_header_hash = ?3", &[block_hash, microblock_hash, burn_hash])
+    pub fn is_microblock_orphaned(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        StacksChainState::read_i64s(blocks_conn, "SELECT orphaned FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND consensus_hash = ?3", &[block_hash, microblock_hash, consensus_hash])
             .and_then(|orphaned| {
                 if orphaned.len() == 0 {
                     Ok(false)
@@ -1367,9 +1366,9 @@ impl StacksChainState {
     }
 
     /// What's the first microblock hash in a stream?
-    pub fn get_microblock_stream_head_hash(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, anchored_header_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
-        let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence = 0 AND orphaned = 0".to_string();
-        let args: &[&dyn ToSql] = &[&burn_hash, &anchored_header_hash];
+    pub fn get_microblock_stream_head_hash(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, anchored_header_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+        let sql = "SELECT * FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND sequence = 0 AND orphaned = 0".to_string();
+        let args: &[&dyn ToSql] = &[&consensus_hash, &anchored_header_hash];
         let staging_microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
         match staging_microblocks.len() {
             0 => Ok(None),
@@ -1380,24 +1379,20 @@ impl StacksChainState {
 
     /// Generate a blocks inventory message, given the output of
     /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
-    /// BLOCKS_INV_DATA_MAX_BITLEN in order to generate a valid BlocksInvData payload.
-    pub fn get_blocks_inventory(&mut self, header_hashes: &[(BurnchainHeaderHash, Option<BlockHeaderHash>)]) -> Result<BlocksInvData, Error> {
-        if header_hashes.len() > (BLOCKS_INV_DATA_MAX_BITLEN as usize) {
-            return Err(Error::NetError(net_error::OverflowError("Resulting block inventory would be too big".to_string())));
-        }
-
+    /// pox_constants.reward_cycle_length, in order to generate a valid BlocksInvData payload.
+    pub fn get_blocks_inventory(&mut self, header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)]) -> Result<BlocksInvData, Error> {
         let mut block_bits = vec![];
         let mut microblock_bits = vec![];
 
-        for (burn_header_hash, stacks_header_hash_opt) in header_hashes.iter() {
+        for (consensus_hash, stacks_header_hash_opt) in header_hashes.iter() {
             match stacks_header_hash_opt {
                 None => {
-                    test_debug!("Do not have any block in burn block {} in {}", &burn_header_hash, &self.blocks_path);
+                    test_debug!("Do not have any block in burn block {} in {}", &consensus_hash, &self.blocks_path);
                     block_bits.push(false);
                     microblock_bits.push(false);
                 },
                 Some(ref stacks_header_hash) => {
-                    let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, stacks_header_hash);
+                    let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, stacks_header_hash);
                     
                     // check block
                     if StacksChainState::has_block_indexed(&self.blocks_path, &index_block_hash)? {
@@ -1475,8 +1470,8 @@ impl StacksChainState {
 
     /// Do we have a staging block?  Return true if the block is present and marked as unprocessed;
     /// false otherwise
-    pub fn has_staging_block(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
-        match StacksChainState::get_staging_block_status(blocks_conn, burn_hash, block_hash)? {
+    pub fn has_staging_block(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        match StacksChainState::get_staging_block_status(blocks_conn, consensus_hash, block_hash)? {
             Some(processed) => Ok(!processed),
             None => Ok(false)
         }
@@ -1484,16 +1479,16 @@ impl StacksChainState {
 
     /// Do we have a staging microblock?  Return true if the microblock is present and marked as
     /// unprocesed; false otherwise
-    pub fn has_staging_microblock(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
-        match StacksChainState::get_staging_microblock_status(blocks_conn, burn_hash, block_hash, microblock_hash)? {
+    pub fn has_staging_microblock(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        match StacksChainState::get_staging_microblock_status(blocks_conn, consensus_hash, block_hash, microblock_hash)? {
             Some(processed) => Ok(!processed),
             None => Ok(false)
         }
     }
     
     /// Do we have a confirmed, processed microblock? Return true if the microblock is present and marked as processed; false otherwise
-    pub fn has_confirmed_microblock(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
-        match StacksChainState::get_staging_microblock_status(blocks_conn, burn_hash, block_hash, microblock_hash)? {
+    pub fn has_confirmed_microblock(blocks_conn: &DBConn, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        match StacksChainState::get_staging_microblock_status(blocks_conn, consensus_hash, block_hash, microblock_hash)? {
             Some(processed) => Ok(processed),
             None => Ok(false)
         }
@@ -1513,7 +1508,7 @@ impl StacksChainState {
 
     /// Mark an anchored block as orphaned and both orphan and delete its descendent microblock data.
     /// The blocks database will eventually delete all orphaned data.
-    fn delete_orphaned_epoch_data<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<(), Error> {
+    fn delete_orphaned_epoch_data<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         // This block is orphaned
         let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE anchored_block_hash = ?1".to_string();
         let update_block_args = [&anchored_block_hash];
@@ -1547,10 +1542,10 @@ impl StacksChainState {
         }
         
         // mark the block as empty if we haven't already
-        let block_path = StacksChainState::get_block_path(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
+        let block_path = StacksChainState::get_block_path(tx.get_blocks_path(), consensus_hash, anchored_block_hash)?;
         match fs::metadata(&block_path) {
             Ok(_) => {
-                StacksChainState::free_block(tx.get_blocks_path(), burn_hash, anchored_block_hash);
+                StacksChainState::free_block(tx.get_blocks_path(), consensus_hash, anchored_block_hash);
             },
             Err(_) => {
                 StacksChainState::atomic_file_write(&block_path, &vec![])?;
@@ -1563,25 +1558,25 @@ impl StacksChainState {
     /// Clear out a staging block -- mark it as processed.
     /// Mark its children as attachable.
     /// Idempotent.
-    fn set_block_processed<'a, 'b>(tx: &mut BlocksDBTx<'a>, mut sort_tx_opt: Option<&mut SortitionDBTx<'b>>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
-        let sql = "SELECT * FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 0".to_string();
-        let args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash];
+    fn set_block_processed<'a, 'b>(tx: &mut BlocksDBTx<'a>, mut sort_tx_opt: Option<&mut SortitionHandleTx<'b>>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
+        let sql = "SELECT * FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 0".to_string();
+        let args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash];
       
-        let has_stored_block = StacksChainState::has_stored_block(tx, tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
-        let _block_path = StacksChainState::make_block_dir(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
+        let has_stored_block = StacksChainState::has_stored_block(tx, tx.get_blocks_path(), consensus_hash, anchored_block_hash)?;
+        let _block_path = StacksChainState::make_block_dir(tx.get_blocks_path(), consensus_hash, anchored_block_hash)?;
 
         let rows = query_rows::<StagingBlock, _>(tx, &sql, args).map_err(Error::DBError)?;
         let block = match rows.len() {
             0 => {
                 // not an error if this block was already orphaned
-                let orphan_sql = "SELECT * FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 1".to_string();
-                let orphan_args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash];
+                let orphan_sql = "SELECT * FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 1".to_string();
+                let orphan_args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash];
                 let orphan_rows = query_rows::<StagingBlock, _>(tx, &orphan_sql, orphan_args).map_err(Error::DBError)?;
                 if orphan_rows.len() == 1 {
                     return Ok(());
                 }
                 else {
-                    test_debug!("No such block at {}/{}", burn_hash, anchored_block_hash);
+                    test_debug!("No such block at {}/{}", consensus_hash, anchored_block_hash);
                     return Err(Error::DBError(db_error::NotFoundError));
                 }
             },
@@ -1597,22 +1592,22 @@ impl StacksChainState {
         if !block.processed {
             if !has_stored_block {
                 if accept {
-                    debug!("Accept block {}/{} as {}", burn_hash, anchored_block_hash, StacksBlockHeader::make_index_block_hash(&burn_hash, &anchored_block_hash));
+                    debug!("Accept block {}/{} as {}", consensus_hash, anchored_block_hash, StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash));
                 }
                 else {
-                    debug!("Reject block {}/{}", burn_hash, anchored_block_hash);
+                    debug!("Reject block {}/{}", consensus_hash, anchored_block_hash);
                 }
             }
             else {
-                debug!("Already stored block {}/{} ({})", burn_hash, anchored_block_hash, StacksBlockHeader::make_index_block_hash(&burn_hash, &anchored_block_hash));
+                debug!("Already stored block {}/{} ({})", consensus_hash, anchored_block_hash, StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash));
             }
         }
         else {
-            debug!("Already processed block {}/{} ({})", burn_hash, anchored_block_hash, StacksBlockHeader::make_index_block_hash(&burn_hash, &anchored_block_hash));
+            debug!("Already processed block {}/{} ({})", consensus_hash, anchored_block_hash, StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash));
         }
 
-        let update_sql = "UPDATE staging_blocks SET processed = 1 WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2".to_string();
-        let update_args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash];
+        let update_sql = "UPDATE staging_blocks SET processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let update_args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash];
 
         tx.execute(&update_sql, update_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1629,7 +1624,7 @@ impl StacksChainState {
             // mark this block as processed in the burn db too
             match sort_tx_opt {
                 Some(ref mut sort_tx) => {
-                    sort_tx.set_stacks_block_accepted_stubbed(burn_hash, &block.parent_anchored_block_hash, &block.anchored_block_hash, block.height)?;
+                    sort_tx.set_stacks_block_accepted(consensus_hash, &block.parent_anchored_block_hash, &block.anchored_block_hash, block.height)?;
                 }
                 None => {
                     if !cfg!(test) {
@@ -1642,8 +1637,8 @@ impl StacksChainState {
         else {
             // Otherwise, all descendents of this processed block are never attachable.
             // Mark this block's children as orphans, blow away its data, and blow away its descendent microblocks.
-            test_debug!("Orphan block {}/{}", burn_hash, anchored_block_hash);
-            StacksChainState::delete_orphaned_epoch_data(tx, burn_hash, anchored_block_hash)?;
+            test_debug!("Orphan block {}/{}", consensus_hash, anchored_block_hash);
+            StacksChainState::delete_orphaned_epoch_data(tx, consensus_hash, anchored_block_hash)?;
         }
 
         Ok(())
@@ -1651,10 +1646,10 @@ impl StacksChainState {
 
     /// Drop a trail of staging microblocks.  Mark them as orphaned and delete their data.
     /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
-    fn drop_staging_microblocks<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, invalid_block_hash: &BlockHeaderHash) -> Result<(), Error> {
+    fn drop_staging_microblocks<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, invalid_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         // find offending sequence
-        let seq_sql = "SELECT sequence FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND processed = 0 AND orphaned = 0".to_string();
-        let seq_args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash, &invalid_block_hash];
+        let seq_sql = "SELECT sequence FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND processed = 0 AND orphaned = 0".to_string();
+        let seq_args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash, &invalid_block_hash];
         let seq = match query_int::<_>(tx, &seq_sql, seq_args) {
             Ok(seq) => seq,
             Err(e) => match e {
@@ -1668,7 +1663,7 @@ impl StacksChainState {
             }
         };
 
-        test_debug!("Drop staging microblocks {}/{} up to {} ({})", burn_hash, anchored_block_hash, invalid_block_hash, seq);
+        test_debug!("Drop staging microblocks {}/{} up to {} ({})", consensus_hash, anchored_block_hash, invalid_block_hash, seq);
 
         // drop staging children at and beyond the invalid block
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE anchored_block_hash = ?1 AND sequence >= ?2".to_string();
@@ -1696,10 +1691,10 @@ impl StacksChainState {
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
             // mark the block as empty if we haven't already
-            let block_path = StacksChainState::get_block_path(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
+            let block_path = StacksChainState::get_block_path(tx.get_blocks_path(), consensus_hash, anchored_block_hash)?;
             match fs::metadata(&block_path) {
                 Ok(_) => {
-                    StacksChainState::free_block(tx.get_blocks_path(), burn_hash, anchored_block_hash);
+                    StacksChainState::free_block(tx.get_blocks_path(), consensus_hash, anchored_block_hash);
                 },
                 Err(_) => {
                     StacksChainState::atomic_file_write(&block_path, &vec![])?;
@@ -1714,9 +1709,9 @@ impl StacksChainState {
     /// they're not there already.
     ///
     /// All the corresponding blocks must have been validated and proven contiguous.
-    fn set_microblocks_confirmed<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) -> Result<(), Error> {
-        let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence <= ?3 AND orphaned = 0 ORDER BY sequence ASC".to_string();
-        let args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash, &last_seq];
+    fn set_microblocks_confirmed<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) -> Result<(), Error> {
+        let sql = "SELECT * FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND sequence <= ?3 AND orphaned = 0 ORDER BY sequence ASC".to_string();
+        let args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash, &last_seq];
         let mut staging_microblocks = query_rows::<StagingMicroblock, _>(tx, &sql, args).map_err(Error::DBError)?;
 
         // load associated staging microblock data, if present 
@@ -1725,7 +1720,7 @@ impl StacksChainState {
         }
 
         // what's the first microblock in this stream?
-        let first_microblock_hash = match StacksChainState::get_microblock_stream_head_hash(tx, burn_hash, anchored_block_hash)? {
+        let first_microblock_hash = match StacksChainState::get_microblock_stream_head_hash(tx, consensus_hash, anchored_block_hash)? {
             Some(bhh) => bhh,
             None => {
                 unreachable!("BUG: No staging microblocks head hash, but loaded staging microblocks!");
@@ -1733,19 +1728,19 @@ impl StacksChainState {
         };
 
         // merge with chunk-stored microblock stream, if present
-        let stored_microblocks = match StacksChainState::load_microblock_stream(tx.get_blocks_path(), burn_hash, &first_microblock_hash).or_else(StacksChainState::empty_stream)? {
+        let stored_microblocks = match StacksChainState::load_microblock_stream(tx.get_blocks_path(), consensus_hash, &first_microblock_hash).or_else(StacksChainState::empty_stream)? {
             Some(mblocks) => mblocks,
             None => vec![]
         };
     
         let microblocks = StacksChainState::merge_microblock_streams(staging_microblocks, stored_microblocks)?;
 
-        debug!("Accept microblock stream {}/{}({}) as {}", StacksBlockHeader::make_index_block_hash(burn_hash, anchored_block_hash), microblocks[0].block_hash(), last_seq, StacksBlockHeader::make_index_block_hash(burn_hash, &microblocks[0].block_hash()));
-        StacksChainState::store_microblock_stream(tx.get_blocks_path(), burn_hash, &microblocks)?;
+        debug!("Accept microblock stream {}/{}({}) as {}", StacksBlockHeader::make_index_block_hash(consensus_hash, anchored_block_hash), microblocks[0].block_hash(), last_seq, StacksBlockHeader::make_index_block_hash(consensus_hash, &microblocks[0].block_hash()));
+        StacksChainState::store_microblock_stream(tx.get_blocks_path(), consensus_hash, &microblocks)?;
 
         // clear out of staging
-        let sql = "UPDATE staging_microblocks SET processed = 1 WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence <= ?3".to_string();
-        let args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash, &last_seq];
+        let sql = "UPDATE staging_microblocks SET processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND sequence <= ?3".to_string();
+        let args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash, &last_seq];
 
         tx.execute(&sql, args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1788,21 +1783,21 @@ impl StacksChainState {
 
     /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
     pub fn get_confirmed_microblock_index_hash(&mut self, index_anchor_block_hash: &StacksBlockId) -> Result<Option<StacksBlockId>, Error> {
-        let sql = "SELECT microblock_hash,burn_header_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 AND orphaned = 0 LIMIT 1";
+        let sql = "SELECT microblock_hash,consensus_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 AND orphaned = 0 LIMIT 1";
         let args = [&index_anchor_block_hash as &dyn ToSql];
 
         let row_data_opt = self.blocks_db.query_row(sql, &args,
             |row| {
                 let microblock_hash = BlockHeaderHash::from_column(row, "microblock_hash")?;
-                let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-                Ok((microblock_hash, burn_header_hash))
+                let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
+                Ok((microblock_hash, consensus_hash))
             })
             .optional()
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         match row_data_opt {
-            Some(Ok((microblock_hash, burn_header_hash))) => {
-                let index_microblock_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &microblock_hash);
+            Some(Ok((microblock_hash, consensus_hash))) => {
+                let index_microblock_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &microblock_hash);
                 trace!("Index microblock hash of anchored block {} is {}", index_anchor_block_hash, &index_microblock_hash);
                 Ok(Some(index_microblock_hash))
             },
@@ -1844,15 +1839,15 @@ impl StacksChainState {
     }
 
     /// Given an index block hash, get the burn header hash and block hash
-    pub fn get_block_header_hashes(&self, index_block_hash: &StacksBlockId) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, Error> {
-        let sql = "SELECT burn_header_hash,anchored_block_hash FROM staging_blocks WHERE index_block_hash = ?1";
+    pub fn get_block_header_hashes(&self, index_block_hash: &StacksBlockId) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, Error> {
+        let sql = "SELECT consensus_hash,anchored_block_hash FROM staging_blocks WHERE index_block_hash = ?1";
         let args = [index_block_hash as &dyn ToSql];
         
         let row_data_opt = self.blocks_db.query_row(sql, &args,
             |row| {
                 let anchored_block_hash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-                let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-                Ok((burn_header_hash, anchored_block_hash))
+                let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
+                Ok((consensus_hash, anchored_block_hash))
             })
             .optional()
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -2202,18 +2197,25 @@ impl StacksChainState {
     /// Validate an anchored block against the burn chain state.
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
-    /// * burn_header_hash is the burnchain block header hash of the burnchain block whose sortition
+    /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
-    pub fn validate_anchored_block_burnchain(db_handle: &SortitionHandleConn, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, mainnet: bool, chain_id: u32) -> Result<Option<(u64, u64)>, Error> {
+    pub fn validate_anchored_block_burnchain(db_handle: &SortitionHandleConn, consensus_hash: &ConsensusHash, block: &StacksBlock, mainnet: bool, chain_id: u32) -> Result<Option<(u64, u64)>, Error> {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();
         let (block_commit, stacks_chain_tip) =
-            match db_handle.get_block_snapshot_of_parent_stacks_block(burn_header_hash, &block_hash)? {
-                Some(bc) => bc,
-                None => {
+            match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash) {
+                Ok(Some(bc)) => bc,
+                Ok(None) => {
                     // unsoliciated
-                    warn!("Received unsolicited block: {}/{}", burn_header_hash, block_hash);
+                    warn!("Received unsolicited block: {}/{}", consensus_hash, block_hash);
                     return Ok(None);
+                }
+                Err(db_error::InvalidPoxSortition) => {
+                    warn!("Received unsolicited block on non-canonical PoX fork: {}/{}", consensus_hash, block_hash);
+                    return Ok(None);
+                }
+                Err(e) => {
+                    return Err(e.into());
                 }
             };
 
@@ -2235,7 +2237,7 @@ impl StacksChainState {
             Ok(_) => {},
             Err(_) => {
                 warn!("Invalid block, could not validate on burnchain: {}/{}",
-                      burn_header_hash, block_hash);
+                      consensus_hash, block_hash);
                       
                 return Ok(None);
             }
@@ -2245,7 +2247,7 @@ impl StacksChainState {
         let valid = block.validate_transactions_static(mainnet, chain_id);
         if !valid {
             warn!("Invalid block, transactions failed static checks: {}/{}",
-                  burn_header_hash, block_hash);
+                  consensus_hash, block_hash);
             return Ok(None);
         }
 
@@ -2259,30 +2261,35 @@ impl StacksChainState {
     /// subsequent processing once all of its ancestors have been processed.
     ///
     /// Caller must have called SortitionDB::expects_stacks_block() to determine if this block belongs
-    /// to the blockchain.  The burn_header_hash is the hash of the burnchain block whose sortition
+    /// to the blockchain.  The consensus_hash is the hash of the burnchain block whose sortition
     /// elected the given Stacks block.
     /// 
     /// If we find the same Stacks block in two or more burnchain forks, insert it there too
-    /// 
+    ///
+    /// sort_ic: an indexed connection to a sortition DB
+    /// consensus_hash: this is the consensus hash of the sortition that chose this block
+    /// block: the actual block data for this anchored Stacks block
+    /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
+    ///
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
-    pub fn preprocess_anchored_block(&mut self, sort_ic: &SortitionDBConn, burn_header_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
-        debug!("preprocess anchored block {}/{}", burn_header_hash, block.block_hash());
+    pub fn preprocess_anchored_block(&mut self, sort_ic: &SortitionDBConn, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash) -> Result<bool, Error> {
+        debug!("preprocess anchored block {}/{}", consensus_hash, block.block_hash());
 
-        let sort_handle = SortitionHandleConn::open_reader_stubbed(sort_ic, burn_header_hash)?;
+        let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
 
         // already in queue or already processed?
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &block.block_hash());
-        if StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, burn_header_hash, &block.block_hash())? {
-            debug!("Block already stored and processed: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
+        if StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, consensus_hash, &block.block_hash())? {
+            debug!("Block already stored and processed: {}/{} ({})", consensus_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
-        else if StacksChainState::has_staging_block(&self.blocks_db, burn_header_hash, &block.block_hash())? {
-            debug!("Block already stored (but not processed): {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+        else if StacksChainState::has_staging_block(&self.blocks_db, consensus_hash, &block.block_hash())? {
+            debug!("Block already stored (but not processed): {}/{} ({})", consensus_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
         else if StacksChainState::has_block_indexed(&self.blocks_path, &index_block_hash)? {
-            debug!("Block already stored to chunk store: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            debug!("Block already stored to chunk store: {}/{} ({})", consensus_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
          
@@ -2294,8 +2301,7 @@ impl StacksChainState {
         let mut block_tx = self.blocks_tx_begin()?;
 
         // does this block match the burnchain state? skip if not
-        let validation_res = StacksChainState::validate_anchored_block_burnchain(
-            &sort_handle, burn_header_hash, block, mainnet, chain_id)?;
+        let validation_res = StacksChainState::validate_anchored_block_burnchain(&sort_handle, consensus_hash, block, mainnet, chain_id)?;
         let (commit_burn, sortition_burn) = match validation_res {
             Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
             None => { 
@@ -2303,7 +2309,7 @@ impl StacksChainState {
                 warn!("{}", &msg);
 
                 // orphan it
-                StacksChainState::set_block_processed(&mut block_tx, None, burn_header_hash, &block.block_hash(), false)?;
+                StacksChainState::set_block_processed(&mut block_tx, None, consensus_hash, &block.block_hash(), false)?;
 
                 block_tx.commit()?;
                 return Err(Error::InvalidStacksBlock(msg));
@@ -2313,10 +2319,10 @@ impl StacksChainState {
         debug!("Storing staging block");
 
         // queue block up for processing
-        StacksChainState::store_staging_block(&mut block_tx, burn_header_hash, burn_header_timestamp, &block, parent_burn_header_hash, commit_burn, sortition_burn)?;
+        StacksChainState::store_staging_block(&mut block_tx, consensus_hash, &block, parent_consensus_hash, commit_burn, sortition_burn)?;
 
         // store users who burned for this block so they'll get rewarded if we process it
-        StacksChainState::store_staging_block_user_burn_supports(&mut block_tx, burn_header_hash, &block.block_hash(), &user_burns)?;
+        StacksChainState::store_staging_block_user_burn_supports(&mut block_tx, consensus_hash, &block.block_hash(), &user_burns)?;
 
         block_tx.commit().map_err(Error::DBError)?;
 
@@ -2337,13 +2343,13 @@ impl StacksChainState {
     /// Return true if we stored the microblock.
     /// Return false if we did not store it (i.e. we already had it, we don't have its parent)
     /// Return Err(..) if the microblock is invalid, or we couldn't process it
-    pub fn preprocess_streamed_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<bool, Error> {
-        debug!("preprocess microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
+    pub fn preprocess_streamed_microblock(&mut self, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<bool, Error> {
+        debug!("preprocess microblock {}/{}-{}", consensus_hash, anchored_block_hash, microblock.block_hash());
 
         // already queued or already processed?
-        if StacksChainState::has_staging_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? || 
-           StacksChainState::has_confirmed_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? {
-            debug!("Microblock already stored and/or processed: {}/{} {} {}", burn_header_hash, &anchored_block_hash, microblock.block_hash(), microblock.header.sequence);
+        if StacksChainState::has_staging_microblock(&self.blocks_db, consensus_hash, anchored_block_hash, &microblock.block_hash())? || 
+           StacksChainState::has_confirmed_microblock(&self.blocks_db, consensus_hash, anchored_block_hash, &microblock.block_hash())? {
+            debug!("Microblock already stored and/or processed: {}/{} {} {}", consensus_hash, &anchored_block_hash, microblock.block_hash(), microblock.header.sequence);
 
             // try to process it nevertheless
             return Ok(false);
@@ -2354,11 +2360,11 @@ impl StacksChainState {
 
         let mut blocks_tx = self.blocks_tx_begin()?;
 
-        let pubkey_hash = match StacksChainState::load_staging_block_pubkey_hash(&mut blocks_tx, burn_header_hash, anchored_block_hash)? {
+        let pubkey_hash = match StacksChainState::load_staging_block_pubkey_hash(&mut blocks_tx, consensus_hash, anchored_block_hash)? {
             Some(pubkey_hash) => pubkey_hash,
             None => {
                 // maybe it's already processed?
-                let header = match StacksChainState::load_block_header(blocks_tx.get_blocks_path(), burn_header_hash, anchored_block_hash)? {
+                let header = match StacksChainState::load_block_header(blocks_tx.get_blocks_path(), consensus_hash, anchored_block_hash)? {
                     Some(block_header) => block_header,
                     None => {
                         // parent isn't available
@@ -2385,7 +2391,7 @@ impl StacksChainState {
         }
 
         // add to staging
-        StacksChainState::store_staging_microblock(&mut blocks_tx, burn_header_hash, anchored_block_hash, microblock)?;
+        StacksChainState::store_staging_microblock(&mut blocks_tx, consensus_hash, anchored_block_hash, microblock)?;
         
         blocks_tx.commit().map_err(Error::DBError)?;
 
@@ -2396,10 +2402,21 @@ impl StacksChainState {
     /// This does not work when forking
     #[cfg(test)]
     pub fn preprocess_stacks_epoch(&mut self, sort_ic: &SortitionDBConn, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
-        self.preprocess_anchored_block(sort_ic, &snapshot.burn_header_hash, snapshot.burn_header_timestamp, block, &snapshot.parent_burn_header_hash)?;
+        let parent_sn = {
+            let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
+            let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash)? {
+                Some(sn) => sn,
+                None => {
+                    return Err(Error::NoSuchBlockError);
+                }
+            };
+            sn
+        };
+
+        self.preprocess_anchored_block(sort_ic, &snapshot.consensus_hash, block, &parent_sn.consensus_hash)?;
         let block_hash = block.block_hash();
         for mblock in microblocks.iter() {
-            self.preprocess_streamed_microblock(&snapshot.burn_header_hash, &block_hash, mblock)?;
+            self.preprocess_streamed_microblock(&snapshot.consensus_hash, &block_hash, mblock)?;
         }
         Ok(())
     }
@@ -2437,9 +2454,9 @@ impl StacksChainState {
     /// rate, times the fraction of the block's total utilization.
     fn make_scheduled_miner_reward(mainnet: bool,
                                    parent_block_hash: &BlockHeaderHash,
-                                   parent_burn_header_hash: &BurnchainHeaderHash,
+                                   parent_consensus_hash: &ConsensusHash,
                                    block: &StacksBlock,
-                                   block_burn_header_hash: &BurnchainHeaderHash,
+                                   block_consensus_hash: &ConsensusHash,
                                    block_height: u64,
                                    tx_fees: u128,
                                    streamed_fees: u128,
@@ -2461,9 +2478,9 @@ impl StacksChainState {
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
             block_hash: block.block_hash(),
-            burn_header_hash: block_burn_header_hash.clone(),
+            consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
-            parent_burn_header_hash: parent_burn_header_hash.clone(),
+            parent_consensus_hash: parent_consensus_hash.clone(),
             coinbase: StacksChainState::get_coinbase_reward(block_height),
             tx_fees_anchored: tx_fees,
             tx_fees_streamed: streamed_fees,
@@ -2490,7 +2507,7 @@ impl StacksChainState {
             return Ok(Some(vec![]));
         }
 
-        match StacksChainState::load_staging_microblock_stream(blocks_conn, blocks_path, &staging_block.parent_burn_header_hash, &staging_block.parent_anchored_block_hash, u16::max_value())? {
+        match StacksChainState::load_staging_microblock_stream(blocks_conn, blocks_path, &staging_block.parent_consensus_hash, &staging_block.parent_anchored_block_hash, u16::max_value())? {
             Some(microblocks) => {
                 return Ok(Some(microblocks));
             }
@@ -2521,9 +2538,9 @@ impl StacksChainState {
 
         let orphan_block = rows.pop().unwrap();
 
-        test_debug!("Delete orphaned block {}/{} and its microblocks, and orphan its children", &orphan_block.burn_header_hash, &orphan_block.anchored_block_hash);
+        test_debug!("Delete orphaned block {}/{} and its microblocks, and orphan its children", &orphan_block.consensus_hash, &orphan_block.anchored_block_hash);
 
-        StacksChainState::delete_orphaned_epoch_data(blocks_tx, &orphan_block.burn_header_hash, &orphan_block.anchored_block_hash)?;
+        StacksChainState::delete_orphaned_epoch_data(blocks_tx, &orphan_block.consensus_hash, &orphan_block.anchored_block_hash)?;
         Ok(true)
     }
 
@@ -2559,8 +2576,8 @@ impl StacksChainState {
                     let candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
                     
                     debug!("Consider block {}/{} whose parent is {}/{}", 
-                           &candidate.burn_header_hash, &candidate.anchored_block_hash,
-                           &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
+                           &candidate.consensus_hash, &candidate.anchored_block_hash,
+                           &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
         
                     let can_attach = {
                         if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
@@ -2571,25 +2588,25 @@ impl StacksChainState {
                         else {
                             // not the first-ever block.  Does this connect to a previously-accepted
                             // block in the headers database?
-                            let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND burn_header_hash = ?2".to_string();
-                            let hdr_args: &[&dyn ToSql] = &[&candidate.parent_anchored_block_hash, &candidate.parent_burn_header_hash];
+                            let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2".to_string();
+                            let hdr_args: &[&dyn ToSql] = &[&candidate.parent_anchored_block_hash, &candidate.parent_consensus_hash];
                             let hdr_rows = query_rows::<StacksHeaderInfo, _>(headers_conn, &hdr_sql, hdr_args)
                                 .map_err(Error::DBError)?;
 
                             match hdr_rows.len() {
                                 0 => {
                                     // no parent processed for this block
-                                    debug!("No such parent {}/{} for block, cannot process", &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
+                                    debug!("No such parent {}/{} for block, cannot process", &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
                                     false
                                 }
                                 1 => {
                                     // can process this block 
-                                    debug!("Have parent {}/{} for this block, will process", &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
+                                    debug!("Have parent {}/{} for this block, will process", &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
                                     true
                                 },
                                 _ => {
                                     // should be impossible -- stored the same block twice
-                                    unreachable!("Stored the same block twice: {}/{}", &candidate.parent_anchored_block_hash, &candidate.parent_burn_header_hash);
+                                    unreachable!("Stored the same block twice: {}/{}", &candidate.parent_anchored_block_hash, &candidate.parent_consensus_hash);
                                 }
                             }
                         }
@@ -2597,7 +2614,7 @@ impl StacksChainState {
 
                     if can_attach {
                         // try and load up this staging block and its microblocks
-                        match StacksChainState::load_staging_block(blocks_conn, blocks_path, &candidate.burn_header_hash, &candidate.anchored_block_hash)? {
+                        match StacksChainState::load_staging_block(blocks_conn, blocks_path, &candidate.consensus_hash, &candidate.anchored_block_hash)? {
                             Some(staging_block) => {
                                 // must be unprocessed -- must have a block
                                 if staging_block.block_data.len() == 0 {
@@ -2668,77 +2685,30 @@ impl StacksChainState {
     }
 
     /// Process a single matured miner reward.
-    /// Grant it STX tokens in the miner trust fund contract from the chain's boot code.
+    /// Grant it STX tokens.
     fn process_matured_miner_reward<'a>(clarity_tx: &mut ClarityTx<'a>, miner_reward: &MinerReward) -> Result<(), Error> {
-        let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
-        let miner_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::try_from(BOOT_CODE_MINER_CONTRACT_NAME.to_string()).unwrap());
-
-        let miner_participant_principal = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_PARTICIPANT.to_string()).unwrap();
-        let miner_available_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AVAILABLE.to_string()).unwrap();
-        let miner_authorized_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AUTHORIZED.to_string()).unwrap();
-
-        let miner_principal = Value::Tuple(TupleData::from_data(vec![
-                (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(miner_reward.address.clone()))))])
-            .expect("FATAL: failed to construct miner principal key"));
-
         let miner_reward_total = miner_reward.total();
-      
         clarity_tx.connection().as_transaction(|x| { x.with_clarity_db(|ref mut db| {
-            // (+ reward (get available (default-to {available: 0, authorized: false} (map-get rewards ((miner))))))
-            let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
-            let new_miner_status =
-                match miner_status_opt {
-                    Value::Optional(ref optional_data) => {
-                        match optional_data.data {
-                            None => {
-                                // this miner doesn't have an entry in the contract yet
-                                Value::Tuple(TupleData::from_data(vec![
-                                    (miner_available_name, Value::UInt(miner_reward_total)),
-                                    (miner_authorized_name, Value::Bool(false)),
-                                ]).expect("FATAL: failed to construct miner reward tuple"))
-                            },
-                            Some(ref miner_status) => {
-                                match **miner_status {
-                                    Value::Tuple(ref tuple) => {
-                                        let new_available = match tuple.get(&miner_available_name).expect("FATAL: no miner name in tuple") {
-                                            Value::UInt(ref available) => {
-                                                let new_available = available.checked_add(miner_reward_total).expect("FATAL: STX reward overflow");
-                                                Value::UInt(new_available)
-                                            },
-                                            _ => {
-                                                panic!("FATAL: miner reward data map is malformed");
-                                            }
-                                        };
-                                        
-                                        let mut new_tuple = tuple.clone();
-                                        new_tuple.data_map.insert(miner_available_name.clone(), new_available);
-                                        Value::Tuple(new_tuple)
-                                    },
-                                    ref x => {
-                                        panic!("FATAL: miner status is not a tuple: {:?}", &x);
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    ref x => {
-                        panic!("FATAL: fetched miner status it not an optional: {:?}", &x);
-                    }
-                };
+            let miner_principal = PrincipalData::Standard(StandardPrincipalData::from(miner_reward.address.clone()));
+            let mut balance = db.get_account_stx_balance(&miner_principal);
+            let cur_burn_height = db.get_current_burnchain_block_height() as u64;
+            balance.credit(miner_reward_total, cur_burn_height)
+                .expect("STX overflow");
+            debug!("Balance available for {} is {} STX", &miner_reward.address, balance.get_available_balance_at_block(cur_burn_height));
+            db.set_account_stx_balance(&miner_principal, &balance);
 
-            debug!("Grant miner {} {} STX. Updated to: {}", miner_reward.address.to_string(), miner_reward_total,
-                   &new_miner_status);
-            db.set_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, miner_principal, new_miner_status)?;
             Ok(())
         })}).map_err(Error::ClarityError)?;
         Ok(())
     }
 
-    /// Process matured miner rewards for this block
-    pub fn process_matured_miner_rewards<'a>(clarity_tx: &mut ClarityTx<'a>, miner_rewards: &Vec<MinerReward>) -> Result<(), Error> {
+    /// Process matured miner rewards for this block.
+    /// Returns the number of liquid uSTX created -- i.e. the coinbase
+    pub fn process_matured_miner_rewards<'a>(clarity_tx: &mut ClarityTx<'a>, miner_rewards: &Vec<MinerReward>) -> Result<u128, Error> {
         // must all be in order by vtxindex, and the first reward (the miner's) must have vtxindex 0
         assert!(miner_rewards.len() > 0);
         assert!(miner_rewards[0].vtxindex == 0);
+        let coinbase_reward = miner_rewards[0].coinbase;
         for i in 0..miner_rewards.len()-1 {
             assert!(miner_rewards[i].vtxindex < miner_rewards[i+1].vtxindex);
         }
@@ -2747,7 +2717,14 @@ impl StacksChainState {
         for reward in miner_rewards.iter() {
             StacksChainState::process_matured_miner_reward(clarity_tx, reward)?;
         }
-        Ok(())
+        Ok(coinbase_reward)
+    }
+
+    /// Process all STX that unlock at this block height.
+    /// Return the total number of uSTX unlocked in this block
+    pub fn process_stx_unlocks<'a>(_clarity_tx: &mut ClarityTx<'a>) -> Result<u128, Error> {
+        // TODO: call into the .lockup contract and get the list of unlocks
+        Ok(0)
     }
 
     /// Process the next pre-processed staging block.
@@ -2761,8 +2738,11 @@ impl StacksChainState {
     /// Returns None if we're out of blocks to process.
     fn append_block<'a>(chainstate_tx: &mut ChainstateTx<'a>,
                         clarity_instance: &'a mut ClarityInstance,
-                        parent_chain_tip: &StacksHeaderInfo, 
+                        burn_dbconn: &dyn BurnStateDB,
+                        parent_chain_tip: &StacksHeaderInfo,
+                        chain_tip_consensus_hash: &ConsensusHash,
                         chain_tip_burn_header_hash: &BurnchainHeaderHash,
+                        chain_tip_burn_header_height: u32,
                         chain_tip_burn_header_timestamp: u64,
                         block: &StacksBlock, 
                         microblocks: &Vec<StacksMicroblock>,  // parent microblocks 
@@ -2781,14 +2761,14 @@ impl StacksChainState {
             StacksChainState::find_mature_miner_rewards(&mut chainstate_tx.headers_tx, parent_chain_tip, Some(chainstate_tx.miner_payment_cache))?
         };
 
-        let (scheduled_miner_reward, txs_receipts, microblock_execution_cost, block_execution_cost) = {
-            let (parent_burn_header_hash, parent_block_hash) = 
+        let (scheduled_miner_reward, txs_receipts, microblock_execution_cost, block_execution_cost, total_liquid_ustx) = {
+            let (parent_consensus_hash, parent_block_hash) = 
                 if block.is_first_mined() {
                     // has to be the sentinal hashes if this block has no parent
-                    (FIRST_BURNCHAIN_BLOCK_HASH.clone(), FIRST_STACKS_BLOCK_HASH.clone())
+                    (FIRST_BURNCHAIN_CONSENSUS_HASH.clone(), FIRST_STACKS_BLOCK_HASH.clone())
                 }
                 else {
-                    (parent_chain_tip.burn_header_hash.clone(), parent_chain_tip.anchored_header.block_hash())
+                    (parent_chain_tip.consensus_hash.clone(), parent_chain_tip.anchored_header.block_hash())
                 };
  
             let (last_microblock_hash, last_microblock_seq) = 
@@ -2798,7 +2778,7 @@ impl StacksChainState {
                     let last_microblock_hash = microblocks[num_mblocks-1].block_hash();
                     let last_microblock_seq = microblocks[num_mblocks-1].header.sequence;
 
-                    debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_burn_header_hash, _first_mblock_hash, last_microblock_hash, parent_burn_header_hash, parent_block_hash);
+                    debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_consensus_hash, _first_mblock_hash, last_microblock_hash, parent_consensus_hash, parent_block_hash);
                     (last_microblock_hash, last_microblock_seq)
                 }
                 else {
@@ -2811,7 +2791,7 @@ impl StacksChainState {
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
             
-            let mut clarity_tx = StacksChainState::chainstate_block_begin(chainstate_tx, clarity_instance, &parent_burn_header_hash, &parent_block_hash, &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
+            let mut clarity_tx = StacksChainState::chainstate_block_begin(chainstate_tx, clarity_instance, burn_dbconn, &parent_consensus_hash, &parent_block_hash, &MINER_BLOCK_CONSENSUS_HASH, &MINER_BLOCK_HEADER_HASH);
 
             // process microblock stream
             let (microblock_fees, microblock_burns, mut microblock_txs_receipts) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
@@ -2828,9 +2808,8 @@ impl StacksChainState {
             };
 
             let microblock_cost = clarity_tx.cost_so_far();
-            
             debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
-                   chain_tip_burn_header_hash, block.block_hash(), parent_burn_header_hash, parent_block_hash,
+                   chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
                    block.header.total_work.work, block.header.total_work.burn,
                    last_microblock_hash, last_microblock_seq, microblocks.len());
 
@@ -2850,10 +2829,26 @@ impl StacksChainState {
             block_cost.sub(&microblock_cost).expect("BUG: microblock cost + block cost < block cost");
 
             // grant matured miner rewards
-            if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
-                // grant in order by miner, then users
-                StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &mature_miner_rewards)?;
-            }
+            let new_liquid_miner_ustx =
+                if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
+                    // grant in order by miner, then users
+                    StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &mature_miner_rewards)?
+                }
+                else {
+                    0
+                };
+
+            // total burns
+            let total_burnt = block_burns.checked_add(microblock_burns).expect("Overflow: Too many STX burnt");
+
+            // unlock any uSTX
+            let new_unlocked_ustx = StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+
+            // calculate total liquid STX
+            let total_liquid_ustx = parent_chain_tip.total_liquid_ustx
+                .checked_add(new_liquid_miner_ustx).expect("FATAL: uSTX overflow")
+                .checked_add(new_unlocked_ustx).expect("FATAL: uSTX overflow")
+                .checked_sub(total_burnt).expect("FATAL: uSTX underflow");
 
             let root_hash = clarity_tx.get_root_hash();
             if root_hash != block.header.state_index_root {
@@ -2867,18 +2862,18 @@ impl StacksChainState {
             debug!("Reached state root {}", root_hash);
             
             // good to go!
-            clarity_tx.commit_to_block(chain_tip_burn_header_hash, &block.block_hash());
+            clarity_tx.commit_to_block(chain_tip_consensus_hash, &block.block_hash());
 
             // calculate reward for this block's miner
             let scheduled_miner_reward = StacksChainState::make_scheduled_miner_reward(mainnet, 
                                                                                        &parent_block_hash, 
-                                                                                       &parent_burn_header_hash, 
+                                                                                       &parent_consensus_hash, 
                                                                                        &block, 
-                                                                                       chain_tip_burn_header_hash, 
+                                                                                       chain_tip_consensus_hash, 
                                                                                        next_block_height, 
                                                                                        block_fees,                // TODO: calculate (STX/compute unit) * (compute used) 
                                                                                        microblock_fees, 
-                                                                                       block_burns.checked_add(microblock_burns).expect("Overflow: Too many STX burnt"),
+                                                                                       total_burnt,
                                                                                        burnchain_commit_burn,
                                                                                        burnchain_sortition_burn,
                                                                                        0xffffffffffffffff)        // TODO: calculate total compute budget and scale up
@@ -2886,7 +2881,7 @@ impl StacksChainState {
 
             txs_receipts.append(&mut microblock_txs_receipts);
 
-            (scheduled_miner_reward, txs_receipts, microblock_cost, block_cost)
+            (scheduled_miner_reward, txs_receipts, microblock_cost, block_cost, total_liquid_ustx)
         };
 
         let microblock_tail_opt = match microblocks.len() {
@@ -2896,13 +2891,17 @@ impl StacksChainState {
 
         let new_tip = StacksChainState::advance_tip(&mut chainstate_tx.headers_tx,
                                                     &parent_chain_tip.anchored_header,
-                                                    &parent_chain_tip.burn_header_hash,
+                                                    &parent_chain_tip.consensus_hash,
                                                     &block.header,
+                                                    chain_tip_consensus_hash,
                                                     chain_tip_burn_header_hash,
+                                                    chain_tip_burn_header_height,
                                                     chain_tip_burn_header_timestamp,
                                                     microblock_tail_opt,
                                                     &scheduled_miner_reward,
-                                                    user_burns)
+                                                    user_burns,
+                                                    total_liquid_ustx,
+                                                    &block_execution_cost)
             .expect("FATAL: failed to advance chain tip");
 
         let epoch_receipt = StacksEpochReceipt {
@@ -2939,7 +2938,7 @@ impl StacksChainState {
     ///
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
-    pub fn process_next_staging_block(&mut self, sort_tx: &mut SortitionDBTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
+    pub fn process_next_staging_block(&mut self, sort_tx: &mut SortitionHandleTx) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
@@ -2954,23 +2953,33 @@ impl StacksChainState {
             }
         };
 
-        debug!("Process staging block {}/{}", next_staging_block.burn_header_hash, next_staging_block.anchored_block_hash);
+        let (burn_header_hash, burn_header_height, burn_header_timestamp) = match SortitionDB::get_block_snapshot_consensus(sort_tx, &next_staging_block.consensus_hash)? {
+            Some(sn) => (sn.burn_header_hash, sn.block_height as u32, sn.burn_header_timestamp),
+            None => {
+                // shouldn't happen
+                panic!("CORRUPTION: staging block {}/{} does not correspond to a burn block", &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash);
+            }
+        };
+
+        debug!("Process staging block {}/{} in burn block {}", next_staging_block.consensus_hash, next_staging_block.anchored_block_hash, &burn_header_hash);
 
         let parent_block_header_info = {
-            let parent_block_header_info = match StacksChainState::get_anchored_block_header_info(&chainstate_tx.headers_tx, &next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash)? {
+            let parent_block_header_info = match StacksChainState::get_anchored_block_header_info(&chainstate_tx.headers_tx, &next_staging_block.parent_consensus_hash, &next_staging_block.parent_anchored_block_hash)? {
                 Some(parent_info) => {
-                    debug!("Found parent info {}/{}", next_staging_block.parent_burn_header_hash, next_staging_block.parent_anchored_block_hash);
+                    debug!("Found parent info {}/{}", next_staging_block.parent_consensus_hash, next_staging_block.parent_anchored_block_hash);
                     parent_info
                 },
                 None => {
                     if next_staging_block.is_first_mined() {
                         // this is the first-ever mined block
                         debug!("This is the first-ever block in this fork.  Parent is 00000000..00000000/00000000..00000000");
-                        StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]))        // NOTE: we don't use or care about the index_root_hash field here
+                        StacksChainState::get_anchored_block_header_info(&chainstate_tx.headers_tx, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+                            .expect("FATAL: failed to load initial block header")
+                            .expect("FATAL: initial block header not found in headers DB")
                     }
                     else {
                         // no parent stored
-                        debug!("No parent block for {}/{} processed yet", next_staging_block.burn_header_hash, next_staging_block.anchored_block_hash);
+                        debug!("No parent block for {}/{} processed yet", next_staging_block.consensus_hash, next_staging_block.anchored_block_hash);
                         return Ok((None, None));
                     }
                 }
@@ -2992,11 +3001,11 @@ impl StacksChainState {
         }
 
         // sanity check -- don't process this block again if we already did so
-        if StacksChainState::has_stored_block(&chainstate_tx.blocks_tx, chainstate_tx.blocks_tx.get_blocks_path(), &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash)? {
-            debug!("Block already processed: {}/{}", &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash);
+        if StacksChainState::has_stored_block(&chainstate_tx.blocks_tx, chainstate_tx.blocks_tx.get_blocks_path(), &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash)? {
+            debug!("Block already processed: {}/{}", &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash);
 
             // clear out
-            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(sort_tx), &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, true)?; 
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(sort_tx), &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash, true)?; 
             chainstate_tx.commit()
                 .map_err(Error::DBError)?;
 
@@ -3005,12 +3014,12 @@ impl StacksChainState {
 
         // validation check -- we can't have seen this block's microblock public key hash before in
         // this fork
-        if StacksChainState::has_microblock_pubkey_hash(&mut chainstate_tx.headers_tx, &parent_block_header_info.burn_header_hash, &parent_block_header_info.anchored_header, &block.header.microblock_pubkey_hash)? {
-            let msg = format!("Invalid stacks block {}/{} -- already used microblock pubkey hash {}", &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, &block.header.microblock_pubkey_hash);
+        if StacksChainState::has_microblock_pubkey_hash(&mut chainstate_tx.headers_tx, &parent_block_header_info.consensus_hash, &parent_block_header_info.anchored_header, &block.header.microblock_pubkey_hash)? {
+            let msg = format!("Invalid stacks block {}/{} -- already used microblock pubkey hash {}", &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash, &block.header.microblock_pubkey_hash);
             warn!("{}", &msg);
 
             // clear out
-            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, false)?; 
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash, false)?; 
             chainstate_tx.commit()
                 .map_err(Error::DBError)?;
 
@@ -3019,11 +3028,11 @@ impl StacksChainState {
 
         // validation check -- the block must attach to its accepted parent
         if !StacksChainState::check_block_attachment(&parent_block_header_info.anchored_header, &block.header) {
-            let msg = format!("Invalid stacks block {}/{} -- does not attach to parent {}/{}", &next_staging_block.burn_header_hash, block.block_hash(), parent_block_header_info.anchored_header.block_hash(), &parent_block_header_info.burn_header_hash);
+            let msg = format!("Invalid stacks block {}/{} -- does not attach to parent {}/{}", &next_staging_block.consensus_hash, block.block_hash(), parent_block_header_info.anchored_header.block_hash(), &parent_block_header_info.consensus_hash);
             warn!("{}", &msg);
             
             // clear out
-            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, false)?; 
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash, false)?; 
             chainstate_tx.commit()
                 .map_err(Error::DBError)?;
 
@@ -3036,7 +3045,7 @@ impl StacksChainState {
         let (microblock_terminus, poison_microblock_opt) = match StacksChainState::validate_parent_microblock_stream(&parent_block_header_info.anchored_header, &block.header, &next_microblocks, false) {
             Some((terminus, poison_opt)) => (terminus, poison_opt),
             None => {
-                debug!("Stopping at block {}/{} -- discontiguous header stream", next_staging_block.burn_header_hash, block_hash);
+                debug!("Stopping at block {}/{} -- discontiguous header stream", next_staging_block.consensus_hash, block_hash);
                 return Ok((None, None));
             }
         };
@@ -3060,7 +3069,7 @@ impl StacksChainState {
 
         // do not consider trailing microblocks that this anchored block does _not_ confirm
         if microblock_terminus < next_microblocks.len() {
-            debug!("Truncate microblock stream from parent {}/{} from {} to {} items", parent_block_header_info.burn_header_hash, parent_block_header_info.anchored_header.block_hash(), next_microblocks.len(), microblock_terminus);
+            debug!("Truncate microblock stream from parent {}/{} from {} to {} items", parent_block_header_info.consensus_hash, parent_block_header_info.anchored_header.block_hash(), next_microblocks.len(), microblock_terminus);
             next_microblocks.truncate(microblock_terminus);
         }
 
@@ -3073,7 +3082,7 @@ impl StacksChainState {
         };
 
         // find users that burned in support of this block, so we can calculate the miner reward
-        let user_supports = StacksChainState::load_staging_block_user_supports(&chainstate_tx.blocks_tx, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash)?;
+        let user_supports = StacksChainState::load_staging_block_user_supports(&chainstate_tx.blocks_tx, &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash)?;
 
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
@@ -3081,9 +3090,12 @@ impl StacksChainState {
         let epoch_receipt = 
             match StacksChainState::append_block(&mut chainstate_tx, 
                                                  clarity_instance, 
+                                                 sort_tx,
                                                  &parent_block_header_info, 
-                                                 &next_staging_block.burn_header_hash, 
-                                                 next_staging_block.burn_header_timestamp,
+                                                 &next_staging_block.consensus_hash, 
+                                                 &burn_header_hash,
+                                                 burn_header_height,
+                                                 burn_header_timestamp,
                                                  &block,
                                                  &next_microblocks,
                                                  next_staging_block.commit_burn,
@@ -3094,17 +3106,17 @@ impl StacksChainState {
                 // something's wrong with this epoch -- either a microblock was invalid, or the
                 // anchored block was invalid.  Either way, the anchored block will _never be_
                 // valid, so we can drop it from the chunk store and orphan all of its descendents.
-                test_debug!("Failed to append {}/{}", &next_staging_block.burn_header_hash, &block.block_hash());
-                StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.burn_header_hash, &block.header.block_hash(), false)?;
-                StacksChainState::free_block_state(&blocks_path, &next_staging_block.burn_header_hash, &block.header);
+                test_debug!("Failed to append {}/{}", &next_staging_block.consensus_hash, &block.block_hash());
+                StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, None, &next_staging_block.consensus_hash, &block.header.block_hash(), false)?;
+                StacksChainState::free_block_state(&blocks_path, &next_staging_block.consensus_hash, &block.header);
 
                 match e {
                     Error::InvalidStacksMicroblock(ref msg, ref header_hash) => {
                         // specifically, an ancestor microblock was invalid.  Drop any descendent microblocks --
                         // they're never going to be valid in _any_ fork, even if they have a clone
                         // in a neighboring burnchain fork.
-                        error!("Parent microblock stream from {}/{} is invalid at microblock {}: {}", parent_block_header_info.burn_header_hash, parent_block_header_info.anchored_header.block_hash(), header_hash, msg);
-                        StacksChainState::drop_staging_microblocks(&mut chainstate_tx.blocks_tx, &parent_block_header_info.burn_header_hash, &parent_block_header_info.anchored_header.block_hash(), header_hash)?;
+                        error!("Parent microblock stream from {}/{} is invalid at microblock {}: {}", parent_block_header_info.consensus_hash, parent_block_header_info.anchored_header.block_hash(), header_hash, msg);
+                        StacksChainState::drop_staging_microblocks(&mut chainstate_tx.blocks_tx, &parent_block_header_info.consensus_hash, &parent_block_header_info.anchored_header.block_hash(), header_hash)?;
                     },
                     _ => {
                         // block was invalid, but this means all the microblocks it confirmed are
@@ -3121,18 +3133,18 @@ impl StacksChainState {
         };
 
         assert_eq!(epoch_receipt.header.anchored_header.block_hash(), block.block_hash());
-        assert_eq!(epoch_receipt.header.burn_header_hash, next_staging_block.burn_header_hash);
+        assert_eq!(epoch_receipt.header.consensus_hash, next_staging_block.consensus_hash);
         assert_eq!(epoch_receipt.header.anchored_header.parent_microblock, last_microblock_hash);
         assert_eq!(epoch_receipt.header.anchored_header.parent_microblock_sequence, last_microblock_seq);
 
-        debug!("Reached chain tip {}/{} from {}/{}", epoch_receipt.header.burn_header_hash, epoch_receipt.header.anchored_header.block_hash(), next_staging_block.parent_burn_header_hash, next_staging_block.parent_anchored_block_hash);
+        debug!("Reached chain tip {}/{} from {}/{}", epoch_receipt.header.consensus_hash, epoch_receipt.header.anchored_header.block_hash(), next_staging_block.parent_consensus_hash, next_staging_block.parent_anchored_block_hash);
 
         if next_staging_block.parent_microblock_hash != EMPTY_MICROBLOCK_PARENT_HASH || next_staging_block.parent_microblock_seq != 0 {
             // confirmed one or more parent microblocks
-            StacksChainState::set_microblocks_confirmed(&mut chainstate_tx.blocks_tx, &next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash, last_microblock_seq)?;
+            StacksChainState::set_microblocks_confirmed(&mut chainstate_tx.blocks_tx, &next_staging_block.parent_consensus_hash, &next_staging_block.parent_anchored_block_hash, last_microblock_seq)?;
         }
 
-        StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(sort_tx), &epoch_receipt.header.burn_header_hash, &epoch_receipt.header.anchored_header.block_hash(), true)?;
+        StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, Some(sort_tx), &epoch_receipt.header.consensus_hash, &epoch_receipt.header.anchored_header.block_hash(), true)?;
        
         chainstate_tx.commit()
             .map_err(Error::DBError)?;
@@ -3140,11 +3152,22 @@ impl StacksChainState {
         Ok((Some(epoch_receipt), None))
     }
 
+    /// Process staging blocks at the canonical chain tip,
+    ///  this only needs to be used in contexts that aren't
+    ///  PoX aware (i.e., unit tests, and old stacks-node loops),
+    /// Elsewhere, block processing is invoked by the ChainsCoordinator,
+    ///  which handles tracking the chain tip itself
+    #[cfg(test)]
+    pub fn process_blocks_at_tip(&mut self, sort_db: &mut SortitionDB, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+        let tx = sort_db.tx_begin_at_tip();
+        self.process_blocks(tx, max_blocks)
+    }
+
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.  For each chain tip produced, return the header info, receipts, parent microblock
     /// stream execution cost, and block execution cost
-    pub fn process_blocks(&mut self, sortdb: &mut SortitionDB, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+    pub fn process_blocks(&mut self, mut sort_tx: SortitionHandleTx, max_blocks: usize) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         debug!("Process up to {} blocks", max_blocks);
 
         let mut ret = vec![];
@@ -3153,12 +3176,10 @@ impl StacksChainState {
             // nothing to do
             return Ok(vec![]);
         }
-        
-        let mut tx = sortdb.tx_begin()?;
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            match self.process_next_staging_block(&mut tx) {
+            match self.process_next_staging_block(&mut sort_tx) {
                 Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
                     Some(next_tip) => {
                         ret.push((Some(next_tip), next_microblock_poison_opt));
@@ -3195,7 +3216,7 @@ impl StacksChainState {
             }
         }
 
-        tx.commit().map_err(Error::DBError)?;
+        sort_tx.commit()?;
 
         let mut block_tx = self.blocks_tx_begin()?;
         for _ in 0..max_blocks {
@@ -3225,34 +3246,34 @@ impl StacksChainState {
     /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
     /// in.
     pub fn get_stacks_chain_tip(&self, sortdb: &SortitionDB) -> Result<Option<StagingBlock>, Error> {
-        let (burn_bhh, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash_stubbed(&sortdb.conn)?;
-        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND burn_header_hash = ?1 AND anchored_block_hash = ?2";
-        let args : &[&dyn ToSql] = &[&burn_bhh, &block_bhh];
+        let (consensus_hash, block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
+        let args : &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
         query_row(&self.blocks_db, sql, args).map_err(Error::DBError)
     }
 
     /// Get the height of a staging block
-    pub fn get_stacks_block_height(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<u64>, Error> {
-        let sql = "SELECT height FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2";
-        let args : &[&dyn ToSql] = &[burn_header_hash, block_hash];
+    pub fn get_stacks_block_height(&self, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<u64>, Error> {
+        let sql = "SELECT height FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
+        let args : &[&dyn ToSql] = &[consensus_hash, block_hash];
         query_row(&self.blocks_db, sql, args).map_err(Error::DBError)
     }
 
     /// Check to see if a transaction can be (potentially) appended on top of a given chain tip.
     /// Note that this only checks the transaction against the _anchored chain tip_, not the
     /// unconfirmed microblock stream trailing off of it.
-    pub fn will_admit_mempool_tx(&mut self, mempool_conn: &DBConn, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
+    pub fn will_admit_mempool_tx(&mut self, mempool_conn: &DBConn, current_consensus_hash: &ConsensusHash, current_block: &BlockHeaderHash, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
         let conf = self.config();
-        let staging_height = match self.get_stacks_block_height(current_burn, current_block) {
+        let staging_height = match self.get_stacks_block_height(current_consensus_hash, current_block) {
             Ok(Some(height)) => {
                 height
             },
             Ok(None) => {
-                if *current_burn == FIRST_BURNCHAIN_BLOCK_HASH {
+                if *current_consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
                     0
                 }
                 else {
-                    return Err(MemPoolRejection::NoSuchChainTip(current_burn.clone(), current_block.clone()));
+                    return Err(MemPoolRejection::NoSuchChainTip(current_consensus_hash.clone(), current_block.clone()));
                 }
             },
             Err(_e) => {
@@ -3270,8 +3291,8 @@ impl StacksChainState {
             _ => false      // unused
         };
         
-        let current_tip = StacksChainState::get_parent_index_block(current_burn, current_block);
-        self.with_read_only_clarity_tx(&current_tip, |conn| {
+        let current_tip = StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
+        self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
             StacksChainState::can_include_tx(mempool_conn, conn, &conf, has_microblock_pubk, tx, tx_size)
         })
     }
@@ -3347,14 +3368,18 @@ impl StacksChainState {
                 return Err(MemPoolRejection::BadAddressVersionByte)
         }
 
+        let block_height = clarity_connection.with_clarity_db_readonly(|ref mut db| {
+            db.get_current_burnchain_block_height() as u64
+        });
+
         // 5: the paying account must have enough funds
-        if fee as u128 > payer.stx_balance {
+        if  !payer.stx_balance.can_transfer(fee as u128, block_height) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
                     // pass: we'll return a total_spent failure below.
                 },
                 _ => {
-                    return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance));
+                    return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance.amount_unlocked));
                 }
             }
         }
@@ -3374,8 +3399,8 @@ impl StacksChainState {
                     } else {
                         0
                     };
-                if total_spent > origin.stx_balance {
-                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance))
+                if !origin.stx_balance.can_transfer(total_spent, block_height) {
+                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance.get_available_balance_at_block(block_height)))
                 }
             },
             TransactionPayload::ContractCall(TransactionContractCall {
@@ -3387,15 +3412,13 @@ impl StacksChainState {
 
                 let contract_identifier = QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
 
-                let function_type = clarity_connection.with_analysis_db_readonly(|db| {
-                        db.get_public_function_type(&contract_identifier, &function_name)
-                    })
-                    .map_err(|_e| MemPoolRejection::NoSuchContract)?
-                    .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
-
-                let arg_types: Vec<_> = function_args.iter().map(|x| TypeSignature::type_of(x)).collect();
-                function_type.check_args(&mut (), &arg_types)
-                    .map_err(|e| MemPoolRejection::BadFunctionArgument(e))?;
+                clarity_connection.with_analysis_db_readonly(|db| {
+                    let function_type = db.get_public_function_type(&contract_identifier, &function_name)
+                        .map_err(|_e| MemPoolRejection::NoSuchContract)?
+                        .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
+                    function_type.check_args_by_allowing_trait_cast(db, &function_args)
+                        .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
+                })?;
             },
             TransactionPayload::SmartContract(TransactionSmartContract { name, code_body: _ }) => {
                 let contract_identifier = QualifiedContractIdentifier::new(tx.origin_address().into(), name.clone());
@@ -3581,86 +3604,86 @@ pub mod test {
         microblocks[l-1].block_hash()
     }
 
-    fn assert_block_staging_not_processed(chainstate: &mut StacksChainState, burn_header: &BurnchainHeaderHash, block: &StacksBlock) -> () {
-        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap(), *block);
-        assert_eq!(StacksChainState::get_staging_block_status(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().unwrap(), false);
+    fn assert_block_staging_not_processed(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> () {
+        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().unwrap(), *block);
+        assert_eq!(StacksChainState::get_staging_block_status(&chainstate.blocks_db, consensus_hash, &block.block_hash()).unwrap().unwrap(), false);
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header, &block.block_hash());
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
     }
 
-    fn assert_block_not_stored(chainstate: &mut StacksChainState, burn_header: &BurnchainHeaderHash, block: &StacksBlock) -> () {
-        assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap());
-        assert_eq!(StacksChainState::load_staging_block_pubkey_hash(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().unwrap(), block.header.microblock_pubkey_hash);
+    fn assert_block_not_stored(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> () {
+        assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap());
+        assert_eq!(StacksChainState::load_staging_block_pubkey_hash(&chainstate.blocks_db, consensus_hash, &block.block_hash()).unwrap().unwrap(), block.header.microblock_pubkey_hash);
     }
 
-    fn assert_block_stored_rejected(chainstate: &mut StacksChainState, burn_header: &BurnchainHeaderHash, block: &StacksBlock) -> () {
-        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap());
-        assert!(StacksChainState::load_block(&chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
-        assert!(StacksChainState::load_block_header(&chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
-        assert!(StacksChainState::load_staging_block_pubkey_hash(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().is_none());
+    fn assert_block_stored_rejected(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> () {
+        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap());
+        assert!(StacksChainState::load_block(&chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_none());
+        assert!(StacksChainState::load_block_header(&chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_none());
+        assert!(StacksChainState::load_staging_block_pubkey_hash(&chainstate.blocks_db, consensus_hash, &block.block_hash()).unwrap().is_none());
 
-        assert_eq!(StacksChainState::get_staging_block_status(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().unwrap(), true);
-        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
+        assert_eq!(StacksChainState::get_staging_block_status(&chainstate.blocks_db, consensus_hash, &block.block_hash()).unwrap().unwrap(), true);
+        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_none());
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header, &block.block_hash());
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
     }
 
-    fn assert_block_stored_not_staging(chainstate: &mut StacksChainState, burn_header: &BurnchainHeaderHash, block: &StacksBlock) -> () {
-        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap());
-        assert!(StacksChainState::load_block(&chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_block(&chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap(), *block);
-        assert_eq!(StacksChainState::load_block_header(&chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap(), block.header);
-        assert!(StacksChainState::load_staging_block_pubkey_hash(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().is_none());
+    fn assert_block_stored_not_staging(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> () {
+        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap());
+        assert!(StacksChainState::load_block(&chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_block(&chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().unwrap(), *block);
+        assert_eq!(StacksChainState::load_block_header(&chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().unwrap(), block.header);
+        assert!(StacksChainState::load_staging_block_pubkey_hash(&chainstate.blocks_db, consensus_hash, &block.block_hash()).unwrap().is_none());
 
-        assert_eq!(StacksChainState::get_staging_block_status(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().unwrap(), true);
-        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
+        assert_eq!(StacksChainState::get_staging_block_status(&chainstate.blocks_db, consensus_hash, &block.block_hash()).unwrap().unwrap(), true);
+        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_none());
         
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header, &block.block_hash());
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
     }
 
-    pub fn store_staging_block(chainstate: &mut StacksChainState, burn_header: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) {
+    pub fn store_staging_block(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash, commit_burn: u64, sortition_burn: u64) {
         let mut tx = chainstate.blocks_tx_begin().unwrap();
-        StacksChainState::store_staging_block(&mut tx, burn_header, burn_header_timestamp, block, parent_burn_header, commit_burn, sortition_burn).unwrap();
+        StacksChainState::store_staging_block(&mut tx, consensus_hash, block, parent_consensus_hash, commit_burn, sortition_burn).unwrap();
         tx.commit().unwrap();
         
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header, &block.block_hash());
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
     }
 
-    pub fn store_staging_microblock(chainstate: &mut StacksChainState, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) {
+    pub fn store_staging_microblock(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) {
         let mut tx = chainstate.blocks_tx_begin().unwrap();
-        StacksChainState::store_staging_microblock(&mut tx, burn_header_hash, anchored_block_hash, microblock).unwrap();
+        StacksChainState::store_staging_microblock(&mut tx, consensus_hash, anchored_block_hash, microblock).unwrap();
         tx.commit().unwrap();
         
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, anchored_block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, anchored_block_hash);
         assert!(chainstate.has_microblocks_indexed(&index_block_hash).unwrap());
     }
     
-    pub fn set_block_processed(chainstate: &mut StacksChainState, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, accept: bool) {
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, anchored_block_hash);
+    pub fn set_block_processed(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, accept: bool) {
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, anchored_block_hash);
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
 
         let mut tx = chainstate.blocks_tx_begin().unwrap();
-        StacksChainState::set_block_processed(&mut tx, None, burn_hash, anchored_block_hash, accept).unwrap();
+        StacksChainState::set_block_processed(&mut tx, None, consensus_hash, anchored_block_hash, accept).unwrap();
         tx.commit().unwrap();
         
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
     }
 
-    fn get_microblock_stream_head_hash(chainstate: &StacksChainState, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Option<BlockHeaderHash> {
-        StacksChainState::get_microblock_stream_head_hash(&chainstate.blocks_db, burn_hash, anchored_block_hash).unwrap()
+    fn get_microblock_stream_head_hash(chainstate: &StacksChainState, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        StacksChainState::get_microblock_stream_head_hash(&chainstate.blocks_db, consensus_hash, anchored_block_hash).unwrap()
     }
 
-    pub fn set_microblocks_confirmed(chainstate: &mut StacksChainState, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) {
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, anchored_block_hash);
+    pub fn set_microblocks_confirmed(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) {
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, anchored_block_hash);
         assert!(chainstate.has_microblocks_indexed(&index_block_hash).unwrap());
 
-        let stream_head_hash = get_microblock_stream_head_hash(chainstate, burn_hash, anchored_block_hash).unwrap();
-        let index_microblock_hash = StacksBlockHeader::make_index_block_hash(burn_hash, &stream_head_hash);
+        let stream_head_hash = get_microblock_stream_head_hash(chainstate, consensus_hash, anchored_block_hash).unwrap();
+        let index_microblock_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &stream_head_hash);
         
         let mblock_anchored_hash_opt = chainstate.get_confirmed_microblock_index_hash(&index_block_hash).unwrap();
         
@@ -3674,7 +3697,7 @@ pub mod test {
         }
 
         let mut tx = chainstate.blocks_tx_begin().unwrap();
-        StacksChainState::set_microblocks_confirmed(&mut tx, burn_hash, anchored_block_hash, last_seq).unwrap();
+        StacksChainState::set_microblocks_confirmed(&mut tx, consensus_hash, anchored_block_hash, last_seq).unwrap();
         tx.commit().unwrap();
         
         assert!(chainstate.has_microblocks_indexed(&index_block_hash).unwrap());
@@ -3692,9 +3715,9 @@ pub mod test {
         res
     }
 
-    fn drop_staging_microblocks(chainstate: &mut StacksChainState, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, invalid_microblock: &BlockHeaderHash) {
+    fn drop_staging_microblocks(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, invalid_microblock: &BlockHeaderHash) {
         let mut tx = chainstate.blocks_tx_begin().unwrap();
-        StacksChainState::drop_staging_microblocks(&mut tx, burn_hash, anchored_block_hash, invalid_microblock).unwrap();
+        StacksChainState::drop_staging_microblocks(&mut tx, consensus_hash, anchored_block_hash, invalid_microblock).unwrap();
         tx.commit().unwrap();
     }
 
@@ -3702,14 +3725,14 @@ pub mod test {
     fn stacks_db_block_load_store_empty() {
         let chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store_empty");
 
-        let path = StacksChainState::get_block_path(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([2u8; 32])).unwrap();
+        let path = StacksChainState::get_block_path(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &BlockHeaderHash([2u8; 32])).unwrap();
         assert!(fs::metadata(&path).is_err());
-        assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([2u8; 32])).unwrap());
+        assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([1u8; 20]), &BlockHeaderHash([2u8; 32])).unwrap());
 
-        StacksChainState::store_empty_block(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([2u8; 32])).unwrap();
+        StacksChainState::store_empty_block(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &BlockHeaderHash([2u8; 32])).unwrap();
         assert!(fs::metadata(&path).is_ok());
-        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([2u8; 32])).unwrap());
-        assert!(StacksChainState::load_block(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([2u8; 32])).unwrap().is_none());
+        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([1u8; 20]), &BlockHeaderHash([2u8; 32])).unwrap());
+        assert!(StacksChainState::load_block(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &BlockHeaderHash([2u8; 32])).unwrap().is_none());
     }
 
     #[test]
@@ -3723,22 +3746,22 @@ pub mod test {
         block.header.parent_microblock_sequence = 0;
         block.header.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH.clone();
 
-        let path = StacksChainState::get_block_path(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap();
+        let path = StacksChainState::get_block_path(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap();
         assert!(fs::metadata(&path).is_err());
-        assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap());
+        assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap());
 
-        StacksChainState::store_block(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block).unwrap();
+        StacksChainState::store_block(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block).unwrap();
         assert!(fs::metadata(&path).is_ok());
-        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap());
-        assert!(StacksChainState::load_block(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_block(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap().unwrap(), block);
-        assert_eq!(StacksChainState::load_block_header(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap().unwrap(), block.header);
+        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap());
+        assert!(StacksChainState::load_block(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_block(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap().unwrap(), block);
+        assert_eq!(StacksChainState::load_block_header(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap().unwrap(), block.header);
 
-        StacksChainState::free_block_state(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.header);
+        StacksChainState::free_block_state(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.header);
 
-        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap());
-        assert!(StacksChainState::load_block(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap().is_none());
-        assert!(StacksChainState::load_block_header(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap().is_none());
+        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap());
+        assert!(StacksChainState::load_block(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap().is_none());
+        assert!(StacksChainState::load_block_header(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block.block_hash()).unwrap().is_none());
     }
 
     #[test]
@@ -3748,21 +3771,21 @@ pub mod test {
       
         let block = make_empty_coinbase_block(&privk);
         
-        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
+        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash()).unwrap().is_none());
 
-        store_staging_block(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), get_epoch_time_secs(), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2);
+        store_staging_block(&mut chainstate, &ConsensusHash([2u8; 20]), &block, &ConsensusHash([1u8; 20]), 1, 2);
 
-        assert_block_staging_not_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
-        assert_block_not_stored(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_staging_not_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
+        assert_block_not_stored(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
 
-        set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), true);
+        set_block_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), true);
 
-        assert_block_stored_not_staging(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_stored_not_staging(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
         
         // should be idempotent
-        set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), true);
+        set_block_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), true);
 
-        assert_block_stored_not_staging(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_stored_not_staging(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
     }
     
     #[test]
@@ -3772,21 +3795,21 @@ pub mod test {
       
         let block = make_empty_coinbase_block(&privk);
         
-        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
+        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash()).unwrap().is_none());
 
-        store_staging_block(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), get_epoch_time_secs(), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2);
+        store_staging_block(&mut chainstate, &ConsensusHash([2u8; 20]), &block, &ConsensusHash([1u8; 20]), 1, 2);
 
-        assert_block_staging_not_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
-        assert_block_not_stored(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_staging_not_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
+        assert_block_not_stored(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
 
-        set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), false);
+        set_block_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), false);
     
-        assert_block_stored_rejected(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_stored_rejected(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
         
         // should be idempotent
-        set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), false);
+        set_block_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), false);
     
-        assert_block_stored_rejected(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_stored_rejected(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
     }
 
     #[test]
@@ -3797,23 +3820,23 @@ pub mod test {
         let block = make_empty_coinbase_block(&privk);
         let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
 
-        let path = StacksChainState::get_block_path(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap();
+        let path = StacksChainState::get_block_path(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap();
         assert!(fs::metadata(&path).is_err());
-        assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
-        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).is_err());
+        assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap());
+        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).is_err());
         
-        StacksChainState::store_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks).unwrap();
+        StacksChainState::store_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks).unwrap();
 
         assert!(fs::metadata(&path).is_ok());
-        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
+        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap());
         
-        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().unwrap(), microblocks);
+        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap().unwrap(), microblocks);
 
-        StacksChainState::free_block(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash());
+        StacksChainState::free_block(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash());
 
-        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
-        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().is_none());
+        assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap());
+        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap().is_none());
     }
 
     #[test]
@@ -3824,48 +3847,48 @@ pub mod test {
         let block = make_empty_coinbase_block(&privk);
         let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
         
-        assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
-        assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_none());
+        assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
+        assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash(), u16::max_value()).unwrap().is_none());
 
-        store_staging_block(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), get_epoch_time_secs(), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2);
+        store_staging_block(&mut chainstate, &ConsensusHash([2u8; 20]), &block, &ConsensusHash([1u8; 20]), 1, 2);
         for mb in microblocks.iter() {
-            store_staging_microblock(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), mb);
+            store_staging_microblock(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), mb);
         }
 
         // block should be stored to staging
-        assert_block_staging_not_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_staging_not_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
 
         // microblock stream should be stored to staging
-        assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().unwrap().try_into_microblock().unwrap(), microblocks[0]);
-        assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
+        assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().unwrap().try_into_microblock().unwrap(), microblocks[0]);
+        assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
 
         // block should _not_ be in the chunk store
-        assert_block_not_stored(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_not_stored(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
 
         // microblocks should _not_ be in the chunk store
-        assert!(!StacksChainState::has_stored_microblocks(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
-        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).is_err());
+        assert!(!StacksChainState::has_stored_microblocks(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap());
+        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).is_err());
 
-        set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), true);
-        set_microblocks_confirmed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), (microblocks.len() - 1) as u16);
+        set_block_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), true);
+        set_microblocks_confirmed(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), (microblocks.len() - 1) as u16);
 
         // block should be stored to chunk store now
-        assert_block_stored_not_staging(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_stored_not_staging(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
 
         // microblocks should be in the chunk store
-        assert!(StacksChainState::has_stored_microblocks(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
-        assert_eq!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().unwrap(), microblocks);
+        assert!(StacksChainState::has_stored_microblocks(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap());
+        assert_eq!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap().unwrap(), microblocks);
 
         // microblocks should be absent from staging
         for mb in microblocks.iter() {
-            assert!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().is_some());
-            assert_eq!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), true);
+            assert!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &mb.block_hash()).unwrap().is_some());
+            assert_eq!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), true);
         }
 
         // but we should still load the full stream if asked
-        assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
+        assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash(), u16::max_value()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
     }
 
     #[test]
@@ -3876,56 +3899,56 @@ pub mod test {
         let block = make_empty_coinbase_block(&privk);
         let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
 
-        assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
-        assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_none());
+        assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
+        assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash(), u16::max_value()).unwrap().is_none());
 
-        store_staging_block(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), get_epoch_time_secs(), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2);
+        store_staging_block(&mut chainstate, &ConsensusHash([2u8; 20]), &block, &ConsensusHash([1u8; 20]), 1, 2);
         for mb in microblocks.iter() {
-            store_staging_microblock(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), mb);
+            store_staging_microblock(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), mb);
         }
 
         // block should be stored to staging
-        assert_block_staging_not_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
-        assert_block_not_stored(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_staging_not_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
+        assert_block_not_stored(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
 
         // microblock stream should be stored to staging
-        assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().unwrap().try_into_microblock().unwrap(), microblocks[0]);
-        assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
+        assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().unwrap().try_into_microblock().unwrap(), microblocks[0]);
+        assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
 
         // microblocks should _not_ be in the chunk store
-        assert!(!StacksChainState::has_stored_microblocks(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
-        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).is_err());
+        assert!(!StacksChainState::has_stored_microblocks(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap());
+        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).is_err());
 
         // confirm the 0th microblock, but not the 1st or later.
         // do not confirm the block.
-        set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), true);
-        set_microblocks_confirmed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), 0);
+        set_block_processed(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), true);
+        set_microblocks_confirmed(&mut chainstate, &ConsensusHash([2u8; 20]), &block.block_hash(), 0);
 
         // block should be processed in staging, but the data should not be in the staging DB
-        assert_block_stored_not_staging(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        assert_block_stored_not_staging(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
 
         // microblocks should not be in the chunk store, except for block 0 which was confirmed
-        assert!(StacksChainState::has_stored_microblocks(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
-        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().unwrap(), vec![microblocks[0].clone()]);
+        assert!(StacksChainState::has_stored_microblocks(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap());
+        assert!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_microblock_stream(&chainstate.blocks_path, &ConsensusHash([2u8; 20]), &microblocks[0].block_hash()).unwrap().unwrap(), vec![microblocks[0].clone()]);
         
         // microblocks should be present in staging, except for block 0 
         for mb in microblocks.iter() {
-            assert!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().is_some());
+            assert!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &mb.block_hash()).unwrap().is_some());
             
             if mb.header.sequence == 0 {
-                assert_eq!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), true);
+                assert_eq!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), true);
             }
             else {
                 // not processed since seq=0 was the last block to be accepted
-                assert_eq!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), false);
+                assert_eq!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &ConsensusHash([2u8; 20]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), false);
             }
         }
         
         // can load the entire stream still
-        assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_some());
-        assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
+        assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash(), u16::max_value()).unwrap().is_some());
+        assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &ConsensusHash([2u8; 20]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
     }
 
     #[test]
@@ -4188,58 +4211,58 @@ pub mod test {
         block_3.header.parent_block = block_2.block_hash();
         block_4.header.parent_block = block_3.block_hash();
 
-        let burn_headers = vec![
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([3u8; 32]),
-            BurnchainHeaderHash([4u8; 32]),
-            BurnchainHeaderHash([5u8; 32]),
+        let consensus_hashes = vec![
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([3u8; 20]),
+            ConsensusHash([4u8; 20]),
+            ConsensusHash([5u8; 20]),
         ];
 
-        let parent_burn_headers = vec![
-            BurnchainHeaderHash([1u8; 32]),
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([3u8; 32]),
-            BurnchainHeaderHash([4u8; 32]),
+        let parent_consensus_hashes = vec![
+            ConsensusHash([1u8; 20]),
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([3u8; 20]),
+            ConsensusHash([4u8; 20]),
         ];
 
         let blocks = &[&block_1, &block_2, &block_3, &block_4];
        
         // store each block
-        for ((block, burn_header), parent_burn_header) in blocks.iter().zip(&burn_headers).zip(&parent_burn_headers) {
-            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
-            store_staging_block(&mut chainstate, burn_header, get_epoch_time_secs(), block, parent_burn_header, 1, 2);
-            assert_block_staging_not_processed(&mut chainstate, burn_header, block);
+        for ((block, consensus_hash), parent_consensus_hash) in blocks.iter().zip(&consensus_hashes).zip(&parent_consensus_hashes) {
+            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_none());
+            store_staging_block(&mut chainstate, consensus_hash, block, parent_consensus_hash, 1, 2);
+            assert_block_staging_not_processed(&mut chainstate, consensus_hash, block);
         }
 
         // first block is attachable, but all the rest are not
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
 
-        for (block, burn_header) in blocks[1..].iter().zip(&burn_headers[1..]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, false);
+        for (block, consensus_hash) in blocks[1..].iter().zip(&consensus_hashes[1..]) {
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().unwrap().attachable, false);
         }
 
         // process all blocks, and check that processing a parent makes the child attachable
-        for (i, (block, burn_header)) in blocks.iter().zip(&burn_headers).enumerate() {
+        for (i, (block, consensus_hash)) in blocks.iter().zip(&consensus_hashes).enumerate() {
             // child block is not attachable
-            if i + 1 < burn_headers.len() {
-                let child_burn_header = &burn_headers[i + 1];
+            if i + 1 < consensus_hashes.len() {
+                let child_consensus_hash = &consensus_hashes[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attachable, false);
+                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_consensus_hash, &child_block.block_hash()).unwrap().unwrap().attachable, false);
             }
 
             // block not stored yet
-            assert_block_not_stored(&mut chainstate, burn_header, block);
+            assert_block_not_stored(&mut chainstate, consensus_hash, block);
 
-            set_block_processed(&mut chainstate, burn_header, &block.block_hash(), true);
+            set_block_processed(&mut chainstate, consensus_hash, &block.block_hash(), true);
 
             // block is now stored
-            assert_block_stored_not_staging(&mut chainstate, burn_header, block);
+            assert_block_stored_not_staging(&mut chainstate, consensus_hash, block);
 
             // child block is attachable
-            if i + 1 < burn_headers.len() {
-                let child_burn_header = &burn_headers[i + 1];
+            if i + 1 < consensus_hashes.len() {
+                let child_consensus_hash = &consensus_hashes[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attachable, true);
+                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_consensus_hash, &child_block.block_hash()).unwrap().unwrap().attachable, true);
             }
         }
     }
@@ -4258,58 +4281,58 @@ pub mod test {
         block_3.header.parent_block = block_2.block_hash();
         block_4.header.parent_block = block_3.block_hash();
 
-        let burn_headers = vec![
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([3u8; 32]),
-            BurnchainHeaderHash([4u8; 32]),
-            BurnchainHeaderHash([5u8; 32]),
+        let consensus_hashes = vec![
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([3u8; 20]),
+            ConsensusHash([4u8; 20]),
+            ConsensusHash([5u8; 20]),
         ];
 
-        let parent_burn_headers = vec![
-            BurnchainHeaderHash([1u8; 32]),
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([3u8; 32]),
-            BurnchainHeaderHash([4u8; 32]),
+        let parent_consensus_hashes = vec![
+            ConsensusHash([1u8; 20]),
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([3u8; 20]),
+            ConsensusHash([4u8; 20]),
         ];
 
         let blocks = &[&block_1, &block_2, &block_3, &block_4];
        
         // store each block, in reverse order!
-        for ((block, burn_header), parent_burn_header) in blocks.iter().zip(&burn_headers).zip(&parent_burn_headers).rev() {
-            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
-            store_staging_block(&mut chainstate, burn_header, get_epoch_time_secs(), block, parent_burn_header, 1, 2);
-            assert_block_staging_not_processed(&mut chainstate, burn_header, block);
+        for ((block, consensus_hash), parent_consensus_hash) in blocks.iter().zip(&consensus_hashes).zip(&parent_consensus_hashes).rev() {
+            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_none());
+            store_staging_block(&mut chainstate, consensus_hash, block, parent_consensus_hash, 1, 2);
+            assert_block_staging_not_processed(&mut chainstate, consensus_hash, block);
         }
 
         // first block is accepted, but all the rest are not
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
 
-        for (block, burn_header) in blocks[1..].iter().zip(&burn_headers[1..]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, false);
+        for (block, consensus_hash) in blocks[1..].iter().zip(&consensus_hashes[1..]) {
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().unwrap().attachable, false);
         }
 
         // process all blocks, and check that processing a parent makes the child attachable
-        for (i, (block, burn_header)) in blocks.iter().zip(&burn_headers).enumerate() {
+        for (i, (block, consensus_hash)) in blocks.iter().zip(&consensus_hashes).enumerate() {
             // child block is not attachable
-            if i + 1 < burn_headers.len() {
-                let child_burn_header = &burn_headers[i + 1];
+            if i + 1 < consensus_hashes.len() {
+                let child_consensus_hash = &consensus_hashes[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attachable, false);
+                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_consensus_hash, &child_block.block_hash()).unwrap().unwrap().attachable, false);
             }
 
             // block not stored yet
-            assert_block_not_stored(&mut chainstate, burn_header, block);
+            assert_block_not_stored(&mut chainstate, consensus_hash, block);
 
-            set_block_processed(&mut chainstate, burn_header, &block.block_hash(), true);
+            set_block_processed(&mut chainstate, consensus_hash, &block.block_hash(), true);
 
             // block is now stored
-            assert_block_stored_not_staging(&mut chainstate, burn_header, block);
+            assert_block_stored_not_staging(&mut chainstate, consensus_hash, block);
 
             // child block is attachable
-            if i + 1 < burn_headers.len() {
-                let child_burn_header = &burn_headers[i + 1];
+            if i + 1 < consensus_hashes.len() {
+                let child_consensus_hash = &consensus_hashes[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_burn_header, &child_block.block_hash()).unwrap().unwrap().attachable, true);
+                assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, child_consensus_hash, &child_block.block_hash()).unwrap().unwrap().attachable, true);
             }
         }
     }
@@ -4336,62 +4359,62 @@ pub mod test {
         block_3.header.parent_block = block_1.block_hash();
         block_4.header.parent_block = block_3.block_hash();
 
-        let burn_headers = vec![
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([3u8; 32]),
-            BurnchainHeaderHash([4u8; 32]),
-            BurnchainHeaderHash([5u8; 32]),
+        let consensus_hashes = vec![
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([3u8; 20]),
+            ConsensusHash([4u8; 20]),
+            ConsensusHash([5u8; 20]),
         ];
 
-        let parent_burn_headers = vec![
-            BurnchainHeaderHash([1u8; 32]),
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([3u8; 32]),
-            BurnchainHeaderHash([4u8; 32]),
+        let parent_consensus_hashes = vec![
+            ConsensusHash([1u8; 20]),
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([3u8; 20]),
+            ConsensusHash([4u8; 20]),
         ];
 
         let blocks = &[&block_1, &block_2, &block_3, &block_4];
       
         // store each block in reverse order, except for block_1
-        for ((block, burn_header), parent_burn_header) in blocks[1..].iter().zip(&burn_headers[1..]).zip(&parent_burn_headers[1..]).rev() {
-            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
-            store_staging_block(&mut chainstate, burn_header, get_epoch_time_secs(), block, parent_burn_header, 1, 2);
-            assert_block_staging_not_processed(&mut chainstate, burn_header, block);
+        for ((block, consensus_hash), parent_consensus_hash) in blocks[1..].iter().zip(&consensus_hashes[1..]).zip(&parent_consensus_hashes[1..]).rev() {
+            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().is_none());
+            store_staging_block(&mut chainstate, consensus_hash, block, parent_consensus_hash, 1, 2);
+            assert_block_staging_not_processed(&mut chainstate, consensus_hash, block);
         }
 
         // block 4 is not attachable
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[3], &block_4.block_hash()).unwrap().unwrap().attachable, false);
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[3], &block_4.block_hash()).unwrap().unwrap().attachable, false);
 
         // blocks 2 and 3 are attachable
-        for (block, burn_header) in [&block_2, &block_3].iter().zip(&[&burn_headers[1], &burn_headers[2]]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, true);
+        for (block, consensus_hash) in [&block_2, &block_3].iter().zip(&[&consensus_hashes[1], &consensus_hashes[2]]) {
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().unwrap().attachable, true);
         }
 
         // store block 1
-        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().is_none());
-        store_staging_block(&mut chainstate, &burn_headers[0], get_epoch_time_secs(), &block_1, &parent_burn_headers[0], 1, 2);
-        assert_block_staging_not_processed(&mut chainstate, &burn_headers[0], &block_1);
+        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[0], &block_1.block_hash()).unwrap().is_none());
+        store_staging_block(&mut chainstate, &consensus_hashes[0], &block_1, &parent_consensus_hashes[0], 1, 2);
+        assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[0], &block_1);
         
         // first block is attachable
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[0], &block_1.block_hash()).unwrap().unwrap().attachable, true);
 
         // blocks 2 and 3 are no longer attachable
-        for (block, burn_header) in [&block_2, &block_3].iter().zip(&[&burn_headers[1], &burn_headers[2]]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, false);
+        for (block, consensus_hash) in [&block_2, &block_3].iter().zip(&[&consensus_hashes[1], &consensus_hashes[2]]) {
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().unwrap().attachable, false);
         }
 
         // process block 1, and confirm that it makes block 2 and 3 attachable
-        assert_block_not_stored(&mut chainstate, &burn_headers[0], &block_1);
-        set_block_processed(&mut chainstate, &burn_headers[0], &block_1.block_hash(), true);
-        assert_block_stored_not_staging(&mut chainstate, &burn_headers[0], &block_1);
+        assert_block_not_stored(&mut chainstate, &consensus_hashes[0], &block_1);
+        set_block_processed(&mut chainstate, &consensus_hashes[0], &block_1.block_hash(), true);
+        assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[0], &block_1);
         
         // now block 2 and 3 are attachable
-        for (block, burn_header) in blocks[1..3].iter().zip(&burn_headers[1..3]) {
-            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().unwrap().attachable, true);
+        for (block, consensus_hash) in blocks[1..3].iter().zip(&consensus_hashes[1..3]) {
+            assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, consensus_hash, &block.block_hash()).unwrap().unwrap().attachable, true);
         }
 
         // and block 4 is still not
-        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[3], &block_4.block_hash()).unwrap().unwrap().attachable, false);
+        assert_eq!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[3], &block_4.block_hash()).unwrap().unwrap().attachable, false);
     }
 
     #[test]
@@ -4428,51 +4451,51 @@ pub mod test {
         block_4.header.parent_microblock = mblocks[2].block_hash();
         block_4.header.parent_microblock_sequence = mblocks[2].header.sequence;
         
-        let burn_headers = vec![
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([2u8; 32]),
+        let consensus_hashes = vec![
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([2u8; 20]),
         ];
 
-        let parent_burn_headers = vec![
-            BurnchainHeaderHash([1u8; 32]),
-            BurnchainHeaderHash([1u8; 32]),
-            BurnchainHeaderHash([1u8; 32]),
-            BurnchainHeaderHash([1u8; 32]),
+        let parent_consensus_hashes = vec![
+            ConsensusHash([1u8; 20]),
+            ConsensusHash([1u8; 20]),
+            ConsensusHash([1u8; 20]),
+            ConsensusHash([1u8; 20]),
         ];
 
         let blocks = &[&block_1, &block_2, &block_3, &block_4];
 
         // store all microblocks to staging
         for mblock in mblocks.iter() {
-            store_staging_microblock(&mut chainstate, &burn_headers[0], &blocks[0].block_hash(), mblock);
+            store_staging_microblock(&mut chainstate, &consensus_hashes[0], &blocks[0].block_hash(), mblock);
         }
 
         // store block 1 to staging
-        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[0], &blocks[0].block_hash()).unwrap().is_none());
-        store_staging_block(&mut chainstate, &burn_headers[0], get_epoch_time_secs(), &blocks[0], &parent_burn_headers[0], 1, 2);
-        assert_block_staging_not_processed(&mut chainstate, &burn_headers[0], &blocks[0]);
+        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[0], &blocks[0].block_hash()).unwrap().is_none());
+        store_staging_block(&mut chainstate, &consensus_hashes[0], &blocks[0], &parent_consensus_hashes[0], 1, 2);
+        assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[0], &blocks[0]);
 
-        set_block_processed(&mut chainstate, &burn_headers[0], &blocks[0].block_hash(), true);
-        assert_block_stored_not_staging(&mut chainstate, &burn_headers[0], &blocks[0]);
+        set_block_processed(&mut chainstate, &consensus_hashes[0], &blocks[0].block_hash(), true);
+        assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[0], &blocks[0]);
 
         // process and store blocks 1 and N, as well as microblocks in-between
         let len = blocks.len();
         for i in 1..len {
             // this is what happens at the end of append_block()
             // store block to staging and process it
-            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[i], &blocks[i].block_hash()).unwrap().is_none());
-            store_staging_block(&mut chainstate, &burn_headers[i], get_epoch_time_secs(), &blocks[i], &parent_burn_headers[i], 1, 2);
-            assert_block_staging_not_processed(&mut chainstate, &burn_headers[i], &blocks[i]);
+            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[i], &blocks[i].block_hash()).unwrap().is_none());
+            store_staging_block(&mut chainstate, &consensus_hashes[i], &blocks[i], &parent_consensus_hashes[i], 1, 2);
+            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], &blocks[i]);
 
             // set different parts of this stream as confirmed
-            set_microblocks_confirmed(&mut chainstate, &burn_headers[0], &blocks[0].block_hash(), blocks[i].header.parent_microblock_sequence);
+            set_microblocks_confirmed(&mut chainstate, &consensus_hashes[0], &blocks[0].block_hash(), blocks[i].header.parent_microblock_sequence);
 
-            set_block_processed(&mut chainstate, &burn_headers[i], &blocks[i].block_hash(), true);
-            assert_block_stored_not_staging(&mut chainstate, &burn_headers[i], &blocks[i]);
+            set_block_processed(&mut chainstate, &consensus_hashes[i], &blocks[i].block_hash(), true);
+            assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[i], &blocks[i]);
             
-            let mblocks_confirmed = StacksChainState::load_microblock_stream(&chainstate.blocks_path, &burn_headers[0], &mblocks[0].block_hash()).unwrap().unwrap();
+            let mblocks_confirmed = StacksChainState::load_microblock_stream(&chainstate.blocks_path, &consensus_hashes[0], &mblocks[0].block_hash()).unwrap().unwrap();
             assert_eq!(mblocks_confirmed.as_slice(), &mblocks[0..i]);
         }
     }
@@ -4510,56 +4533,56 @@ pub mod test {
             microblocks.push(mblocks);
         }
 
-        let burn_headers = vec![
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([3u8; 32]),
-            BurnchainHeaderHash([4u8; 32]),
-            BurnchainHeaderHash([5u8; 32]),
+        let consensus_hashes = vec![
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([3u8; 20]),
+            ConsensusHash([4u8; 20]),
+            ConsensusHash([5u8; 20]),
         ];
 
-        let parent_burn_headers = vec![
-            BurnchainHeaderHash([1u8; 32]),
-            BurnchainHeaderHash([2u8; 32]),
-            BurnchainHeaderHash([3u8; 32]),
-            BurnchainHeaderHash([4u8; 32]),
+        let parent_consensus_hashes = vec![
+            ConsensusHash([1u8; 20]),
+            ConsensusHash([2u8; 20]),
+            ConsensusHash([3u8; 20]),
+            ConsensusHash([4u8; 20]),
         ];
 
         // store all microblocks to staging
-        for ((block, burn_header), mblocks) in blocks.iter().zip(&burn_headers).zip(&microblocks) {
+        for ((block, consensus_hash), mblocks) in blocks.iter().zip(&consensus_hashes).zip(&microblocks) {
             for mblock in mblocks {
-                store_staging_microblock(&mut chainstate, burn_header, &block.block_hash(), mblock);
-                assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, burn_header, &block.block_hash(), &mblock.block_hash()).unwrap().is_some());
+                store_staging_microblock(&mut chainstate, consensus_hash, &block.block_hash(), mblock);
+                assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, consensus_hash, &block.block_hash(), &mblock.block_hash()).unwrap().is_some());
             }
         }
 
         // store blocks to staging
         for i in 0..blocks.len() {
-            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[i], &blocks[i].block_hash()).unwrap().is_none());
-            store_staging_block(&mut chainstate, &burn_headers[i], get_epoch_time_secs(), &blocks[i], &parent_burn_headers[i], 1, 2);
-            assert_block_staging_not_processed(&mut chainstate, &burn_headers[i], &blocks[i]);
+            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[i], &blocks[i].block_hash()).unwrap().is_none());
+            store_staging_block(&mut chainstate, &consensus_hashes[i], &blocks[i], &parent_consensus_hashes[i], 1, 2);
+            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], &blocks[i]);
         }
 
         // reject block 1
-        set_block_processed(&mut chainstate, &burn_headers[0], &blocks[0].block_hash(), false);
+        set_block_processed(&mut chainstate, &consensus_hashes[0], &blocks[0].block_hash(), false);
 
         // destroy all descendents
         for i in 0..blocks.len() {
             // confirm that block i is deleted, as are its microblocks 
-            assert_block_stored_rejected(&mut chainstate, &burn_headers[i], &blocks[i]);
+            assert_block_stored_rejected(&mut chainstate, &consensus_hashes[i], &blocks[i]);
 
             // block i's microblocks should all be marked as processed, orphaned, and deleted
             for mblock in microblocks[i].iter() {
-                assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &burn_headers[i], &blocks[i].block_hash(), &mblock.block_hash()).unwrap().is_none());
+                assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &consensus_hashes[i], &blocks[i].block_hash(), &mblock.block_hash()).unwrap().is_none());
                 assert!(StacksChainState::load_staging_microblock_bytes(&chainstate.blocks_db, &mblock.block_hash()).unwrap().is_none());
             }
 
             if i + 1 < blocks.len() {
                 // block i+1 should be marked as an orphan, but its data should still be there
-                assert!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[i+1], &blocks[i+1].block_hash()).unwrap().is_none());
-                assert!(StacksChainState::load_block_bytes(&chainstate.blocks_path, &burn_headers[i+1], &blocks[i+1].block_hash()).unwrap().unwrap().len() > 0);
+                assert!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[i+1], &blocks[i+1].block_hash()).unwrap().is_none());
+                assert!(StacksChainState::load_block_bytes(&chainstate.blocks_path, &consensus_hashes[i+1], &blocks[i+1].block_hash()).unwrap().unwrap().len() > 0);
                 
                 for mblock in microblocks[i+1].iter() {
-                    let staging_mblock = StacksChainState::load_staging_microblock(&chainstate.blocks_db, &burn_headers[i+1], &blocks[i+1].block_hash(), &mblock.block_hash()).unwrap().unwrap();
+                    let staging_mblock = StacksChainState::load_staging_microblock(&chainstate.blocks_db, &consensus_hashes[i+1], &blocks[i+1].block_hash(), &mblock.block_hash()).unwrap().unwrap();
                     assert!(!staging_mblock.processed);
                     assert!(!staging_mblock.orphaned);
                     assert!(staging_mblock.block_data.len() > 0);
@@ -4589,30 +4612,30 @@ pub mod test {
         let mut mblocks = make_sample_microblock_stream(&privk, &block.block_hash());
         mblocks.truncate(3);
         
-        let burn_header = BurnchainHeaderHash([2u8; 32]);
-        let parent_burn_header = BurnchainHeaderHash([1u8; 32]);
+        let consensus_hash = ConsensusHash([2u8; 20]);
+        let parent_consensus_hash = ConsensusHash([1u8; 20]);
 
         // store microblocks to staging
         for mblock in mblocks.iter() {
-            store_staging_microblock(&mut chainstate, &burn_header, &block.block_hash(), mblock);
-            assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &burn_header, &block.block_hash(), &mblock.block_hash()).unwrap().is_some());
+            store_staging_microblock(&mut chainstate, &consensus_hash, &block.block_hash(), mblock);
+            assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &consensus_hash, &block.block_hash(), &mblock.block_hash()).unwrap().is_some());
         }
 
         // store block to staging
-        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &burn_header, &block.block_hash()).unwrap().is_none());
-        store_staging_block(&mut chainstate, &burn_header, get_epoch_time_secs(), &block, &parent_burn_header, 1, 2);
-        assert_block_staging_not_processed(&mut chainstate, &burn_header, &block);
+        assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hash, &block.block_hash()).unwrap().is_none());
+        store_staging_block(&mut chainstate, &consensus_hash, &block, &parent_consensus_hash, 1, 2);
+        assert_block_staging_not_processed(&mut chainstate, &consensus_hash, &block);
 
         // drop microblocks
         let len = mblocks.len();
         for i in 0..len {
-            drop_staging_microblocks(&mut chainstate, &burn_header, &block.block_hash(), &mblocks[len - i - 1].block_hash());
+            drop_staging_microblocks(&mut chainstate, &consensus_hash, &block.block_hash(), &mblocks[len - i - 1].block_hash());
             if i < len - 1 {
-                assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &burn_header, &block.block_hash(), u16::max_value()).unwrap().unwrap().as_slice(), &mblocks[0..len - i - 1]);
+                assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hash, &block.block_hash(), u16::max_value()).unwrap().unwrap().as_slice(), &mblocks[0..len - i - 1]);
             }
             else {
                 // last time we do this, there will be no more stream
-                assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &burn_header, &block.block_hash(), u16::max_value()).unwrap().is_none());
+                assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hash, &block.block_hash(), u16::max_value()).unwrap().is_none());
             }
         }
     }
@@ -4626,10 +4649,10 @@ pub mod test {
         let mut mblocks = make_sample_microblock_stream(&privk, &block.block_hash());
         mblocks.truncate(3);
         
-        let burn_header = BurnchainHeaderHash([2u8; 32]);
-        let parent_burn_header = BurnchainHeaderHash([1u8; 32]);
+        let consensus_hash = ConsensusHash([2u8; 20]);
+        let parent_consensus_hash = ConsensusHash([1u8; 20]);
 
-        let index_block_header = StacksBlockHeader::make_index_block_hash(&burn_header, &block.block_hash());
+        let index_block_header = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash());
         assert!(!StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_header).unwrap());
         assert!(!chainstate.has_microblocks_indexed(&index_block_header).unwrap());
         
@@ -4639,8 +4662,8 @@ pub mod test {
         for (i, mblock) in mblocks.iter().enumerate() {
             assert!(StacksChainState::stream_microblock_get_rowid(&chainstate.blocks_db, &index_block_header, mblock.header.sequence).unwrap().is_none());
 
-            store_staging_microblock(&mut chainstate, &burn_header, &block.block_hash(), mblock);
-            assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &burn_header, &block.block_hash(), &mblock.block_hash()).unwrap().is_some());
+            store_staging_microblock(&mut chainstate, &consensus_hash, &block.block_hash(), mblock);
+            assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &consensus_hash, &block.block_hash(), &mblock.block_hash()).unwrap().is_some());
         
             assert!(chainstate.has_microblocks_indexed(&index_block_header).unwrap());
             assert!(StacksChainState::stream_microblock_get_rowid(&chainstate.blocks_db, &index_block_header, mblock.header.sequence).unwrap().is_some());
@@ -4651,7 +4674,7 @@ pub mod test {
             assert_eq!(mblock_info.len(), i + 1);
 
             let last_mblock_info = mblock_info.last().unwrap();
-            assert_eq!(last_mblock_info.burn_header_hash, burn_header);
+            assert_eq!(last_mblock_info.consensus_hash, consensus_hash);
             assert_eq!(last_mblock_info.anchored_block_hash, block.block_hash());
             assert_eq!(last_mblock_info.microblock_hash, mblock.block_hash());
             assert_eq!(last_mblock_info.sequence, mblock.header.sequence);
@@ -4661,18 +4684,18 @@ pub mod test {
         }
         
         // store block to staging
-        store_staging_block(&mut chainstate, &burn_header, get_epoch_time_secs(), &block, &parent_burn_header, 1, 2);
+        store_staging_block(&mut chainstate, &consensus_hash, &block, &parent_consensus_hash, 1, 2);
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_header).unwrap());
 
         // accept it
-        set_block_processed(&mut chainstate, &burn_header, &block.block_hash(), true);
+        set_block_processed(&mut chainstate, &consensus_hash, &block.block_hash(), true);
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_header).unwrap());
 
         for i in 0..mblocks.len() {
             assert!(StacksChainState::stream_microblock_get_rowid(&chainstate.blocks_db, &index_block_header, mblocks[i].header.sequence).unwrap().is_some());
 
             // set different parts of this stream as confirmed
-            set_microblocks_confirmed(&mut chainstate, &burn_header, &block.block_hash(), i as u16);
+            set_microblocks_confirmed(&mut chainstate, &consensus_hash, &block.block_hash(), i as u16);
             assert!(chainstate.has_microblocks_indexed(&index_block_header).unwrap());
             assert!(StacksChainState::stream_microblock_get_rowid(&chainstate.blocks_db, &index_block_header, mblocks[i].header.sequence).unwrap().is_none());  // no longer in staging
 
@@ -4680,7 +4703,7 @@ pub mod test {
             assert_eq!(mblock_info.len(), mblocks.len());
 
             let this_mblock_info = &mblock_info[i];
-            assert_eq!(this_mblock_info.burn_header_hash, burn_header);
+            assert_eq!(this_mblock_info.consensus_hash, consensus_hash);
             assert_eq!(this_mblock_info.anchored_block_hash, block.block_hash());
             assert_eq!(this_mblock_info.microblock_hash, mblocks[i].block_hash());
             assert_eq!(this_mblock_info.sequence, mblocks[i].header.sequence);
@@ -4759,9 +4782,9 @@ pub mod test {
         
         let block = make_empty_coinbase_block(&privk);
         
-        let burn_header = BurnchainHeaderHash([2u8; 32]);
-        let parent_burn_header = BurnchainHeaderHash([1u8; 32]);
-        let index_block_header = StacksBlockHeader::make_index_block_hash(&burn_header, &block.block_hash());
+        let consensus_hash = ConsensusHash([2u8; 20]);
+        let parent_consensus_hash = ConsensusHash([1u8; 20]);
+        let index_block_header = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash());
 
         // can't stream a non-existant block
         let mut stream = BlockStreamData::new_block(index_block_header.clone());
@@ -4772,7 +4795,7 @@ pub mod test {
         assert_eq!(stream, stream_2);
 
         // store block to staging
-        store_staging_block(&mut chainstate, &burn_header, get_epoch_time_secs(), &block, &parent_burn_header, 1, 2);
+        store_staging_block(&mut chainstate, &consensus_hash, &block, &parent_consensus_hash, 1, 2);
 
         // stream it back
         let mut all_block_bytes = vec![];
@@ -4790,7 +4813,7 @@ pub mod test {
         assert_eq!(staging_block, block);
 
         // accept it
-        set_block_processed(&mut chainstate, &burn_header, &block.block_hash(), true);
+        set_block_processed(&mut chainstate, &consensus_hash, &block.block_hash(), true);
 
         // can still stream it
         let mut stream = BlockStreamData::new_block(index_block_header.clone());
@@ -4820,9 +4843,9 @@ pub mod test {
         let mut mblocks = make_sample_microblock_stream(&privk, &block.block_hash());
         mblocks.truncate(15);
         
-        let burn_header = BurnchainHeaderHash([2u8; 32]);
-        let parent_burn_header = BurnchainHeaderHash([1u8; 32]);
-        let index_block_header = StacksBlockHeader::make_index_block_hash(&burn_header, &block.block_hash());
+        let consensus_hash = ConsensusHash([2u8; 20]);
+        let parent_consensus_hash = ConsensusHash([1u8; 20]);
+        let index_block_header = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash());
         
         // can't stream a non-existant microblock
         let mut stream = BlockStreamData::new_block(index_block_header.clone());
@@ -4831,7 +4854,7 @@ pub mod test {
 
         // store microblocks to staging and stream them back
         for (i, mblock) in mblocks.iter().enumerate() {
-            store_staging_microblock(&mut chainstate, &burn_header, &block.block_hash(), mblock);
+            store_staging_microblock(&mut chainstate, &consensus_hash, &block.block_hash(), mblock);
 
             // read back all the data we have so far, block-by-block
             let mut staging_mblocks = vec![];
@@ -4892,28 +4915,28 @@ pub mod test {
         let mut mblocks = make_sample_microblock_stream(&privk, &block.block_hash());
         mblocks.truncate(5);
         
-        let burn_header = BurnchainHeaderHash([2u8; 32]);
-        let parent_burn_header = BurnchainHeaderHash([1u8; 32]);
+        let consensus_hash = ConsensusHash([2u8; 20]);
+        let parent_consensus_hash = ConsensusHash([1u8; 20]);
 
-        let index_block_header = StacksBlockHeader::make_index_block_hash(&burn_header, &block.block_hash());
+        let index_block_header = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash());
 
         // store microblocks to staging
         for (i, mblock) in mblocks.iter().enumerate() {
-            store_staging_microblock(&mut chainstate, &burn_header, &block.block_hash(), mblock);
+            store_staging_microblock(&mut chainstate, &consensus_hash, &block.block_hash(), mblock);
         }
         
         // store block to staging
-        store_staging_block(&mut chainstate, &burn_header, get_epoch_time_secs(), &block, &parent_burn_header, 1, 2);
+        store_staging_block(&mut chainstate, &consensus_hash, &block, &parent_consensus_hash, 1, 2);
 
         // accept it
-        set_block_processed(&mut chainstate, &burn_header, &block.block_hash(), true);
+        set_block_processed(&mut chainstate, &consensus_hash, &block.block_hash(), true);
 
         for i in 0..mblocks.len() {
             // set different parts of this stream as confirmed
-            set_microblocks_confirmed(&mut chainstate, &burn_header, &block.block_hash(), i as u16);
+            set_microblocks_confirmed(&mut chainstate, &consensus_hash, &block.block_hash(), i as u16);
 
             // verify that we can stream everything
-            let microblock_index_header = StacksBlockHeader::make_index_block_hash(&burn_header, &mblocks[0].block_hash());
+            let microblock_index_header = StacksBlockHeader::make_index_block_hash(&consensus_hash, &mblocks[0].block_hash());
             let mut stream = BlockStreamData::new_microblock_confirmed(microblock_index_header.clone());
 
             let mut confirmed_mblock_bytes = vec![];
@@ -4944,10 +4967,10 @@ pub mod test {
         let mut blocks = vec![];
         let mut privks = vec![];
         let mut microblocks = vec![];
-        let mut burn_headers = vec![];
-        let mut parent_burn_headers = vec![];
+        let mut consensus_hashes = vec![];
+        let mut parent_consensus_hashes = vec![];
 
-        for i in 0..(BLOCKS_INV_DATA_MAX_BITLEN as usize) {
+        for i in 0..32 {
             test_debug!("Making block {}", i);
             let privk = StacksPrivateKey::new();
             let block = make_empty_coinbase_block(&privk);
@@ -4955,11 +4978,11 @@ pub mod test {
             blocks.push(block);
             privks.push(privk);
 
-            let bhh = BurnchainHeaderHash([((i + 1) as u8); 32]);
-            burn_headers.push(bhh);
+            let bhh = ConsensusHash([((i + 1) as u8); 20]);
+            consensus_hashes.push(bhh);
 
-            let parent_bhh = BurnchainHeaderHash([(i as u8); 32]);
-            parent_burn_headers.push(parent_bhh);
+            let parent_bhh = ConsensusHash([(i as u8); 20]);
+            parent_consensus_hashes.push(parent_bhh);
         }
 
         for i in 0..blocks.len() {
@@ -4978,7 +5001,7 @@ pub mod test {
         }
 
         let block_hashes : Vec<BlockHeaderHash> = blocks.iter().map(|ref b| b.block_hash()).collect();
-        let header_hashes_all : Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)> = burn_headers.iter().zip(block_hashes.iter()).map(|(ref burn, ref block)| ((*burn).clone(), Some((*block).clone()))).collect();
+        let header_hashes_all : Vec<(ConsensusHash, Option<BlockHeaderHash>)> = consensus_hashes.iter().zip(block_hashes.iter()).map(|(ref burn, ref block)| ((*burn).clone(), Some((*block).clone()))).collect();
 
         // nothing is stored, so our inventory should be empty 
         let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
@@ -4990,10 +5013,10 @@ pub mod test {
         }
 
         // store all microblocks to staging
-        for (i, ((block, burn_header), mblocks)) in blocks.iter().zip(&burn_headers).zip(&microblocks).enumerate() {
+        for (i, ((block, consensus_hash), mblocks)) in blocks.iter().zip(&consensus_hashes).zip(&microblocks).enumerate() {
             test_debug!("Store microblock stream {} to staging", i);
             for mblock in mblocks.iter() {
-                store_staging_microblock(&mut chainstate, burn_header, &block.block_hash(), mblock);
+                store_staging_microblock(&mut chainstate, consensus_hash, &block.block_hash(), mblock);
             }
         }
         
@@ -5009,10 +5032,10 @@ pub mod test {
         // store blocks to staging
         for i in 0..blocks.len() {
             test_debug!("Store block {} to staging", i);
-            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[i], &blocks[i].block_hash()).unwrap().is_none());
+            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &consensus_hashes[i], &blocks[i].block_hash()).unwrap().is_none());
 
-            store_staging_block(&mut chainstate, &burn_headers[i], get_epoch_time_secs(), &blocks[i], &parent_burn_headers[i], 1, 2);
-            assert_block_staging_not_processed(&mut chainstate, &burn_headers[i], &blocks[i]);
+            store_staging_block(&mut chainstate, &consensus_hashes[i], &blocks[i], &parent_consensus_hashes[i], 1, 2);
+            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], &blocks[i]);
         
             // some anchored blocks are stored (to staging)
             let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
@@ -5032,14 +5055,14 @@ pub mod test {
         // confirm blocks and microblocks 
         for i in 0..blocks.len() {
             test_debug!("Confirm block {} and its microblock stream", i);
-            set_block_processed(&mut chainstate, &burn_headers[i], &block_hashes[i], true);
+            set_block_processed(&mut chainstate, &consensus_hashes[i], &block_hashes[i], true);
 
             // have block, but stream is still empty
             let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
             assert!(!block_inv_all.has_ith_microblock_stream(i as u16));
 
             for k in 0..2 {
-                set_microblocks_confirmed(&mut chainstate, &burn_headers[i], &block_hashes[i], k);
+                set_microblocks_confirmed(&mut chainstate, &consensus_hashes[i], &block_hashes[i], k);
 
                 let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
                 for j in 0..blocks.len() {
@@ -5059,7 +5082,7 @@ pub mod test {
         // mark blocks as empty.  Should also orphan its descendent microblock stream
         for i in 0..blocks.len() {
             test_debug!("Mark block {} as invalid", i);
-            StacksChainState::free_block(&chainstate.blocks_path, &burn_headers[i], &blocks[i].block_hash());
+            StacksChainState::free_block(&chainstate.blocks_path, &consensus_hashes[i], &blocks[i].block_hash());
             
             // some anchored blocks are stored (to staging)
             let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
@@ -5077,7 +5100,7 @@ pub mod test {
         // mark microblocks as empty.  Should also orphan its descendent microblock stream
         for i in 0..blocks.len() {
             test_debug!("Mark block {} as invalid", i);
-            let index_hash = StacksBlockHeader::make_index_block_hash(&burn_headers[i], &blocks[i].block_hash());
+            let index_hash = StacksBlockHeader::make_index_block_hash(&consensus_hashes[i], &blocks[i].block_hash());
             let mblock_index_hash = chainstate.get_confirmed_microblock_index_hash(&index_hash).unwrap().unwrap();
             let mblock_path = StacksChainState::get_index_block_path(&chainstate.blocks_path, &mblock_index_hash).unwrap();
             
@@ -5111,14 +5134,14 @@ pub mod test {
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
         };
 
-        let mut last_block_bhh : Option<BurnchainHeaderHash> = None;
+        let mut last_block_ch : Option<ConsensusHash> = None;
         let mut last_parent_opt : Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
-            let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
 
@@ -5126,41 +5149,41 @@ pub mod test {
                 last_parent_opt = parent_opt.cloned();
                 let parent_tip = match parent_opt {
                     None => {
-                        StacksChainState::get_genesis_header_info(&chainstate.headers_db).unwrap()
+                        StacksChainState::get_genesis_header_info(chainstate.headers_db()).unwrap()
                     }
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap().unwrap();      // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &snapshot.burn_header_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                        StacksChainState::get_anchored_block_header_info(chainstate.headers_db(), &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                     }
                 };
                 
                 let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block.0, vec![])
             });
 
-            let (_, burn_header_hash) = peer.next_burnchain_block(burn_ops.clone());
+            let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let blocks_path = peer.chainstate().blocks_path.clone();
 
             if tenure_id == 0 {
-                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &burn_header_hash, &stacks_block.block_hash());
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &consensus_hash, &stacks_block.block_hash());
                 assert!(parent_header_opt.is_err());
             }
             else {
-                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &burn_header_hash, &stacks_block.block_hash()).unwrap();
-                let (parent_header, parent_bhh) = parent_header_opt.unwrap();
+                let parent_header_opt = StacksChainState::load_parent_block_header(&peer.sortdb.as_ref().unwrap().index_conn(), &blocks_path, &consensus_hash, &stacks_block.block_hash()).unwrap();
+                let (parent_header, parent_ch) = parent_header_opt.unwrap();
                 
                 assert_eq!(last_parent_opt.as_ref().unwrap().header, parent_header);
-                assert_eq!(parent_bhh, last_block_bhh.clone().unwrap());
+                assert_eq!(parent_ch, last_block_ch.clone().unwrap());
             }
             
-            last_block_bhh = Some(burn_header_hash.clone());
+            last_block_ch = Some(consensus_hash.clone());
         }
     }
 

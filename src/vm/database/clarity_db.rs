@@ -11,7 +11,8 @@ use chainstate::stacks::{
 };
 use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::db::{StacksHeaderInfo, MinerPaymentSchedule};
-use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::burn::{VRFSeed, BlockHeaderHash, ConsensusHash};
 use burnchains::BurnchainHeaderHash;
 
 use util::hash::{Sha256Sum, Sha512Trunc256Sum};
@@ -19,13 +20,22 @@ use vm::database::{MarfedKV, ClarityBackingStore};
 use vm::database::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, ContractMetadata,
     DataMapMetadata, DataVariableMetadata, ClaritySerializable, SimmedBlock,
-    ClarityDeserializable
+    ClarityDeserializable, STXBalance
 };
 use vm::database::RollbackWrapper;
 use util::db::{DBConn, FromRow};
 use vm::costs::CostOverflowingMath;
 
-const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
+use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleTx, SortitionHandleConn, SortitionDB, SortitionId};
+
+use core::{
+    FIRST_BURNCHAIN_BLOCK_HEIGHT,
+    FIRST_BURNCHAIN_BLOCK_HASH,
+    FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
+    POX_REWARD_CYCLE_LENGTH,
+    FIRST_BURNCHAIN_CONSENSUS_HASH,
+    FIRST_STACKS_BLOCK_HASH
+};
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -44,12 +54,15 @@ pub enum StoreType {
     SimmedBlock = 0x10,
     SimmedBlockHeight = 0x11,
     Nonce = 0x12,
-    STXBalance = 0x13
+    STXBalance = 0x13,
+    PoxSTXLockup = 0x14,
+    PoxUnlockHeight = 0x15
 }
 
 pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
+    burn_state_db: &'a dyn BurnStateDB,
 }
 
 pub trait HeadersDB {
@@ -57,7 +70,14 @@ pub trait HeadersDB {
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
+    fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128;
+}
+
+pub trait BurnStateDB {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash>;
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
@@ -92,6 +112,11 @@ impl HeadersDB for DBConn {
             .map(|x| x.burn_header_timestamp)
     }
 
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.burn_header_height)
+    }
+
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         get_stacks_header_info(self, id_bhh)
             .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
@@ -100,6 +125,12 @@ impl HeadersDB for DBConn {
     fn get_miner_address(&self, id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
         get_miner_info(self, id_bhh)
             .map(|x| x.address)
+    }
+
+    fn get_total_liquid_ustx(&self, id_bhh: &StacksBlockId) -> u128 {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.total_liquid_ustx)
+            .unwrap_or(0)
     }
 }
 
@@ -116,43 +147,136 @@ impl HeadersDB for &dyn HeadersDB {
     fn get_burn_block_time_for_block(&self, bhh: &StacksBlockId) -> Option<u64> {
         (*self).get_burn_block_time_for_block(bhh)
     }
-    fn get_miner_address(&self, bhh: &StacksBlockId)  -> Option<StacksAddress> {
+    fn get_burn_block_height_for_block(&self, bhh: &StacksBlockId) -> Option<u32> {
+        (*self).get_burn_block_height_for_block(bhh)
+    }
+    fn get_miner_address(&self, bhh: &StacksBlockId) -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
+    }
+    fn get_total_liquid_ustx(&self, bhh: &StacksBlockId) -> u128 {
+        (*self).get_total_liquid_ustx(bhh)
+    }
+}
+
+impl BurnStateDB for SortitionHandleTx<'_> {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
+            Ok(Some(x)) => Some(x.block_height as u32),
+            _ => return None
+        }
+    }
+
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        let readonly_marf = self.index().reopen_readonly()
+            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
+        let mut context = self.context.clone();
+        context.chain_tip = sortition_id.clone();
+        let db_handle = SortitionHandleConn::new(&readonly_marf, context);
+        match db_handle.get_block_snapshot_by_height(height as u64) {
+            Ok(Some(x)) => Some(x.burn_header_hash),
+            _ => return None
+        }
+    }
+}
+
+impl BurnStateDB for SortitionDBConn<'_> {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        match SortitionDB::get_block_snapshot(self.conn(), sortition_id) {
+            Ok(Some(x)) => Some(x.block_height as u32),
+            _ => return None
+        }
+    }
+
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
+        match db_handle.get_block_snapshot_by_height(height as u64) {
+            Ok(Some(x)) => Some(x.burn_header_hash),
+            _ => return None
+        }
+    }
+} 
+
+impl BurnStateDB for &dyn BurnStateDB {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        (*self).get_burn_block_height(sortition_id)
+    }
+
+    fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        (*self).get_burn_header_hash(height, sortition_id)
     }
 }
 
 pub struct NullHeadersDB {}
+pub struct NullBurnStateDB {}
 
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
+pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {};
 
 impl HeadersDB for NullHeadersDB {
-    fn get_burn_header_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
-        None
+    fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
+        if *id_bhh == StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+            Some(FIRST_BURNCHAIN_BLOCK_HASH)
+        }
+        else {
+            None
+        }
     }
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
     }
-    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
-        None
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
+        if *id_bhh == StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+            Some(FIRST_STACKS_BLOCK_HASH)
+        }
+        else {
+            None
+        }
     }
-    fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
-        None
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        if *id_bhh == StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+            Some(FIRST_BURNCHAIN_BLOCK_TIMESTAMP)
+        }
+        else {
+            None
+        }
+    }
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        if *id_bhh == StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+            Some(FIRST_BURNCHAIN_BLOCK_HEIGHT)
+        }
+        else {
+            None
+        }
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
+        None
+    }
+    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
+        0
+    }
+}
+
+impl BurnStateDB for NullBurnStateDB {
+    fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+        None
+    }
+    
+    fn get_burn_header_hash(&self, _height: u32, _sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
         None
     }
 }
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn new(store: &'a mut dyn ClarityBackingStore, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
+    pub fn new(store: &'a mut dyn ClarityBackingStore, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store: RollbackWrapper::new(store),
-            headers_db
+            headers_db,
+            burn_state_db
         }
     }
 
-    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
-        ClarityDatabase { store, headers_db }
+    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
+        ClarityDatabase { store, headers_db, burn_state_db }
     }
 
     pub fn initialize(&mut self) {
@@ -281,6 +405,10 @@ impl <'a> ClarityDatabase <'a> {
     pub fn destroy(self) -> RollbackWrapper<'a> {
         self.store
     }
+    
+    pub fn is_in_regtest(&self) -> bool {
+        cfg!(test)
+    }
 }
 
 // Get block information
@@ -295,6 +423,23 @@ impl <'a> ClarityDatabase <'a> {
 
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
+    }
+
+    /// Get the last-known burnchain block height.
+    /// Note that this is _not_ the burnchain height in which this block was mined!
+    /// This is the burnchain block height of its parent.
+    pub fn get_current_burnchain_block_height(&mut self) -> u32 {
+        let cur_stacks_height = self.store.get_current_block_height();
+        let last_mined_bhh = 
+            if cur_stacks_height == 0 {
+                StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+            }
+            else {
+                self.get_index_block_header_hash(cur_stacks_height.checked_sub(1).expect("BUG: cannot eval burn-block-height in boot code"))
+            };
+
+        self.get_burnchain_block_height(&last_mined_bhh)
+            .expect(&format!("Block header hash '{}' must return for provided stacks block height {}", &last_mined_bhh, cur_stacks_height))
     }
 
     pub fn get_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
@@ -314,6 +459,10 @@ impl <'a> ClarityDatabase <'a> {
         self.headers_db.get_burn_header_hash_for_block(&id_bhh)
             .expect("Failed to get block data.")
     }
+    
+    pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {
+        self.headers_db.get_burn_block_height_for_block(id_bhh)
+    }
 
     pub fn get_block_vrf_seed(&mut self, block_height: u32) -> VRFSeed {
         let id_bhh = self.get_index_block_header_hash(block_height);
@@ -326,6 +475,12 @@ impl <'a> ClarityDatabase <'a> {
         self.headers_db.get_miner_address(&id_bhh)
             .expect("Failed to get block data.")
             .into()
+    }
+
+    pub fn get_total_liquid_ustx(&mut self) -> u128 {
+        let cur_height = self.get_current_block_height();
+        let cur_id_bhh = self.get_index_block_header_hash(cur_height);
+        self.headers_db.get_total_liquid_ustx(&cur_id_bhh)
     }
 }
 
@@ -603,18 +758,26 @@ impl<'a> ClarityDatabase<'a> {
         ClarityDatabase::make_key_for_account(principal, StoreType::Nonce)
     }
 
-    pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
+    pub fn make_key_for_account_stx_locked(principal: &PrincipalData) -> String {
+        ClarityDatabase::make_key_for_account(principal, StoreType::PoxSTXLockup)
+    }
+
+    pub fn make_key_for_account_unlock_height(principal: &PrincipalData) -> String {
+        ClarityDatabase::make_key_for_account(principal, StoreType::PoxUnlockHeight)
+    }
+
+    pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         let result = self.get(&key);
         match result {
-            None => 0,
+            None => STXBalance::zero(),
             Some(balance) => balance
         }
     }
 
-    pub fn set_account_stx_balance(&mut self, principal: &PrincipalData, balance: u128) {
+    pub fn set_account_stx_balance(&mut self, principal: &PrincipalData, balance: &STXBalance) {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
-        self.put(&key, &balance);
+        self.put(&key, balance);
     }
 
     pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> u64 {
@@ -629,5 +792,16 @@ impl<'a> ClarityDatabase<'a> {
     pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
         self.put(&key, &nonce);
+    }
+}
+
+// access burnchain state
+impl <'a> ClarityDatabase<'a> {
+    pub fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        self.burn_state_db.get_burn_block_height(sortition_id)
+    }
+
+    pub fn get_burn_header_hash(&self, height: u32, sortition_id: &SortitionId) -> Option<BurnchainHeaderHash> {
+        self.burn_state_db.get_burn_header_hash(height, sortition_id)
     }
 }

@@ -3,7 +3,7 @@ use vm::analysis::errors::{CheckErrors};
 use vm::types::{Value};
 use vm::contexts::{OwnedEnvironment};
 use vm::representations::SymbolicExpression;
-use vm::database::{MarfedKV, ClarityDatabase, NULL_HEADER_DB};
+use vm::database::{MarfedKV, ClarityDatabase, NULL_HEADER_DB, NULL_BURN_STATE_DB};
 use vm::types::{QualifiedContractIdentifier, PrincipalData};
 
 use vm::tests::{symbols_from_values, execute, is_err_code, is_committed};
@@ -146,7 +146,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &StacksBlockId([0 as u8; 32]));
 
     {
-        marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
+        marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB).initialize();
     }
 
     marf_kv.test_commit();
@@ -154,7 +154,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &StacksBlockId([1 as u8; 32]));
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         f(&mut owned_env)
     }
 
@@ -166,7 +166,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &StacksBlockId([2 as u8; 32]));
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         a(&mut owned_env)
     }
 
@@ -176,7 +176,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &StacksBlockId([3 as u8; 32]));
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         b(&mut owned_env)
     }
 
@@ -187,7 +187,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &StacksBlockId([4 as u8; 32]));
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         z(&mut owned_env)
     }
 

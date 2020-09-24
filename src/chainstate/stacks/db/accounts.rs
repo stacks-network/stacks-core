@@ -36,7 +36,19 @@ use vm::types::*;
 use util::db::*;
 use util::db::Error as db_error;
 
+use vm::{get_stx_balance_snapshot};
+
 pub type MinerPaymentCache = HashMap<StacksBlockId, Vec<MinerPaymentSchedule>>;
+
+impl StacksAccount {
+    pub fn get_available_balance_at_block(&self, burn_block_height: u64) -> u128 {
+        self.stx_balance.get_available_balance_at_block(burn_block_height)
+    }
+
+    pub fn has_locked_tokens(&self, burn_block_height: u64) -> bool {
+        self.stx_balance.has_locked_tokens(burn_block_height)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -53,9 +65,9 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
     fn from_row<'a>(row: &'a Row) -> Result<MinerPaymentSchedule, db_error> {
         let address = StacksAddress::from_column(row, "address")?;
         let block_hash = BlockHeaderHash::from_column(row, "block_hash")?;
-        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let parent_block_hash = BlockHeaderHash::from_column(row, "parent_block_hash")?;
-        let parent_burn_header_hash = BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
+        let parent_consensus_hash = ConsensusHash::from_column(row, "parent_consensus_hash")?;
         
         let coinbase_text : String = row.get("coinbase");
         let tx_fees_anchored_text : String = row.get("tx_fees_anchored");
@@ -77,9 +89,9 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
         let payment_data = MinerPaymentSchedule {
             address,
             block_hash,
-            burn_header_hash,
+            consensus_hash,
             parent_block_hash,
-            parent_burn_header_hash,
+            parent_consensus_hash,
             coinbase,
             tx_fees_anchored,
             tx_fees_streamed,
@@ -133,7 +145,7 @@ impl StacksChainState {
             StacksAccount {
                 principal: principal.clone(),
                 stx_balance,
-                nonce
+                nonce,
             }
         })
     }
@@ -156,19 +168,22 @@ impl StacksChainState {
 
     /// Called each time a transaction is invoked from this principal, to e.g.
     /// debit the STX-denominated tx fee or transfer/burn STX.
+    /// Will consolidate unlocked STX.
     /// DOES NOT UPDATE THE NONCE
     pub fn account_debit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
-            let cur_balance = db.get_account_stx_balance(principal);
-            
+            let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
+
             // last line of defense: if we don't have sufficient funds, panic.
             // This should be checked by the block validation logic.
-            if cur_balance < (amount as u128) {
-                panic!("Tried to debit {} from account {} (which only has {})", amount, principal, cur_balance);
+            if !balance.can_transfer(amount as u128, block_height) {
+                panic!("Tried to debit {} from account {} (which only has {})", amount, principal, balance.get_available_balance_at_block(block_height));
             }
 
-            let final_balance = cur_balance - (amount as u128);
-            db.set_account_stx_balance(principal, final_balance);
+            balance.debit(amount as u128, block_height)
+                .expect("STX underflow");
+            db.set_account_stx_balance(principal, &balance);
+
             Ok(())
         }).expect("FATAL: failed to debit account")
     }
@@ -177,21 +192,59 @@ impl StacksChainState {
     /// No nonce update is needed, since the transfer action is not taken by the principal.
     pub fn account_credit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
-            let cur_balance = db.get_account_stx_balance(principal);
-            let final_balance = cur_balance.checked_add(amount as u128).expect("FATAL: account balance overflow");
-            db.set_account_stx_balance(principal, final_balance as u128);
-            info!("{} credited: {} uSTX", principal, final_balance);
+            let (mut balance, block_height) = get_stx_balance_snapshot(db, principal);
+            balance.credit(amount as u128, block_height)
+                .expect("STX overflow");
+            db.set_account_stx_balance(principal, &balance);
+            info!("{} credited: {} uSTX", principal, balance.get_available_balance_at_block(block_height));
             Ok(())
         }).expect("FATAL: failed to credit account")
     }
-   
-    /// Increment an account's nonce
-    pub fn update_account_nonce(clarity_tx: &mut ClarityTransactionConnection, account: &StacksAccount) {
+
+    /// Called during the genesis / boot sequence.
+    pub fn account_genesis_credit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
         clarity_tx.with_clarity_db(|ref mut db| {
-            let next_nonce = account.nonce.checked_add(1).expect("OUT OF NONCES");
-            db.set_account_nonce(&account.principal, next_nonce);
+            let balance = STXBalance::initial(amount as u128);
+            db.set_account_stx_balance(principal, &balance);
+            info!("{} credited (genesis): {} uSTX", principal, balance.get_total_balance());
+            Ok(())
+        }).expect("FATAL: failed to credit account")
+    }
+
+    /// Increment an account's nonce
+    pub fn update_account_nonce(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, cur_nonce: u64) {
+        clarity_tx.with_clarity_db(|ref mut db| {
+            let next_nonce = cur_nonce.checked_add(1).expect("OUT OF NONCES");
+            db.set_account_nonce(&principal, next_nonce);
             Ok(())
         }).expect("FATAL: failed to set account nonce")
+    }
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock(db: &mut ClarityDatabase, principal: &PrincipalData, lock_amount: u128, unlock_burn_height: u64) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        // consolidate if we need to, since the last tx sent could have been for a PoX lockup.
+        let mut balance = db.get_account_stx_balance(principal);
+        let cur_burn_height = db.get_current_burnchain_block_height() as u64;
+
+        if balance.has_locked_tokens(cur_burn_height) {
+            return Err(Error::PoxAlreadyLocked);
+        }
+
+        if !balance.can_transfer(lock_amount, cur_burn_height) {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        balance.lock_tokens(lock_amount, unlock_burn_height, cur_burn_height)
+            .expect("Unable to lock tokens");
+        // set the locks
+        debug!("PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}", balance.amount_locked, balance.amount_unlocked, unlock_burn_height, principal);
+
+        db.set_account_stx_balance(principal, &balance);
+
+        Ok(())
     }
 
     /// Schedule a miner payment in the future.
@@ -201,14 +254,14 @@ impl StacksChainState {
         assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
         assert!(block_reward.stacks_block_height < i64::max_value() as u64);
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(&block_reward.burn_header_hash, &block_reward.block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&block_reward.consensus_hash, &block_reward.block_hash);
 
         let args: &[&dyn ToSql] = &[
             &block_reward.address.to_string(), 
             &block_reward.block_hash, 
-            &block_reward.burn_header_hash, 
+            &block_reward.consensus_hash,
             &block_reward.parent_block_hash, 
-            &block_reward.parent_burn_header_hash, 
+            &block_reward.parent_consensus_hash,
             &format!("{}", block_reward.coinbase),
             &format!("{}", block_reward.tx_fees_anchored),
             &format!("{}", block_reward.tx_fees_streamed),
@@ -224,9 +277,9 @@ impl StacksChainState {
         tx.execute("INSERT INTO payments (
                         address,
                         block_hash,
-                        burn_header_hash,
+                        consensus_hash,
                         parent_block_hash,
-                        parent_burn_header_hash,
+                        parent_consensus_hash,
                         coinbase,
                         tx_fees_anchored,
                         tx_fees_streamed,
@@ -247,9 +300,9 @@ impl StacksChainState {
             let args: &[&dyn ToSql] = &[
                 &user_support.address.to_string(),
                 &block_reward.block_hash,
-                &block_reward.burn_header_hash,
+                &block_reward.consensus_hash,
                 &block_reward.parent_block_hash,
-                &block_reward.parent_burn_header_hash,
+                &block_reward.parent_consensus_hash,
                 &format!("{}", block_reward.coinbase),
                 &"0".to_string(),
                 &"0".to_string(),
@@ -265,9 +318,9 @@ impl StacksChainState {
             tx.execute("INSERT INTO payments (
                             address,
                             block_hash,
-                            burn_header_hash,
+                            consensus_hash,
                             parent_block_hash,
-                            parent_burn_header_hash,
+                            parent_consensus_hash,
                             coinbase,
                             tx_fees_anchored,
                             tx_fees_streamed,
@@ -297,10 +350,10 @@ impl StacksChainState {
             }
         };
 
-        let qry = "SELECT * FROM payments WHERE block_hash = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC".to_string();
-        let args: &[&dyn ToSql] = &[&ancestor_info.anchored_header.block_hash(), &ancestor_info.burn_header_hash];
+        let qry = "SELECT * FROM payments WHERE block_hash = ?1 AND consensus_hash = ?2 ORDER BY vtxindex ASC".to_string();
+        let args: &[&dyn ToSql] = &[&ancestor_info.anchored_header.block_hash(), &ancestor_info.consensus_hash];
         let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, args).map_err(Error::DBError)?;
-        test_debug!("{} rewards in {}/{}", rows.len(), &ancestor_info.burn_header_hash, &ancestor_info.anchored_header.block_hash());
+        test_debug!("{} rewards in {}/{}", rows.len(), &ancestor_info.consensus_hash, &ancestor_info.anchored_header.block_hash());
         Ok(rows)
     }
 
@@ -313,21 +366,21 @@ impl StacksChainState {
     }
 
     /// Get the miner info at a particular burn/stacks block
-    pub fn get_miner_info(conn: &DBConn, burn_block_hash: &BurnchainHeaderHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<MinerPaymentSchedule>, Error> {
-        let qry = "SELECT * FROM payments WHERE burn_header_hash = ?1 AND block_hash = ?2 AND miner = 1".to_string();
-        let args = [burn_block_hash as &dyn ToSql, stacks_block_hash as &dyn ToSql];
+    pub fn get_miner_info(conn: &DBConn, consensus_hash: &ConsensusHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<MinerPaymentSchedule>, Error> {
+        let qry = "SELECT * FROM payments WHERE consensus_hash = ?1 AND block_hash = ?2 AND miner = 1".to_string();
+        let args = [consensus_hash as &dyn ToSql, stacks_block_hash as &dyn ToSql];
         let mut rows = query_rows::<MinerPaymentSchedule, _>(conn, &qry, &args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
             0 => {
-                test_debug!("No miner information for {}/{}", burn_block_hash, stacks_block_hash);
+                test_debug!("No miner information for {}/{}", consensus_hash, stacks_block_hash);
                 Ok(None)
             },
             1 => {
                 Ok(rows.pop())
             },
             _ => {
-                panic!("Multiple miners for {}/{}", burn_block_hash, stacks_block_hash);
+                panic!("Multiple miners for {}/{}", consensus_hash, stacks_block_hash);
             }
         }
     }
@@ -445,7 +498,7 @@ impl StacksChainState {
         assert!(latest_matured_miners[0].vtxindex == 0);
         assert!(latest_matured_miners[0].miner);
 
-        let mut index_block_hash = StacksBlockHeader::make_index_block_hash(&latest_matured_miners[0].parent_burn_header_hash, &latest_matured_miners[0].parent_block_hash);
+        let mut index_block_hash = StacksBlockHeader::make_index_block_hash(&latest_matured_miners[0].parent_consensus_hash, &latest_matured_miners[0].parent_block_hash);
         let mut scheduled_payments = vec![(latest_matured_miners[0].clone(), latest_matured_miners[1..].to_vec())];
 
         // load all miner rewards from tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW
@@ -490,8 +543,8 @@ impl StacksChainState {
             assert_eq!(user_burns.len(), scheduled_rewards.len() - 1);
             scheduled_payments.push((miner_reward, user_burns));
             
-            index_block_hash = StacksChainState::get_parent_index_block(&scheduled_rewards[0].parent_burn_header_hash, &scheduled_rewards[0].parent_block_hash);
-            test_debug!("Reward index hash: {} = {} + {}", &index_block_hash, &scheduled_rewards[0].parent_burn_header_hash, &scheduled_rewards[0].parent_block_hash);
+            index_block_hash = StacksChainState::get_parent_index_block(&scheduled_rewards[0].parent_consensus_hash, &scheduled_rewards[0].parent_block_hash);
+            test_debug!("Reward index hash: {} = {} + {}", &index_block_hash, &scheduled_rewards[0].parent_consensus_hash, &scheduled_rewards[0].parent_block_hash);
         }
 
         // scheduled_payments[0] should be the oldest rewards
@@ -534,14 +587,15 @@ mod test {
     use chainstate::stacks::db::test::*;
     use util::hash::*;
     use chainstate::stacks::index::*;
+    use vm::costs::ExecutionCost;
 
     fn make_dummy_miner_payment_schedule(addr: &StacksAddress, coinbase: u128, tx_fees_anchored: u128, tx_fees_streamed: u128, commit_burn: u64, sortition_burn: u64) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
             address: addr.clone(),
             block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            parent_burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             coinbase,
             tx_fees_anchored,
             tx_fees_streamed, 
@@ -565,7 +619,7 @@ mod test {
     impl StagingUserBurnSupport {
         pub fn from_miner_payment_schedule(user: &MinerPaymentSchedule) -> StagingUserBurnSupport {
             StagingUserBurnSupport {
-                burn_header_hash: user.burn_header_hash.clone(),
+                consensus_hash: user.consensus_hash.clone(),
                 anchored_block_hash: user.block_hash.clone(),
                 address: user.address.clone(),
                 burn_amount: user.burnchain_commit_burn,
@@ -582,28 +636,35 @@ mod test {
         new_tip.anchored_header.total_work.work = parent_header_info.anchored_header.total_work.work + 1;
         new_tip.microblock_tail = None;
         new_tip.block_height = parent_header_info.block_height + 1;
-        new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.burn_header_hash.0).0);
+        new_tip.consensus_hash = ConsensusHash(Hash160::from_data(&Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0).0);
+        new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0);
+        new_tip.burn_header_height = parent_header_info.burn_header_height + 1;
+        new_tip.total_liquid_ustx = parent_header_info.total_liquid_ustx + block_reward.coinbase;
 
-        block_reward.parent_burn_header_hash = parent_header_info.burn_header_hash.clone();
+        block_reward.parent_consensus_hash = parent_header_info.consensus_hash.clone();
         block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
         block_reward.block_hash = new_tip.anchored_header.block_hash();
-        block_reward.burn_header_hash = new_tip.burn_header_hash.clone();
+        block_reward.consensus_hash = new_tip.consensus_hash.clone();
 
         for ref mut user_burn in user_burns.iter_mut() {
             user_burn.anchored_block_hash = new_tip.anchored_header.block_hash();
-            user_burn.burn_header_hash = new_tip.burn_header_hash.clone();
+            user_burn.consensus_hash = new_tip.consensus_hash.clone();
         }
         
         let mut tx = chainstate.headers_tx_begin().unwrap();
         let tip = StacksChainState::advance_tip(&mut tx, 
                                                 &parent_header_info.anchored_header, 
-                                                &parent_header_info.burn_header_hash, 
+                                                &parent_header_info.consensus_hash, 
                                                 &new_tip.anchored_header, 
-                                                &new_tip.burn_header_hash, 
+                                                &new_tip.consensus_hash, 
+                                                &new_tip.burn_header_hash,
+                                                new_tip.burn_header_height,
                                                 new_tip.burn_header_timestamp, 
                                                 new_tip.microblock_tail.clone(), 
                                                 &block_reward, 
-                                                &user_burns).unwrap();
+                                                &user_burns,
+                                                new_tip.total_liquid_ustx,
+                                                &ExecutionCost::zero()).unwrap();
         tx.commit().unwrap();
         tip
     }
@@ -624,11 +685,11 @@ mod test {
 
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
-            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), 0).unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), 0).unwrap();
             assert!(ancestor_0.is_some());
         }
 
-        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), &mut miner_reward, &mut user_supports);
 
         {
             let mut tx = chainstate.headers_tx_begin().unwrap();
@@ -667,12 +728,12 @@ mod test {
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
-        let initial_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+        let initial_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
         
         let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
         let mut user_supports = vec![user_support];
 
-        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32])), &mut miner_reward, &mut user_supports);
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0), &mut miner_reward, &mut user_supports);
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(&StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 0, 0, 0, 0, 0);
@@ -685,8 +746,8 @@ mod test {
             let payments_2 = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 2).unwrap();
 
             let mut expected_user_support = user_reward.clone();
-            expected_user_support.burn_header_hash = miner_reward.burn_header_hash.clone();
-            expected_user_support.parent_burn_header_hash = miner_reward.parent_burn_header_hash.clone();
+            expected_user_support.consensus_hash = miner_reward.consensus_hash.clone();
+            expected_user_support.parent_consensus_hash = miner_reward.parent_consensus_hash.clone();
             expected_user_support.block_hash = miner_reward.block_hash.clone();
             expected_user_support.parent_block_hash = miner_reward.parent_block_hash.clone();
 
@@ -753,7 +814,7 @@ mod test {
         let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
         let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
 
-        let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]));
+        let mut parent_tip = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
 
         let mut cache = MinerPaymentCache::new();
         let mut matured_miners = vec![];

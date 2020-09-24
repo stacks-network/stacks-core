@@ -8,6 +8,7 @@ use rand::RngCore;
 use stacks::burnchains::{
     MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::secp256k1::Secp256k1PublicKey;
@@ -128,6 +129,91 @@ impl ConfigFile {
         }
     }
 
+    pub fn krypton() -> ConfigFile {    
+        let burnchain = BurnchainConfigFile {
+            mode: Some("krypton".to_string()),
+            rpc_port: Some(18443),
+            peer_port: Some(18444),
+            peer_host: Some("bitcoind.krypton.blockstack.org".to_string()),
+            process_exit_at_block_height: Some(5130), // 1 block every 2m, 24 hours * 7 + 300 blocks initially mined for seeding faucet / miner
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@krypton.blockstack.org:20444".to_string()),
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
+        let balances = vec![
+            InitialBalanceFile {
+                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                amount: 10000000000000000,
+            },
+        ];
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            mstx_balance: Some(balances),
+            ..ConfigFile::default()
+        }
+    }
+
+    pub fn xenon() -> ConfigFile {    
+        let burnchain = BurnchainConfigFile {
+            mode: Some("xenon".to_string()),
+            rpc_port: Some(18332),
+            peer_port: Some(18333),
+            peer_host: Some("xenon.blockstack.org".to_string()),
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@xenon.blockstack.org:20444".to_string()),
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
+        let balances = vec![
+            InitialBalanceFile {
+                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                amount: 10000000000000000,
+            },
+        ];
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            mstx_balance: Some(balances),
+            ..ConfigFile::default()
+        }
+    }
+
     pub fn helium() -> ConfigFile {
         // ## Settings for local testnet, relying on a local bitcoind server
         // ## running with the following bitcoin.conf:
@@ -213,7 +299,7 @@ lazy_static! {
         soft_max_clients_per_host: 1000,
         walk_interval: 30,
         inv_sync_interval: 45,
-        download_interval: 60,
+        download_interval: 10,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         .. std::default::Default::default()
@@ -307,7 +393,7 @@ impl Config {
             None => default_burnchain_config
         };
 
-        let supported_modes = vec!["mocknet", "helium", "neon", "argon"];
+        let supported_modes = vec!["mocknet", "helium", "neon", "argon", "krypton", "xenon"];
 
         if !supported_modes.contains(&burnchain.mode.as_str())  {
             panic!("Setting burnchain.network not supported (should be: {})", supported_modes.join(", "))
@@ -360,6 +446,14 @@ impl Config {
 
         let connection_options = match config_file.connection_options {
             Some(opts) => {
+                let ip_addr = match opts.public_ip_address {
+                    Some(public_ip_address) => {
+                        let addr = public_ip_address.parse::<SocketAddr>().unwrap();
+                        println!("addr.parse {:?}", addr);
+                        Some((PeerAddress::from_socketaddr(&addr), addr.port()))
+                    },
+                    None => None
+                };
                 let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS.read_only_call_limit.clone();
                 opts.read_only_call_limit_write_length.map(|x| { read_only_call_limit.write_length = x; });
                 opts.read_only_call_limit_write_count.map(|x| { read_only_call_limit.write_count = x; });
@@ -387,6 +481,9 @@ impl Config {
                     dns_timeout: opts.dns_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
                     max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks.clone()),
                     maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size.clone()),
+                    download_interval: opts.download_interval.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval.clone()),
+                    inv_sync_interval: opts.inv_sync_interval.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval.clone()),
+                    public_ip_address: ip_addr,
                     ..ConnectionOptions::default() 
                 }
             },
@@ -441,6 +538,14 @@ impl Config {
         let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
         self.initial_balances.push(new_balance);
     }
+
+    pub fn get_initial_liquid_ustx(&self) -> u128 {
+        let mut total = 0;
+        for ib in self.initial_balances.iter() {
+            total += ib.amount as u128
+        }
+        total
+    }
 }
 
 impl std::default::Default for Config {
@@ -470,7 +575,7 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -527,6 +632,15 @@ impl BurnchainConfig {
         let sock_addr = addrs_iter.next().unwrap();
         sock_addr
     }
+
+    pub fn get_bitcoin_network(&self) -> (String, BitcoinNetworkType) {
+        match self.mode.as_str() {
+            "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
+            "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
+            "helium" | "neon" | "argon" | "krypton" => ("regtest".to_string(), BitcoinNetworkType::Regtest),
+            _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest")
+        }
+    }
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -550,7 +664,7 @@ pub struct BurnchainConfigFile {
     pub process_exit_at_block_height: Option<u64>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct NodeConfig {
     pub name: String,
     pub seed: Vec<u8>,
@@ -597,7 +711,7 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
-            wait_time_for_microblocks: 0,
+            wait_time_for_microblocks: 15000,
             prometheus_bind: None,
         }
     }
@@ -669,6 +783,9 @@ pub struct ConnectionOptionsFile {
     pub read_only_call_limit_read_count: Option<u64>,
     pub read_only_call_limit_runtime: Option<u64>,
     pub maximum_call_argument_size: Option<u32>,
+    pub download_interval: Option<u64>,
+    pub inv_sync_interval: Option<u64>,
+    pub public_ip_address: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize)]

@@ -23,7 +23,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::sortdb::{ SortitionHandleConn };
+use chainstate::burn::db::sortdb::{ SortitionHandleTx };
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
@@ -205,8 +205,10 @@ impl BlockstackOperation for UserBurnSupportOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<UserBurnSupportOp, op_error> {
         UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
+}
 
-    fn check(&self, burnchain: &Burnchain, tx: &SortitionHandleConn) -> Result<(), op_error> {
+impl UserBurnSupportOp {
+    pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
 
         /////////////////////////////////////////////////////////////////
@@ -236,7 +238,8 @@ impl BlockstackOperation for UserBurnSupportOp {
             return Err(op_error::ParseError);
         }
 
-        let register_key_opt = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into())?;
+        let chain_tip = tx.context.chain_tip.clone();
+        let register_key_opt = tx.get_leader_key_at(leader_key_block_height, self.key_vtxindex.into(), &chain_tip)?;
 
         if register_key_opt.is_none() {
             warn!("Invalid user burn: no such leader VRF key {}", &self.public_key.to_hex());
@@ -439,6 +442,7 @@ mod tests {
             block_131_hash.clone(),
         ];
         let burnchain = Burnchain {
+            pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -447,7 +451,7 @@ mod tests {
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
-            first_block_hash: first_burn_hash.clone()
+            first_block_hash: first_burn_hash.clone(),
         };
         
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -494,11 +498,11 @@ mod tests {
             let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap(); 
             for i in 0..10 {
                 let mut snapshot_row = BlockSnapshot {
+                    pox_valid: true,
                     block_height: i + 1 + first_block_height,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i as usize].clone(),
                     sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
-                    pox_id: PoxId::stubbed(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i + 1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -514,11 +518,11 @@ mod tests {
                     arrival_index: 0,
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
-                    canonical_stacks_tip_burn_hash: BurnchainHeaderHash([0u8; 32])
+                    canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
                 let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
 
-                let tip_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
+                let tip_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], None, None).unwrap();
                 snapshot_row.index_root = tip_index_root;
 
                 tx.commit().unwrap();
@@ -593,8 +597,8 @@ mod tests {
                 num_txs: 1,
                 timestamp: get_epoch_time_secs()
             };
-            let ic = db.index_handle(&SortitionId::stubbed(&fixture.op.burn_header_hash));
-            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &ic)));
+            let mut ic = SortitionHandleTx::begin(&mut db, &SortitionId::stubbed(&fixture.op.burn_header_hash)).unwrap();
+            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &mut ic)));
         }
     }
 }

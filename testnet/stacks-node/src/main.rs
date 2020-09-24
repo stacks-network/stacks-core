@@ -1,5 +1,6 @@
 extern crate rand;
 extern crate serde;
+extern crate libc;
 
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate serde_derive;
@@ -32,6 +33,7 @@ pub use self::run_loop::{neon, helium};
 use pico_args::Arguments;
 use std::env;
 
+use std::convert::TryInto;
 use std::panic;
 use std::process;
 
@@ -43,6 +45,21 @@ fn main() {
         eprintln!("Process abort due to thread panic");
         let bt = Backtrace::new();
         eprintln!("{:?}", &bt);
+
+        // force a core dump
+        #[cfg(unix)]
+        {
+            let pid = process::id();
+            eprintln!("Dumping core for pid {}", std::process::id());
+
+            use libc::kill;
+            use libc::SIGQUIT;
+
+            // *should* trigger a core dump, if you run `ulimit -c unlimited` first!
+            unsafe { kill(pid.try_into().unwrap(), SIGQUIT) };
+        }
+
+        // just in case
         process::exit(1);
     }));
 
@@ -66,6 +83,14 @@ fn main() {
             args.finish().unwrap();
             ConfigFile::argon()
         }
+        "krypton" => {
+            args.finish().unwrap();
+            ConfigFile::krypton()
+        }
+        "xenon" => {
+            args.finish().unwrap();
+            ConfigFile::xenon()
+        }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
@@ -85,13 +110,21 @@ fn main() {
     };
 
     let conf = Config::from_config_file(config_file);
+    debug!("node configuration {:?}", &conf.node);
+    debug!("burnchain configuration {:?}", &conf.burnchain);
+    debug!("connection configuration {:?}", &conf.connection_options);
+    debug!("block_limit {:?}", &conf.block_limit);
+
 
     let num_round: u64 = 0; // Infinite number of rounds
 
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
-        run_loop.start(num_round);
-    } else if conf.burnchain.mode == "neon" || conf.burnchain.mode == "argon" {
+        if let Err(e) = run_loop.start(num_round) {
+            warn!("Helium runloop exited: {}", e);
+            return
+        }
+    } else if conf.burnchain.mode == "neon" || conf.burnchain.mode == "argon" || conf.burnchain.mode == "krypton" || conf.burnchain.mode == "xenon" {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round);
     } else {
@@ -123,7 +156,11 @@ helium\t\tStart a node based on a local setup relying on a local instance of bit
 \t\t  rpcuser=helium
 \t\t  rpcpassword=helium
 
-argon\t\tStart a node that will join and stream blocks from the public argon testnet, powered by Blockstack.
+argon\t\tStart a node that will join and stream blocks from the public argon testnet, powered by Blockstack (Proof of Burn).
+
+krypton\t\tStart a node that will join and stream blocks from the public krypton testnet, powered by Blockstack via (Proof of Transfer).
+
+xenon\t\tStart a node that will join and stream blocks from the public xenon testnet, decentralized.
 
 start\t\tStart a node with a config of your own. Can be used for joining a network, starting new chain, etc.
 \t\tArguments:

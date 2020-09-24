@@ -8,7 +8,7 @@ use vm::representations::{SymbolicExpression, ClarityName, depth_traverse};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
                 FunctionType, FixedFunction, parse_name_type_pairs, Value, PrincipalData};
-use vm::types::signatures::{FunctionSignature};
+use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
@@ -127,8 +127,10 @@ impl FunctionType {
                 }
                 Err(CheckErrors::UnionTypeError(arg_types.clone(), found_type.clone()).into())
             },
-            FunctionType::ArithmeticVariadic | FunctionType::ArithmeticBinary => {
-                if self == &FunctionType::ArithmeticBinary {
+            FunctionType::ArithmeticVariadic | FunctionType::ArithmeticBinary | FunctionType::ArithmeticUnary => {
+                if self == &FunctionType::ArithmeticUnary {
+                    check_argument_count(1, args)?;
+                }                if self == &FunctionType::ArithmeticBinary {
                     check_argument_count(2, args)?;
                 }
                 let (first, rest) = args.split_first()
@@ -168,6 +170,33 @@ impl FunctionType {
             },
         }
     }
+
+    pub fn check_args_by_allowing_trait_cast(&self, db: &mut AnalysisDatabase, func_args: &[Value]) -> CheckResult<TypeSignature> {
+        let (expected_args, returns) = match self {
+            FunctionType::Fixed(FixedFunction{ args, returns }) => (args, returns),
+            _ => panic!("Unexpected function type")
+        };
+        check_argument_count(expected_args.len(), func_args)?;
+
+        for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
+            match (&expected_arg.signature, arg) {
+                (TypeSignature::TraitReferenceType(trait_id), Value::Principal(PrincipalData::Contract(contract))) => {
+                    let contract_to_check = db.load_contract(contract)
+                        .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
+                    let trait_definition = db.get_defined_trait(&trait_id.contract_identifier, &trait_id.name).unwrap()
+                        .ok_or(CheckErrors::NoSuchContract(trait_id.contract_identifier.to_string()))?;
+                    contract_to_check.check_trait_compliance(trait_id, &trait_definition)?;
+                },
+                (expected_type, value) => {
+                    if !expected_type.admits(&value) {
+                        let actual_type = TypeSignature::type_of(&value);
+                        return Err(CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into())
+                    }
+                }
+            }
+        }
+        Ok(returns.clone())
+    }
 }
 
 fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
@@ -190,6 +219,8 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             NativeNone => TypeSignature::new_option(no_type()).unwrap(),
             NativeTrue => TypeSignature::BoolType,
             NativeFalse => TypeSignature::BoolType,
+            TotalLiquidMicroSTX => TypeSignature::UIntType,
+            Regtest => TypeSignature::BoolType,
         };
         Some(var_type)
     } else {

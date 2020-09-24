@@ -45,6 +45,7 @@ use sha2::Digest;
 use chainstate::stacks::Error;
 use chainstate::burn::*;
 use chainstate::burn::operations::*;
+use chainstate::burn::ConsensusHash;
 
 use burnchains::BurnchainHeaderHash;
 use burnchains::PrivateKey;
@@ -185,19 +186,21 @@ impl StacksBlockHeader {
 
     /// This is the "block hash" used for extending the state index root.
     /// This method is necessary because the index root must be globally unique (but, the same stacks
-    /// block header can show up multiple times on different burn chain forks).
-    pub fn make_index_block_hash(burn_block_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> StacksBlockId {
+    /// block header can show up multiple times on different burn chain forks and different PoX
+    /// forks).  Thus, we mix it with a burnchain block's ConsensusHash, which identifies both the
+    /// burnchain block and the PoX fork.
+    pub fn make_index_block_hash(consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> StacksBlockId {
         let mut hasher = Sha512Trunc256::new();
         hasher.input(block_hash);
-        hasher.input(burn_block_hash);
+        hasher.input(consensus_hash);
 
         let h = Sha512Trunc256Sum::from_hasher(hasher);
         StacksBlockId(h.0)
     }
 
-    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> StacksBlockId {
+    pub fn index_block_hash(&self, consensus_hash: &ConsensusHash) -> StacksBlockId {
         let block_hash = self.block_hash();
-        StacksBlockHeader::make_index_block_hash(burn_hash, &block_hash)
+        StacksBlockHeader::make_index_block_hash(consensus_hash, &block_hash)
     }
 
     pub fn from_parent(parent_header: &StacksBlockHeader,
@@ -407,8 +410,8 @@ impl StacksBlock {
         self.header.block_hash()
     }
     
-    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> StacksBlockId {
-        self.header.index_block_hash(burn_hash)
+    pub fn index_block_hash(&self, consensus_hash: &ConsensusHash) -> StacksBlockId {
+        self.header.index_block_hash(consensus_hash)
     }
 
     /// Find and return the coinbase transaction.  It's always the first transaction.
@@ -1215,6 +1218,7 @@ mod test {
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
             memo: vec![0x80],
+            commit_outs: vec![],
 
             burn_fee: 12345,
             input: BurnchainSigner {

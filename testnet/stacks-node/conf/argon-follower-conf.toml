@@ -2,6 +2,7 @@
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 bootstrap_node = "048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@argon-master.blockstack.xyz:20444"
+wait_time_for_microblocks = 15000
 
 [burnchain]
 chain = "bitcoin"
@@ -10,6 +11,12 @@ peer_host = "argon.blockstack.org"
 rpc_port = 18443
 peer_port = 18444
 process_exit_at_block_height = 28160
+
+[connection_options]
+# public_ip_address = "x.y.z.a:20444"
+download_interval = 10
+walk_interval = 30
+
 
 [[mstx_balance]]
 address = "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6"

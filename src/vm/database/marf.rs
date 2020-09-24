@@ -2,11 +2,11 @@ use std::path::PathBuf;
 
 use vm::types::{QualifiedContractIdentifier};
 use vm::errors::{InterpreterError, CheckErrors, InterpreterResult as Result, IncomparableError, RuntimeErrorType};
-use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, NULL_HEADER_DB,
+use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, BurnStateDB, NULL_HEADER_DB, NULL_BURN_STATE_DB,
                    ClaritySerializable, ClarityDeserializable};
 use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::StacksBlockId;
-use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::marf::{MARF, MarfConnection};
 use chainstate::stacks::index::{MARFValue, Error as MarfError, MarfTrieId, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::stacks::index::proofs::{TrieMerkleProof};
@@ -192,8 +192,8 @@ impl MarfedKV {
         MarfedKV { marf, chain_tip, side_store }
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, headers_db)
+    pub fn as_clarity_db<'a>(&'a mut self, headers_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
@@ -210,8 +210,13 @@ impl MarfedKV {
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
     pub fn begin(&mut self, current: &StacksBlockId, next: &StacksBlockId) {
-        self.marf.begin(current, next)
-            .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
+        {
+            let mut tx = self.marf.begin_tx()
+                .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
+            tx.begin(current, next)
+                .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
+            tx.commit_tx();
+        }
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
@@ -219,8 +224,13 @@ impl MarfedKV {
     }
     
     pub fn begin_unconfirmed(&mut self, current: &StacksBlockId) {
-        self.marf.begin_unconfirmed(current)
-            .expect(&format!("ERROR: Failed to begin new unconfirmed MARF block for {})", current));
+        {
+            let mut tx = self.marf.begin_tx()
+                .expect(&format!("ERROR: Failed to begin new unconfirmed MARF block for {})", current));
+            tx.begin_unconfirmed(current)
+                .expect(&format!("ERROR: Failed to begin new unconfirmed MARF block for {})", current));
+            tx.commit_tx();
+        }
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
@@ -318,8 +328,14 @@ impl ClarityBackingStore for MarfedKV {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
         self.marf.check_ancestor_block_hash(&bhh).map_err(|e| {
             match e {
-                MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)),
-                MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)),
+                MarfError::NotFoundError => {
+                    test_debug!("No such block {:?} (NotFoundError)", &bhh);
+                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                },
+                MarfError::NonMatchingForks(_bh1, _bh2) => {
+                    test_debug!("No such block {:?} (NonMatchingForks({}, {}))", &bhh, BlockHeaderHash(_bh1), BlockHeaderHash(_bh2));
+                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                },
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e)
             }
         })?;
@@ -422,7 +438,7 @@ impl MemoryBackingStore {
     }
 
     pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, &NULL_HEADER_DB)
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
@@ -452,7 +468,7 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         if height == 0 {
-            Some(TrieFileStorage::block_sentinel())
+            Some(StacksBlockId::sentinel())
         } else {
             None
         }

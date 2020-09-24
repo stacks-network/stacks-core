@@ -58,6 +58,7 @@ use chainstate::stacks::index::storage::{
     fseek,
     ftell,
     TrieFileStorage,
+    TrieStorageConnection,
 };
 
 use chainstate::stacks::index::node::{
@@ -284,7 +285,7 @@ pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<
 }
 
 /// Read the root hash from a TrieFileStorage instance
-pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieFileStorage<T>) -> Result<TrieHash, Error> {
+pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieStorageConnection<T>) -> Result<TrieHash, Error> {
     let ptr = s.root_trieptr();
     Ok(s.read_node_hash_bytes(&ptr)?)
 }

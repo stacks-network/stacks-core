@@ -5,6 +5,7 @@ use std::{fmt, cmp};
 use vm::types::TypeSignature;
 use vm::Value;
 use std::convert::TryFrom;
+use rusqlite::types::{ToSql, ToSqlOutput, FromSql, FromSqlResult, ValueRef};
 
 type Result<T> = std::result::Result<T, CostErrors>;
 
@@ -201,6 +202,23 @@ impl fmt::Display for ExecutionCost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{\"runtime\": {}, \"write_length\": {}, \"write_count\": {}, \"read_length\": {}, \"read_count\": {}}}",
                self.runtime, self.write_length, self.write_count, self.read_length, self.read_count)
+    }
+}
+
+impl ToSql for ExecutionCost {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let val = serde_json::to_string(self)
+            .expect("FAIL: could not serialize ExecutionCost");
+        Ok(ToSqlOutput::from(val))
+    }
+}
+
+impl FromSql for ExecutionCost {
+    fn column_result(value: ValueRef) -> FromSqlResult<ExecutionCost> {
+        let str_val = String::column_result(value)?;
+        let parsed = serde_json::from_str(&str_val)
+            .expect("CORRUPTION: failed to parse ExecutionCost from DB");
+        Ok(parsed)
     }
 }
 

@@ -4,7 +4,7 @@ use std::cmp;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature, BUFF_32};
+use vm::types::{Value, SequenceData, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature, BUFF_32};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
@@ -12,6 +12,8 @@ use vm::costs::{cost_functions, constants as cost_constants, CostTracker, Memory
 use vm::{eval, LocalContext, Environment};
 use vm::callables::{DefineType};
 use chainstate::stacks::StacksBlockId;
+
+use vm::functions::special::handle_contract_call_special_cases;
 
 pub fn special_contract_call(args: &[SymbolicExpression],
                              env: &mut Environment,
@@ -95,7 +97,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
     let contract_principal = Value::Principal(PrincipalData::Contract(
         env.contract_context.contract_identifier.clone()));
-    let mut nested_env = env.nest_with_caller(contract_principal);
+    let mut nested_env = env.nest_with_caller(contract_principal.clone());
 
     let result = nested_env.execute_contract(&contract_identifier, 
                                              function_name, 
@@ -110,6 +112,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
             return Err(CheckErrors::ReturnTypesMustMatch(returns_type_signature.clone(), actual_returns.clone()).into())
         }
     }
+    
     Ok(result)
 }
 
@@ -192,7 +195,7 @@ pub fn special_at_block(args: &[SymbolicExpression],
     runtime_cost!(cost_functions::AT_BLOCK, env, 0)?;
 
     let bhh = match eval(&args[0], env, &context)? {
-        Value::Buffer(BuffData { data }) => {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() != 32 {
                 return Err(RuntimeErrorType::BadBlockHash(data).into())
             } else {
@@ -353,19 +356,19 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
         },
         BlockInfoProperty::VrfSeed => {
             let vrf_seed = env.global_context.database.get_block_vrf_seed(height_value);
-            Value::Buffer(BuffData { data: vrf_seed.as_bytes().to_vec() })
+            Value::Sequence(SequenceData::Buffer(BuffData { data: vrf_seed.as_bytes().to_vec() }))
         },
         BlockInfoProperty::HeaderHash => {
             let header_hash = env.global_context.database.get_block_header_hash(height_value);
-            Value::Buffer(BuffData { data: header_hash.as_bytes().to_vec() })
+            Value::Sequence(SequenceData::Buffer(BuffData { data: header_hash.as_bytes().to_vec() }))
         },
         BlockInfoProperty::BurnchainHeaderHash => {
             let burnchain_header_hash = env.global_context.database.get_burnchain_block_header_hash(height_value);
-            Value::Buffer(BuffData { data: burnchain_header_hash.as_bytes().to_vec() })
+            Value::Sequence(SequenceData::Buffer(BuffData { data: burnchain_header_hash.as_bytes().to_vec() }))
         },
         BlockInfoProperty::IdentityHeaderHash => {
             let id_header_hash = env.global_context.database.get_index_block_header_hash(height_value);
-            Value::Buffer(BuffData { data: id_header_hash.as_bytes().to_vec() })            
+            Value::Sequence(SequenceData::Buffer(BuffData { data: id_header_hash.as_bytes().to_vec() }))        
         },
         BlockInfoProperty::MinerAddress => {
             let miner_address = env.global_context.database.get_miner_address(height_value);

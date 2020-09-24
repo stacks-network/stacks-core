@@ -1,7 +1,7 @@
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::contexts::{OwnedEnvironment, AssetMap, Environment};
-use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog};
+use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB, BurnStateDB, RollbackWrapper, RollbackWrapperPersistedLog};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
 use vm::ast::{ContractAST, errors::ParseError, errors::ParseErrors};
@@ -44,6 +44,7 @@ pub struct ClarityBlockConnection<'a> {
     datastore: MarfedKV,
     parent: &'a mut ClarityInstance,
     header_db: &'a dyn HeadersDB,
+    burn_state_db: &'a dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>
 }
 
@@ -56,6 +57,7 @@ pub struct ClarityTransactionConnection<'a> {
     log: Option<RollbackWrapperPersistedLog>,
     store: &'a mut MarfedKV,
     header_db: &'a dyn HeadersDB,
+    burn_state_db: &'a dyn BurnStateDB,
     cost_track: &'a mut Option<LimitedCostTracker>
 }
 
@@ -63,6 +65,7 @@ pub struct ClarityReadOnlyConnection<'a> {
     datastore: MarfedKV,
     parent: &'a mut ClarityInstance,
     header_db: &'a dyn HeadersDB,
+    burn_state_db: &'a dyn BurnStateDB,
 }
 
 #[derive(Debug)]
@@ -181,8 +184,7 @@ impl ClarityInstance {
         f(datastore.get_marf())
     }
 
-    pub fn begin_block<'a> (&'a mut self, current: &StacksBlockId, next: &StacksBlockId,
-                            header_db: &'a dyn HeadersDB) -> ClarityBlockConnection<'a> {
+    pub fn begin_block<'a> (&'a mut self, current: &StacksBlockId, next: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -195,12 +197,13 @@ impl ClarityInstance {
         ClarityBlockConnection {
             datastore,
             header_db,
+            burn_state_db,
             parent: self,
             cost_track
         }
     }
     
-    pub fn begin_unconfirmed<'a> (&'a mut self, current: &StacksBlockId, header_db: &'a dyn HeadersDB) -> ClarityBlockConnection<'a> {
+    pub fn begin_unconfirmed<'a> (&'a mut self, current: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -213,12 +216,13 @@ impl ClarityInstance {
         ClarityBlockConnection {
             datastore,
             header_db,
+            burn_state_db,
             parent: self,
             cost_track
         }
     }
 
-    pub fn read_only_connection<'a>(&'a mut self, at_block: &StacksBlockId, header_db: &'a dyn HeadersDB) -> ClarityReadOnlyConnection<'a> {
+    pub fn read_only_connection<'a>(&'a mut self, at_block: &StacksBlockId, header_db: &'a dyn HeadersDB, burn_state_db: &'a dyn BurnStateDB) -> ClarityReadOnlyConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -230,16 +234,16 @@ impl ClarityInstance {
         ClarityReadOnlyConnection {
             datastore,
             header_db,
+            burn_state_db,
             parent: self
         }
     }
 
-    pub fn eval_read_only(&mut self, at_block: &StacksBlockId, header_db: &dyn HeadersDB,
-                          contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
+    pub fn eval_read_only(&mut self, at_block: &StacksBlockId, header_db: &dyn HeadersDB, burn_state_db: &dyn BurnStateDB, contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
         self.datastore.as_mut().unwrap()
             .set_chain_tip(at_block);
         let clarity_db = self.datastore.as_mut().unwrap()
-            .as_clarity_db(header_db);
+            .as_clarity_db(header_db, burn_state_db);
         let mut env = OwnedEnvironment::new(clarity_db);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
@@ -285,7 +289,7 @@ impl ClarityConnection for ClarityBlockConnection <'_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back();
@@ -306,7 +310,7 @@ impl ClarityConnection for ClarityReadOnlyConnection <'_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back();
@@ -415,10 +419,11 @@ impl <'a> ClarityBlockConnection <'a> {
         let store = &mut self.datastore;
         let cost_track = &mut self.cost_track;
         let header_db = &self.header_db;
+        let burn_state_db = &self.burn_state_db;
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
         ClarityTransactionConnection {
-            store, cost_track, header_db, log: Some(log)
+            store, cost_track, header_db, burn_state_db, log: Some(log)
         }
     }
 
@@ -447,7 +452,7 @@ impl ClarityConnection for ClarityTransactionConnection <'_> {
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
         using!(self.log, "log", |log| {
             let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &self.burn_state_db);
             db.begin();
             let (r, mut db) = to_do(db);
             db.roll_back();
@@ -490,7 +495,7 @@ impl <'a> ClarityTransactionConnection <'a> {
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
         using!(self.log, "log", |log| {
             let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &self.burn_state_db);
 
             db.begin();
             let result = to_do(&mut db);
@@ -549,7 +554,7 @@ impl <'a> ClarityTransactionConnection <'a> {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+                let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db, &self.burn_state_db);
 
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
@@ -600,6 +605,20 @@ impl <'a> ClarityTransactionConnection <'a> {
                 }
             }
         })
+    }
+
+    /// Execute a STX transfer in the current block.
+    /// Will throw an error if it tries to spend STX that the 'from' principal doesn't have.
+    pub fn run_stx_transfer(&mut self, from: &PrincipalData, to: &PrincipalData, amount: u128) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+        self.with_abort_callback(
+            |vm_env| {
+                vm_env.stx_transfer(from, to, amount)
+                    .map_err(Error::from)
+            },
+            |_, _| false)
+            .and_then(|(value, assets, events, _)| {
+                Ok((value, assets, events))
+            })
     }
 
     /// Execute a contract call in the current block.
@@ -689,7 +708,7 @@ mod tests {
     use super::*;
     use vm::analysis::errors::CheckErrors;
     use vm::types::{Value, StandardPrincipalData};
-    use vm::database::{NULL_HEADER_DB, ClarityBackingStore, MarfedKV};
+    use vm::database::{NULL_HEADER_DB, NULL_BURN_STATE_DB, ClarityBackingStore, MarfedKV, STXBalance};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
     use std::fs;
@@ -704,7 +723,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0 as u8; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
 
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
 
@@ -720,6 +740,38 @@ mod tests {
         }
     }
 
+    #[test]
+    pub fn test_initialize_contract_tx_sender_contract_caller() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+        {
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
+                                                        &StacksBlockId([0 as u8; 32]),
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
+
+            // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
+            let contract = "
+                (begin 
+                    (asserts! (is-eq tx-sender 'S1G2081040G2081040G2081040G208105NK8PE5)
+                        (err tx-sender))
+
+                    (asserts! (is-eq contract-caller 'S1G2081040G2081040G2081040G208105NK8PE5)
+                        (err contract-caller))
+                )";
+
+            conn.as_transaction(|conn| {
+                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                conn.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            });
+
+            conn.commit_block();
+        }
+    }
 
     #[test]
     pub fn tx_rollback() {
@@ -732,7 +784,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0 as u8; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
 
             {
                 let mut tx = conn.start_transaction_processing();
@@ -789,7 +842,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0 as u8; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
             
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
             
@@ -820,7 +874,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0 as u8; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
 
@@ -867,7 +922,8 @@ mod tests {
         {
             let conn = confirmed_clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                               &StacksBlockId([0 as u8; 32]),
-                                                              &NULL_HEADER_DB);
+                                                              &NULL_HEADER_DB,
+                                                              &NULL_BURN_STATE_DB);
             conn.commit_block();
         }
         
@@ -876,7 +932,7 @@ mod tests {
 
         // make an unconfirmed block off of the confirmed block
         {
-            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB);
+            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
@@ -890,7 +946,7 @@ mod tests {
         
         // contract is still there, in unconfirmed status
         {
-            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB);
+            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
 
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
@@ -905,7 +961,7 @@ mod tests {
         // contract is still there, in unconfirmed status, even though the conn got explicitly
         // rolled back (but that should only drop the current TrieRAM)
         {
-            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB);
+            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
 
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
@@ -919,7 +975,7 @@ mod tests {
 
         // contract is now absent, now that we did a rollback of unconfirmed state
         {
-            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB);
+            let mut conn = clarity_instance.begin_unconfirmed(&StacksBlockId([0 as u8; 32]), &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
 
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
@@ -953,7 +1009,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0 as u8; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
 
             let contract = "
             (define-data-var bar int 0)
@@ -1061,16 +1118,18 @@ mod tests {
                 function_args: vec![] }));
 
         tx3.post_conditions.push(TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 100));
-
+        let mut stx_balance = STXBalance::zero();
+        stx_balance.credit(5000, 0).unwrap();
         let account = StacksAccount {
             principal: sender.into(),
             nonce: 0,
-            stx_balance: 5000
+            stx_balance
         };
         {
-            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+            let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
 
             conn.as_transaction(|clarity_tx| {
                 let receipt = 
@@ -1111,7 +1170,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_block(&StacksBlockId::sentinel(),
                                                         &StacksBlockId([0 as u8; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
 
             let contract = "
             (define-public (do-expand)
@@ -1141,7 +1201,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_block(&StacksBlockId([0 as u8; 32]),
                                                         &StacksBlockId([1 as u8; 32]),
-                                                        &NULL_HEADER_DB);
+                                                        &NULL_HEADER_DB,
+                                                        &NULL_BURN_STATE_DB);
             assert!(
                 match conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "do-expand", &[],
                                        |_, _| false)).unwrap_err() {

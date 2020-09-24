@@ -27,6 +27,13 @@ use util::log;
 
 use address::b58 as base58;
 use address::c32::c32_address;
+use deps::bitcoin::blockdata::script::{
+    Builder as BtcScriptBuilder,
+};
+
+use deps::bitcoin::blockdata::transaction::TxOut;
+use deps::bitcoin::blockdata::opcodes::{All as BtcOp};
+
 
 use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -78,6 +85,16 @@ pub fn to_c32_version_byte(version: u8) -> Option<u8> {
         ADDRESS_VERSION_MAINNET_MULTISIG => Some(C32_ADDRESS_VERSION_MAINNET_MULTISIG),
         ADDRESS_VERSION_TESTNET_SINGLESIG => Some(C32_ADDRESS_VERSION_TESTNET_SINGLESIG),
         ADDRESS_VERSION_TESTNET_MULTISIG => Some(C32_ADDRESS_VERSION_TESTNET_MULTISIG),
+        _ => None
+    }
+}
+
+pub fn to_b52_version_byte(version: u8) -> Option<u8> {
+    match version {
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG => Some(ADDRESS_VERSION_MAINNET_SINGLESIG),
+        C32_ADDRESS_VERSION_MAINNET_MULTISIG => Some(ADDRESS_VERSION_MAINNET_MULTISIG),
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG => Some(ADDRESS_VERSION_TESTNET_SINGLESIG),
+        C32_ADDRESS_VERSION_TESTNET_MULTISIG => Some(ADDRESS_VERSION_TESTNET_MULTISIG),
         _ => None
     }
 }
@@ -183,6 +200,26 @@ impl BitcoinAddress {
         let version_byte = address_type_to_version_byte(self.addrtype, self.network_id);
         let c32_address_byte = to_c32_version_byte(version_byte).unwrap();  // NOTE: should never panic, since (addrtype, network_id) always maps to a valid Bitcoin version byte 
         c32_address(c32_address_byte, self.bytes.as_bytes()).unwrap()       // NOTE; should never panic, since to_c32_version_byte() returns a valid version
+    }
+
+    pub fn to_p2pkh_tx_out(bytes: &Hash160, value: u64) -> TxOut {
+        let script_pubkey = BtcScriptBuilder::new()
+            .push_opcode(BtcOp::OP_DUP)
+            .push_opcode(BtcOp::OP_HASH160)
+            .push_slice(&bytes.0)
+            .push_opcode(BtcOp::OP_EQUALVERIFY)
+            .push_opcode(BtcOp::OP_CHECKSIG)
+            .into_script();
+        TxOut { value, script_pubkey }
+    }
+
+    pub fn to_p2sh_tx_out(bytes: &Hash160, value: u64) -> TxOut {
+        let script_pubkey = BtcScriptBuilder::new()
+            .push_opcode(BtcOp::OP_HASH160)
+            .push_slice(&bytes.0)
+            .push_opcode(BtcOp::OP_EQUAL)
+            .into_script();
+        TxOut { value, script_pubkey }
     }
 }
 

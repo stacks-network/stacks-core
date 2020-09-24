@@ -67,11 +67,13 @@ use regex::Regex;
 use core::mempool::*;
 
 use burnchains::BurnchainHeaderHash;
+use burnchains::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use burnchains::Txid;
 
 use chainstate::burn::ConsensusHash;
-use chainstate::burn::CONSENSUS_HASH_ENCODED_SIZE;
 use chainstate::burn::BlockHeaderHash;
+
+use chainstate::burn::db::sortdb::PoxId;
 
 use chainstate::stacks::{
     StacksAddress,
@@ -117,6 +119,8 @@ use vm::clarity::Error as clarity_error;
 use chainstate::stacks::index::Error as marf_error;
 
 use self::dns::*;
+
+use core::POX_REWARD_CYCLE_LENGTH;
 
 #[derive(Debug)]
 pub enum Error {
@@ -195,7 +199,7 @@ pub enum Error {
     /// Too many peers
     TooManyPeers,
     /// Peer already connected 
-    AlreadyConnected(usize),
+    AlreadyConnected(usize, NeighborKey),
     /// Message already in progress
     InProgress,
     /// Peer is denied
@@ -214,6 +218,10 @@ pub enum Error {
     ChainstateError(String),
     /// Catch-all for errors that a client should receive more information about
     ClientError(ClientError),
+    /// Coordinator hung up
+    CoordinatorClosed,
+    /// view of state is stale (e.g. from the sortition db)
+    StaleView
 }
 
 /// Enum for passing data for ClientErrors
@@ -280,7 +288,7 @@ impl fmt::Display for Error {
             Error::NotConnected => write!(f, "Not connected to peer network"),
             Error::PeerNotConnected => write!(f, "Remote peer is not connected to us"),
             Error::TooManyPeers => write!(f, "Too many peer connections open"),
-            Error::AlreadyConnected(ref _id) => write!(f, "Peer already connected"),
+            Error::AlreadyConnected(ref _id, ref _nk) => write!(f, "Peer already connected"),
             Error::InProgress => write!(f, "Message already in progress"),
             Error::Denied => write!(f, "Peer is denied"),
             Error::NoDataUrl => write!(f, "No data URL available"),
@@ -290,6 +298,8 @@ impl fmt::Display for Error {
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::ClientError(ref e) => write!(f, "ClientError: {}", e),
+            Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
+            Error::StaleView => write!(f, "State view is stale"),
         }
     }
 }
@@ -334,7 +344,7 @@ impl error::Error for Error {
             Error::NotConnected => None,
             Error::PeerNotConnected => None,
             Error::TooManyPeers => None,
-            Error::AlreadyConnected(ref _id) => None,
+            Error::AlreadyConnected(ref _id, ref _nk) => None,
             Error::InProgress => None,
             Error::Denied => None,
             Error::NoDataUrl => None,
@@ -344,6 +354,8 @@ impl error::Error for Error {
             Error::ClientError(ref e) => Some(e),
             Error::ClarityError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
+            Error::CoordinatorClosed => None,
+            Error::StaleView => None,
         }
     }
 }
@@ -608,15 +620,17 @@ pub const HTTP_PREAMBLE_MAX_ENCODED_SIZE : u32 = 4096;
 pub const HTTP_PREAMBLE_MAX_NUM_HEADERS : usize = 64;
 
 /// P2P message preamble -- included in all p2p network messages
+// TODO(PoX): include burnchain header hashes alongside consensus hashes, so peers can at least ask
+// each other if they have PoX anchor blocks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preamble {
     pub peer_version: u32,                          // software version
     pub network_id: u32,                            // mainnet, testnet, etc.
     pub seq: u32,                                   // message sequence number -- pairs this message to a request
     pub burn_block_height: u64,                     // last-seen block height (at chain tip)
-    pub burn_consensus_hash: ConsensusHash,         // consensus hash at block_height
+    pub burn_block_hash: BurnchainHeaderHash,       // hash of the last-seen burn block 
     pub burn_stable_block_height: u64,              // latest stable block height (e.g. chain tip minus 7)
-    pub burn_stable_consensus_hash: ConsensusHash,  // consensus hash for burn_stable_block_height
+    pub burn_stable_block_hash: BurnchainHeaderHash,    // latest stable burnchain header hash.
     pub additional_data: u32,                       // RESERVED; pointer to additional data (should be all 0's if not used)
     pub signature: MessageSignature,                // signature from the peer that sent this
     pub payload_len: u32                            // length of the following payload, including relayers vector
@@ -628,33 +642,49 @@ pub const PREAMBLE_ENCODED_SIZE: u32 =
     4 +
     4 +
     8 +
-    CONSENSUS_HASH_ENCODED_SIZE +
+    BURNCHAIN_HEADER_HASH_ENCODED_SIZE +
     8 +
-    CONSENSUS_HASH_ENCODED_SIZE +
+    BURNCHAIN_HEADER_HASH_ENCODED_SIZE +
     4 +
     MESSAGE_SIGNATURE_ENCODED_SIZE +
     4;
 
 /// Request for a block inventory or a list of blocks.
+/// Aligned to a PoX reward cycle.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetBlocksInv {
-    pub consensus_hash: ConsensusHash,               // _last_ consensus hash.  Look backwards in time from this consensus hash
-    pub num_blocks: u16                              // number of _prior_ blocks to ask for, starting at this burn header hash (not to exceed BLOCKS_INV_DATA_MAX_BITLEN)
+    pub consensus_hash: ConsensusHash,               // consensus hash at the start of the reward cycle
+    pub num_blocks: u16                              // number of blocks to ask for
 }
 
 /// A bit vector that describes which block and microblock data node has data for in a given burn
 /// chain block range.  Sent in reply to a GetBlocksInv.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksInvData {
-    pub bitlen: u16,                            // number of bits represented in bitvec (not to exceed BLOCKS_INV_DATA_MAX_BITLEN).  Bits correspond to sortitions on the canonical burn chain fork.
+    pub bitlen: u16,                            // number of bits represented in bitvec (not to exceed PoX reward cycle length).  Bits correspond to sortitions on the canonical burn chain fork.
     pub block_bitvec: Vec<u8>,                  // bitmap of which blocks the peer has, in sortition order.  block_bitvec[i] & (1 << j) != 0 means that this peer has the block for sortition 8*i + j
     pub microblocks_bitvec: Vec<u8>,            // bitmap of which confirmed micrblocks the peer has, in sortition order.  microblocks_bitvec[i] & (1 << j) != 0 means that this peer has the microblocks produced by sortition 8*i + j
+}
+
+/// Request for a PoX bitvector range.
+/// Requests bits for [start_reward_cycle, start_reward_cycle + num_anchor_blocks)
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetPoxInv {
+    pub consensus_hash: ConsensusHash,
+    pub num_cycles: u16                 // how many bits to expect
+}
+
+/// Response to a GetPoxInv request
+#[derive(Debug, Clone, PartialEq)]
+pub struct PoxInvData {
+    pub bitlen: u16,                            // number of bits represented
+    pub pox_bitvec: Vec<u8>                     // a bit will be '1' if the node knows for sure the status of its reward cycle's anchor block; 0 if not.
 }
 
 /// Blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
-    pub blocks: Vec<(BurnchainHeaderHash, StacksBlock)>
+    pub blocks: Vec<(ConsensusHash, StacksBlock)>
 }
 
 /// Microblocks pushed
@@ -753,6 +783,8 @@ pub mod NackErrorCodes {
     pub const HandshakeRequired : u32 = 1;
     pub const NoSuchBurnchainBlock : u32 = 2;
     pub const Throttled : u32 = 3;
+    pub const InvalidPoxFork : u32 = 4;
+    pub const InvalidMessage : u32 = 5;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -790,6 +822,8 @@ pub enum StacksMessageType {
     Neighbors(NeighborsData),
     GetBlocksInv(GetBlocksInv),
     BlocksInv(BlocksInvData),
+    GetPoxInv(GetPoxInv),
+    PoxInv(PoxInvData),
     BlocksAvailable(BlocksAvailableData),
     MicroblocksAvailable(BlocksAvailableData),
     Blocks(BlocksData),
@@ -899,18 +933,30 @@ impl PeerHost {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPeerInfoData {
     pub peer_version: u32,
-    pub burn_consensus: ConsensusHash,
+    pub pox_consensus: ConsensusHash,
     pub burn_block_height: u64,
-    pub stable_burn_consensus: ConsensusHash,
+    pub stable_pox_consensus: ConsensusHash,
     pub stable_burn_block_height: u64,
     pub server_version: String,
     pub network_id: u32,
     pub parent_network_id: u32,
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
-    pub stacks_tip_burn_block: String,
+    pub stacks_tip_consensus_hash: String,
     pub unanchored_tip: StacksBlockId,
     pub exit_at_block_height: Option<u64>,
+}
+
+/// The data we return on GET /v2/pox
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxInfoData {
+    pub contract_id: String,
+    pub first_burnchain_block_height: u128,
+    pub min_amount_ustx: u128,
+    pub prepare_cycle_length: u128,
+    pub rejection_fraction: u128,
+    pub reward_cycle_id: u128,
+    pub reward_cycle_length: u128,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -1044,6 +1090,7 @@ pub struct RPCNeighborsInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
+    GetPoxInfo(HttpRequestMetadata, Option<StacksBlockId>),
     GetNeighbors(HttpRequestMetadata),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
@@ -1121,6 +1168,7 @@ impl From<&HttpRequestType> for HttpResponseMetadata {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
     PeerInfo(HttpResponseMetadata, RPCPeerInfoData),
+    PoxInfo(HttpResponseMetadata, RPCPoxInfoData),
     Neighbors(HttpResponseMetadata, RPCNeighborsInfo),
     Block(HttpResponseMetadata, StacksBlock),
     BlockStream(HttpResponseMetadata),
@@ -1163,16 +1211,18 @@ pub enum StacksMessageID {
     Neighbors = 4,
     GetBlocksInv = 5,
     BlocksInv = 6,
-    BlocksAvailable = 7,
-    MicroblocksAvailable = 8,
-    Blocks = 9,
-    Microblocks = 10,
-    Transaction = 11,
-    Nack = 12,
-    Ping = 13,
-    Pong = 14,
-    NatPunchRequest = 15,
-    NatPunchReply = 16,
+    GetPoxInv = 7,
+    PoxInv = 8,
+    BlocksAvailable = 9,
+    MicroblocksAvailable = 10,
+    Blocks = 11,
+    Microblocks = 12,
+    Transaction = 13,
+    Nack = 14,
+    Ping = 15,
+    Pong = 16,
+    NatPunchRequest = 17,
+    NatPunchReply = 18,
     Reserved = 255
 }
 
@@ -1263,13 +1313,12 @@ pub const MAX_BROADCAST_INBOUND_RECEIVERS : usize = 16;
 pub const MAX_PAYLOAD_LEN : u32 = 1 + 16 * 1024 * 1024;
 pub const MAX_MESSAGE_LEN : u32 = MAX_PAYLOAD_LEN + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
 
-// maximum value of a blocks's inv data bitlen.
-// NOTE: This needs to be a multiple of 8
-#[cfg(test)] pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 32;
-#[cfg(not(test))] pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
-
 // maximum number of blocks that can be announced as available
 pub const BLOCKS_AVAILABLE_MAX_LEN : u32 = 32;
+
+// maximum number of PoX reward cycles we can ask about
+#[cfg(not(test))] pub const GETPOXINV_MAX_BITLEN : u64 = 4096;
+#[cfg(test)] pub const GETPOXINV_MAX_BITLEN : u64 = 8;
 
 // maximum number of blocks that can be pushed at once (even if the entire message is undersized).
 // This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
@@ -1406,9 +1455,10 @@ pub const DENY_MIN_BAN_DURATION : u64 = 2;
 
 /// Result of doing network work
 pub struct NetworkResult {
+    pub download_pox_id: Option<PoxId>,                                                                        // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
-    pub blocks: Vec<(BurnchainHeaderHash, StacksBlock)>,                                                       // blocks we downloaded
-    pub confirmed_microblocks: Vec<(BurnchainHeaderHash, Vec<StacksMicroblock>)>,                              // confiremd microblocks we downloaded
+    pub blocks: Vec<(ConsensusHash, StacksBlock)>,                                                             // blocks we downloaded
+    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>)>,                                    // confiremd microblocks we downloaded
     pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>,                   // all transactions pushed to us and their message relay hints
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,                                                  // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,                      // all microblocks pushed to us, and the relay hints from the message
@@ -1420,6 +1470,7 @@ impl NetworkResult {
     pub fn new() -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
+            download_pox_id: None,
             blocks: vec![],
             confirmed_microblocks: vec![],
             pushed_transactions: HashMap::new(),
@@ -1537,12 +1588,18 @@ pub mod test {
     use chainstate::stacks::miner::*;
     use chainstate::stacks::miner::test::*;
     use chainstate::stacks::*;
+    use chainstate::stacks::db::*;
+    use chainstate::stacks::boot::*;
 
     use chainstate::stacks::db::StacksChainState;
 
     use chainstate::stacks::index::TrieHash;
 
+    use chainstate::coordinator::*;
+    use chainstate::coordinator::tests::*;
+
     use burnchains::*;
+    use burnchains::db::BurnchainDB;
     use burnchains::burnchain::*;
     use burnchains::test::*;
 
@@ -1576,7 +1633,25 @@ pub mod test {
 
     use mio;
 
+    use util::strings::*;
     use util::vrf::*;
+
+    use vm::types::*;
+    use vm::database::STXBalance;
+
+    impl StacksMessageCodec for BlockstackOperationType {
+        fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+            match self {
+                BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
+                BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
+                BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd)
+            }
+        }
+
+        fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlockstackOperationType, net_error> {
+            panic!("not used");
+        }
+    }
 
     // emulate a socket
     pub struct NetCursor<T> {
@@ -1764,13 +1839,16 @@ pub mod test {
         pub test_name: String,
         pub initial_balances: Vec<(PrincipalData, u64)>,
         pub spending_account: TestMiner,
+        pub setup_code: String,
     }
 
     impl TestPeerConfig {
         pub fn default() -> TestPeerConfig {
             let conn_opts = ConnectionOptions::default();
-            let start_block = 1;
-            let burnchain = Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap());
+            let start_block = 0;
+            let mut burnchain = Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap());
+            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25);
+
             let spending_account = TestMinerFactory::new().next_miner(&burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
 
             TestPeerConfig {
@@ -1792,7 +1870,8 @@ pub mod test {
                 data_url: "".into(),
                 test_name: "".into(),
                 initial_balances: vec![],
-                spending_account: spending_account
+                spending_account: spending_account,
+                setup_code: "".into()
             }
         }
 
@@ -1861,7 +1940,7 @@ pub mod test {
         thread_handle.join().unwrap();
     }
 
-    pub struct TestPeer {
+    pub struct TestPeer<'a> {
         pub config: TestPeerConfig,
         pub network: PeerNetwork,
         pub sortdb: Option<SortitionDB>,
@@ -1870,10 +1949,11 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
+        pub coord: ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider>
     }
 
-    impl TestPeer {
-        pub fn new(config: TestPeerConfig) -> TestPeer {
+    impl<'a> TestPeer<'a> {
+        pub fn new(mut config: TestPeerConfig) -> TestPeer<'a> {
             let test_path = format!("/tmp/blockstack-test-peer-{}-{}", &config.test_name, config.server_port);
             match fs::metadata(&test_path) {
                 Ok(_) => {
@@ -1886,23 +1966,72 @@ pub mod test {
 
             let mut miner_factory = TestMinerFactory::new();
             let mut miner = miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+            
+            let mut burnchain = get_burnchain(&test_path);
+            burnchain.first_block_height = config.burnchain.first_block_height;
+            burnchain.first_block_hash = config.burnchain.first_block_hash;
 
-            let sortdb_path = format!("{}/burn", &test_path);
+            config.burnchain = burnchain.clone();
+
+            let mut sortdb = SortitionDB::connect(
+                &config.burnchain.get_db_path(), config.burnchain.first_block_height, &config.burnchain.first_block_hash,
+                0, true).unwrap();
+
+            let _burnchain_blocks_db = BurnchainDB::connect(
+                &config.burnchain.get_burnchaindb_path(), config.burnchain.first_block_height, &config.burnchain.first_block_hash,
+                0, true).unwrap();
+
+            let chainstate_path = get_chainstate_path(&test_path);
             let peerdb_path = format!("{}/peers.db", &test_path);
-            let chainstate_path = format!("{}/chainstate", &test_path);
 
             let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, None, config.private_key_expire, 
                                              PeerAddress::from_ipv4(127,0,0,1), NETWORK_P2P_PORT, config.data_url.clone(), 
                                              &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
 
-            let mut sortdb = SortitionDB::connect(&sortdb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
-            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}, ExecutionCost::max_value()).unwrap();
-            
+            let init_code = config.setup_code.clone();
+            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), 
+                |ref mut clarity_tx| {
+                    if init_code.len() > 0 {
+                        clarity_tx.connection().as_transaction(|clarity| {
+                            let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
+                            let boot_code_account = StacksAccount {
+                                principal: PrincipalData::Standard(StandardPrincipalData::from(boot_code_address.clone())),
+                                nonce: 0,
+                                stx_balance: STXBalance::zero(),
+                            };
+                            let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                                signer: boot_code_address.bytes.clone(),
+                                hash_mode: SinglesigHashMode::P2PKH,
+                                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                                nonce: 0,
+                                fee_rate: 0,
+                                signature: MessageSignature::empty()
+                            }));
+
+                            debug!("Instantiate test-specific boot code contract '{}.{}' ({} bytes)...", &STACKS_BOOT_CODE_CONTRACT_ADDRESS, &config.test_name, init_code.len());
+                            
+                            let smart_contract = TransactionPayload::SmartContract(
+                                TransactionSmartContract {
+                                    name: ContractName::try_from(config.test_name.as_str()).expect("FATAL: invalid boot-code contract name"),
+                                    code_body: StacksString::from_str(&init_code).expect("FATAL: invalid boot code body"),
+                                }
+                            );
+
+                            let boot_code_smart_contract = StacksTransaction::new(TransactionVersion::Testnet, boot_code_auth.clone(), smart_contract);
+                            StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account).unwrap();
+                        });
+                    }
+                },
+                ExecutionCost::max_value()).unwrap();
+
+            let mut coord = ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider());
+            coord.handle_new_burnchain_block().unwrap();
+
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
             {
+                // pre-populate burnchain
                 let prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
-
                 let mut fork = TestBurnchainFork::new(prev_snapshot.block_height, &prev_snapshot.burn_header_hash, &prev_snapshot.index_root, 0);
                 for i in prev_snapshot.block_height..config.current_block {
                     let burn_block = {
@@ -1912,8 +2041,8 @@ pub mod test {
                         burn_block
                     };
                     fork.append_block(burn_block);
-                    
-                    fork.mine_pending_blocks(&mut sortdb, &config.burnchain);
+
+                    fork.mine_pending_blocks_pox(&mut sortdb, &config.burnchain, &mut coord);
                 }
             }
 
@@ -1922,7 +2051,7 @@ pub mod test {
 
             {
                 let mut tx = peerdb.tx_begin().unwrap();
-                PeerDB::set_local_ipaddr(&mut tx, &PeerAddress::from_socketaddr(&local_addr), config.server_port).unwrap();
+                PeerDB::set_local_ipaddr(&mut tx, &PeerAddress::from_socketaddr(&SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.server_port)), config.server_port).unwrap();
                 PeerDB::set_local_services(&mut tx, ServiceFlags::RELAY as u16).unwrap();
                 PeerDB::set_local_private_key(&mut tx, &config.private_key, config.private_key_expire).unwrap();
                 
@@ -1932,7 +2061,7 @@ pub mod test {
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
                 let ic = sortdb.index_conn();
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                 ic.get_burnchain_view(&config.burnchain, &chaintip).unwrap()
             };
             let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.peer_version, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
@@ -1949,7 +2078,8 @@ pub mod test {
                 stacks_node: Some(stacks_node),
                 relayer: relayer,
                 mempool: Some(mempool),
-                chainstate_path: chainstate_path
+                chainstate_path: chainstate_path,
+                coord: coord
             }
         }
 
@@ -1958,7 +2088,7 @@ pub mod test {
             let chain_view = match self.sortdb {
                 Some(ref mut sortdb) => {
                     let ic = sortdb.index_conn();
-                    let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                    let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                     ic.get_burnchain_view(&self.config.burnchain, &chaintip).unwrap()
                 }
                 None => panic!("Misconfigured peer: no sortdb")
@@ -1972,6 +2102,10 @@ pub mod test {
                     .and_then(|e| Ok(()))?;
             }
             Ok(())
+        }
+
+        pub fn local_peer(&self) -> &LocalPeer {
+            &self.network.local_peer
         }
 
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
@@ -2039,59 +2173,135 @@ pub mod test {
         fn make_empty_burnchain_block(&mut self) -> BurnchainBlock {
             let empty_block = {
                 let sortdb = self.sortdb.take().unwrap();
-                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 let empty_block = self.empty_burnchain_block(sn.block_height);
                 self.sortdb = Some(sortdb);
                 empty_block
             };
             empty_block
         }
+        
+        pub fn next_burnchain_block(&mut self, blockstack_ops: Vec<BlockstackOperationType>) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            self.inner_next_burnchain_block(blockstack_ops, true, true)
+        }
+        
+        pub fn next_burnchain_block_raw(&mut self, blockstack_ops: Vec<BlockstackOperationType>) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            self.inner_next_burnchain_block(blockstack_ops, false, false)
+        }
 
-        pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> (u64, BurnchainHeaderHash) {
-            let mut sortdb = self.sortdb.take().unwrap();
-            let (block_height, block_hash) = {
-                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&sortdb.conn()).unwrap();
-                let block_header_hash = BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345);
-                let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, block_header_hash.clone(), blockstack_ops.len() as u64);
-                let mut tx = SortitionHandleTx::begin(&mut sortdb, &tip.sortition_id).unwrap();
-                for op in blockstack_ops.iter_mut() {
-                    match op {
-                        BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                            data.burn_header_hash = block_header.block_hash.clone();
-                            data.consensus_hash = tip.consensus_hash.clone();
-                        },
-                        BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
-                            data.burn_header_hash = block_header.block_hash.clone();
-                        },
-                        BlockstackOperationType::UserBurnSupport(ref mut data) => {
-                            data.burn_header_hash = block_header.block_hash.clone();
-                            data.consensus_hash = tip.consensus_hash.clone();
-                        }
+        pub fn set_ops_consensus_hash(blockstack_ops: &mut Vec<BlockstackOperationType>, ch: &ConsensusHash) {
+            for op in blockstack_ops.iter_mut() {
+                match op {
+                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
+                        data.consensus_hash = (*ch).clone();
+                    },
+                    BlockstackOperationType::UserBurnSupport(ref mut data) => {
+                        data.consensus_hash = (*ch).clone();
+                    },
+                    _ => {}
+                }
+            }
+        }
+
+        pub fn set_ops_burn_header_hash(blockstack_ops: &mut Vec<BlockstackOperationType>, bhh: &BurnchainHeaderHash) {
+            for op in blockstack_ops.iter_mut() {
+                match op {
+                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
+                        data.burn_header_hash = (*bhh).clone();
+                    },
+                    BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
+                        data.burn_header_hash = (*bhh).clone();
+                    },
+                    BlockstackOperationType::UserBurnSupport(ref mut data) => {
+                        data.burn_header_hash = (*bhh).clone();
                     }
                 }
+            }
+        }
 
-                tx.process_block_txs(&tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
-                tx.commit().unwrap();
+        fn inner_next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>, set_consensus_hash: bool, set_burn_hash: bool) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let sortdb = self.sortdb.take().unwrap();
+            let (block_height, block_hash) = {
+                let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+
+                if set_consensus_hash {
+                    TestPeer::set_ops_consensus_hash(&mut blockstack_ops, &tip.consensus_hash);
+                }
+
+                // quick'n'dirty hash of all operations and block height
+                let mut op_buf = vec![];
+                for op in blockstack_ops.iter() {
+                    op.consensus_serialize(&mut op_buf).unwrap();
+                }
+                op_buf.append(&mut (tip.block_height + 1).to_be_bytes().to_vec());
+                let h = Sha512Trunc256Sum::from_data(&op_buf);
+                let mut hash_buf = [0u8; 32];
+                hash_buf.copy_from_slice(&h.0);
+
+                let block_header_hash = BurnchainHeaderHash(hash_buf);
+                let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, block_header_hash.clone(), blockstack_ops.len() as u64);
+
+                if set_burn_hash {
+                    TestPeer::set_ops_burn_header_hash(&mut blockstack_ops, &block_header_hash);
+                }
+
+                let mut burnchain_db = BurnchainDB::open(&self.config.burnchain.get_burnchaindb_path(), true).unwrap();
+                burnchain_db.raw_store_burnchain_block(block_header.clone(), blockstack_ops).unwrap();
+
                 (block_header.block_height, block_header_hash)
             };
+            
+            self.coord.handle_new_burnchain_block().unwrap();
+
+            let pox_id = {
+                let ic = sortdb.index_conn();
+                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                sortdb_reader.get_pox_id().unwrap()
+            };
+
+            test_debug!("\n\n{:?}: after burn block {:?}, tip PoX ID is {:?}\n\n", &self.to_neighbor().addr, &block_hash, &pox_id);
+
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
             self.sortdb = Some(sortdb);
-            (block_height, block_hash)
+            (block_height, block_hash, tip.consensus_hash)
         }
 
         pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
+                let sn = {
+                    let ic = sortdb.index_conn();
+                    let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
+                    let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap();
+                    if sn_opt.is_none() {
+                        return Err(format!("No such block in canonical burn fork: {}", &block.block_hash()));
+                    }
+                    sn_opt.unwrap()
+                };
+
+                let parent_sn = {
+                    let db_handle = sortdb.index_handle(&sn.sortition_id);
+                    let parent_sn = db_handle.get_block_snapshot(&sn.parent_burn_header_hash).unwrap();
+                    parent_sn.unwrap()
+                };
+
                 let ic = sortdb.index_conn();
-                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
-                let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &block.block_hash()).unwrap();
-                if sn_opt.is_none() {
-                    return Err(format!("No such block in canonical burn fork: {}", &block.block_hash()));
-                }
-                let sn = sn_opt.unwrap();
-                node.chainstate.preprocess_anchored_block(&ic, &sn.burn_header_hash, sn.burn_header_timestamp, block, &sn.parent_burn_header_hash)
+                node.chainstate.preprocess_anchored_block(&ic, &sn.consensus_hash, block, &parent_sn.consensus_hash)
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };
+            if res.is_ok() {
+                let pox_id = {
+                    let ic = sortdb.index_conn();
+                    let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+                    let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                    sortdb_reader.get_pox_id().unwrap()
+                };
+                test_debug!("\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n", &self.to_neighbor().addr, &block.block_hash(), &pox_id);
+                self.coord.handle_new_stacks_block().unwrap();
+            }
+
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
             res
@@ -2102,17 +2312,20 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
-                let ic = sortdb.index_conn();
-                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
                 let anchor_block_hash = microblocks[0].header.prev_block.clone();
-                let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &anchor_block_hash).unwrap();
-                if sn_opt.is_none() {
-                    return Err(format!("No such anchor block in canonical burn fork: {:?}", anchor_block_hash));
-                }
-                let sn = sn_opt.unwrap();
+                let sn = {
+                    let ic = sortdb.index_conn();
+                    let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
+                    let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &anchor_block_hash).unwrap();
+                    if sn_opt.is_none() {
+                        return Err(format!("No such block in canonical burn fork: {}", &anchor_block_hash));
+                    }
+                    sn_opt.unwrap()
+                };
+
                 let mut res = Ok(true);
                 for mblock in microblocks.iter() {
-                    res = node.chainstate.preprocess_streamed_microblock(&sn.burn_header_hash, &anchor_block_hash, mblock)
+                    res = node.chainstate.preprocess_streamed_microblock(&sn.consensus_hash, &anchor_block_hash, mblock)
                         .map_err(|e| format!("Failed to preprocess microblock: {:?}", &e));
 
                     if res.is_err() {
@@ -2128,66 +2341,55 @@ pub mod test {
         }
 
         pub fn process_stacks_epoch_at_tip(&mut self, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> () {
-            let mut sortdb = self.sortdb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
                 let ic = sortdb.index_conn();
-                let tip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                 node.chainstate.preprocess_stacks_epoch(&ic, &tip, block, microblocks).unwrap();
             }
-    
-            loop {
-                let processed = node.chainstate.process_blocks(&mut sortdb, 1).unwrap();
-                if processed.len() == 0 {
-                    break;
-                }
-                match processed[0] {
-                    (Some(ref header_info), _) => {
-                        continue;
-                    },
-                    (None, _) => {
-                        break;
-                    }
-                }
-            }
-
+            self.coord.handle_new_stacks_block().unwrap();
+   
+            let pox_id = {
+                let ic = sortdb.index_conn();
+                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                sortdb_reader.get_pox_id().unwrap()
+            };
+            test_debug!("\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n", &self.to_neighbor().addr, &block.block_hash(), &pox_id);
+            
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
         }
         
-        pub fn process_stacks_epoch(&mut self, block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, microblocks: &Vec<StacksMicroblock>) -> () {
-            let mut sortdb = self.sortdb.take().unwrap();
+        pub fn process_stacks_epoch(&mut self, block: &StacksBlock, consensus_hash: &ConsensusHash, microblocks: &Vec<StacksMicroblock>) -> () {
+            let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
                 let ic = sortdb.index_conn();
-                Relayer::process_new_anchored_block(&ic, &mut node.chainstate, burn_header_hash, block).unwrap();
+                Relayer::process_new_anchored_block(&ic, &mut node.chainstate, consensus_hash, block).unwrap();
                 
                 let block_hash = block.block_hash();
                 for mblock in microblocks.iter() {
-                    node.chainstate.preprocess_streamed_microblock(burn_header_hash, &block_hash, mblock).unwrap();
+                    node.chainstate.preprocess_streamed_microblock(consensus_hash, &block_hash, mblock).unwrap();
                 }
             }
-    
-            loop {
-                let processed = node.chainstate.process_blocks(&mut sortdb, 1).unwrap();
-                if processed.len() == 0 {
-                    break;
-                }
-                match processed[0] {
-                    (Some(ref header_info), _) => {
-                        continue;
-                    },
-                    (None, _) => {
-                        break;
-                    }
-                }
-            }
+            self.coord.handle_new_stacks_block().unwrap();
+
+            let pox_id = {
+                let ic = sortdb.index_conn();
+                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                sortdb_reader.get_pox_id().unwrap()
+            };
+
+            test_debug!("\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n", &self.to_neighbor().addr, &block.block_hash(), &pox_id);
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
         }
 
-        pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash) {
+        pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
             self.next_burnchain_block(vec![])
         }
 
@@ -2226,6 +2428,38 @@ pub mod test {
             self.stacks_node = Some(stacks_node);
             res
         }
+        
+        pub fn with_network_state<F, R>(&mut self, f: F) -> Result<R, net_error>
+        where
+            F: FnOnce(&mut SortitionDB, &mut StacksChainState, &mut PeerNetwork, &mut Relayer, &mut MemPoolDB) -> Result<R, net_error>
+        {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let res = f(&mut sortdb, &mut stacks_node.chainstate, &mut self.network, &mut self.relayer, &mut mempool);
+
+            self.stacks_node = Some(stacks_node);
+            self.sortdb = Some(sortdb);
+            self.mempool = Some(mempool);
+            res
+        }
+        
+        pub fn with_peer_state<F, R>(&mut self, f: F) -> Result<R, net_error>
+        where
+            F: FnOnce(&mut TestPeer, &mut SortitionDB, &mut StacksChainState, &mut MemPoolDB) -> Result<R, net_error>
+        {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let res = f(self, &mut sortdb, &mut stacks_node.chainstate, &mut mempool);
+
+            self.stacks_node = Some(stacks_node);
+            self.sortdb = Some(sortdb);
+            self.mempool = Some(mempool);
+            res
+        }
 
         // Make a tenure
         pub fn make_tenure<F>(&mut self, mut tenure_builder: F) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>)
@@ -2234,11 +2468,11 @@ pub mod test {
         {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut burn_block = {
-                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
             };
 
-            let last_sortition_block = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();        // no forks here
+            let last_sortition_block = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();        // no forks here
           
             let mut stacks_node = self.stacks_node.take().unwrap();
 
@@ -2255,8 +2489,21 @@ pub mod test {
         
             let (stacks_block, microblocks) = tenure_builder(&mut self.miner, &mut sortdb, &mut stacks_node.chainstate, proof, parent_block_opt.as_ref(), parent_microblock_header_opt.as_ref());
 
-            let block_commit_op = stacks_node.make_tenure_commitment(&mut sortdb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
+            let mut block_commit_op = stacks_node.make_tenure_commitment(&mut sortdb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
+
+            // patch in reward set info
+            match get_next_recipients(&last_sortition_block, &mut stacks_node.chainstate, &mut sortdb, &self.config.burnchain, &OnChainRewardSetProvider()) {
+                Ok(recipients) => {
+                    block_commit_op.commit_outs = match recipients {
+                        Some(info) => vec![info.recipient.0],
+                        None => vec![]
+                    };
+                }
+                Err(e) => {
+                    panic!("Failure fetching recipient set: {:?}", e);
+                }
+            };
 
             self.stacks_node = Some(stacks_node);
             self.sortdb = Some(sortdb);
@@ -2267,7 +2514,7 @@ pub mod test {
         pub fn make_default_tenure(&mut self) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>) {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut burn_block = {
-                let sn = SortitionDB::get_canonical_burn_chain_tip_stubbed(sortdb.conn()).unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
             };
           
@@ -2281,9 +2528,10 @@ pub mod test {
             let chainstate_path = self.chainstate_path.clone();
             let burn_block_height = burn_block.block_height;
 
-            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut sortdb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut sortdb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
                 let mut miner_chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
-                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+                let sort_iconn = sortdb.index_conn();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
 
                 let (stacks_block, microblocks) = mine_smart_contract_block_contract_call_microblock(&mut epoch, &mut builder, miner, burn_block_height as usize, parent_microblock_header_opt.as_ref());
 
@@ -2319,7 +2567,7 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let view_res = {
                 let ic = sortdb.index_conn();
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip_stubbed(&ic).unwrap();
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
                 ic.get_burnchain_view(&self.config.burnchain, &chaintip)
             };
             self.sortdb = Some(sortdb);

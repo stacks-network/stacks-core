@@ -58,6 +58,12 @@ impl StacksTransactionEvent {
                 "type": "stx_burn_event",
                 "stx_burn_event": event_data.json_serialize()
             }),
+            StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "committed": committed,
+                "type": "stx_lock_event",
+                "stx_lock_event": event_data.json_serialize()
+            }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
                 "committed": committed,
@@ -90,7 +96,8 @@ impl StacksTransactionEvent {
 pub enum STXEventType {
     STXTransferEvent(STXTransferEventData),
     STXMintEvent(STXMintEventData),
-    STXBurnEvent(STXBurnEventData)
+    STXBurnEvent(STXBurnEventData),
+    STXLockEvent(STXLockEventData)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -133,6 +140,21 @@ impl STXMintEventData {
         json!({
             "recipient": format!("{}",self.recipient),
             "amount": format!("{}", self.amount),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct STXLockEventData {
+    pub locked_amount: u128,
+    pub unlock_height: u64,
+}
+
+impl STXLockEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        json!({
+            "locked_amount": format!("{}",self.locked_amount),
+            "unlock_height": format!("{}", self.unlock_height),
         })
     }
 }

@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use address::c32;
 use vm::costs::{cost_functions, CostOverflowingMath};
-use vm::types::{Value, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
+use vm::types::{Value, SequenceData, SequencedValue, CharType, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
                 QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName, TraitDefinition};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
@@ -42,7 +42,10 @@ pub struct TupleTypeSignature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BufferLength (u32);
+pub struct BufferLength (pub u32);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StringUTF8Length (u32);
 
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
@@ -57,13 +60,37 @@ pub enum TypeSignature {
     IntType,
     UIntType,
     BoolType,
-    BufferType(BufferLength),
+    SequenceType(SequenceSubtype),
     PrincipalType,
-    ListType(ListTypeData),
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>),
     TraitReferenceType(TraitIdentifier),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SequenceSubtype {
+    BufferType(BufferLength),
+    ListType(ListTypeData),
+    StringType(StringSubtype),
+}
+
+impl SequenceSubtype {
+
+    pub fn unit_type(&self) -> TypeSignature {
+        match &self {
+            SequenceSubtype::ListType(ref list_data) => list_data.clone().destruct().0,
+            SequenceSubtype::BufferType(_) => TypeSignature::min_buffer(),
+            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => TypeSignature::min_string_ascii(),
+            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_string_utf8(),    
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringSubtype {
+    ASCII(BufferLength),
+    UTF8(StringUTF8Length),
 }
 
 use self::TypeSignature::{
@@ -71,18 +98,20 @@ use self::TypeSignature::{
     IntType, 
     UIntType, 
     BoolType, 
-    BufferType,
+    SequenceType,
     PrincipalType, 
-    ListType, 
     TupleType, 
     OptionalType, 
     ResponseType,
     TraitReferenceType
 };
 
-pub const BUFF_64: TypeSignature = BufferType(BufferLength(64));
-pub const BUFF_32: TypeSignature = BufferType(BufferLength(32));
-pub const BUFF_20: TypeSignature = BufferType(BufferLength(20));
+pub const BUFF_64: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(64)));
+pub const BUFF_65: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(65)));
+pub const BUFF_32: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(32)));
+pub const BUFF_33: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(33)));
+pub const BUFF_20: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(20)));
+pub const BUFF_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
@@ -108,7 +137,7 @@ pub enum FunctionType {
     Fixed(FixedFunction),
     // Functions where the single input is a union type, e.g., Buffer or Int
     UnionArgs(Vec<TypeSignature>, TypeSignature),
-    ArithmeticVariadic, ArithmeticBinary, ArithmeticComparison
+    ArithmeticVariadic, ArithmeticUnary, ArithmeticBinary, ArithmeticComparison
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,7 +165,7 @@ impl From<FixedFunction> for FunctionSignature {
 
 impl From<ListTypeData> for TypeSignature {
     fn from(data: ListTypeData) -> Self {
-        ListType(data)
+        SequenceType(SequenceSubtype::ListType(data))
     }
 }
 
@@ -185,8 +214,63 @@ impl TryFrom<i128> for BufferLength {
     fn try_from(data: i128) -> Result<BufferLength> {
         if data > (MAX_VALUE_SIZE as i128) {
             Err(CheckErrors::ValueTooLarge)
+        } else if data < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
         } else {
             Ok(BufferLength(data as u32))
+        }
+    }
+}
+
+impl From<&StringUTF8Length> for u32 {
+    fn from(v: &StringUTF8Length) -> u32 {
+        v.0
+    }
+}
+
+impl From<StringUTF8Length> for u32 {
+    fn from(v: StringUTF8Length) -> u32 {
+        v.0
+    }
+}
+
+impl TryFrom<u32> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: u32) -> Result<StringUTF8Length> {
+        let len = data.checked_mul(4)
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if len > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(StringUTF8Length(data))
+        }
+    }
+}
+
+impl TryFrom<usize> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: usize) -> Result<StringUTF8Length> {
+        let len = data.checked_mul(4)
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if len > (MAX_VALUE_SIZE as usize) {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(StringUTF8Length(data as u32))
+        }
+    }
+}
+
+impl TryFrom<i128> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: i128) -> Result<StringUTF8Length> {
+        let len = data.checked_mul(4)
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if len > (MAX_VALUE_SIZE as i128) {
+            Err(CheckErrors::ValueTooLarge)
+        } else if data < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
+        } else {
+            Ok(StringUTF8Length(data as u32))
         }
     }
 }
@@ -277,8 +361,8 @@ impl TypeSignature {
 
     pub fn admits_type(&self, other: &TypeSignature) -> bool {
         match self {
-            ListType(ref my_list_type) => {
-                if let ListType(other_list_type) = other {
+            SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
+                if let SequenceType(SequenceSubtype::ListType(other_list_type)) = other {
                     if other_list_type.max_len <= 0 {
                         // if other is an empty list, a list type should always admit.
                         true
@@ -287,6 +371,27 @@ impl TypeSignature {
                     } else {
                         false
                     }
+                } else {
+                    false
+                }
+            },
+            SequenceType(SequenceSubtype::BufferType(ref my_len)) => {
+                if let SequenceType(SequenceSubtype::BufferType(ref other_len)) = other {
+                    my_len.0 >= other_len.0
+                } else {
+                    false
+                }
+            },
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
+                if let SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(other_len))) = other {
+                    len.0 >= other_len.0
+                } else {
+                    false
+                }
+            },
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
+                if let SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(other_len))) = other {
+                    len.0 >= other_len.0
                 } else {
                     false
                 }
@@ -319,13 +424,6 @@ impl TypeSignature {
                         my_inner_type.1.admits_type(&other_inner_type.1)
                             && my_inner_type.0.admits_type(&other_inner_type.0)
                     }
-                } else {
-                    false
-                }
-            },
-            BufferType(ref my_len) => {
-                if let BufferType(ref other_len) = other {
-                    my_len.0 >= other_len.0
                 } else {
                     false
                 }
@@ -479,20 +577,28 @@ impl FunctionArg {
 impl TypeSignature {
 
     pub fn empty_buffer() -> TypeSignature {
-        BufferType(0_u32.try_into().unwrap())
+        SequenceType(SequenceSubtype::BufferType(0_u32.try_into().unwrap()))
     }
 
     pub fn min_buffer() -> TypeSignature {
-        BufferType(1_u32.try_into().unwrap())
+        SequenceType(SequenceSubtype::BufferType(1_u32.try_into().unwrap()))
+    }
+
+    pub fn min_string_ascii() -> TypeSignature {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(1_u32.try_into().unwrap())))
+    }
+
+    pub fn min_string_utf8() -> TypeSignature {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(1_u32.try_into().unwrap())))
     }
 
     pub fn max_buffer() -> TypeSignature {
-        BufferType(BufferLength(u32::try_from(MAX_VALUE_SIZE)
-                                .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type")))
+        SequenceType(SequenceSubtype::BufferType(BufferLength(u32::try_from(MAX_VALUE_SIZE)
+                                .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type"))))
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
-    fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
         if a.is_no_type() {
             Ok(b.clone())
         } else if b.is_no_type() {
@@ -539,7 +645,7 @@ impl TypeSignature {
                 Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
                    .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
             },
-            (ListType(ListTypeData{ max_len: len_a, entry_type: entry_a }), ListType(ListTypeData{ max_len: len_b, entry_type: entry_b })) => {
+            (SequenceType(SequenceSubtype::ListType(ListTypeData{ max_len: len_a, entry_type: entry_a })), SequenceType(SequenceSubtype::ListType(ListTypeData{ max_len: len_b, entry_type: entry_b }))) => {
                 let entry_type =
                     if *len_a == 0 {
                         *(entry_b.clone())
@@ -561,13 +667,29 @@ impl TypeSignature {
                 let some_type = Self::factor_out_no_type(some_a, some_b)?;
                 Ok(Self::new_option(some_type)?)
             },
-            (BufferType(buff_a), BufferType(buff_b)) => {
+            (SequenceType(SequenceSubtype::BufferType(buff_a)), SequenceType(SequenceSubtype::BufferType(buff_b))) => {
                 let buff_len = if u32::from(buff_a) > u32::from(buff_b) {
                     buff_a
                 } else {
                     buff_b
                 }.clone();
-                Ok(BufferType(buff_len))
+                Ok(SequenceType(SequenceSubtype::BufferType(buff_len)))
+            },
+            (SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_a))), SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_b)))) => {
+                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                    string_a
+                } else {
+                    string_b
+                }.clone();
+                Ok(SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(str_len))))
+            },
+            (SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_a))), SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_b)))) => {
+                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                    string_a
+                } else {
+                    string_b
+                }.clone();
+                Ok(SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(str_len))))
             },
             (NoType, x) | (x, NoType) => {
                 Ok(x.clone())
@@ -599,14 +721,12 @@ impl TypeSignature {
             Value::Int(_v) => IntType,
             Value::UInt(_v) => UIntType,
             Value::Bool(_v) => BoolType,
-            Value::Buffer(buff_data) => {
-                let buff_length = BufferLength::try_from(buff_data.data.len())
-                    .expect("ERROR: Too large of a buffer successfully constructed.");
-                BufferType(buff_length)
-            },
             Value::Tuple(v) => TupleType(
                 v.type_signature.clone()),
-            Value::List(list_data) => ListType(list_data.type_signature.clone()),
+            Value::Sequence(SequenceData::List(list_data)) => list_data.type_signature(),
+            Value::Sequence(SequenceData::Buffer(buff_data)) => buff_data.type_signature(),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data.type_signature(),
+            Value::Sequence(SequenceData::String(CharType::UTF8(utf8_data))) => utf8_data.type_signature(),
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature()
         }
@@ -680,7 +800,35 @@ impl TypeSignature {
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
             BufferLength::try_from(*buff_len)
-                .map(|buff_len| TypeSignature::BufferType(buff_len))
+                .map(|buff_len| SequenceType(SequenceSubtype::BufferType(buff_len)))
+        } else {
+            Err(CheckErrors::InvalidTypeDescription)
+        }
+    }
+
+    // Parses type signatures of the form:
+    // (string-utf8 10)
+    fn parse_string_utf8_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 1 {
+            return Err(CheckErrors::InvalidTypeDescription)
+        }
+        if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
+            StringUTF8Length::try_from(*utf8_len)
+                .map(|utf8_len| SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(utf8_len))))
+        } else {
+            Err(CheckErrors::InvalidTypeDescription)
+        }
+    }
+
+    // Parses type signatures of the form:
+    // (string-ascii 10)
+    fn parse_string_ascii_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 1 {
+            return Err(CheckErrors::InvalidTypeDescription)
+        }
+        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
+            BufferLength::try_from(*buff_len)
+                .map(|buff_len| SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_len))))
         } else {
             Err(CheckErrors::InvalidTypeDescription)
         }
@@ -719,6 +867,8 @@ impl TypeSignature {
                     match compound_type.as_ref() {
                         "list" => TypeSignature::parse_list_type_repr(rest, accounting),
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
+                        "string-utf8" => TypeSignature::parse_string_utf8_type_repr(rest),
+                        "string-ascii" => TypeSignature::parse_string_ascii_type_repr(rest),
                         "tuple" => TypeSignature::parse_tuple_type_repr(rest, accounting),
                         "optional" => TypeSignature::parse_optional_type_repr(rest, accounting),
                         "response" => TypeSignature::parse_response_type_repr(rest, accounting),
@@ -791,11 +941,11 @@ impl TypeSignature {
         match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            TraitReferenceType(_) | NoType | IntType | UIntType | BoolType | PrincipalType | BufferType(_) => 1,
+            TraitReferenceType(_) | NoType | IntType | UIntType | BoolType | PrincipalType | SequenceType(SequenceSubtype::BufferType(_)) | SequenceType(SequenceSubtype::StringType(_))=> 1,
             TupleType(tuple_sig) => {
                 1 + tuple_sig.max_depth()
             },
-            ListType(list_type) => 1 + list_type.get_list_item_type().depth(),
+            SequenceType(SequenceSubtype::ListType(list_type)) => 1 + list_type.get_list_item_type().depth(),
             OptionalType(t) => 1 + t.depth(),
             ResponseType(v) => {
                 1 + cmp::max(v.0.depth(), v.1.depth())
@@ -817,9 +967,10 @@ impl TypeSignature {
             UIntType => Some(16),
             BoolType => Some(1),
             PrincipalType => Some(148), // 20+128
-            BufferType(len) => Some(4 + u32::from(len)),
             TupleType(tuple_sig) => tuple_sig.inner_size(),
-            ListType(list_type) => list_type.inner_size(),
+            SequenceType(SequenceSubtype::BufferType(len)) | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => Some(4 + u32::from(len)),
+            SequenceType(SequenceSubtype::ListType(list_type)) => list_type.inner_size(),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => Some(4 + 4 * u32::from(len)),
             OptionalType(t) => t.size().checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
                 // ResponseTypes are 1 byte for the committed bool,
@@ -847,9 +998,11 @@ impl TypeSignature {
             // These types all only use ~1 byte for their type enum
             NoType | IntType | UIntType | BoolType | PrincipalType => Some(1),
             // u32 length + type enum
-            BufferType(_) => Some(1 + 4),
             TupleType(tuple_sig) => tuple_sig.type_size(),
-            ListType(list_type) => list_type.type_size(),
+            SequenceType(SequenceSubtype::BufferType(_)) => Some(1 + 4),
+            SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(1 + 4),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(1 + 4),
             OptionalType(t) => {
                 t.inner_type_size()?
                     .checked_add(1)
@@ -1010,18 +1163,26 @@ impl fmt::Display for TypeSignature {
             IntType => write!(f, "int"),
             UIntType => write!(f, "uint"),
             BoolType => write!(f, "bool"),
-            BufferType(len) => write!(f, "(buff {})", len),
             OptionalType(t) => write!(f, "(optional {})", t),
             ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
             TupleType(t) => write!(f, "{}", t),
             PrincipalType => write!(f, "principal"),
-            ListType(list_type_data) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type),
+            SequenceType(SequenceSubtype::BufferType(len)) => write!(f, "(buff {})", len),
+            SequenceType(SequenceSubtype::ListType(list_type_data)) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => write!(f, "(string-ascii {})", len),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => write!(f, "(string-utf8 {})", len),
             TraitReferenceType(trait_alias) => write!(f, "<{}>", trait_alias.to_string()),
         }
     }
 }
 
 impl fmt::Display for BufferLength {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Display for StringUTF8Length {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -1049,7 +1210,7 @@ mod test {
     #[test]
     fn type_of_list_of_buffs() {
         let value = execute("(list \"abc\" \"abcde\")").unwrap().unwrap();
-        let type_descr = "(list 2 (buff 5))".into();
+        let type_descr = "(list 2 (string-ascii 5))".into();
         assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
 

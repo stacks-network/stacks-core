@@ -17,8 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use rusqlite::Row;
-use rusqlite::types::ToSql;
+use rusqlite::{ OptionalExtension, Row, types::ToSql };
 
 use std::io;
 use std::io::prelude::*;
@@ -26,13 +25,14 @@ use std::fmt;
 use std::fs;
 use std::collections::HashMap;
 
-use burnchains::BurnchainHeaderHash;
+use chainstate::burn::ConsensusHash;
 
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use chainstate::stacks::db::*;
 
 use std::path::{Path, PathBuf};
+use vm::costs::ExecutionCost;
 
 use util::db::Error as db_error;
 use util::db::{
@@ -46,7 +46,7 @@ use util::db::{
 };
 
 use core::FIRST_STACKS_BLOCK_HASH;
-use core::FIRST_BURNCHAIN_BLOCK_HASH;
+use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
@@ -114,60 +114,101 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
 
 impl StacksChainState {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
-    pub fn insert_stacks_block_header<'a>(tx: &mut StacksDBTx<'a>, tip_info: &StacksHeaderInfo) -> Result<(), Error> {
+    pub fn insert_stacks_block_header(tx: &mut StacksDBTx, parent_id: &StacksBlockId, tip_info: &StacksHeaderInfo, anchored_block_cost: &ExecutionCost) -> Result<(), Error> {
         assert_eq!(tip_info.block_height, tip_info.anchored_header.total_work.work);
         assert!(tip_info.burn_header_timestamp < i64::max_value() as u64);
 
         let header = &tip_info.anchored_header;
         let index_root = &tip_info.index_root;
+        let consensus_hash = &tip_info.consensus_hash;
         let burn_header_hash = &tip_info.burn_header_hash;
         let block_height = tip_info.block_height;
+        let burn_header_height = tip_info.burn_header_height;
         let burn_header_timestamp = tip_info.burn_header_timestamp;
 
         let total_work_str = format!("{}", header.total_work.work);
         let total_burn_str = format!("{}", header.total_work.burn);
+        let total_liquid_stx_str = format!("{}", tip_info.total_liquid_ustx);
         let block_hash = header.block_hash();
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &block_hash);
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
 
         assert!(block_height < (i64::max_value() as u64));
 
         let args: &[&dyn ToSql] = &[
             &header.version, &total_burn_str, &total_work_str, &header.proof, &header.parent_block, &header.parent_microblock, &header.parent_microblock_sequence,
             &header.tx_merkle_root, &header.state_index_root, &header.microblock_pubkey_hash,
-            &block_hash, &index_block_hash, &burn_header_hash, &(burn_header_timestamp as i64), &(block_height as i64), &index_root];
+            &block_hash, &index_block_hash, &consensus_hash, &burn_header_hash, &(burn_header_height as i64),
+            &(burn_header_timestamp as i64), &total_liquid_stx_str, &(block_height as i64), &index_root, anchored_block_cost, parent_id];
 
         tx.execute("INSERT INTO block_headers \
-                    (version, total_burn, total_work, proof, parent_block, parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey_hash, block_hash, index_block_hash, burn_header_hash, burn_header_timestamp, block_height, index_root) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", args)
+                    (version, \
+                    total_burn, \
+                    total_work, \
+                    proof, \
+                    parent_block, \
+                    parent_microblock, \
+                    parent_microblock_sequence, \
+                    tx_merkle_root, \
+                    state_index_root, \
+                    microblock_pubkey_hash, \
+                    block_hash, \
+                    index_block_hash, \
+                    consensus_hash, \
+                    burn_header_hash, \
+                    burn_header_height, \
+                    burn_header_timestamp, \
+                    total_liquid_ustx, \
+                    block_height, \
+                    index_root,
+                    cost,
+                    parent_block_id) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
     }
+
+    pub fn get_stacks_block_anchored_cost(conn: &DBConn, block: &StacksBlockId) -> Result<Option<ExecutionCost>, Error> {
+        let qry = "SELECT cost FROM block_headers WHERE index_block_hash = ?";
+        conn.query_row(qry, &[block], |row| row.get(0))
+            .optional()
+            .map_err(|e| Error::from(db_error::from(e)))
+    }
    
     /// Insert a microblock header that is paired with an already-existing block header
-    pub fn insert_stacks_microblock_header<'a>(tx: &mut StacksDBTx<'a>, microblock_header: &StacksMicroblockHeader, parent_block_hash: &BlockHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, block_height: u64, index_root: &TrieHash) -> Result<(), Error> {
+    pub fn insert_stacks_microblock_header<'a>(tx: &mut StacksDBTx<'a>, microblock_header: &StacksMicroblockHeader, parent_block_hash: &BlockHeaderHash, parent_consensus_hash: &ConsensusHash, block_height: u64, index_root: &TrieHash) -> Result<(), Error> {
         assert!(block_height < (i64::max_value() as u64));
 
         let args: &[&dyn ToSql] = &[&microblock_header.version, &microblock_header.sequence, &microblock_header.prev_block,
                                     &microblock_header.tx_merkle_root, &microblock_header.signature, &microblock_header.block_hash(),
-                                    &parent_block_hash, &parent_burn_header_hash, &(block_height as i64), &index_root];
+                                    &parent_block_hash, &parent_consensus_hash, &(block_height as i64), &index_root];
         tx.execute("INSERT OR REPLACE INTO microblock_headers \
-                    (version, sequence, prev_block, tx_merkle_root, signature, microblock_hash, parent_block_hash, parent_burn_header_hash, block_height, index_root) \
+                    (version, sequence, prev_block, tx_merkle_root, signature, microblock_hash, parent_block_hash, parent_consensus_hash, block_height, index_root) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
     }
 
+    pub fn is_stacks_block_processed(conn: &Connection, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        let sql = "SELECT 1 FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
+        let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash];
+        match conn.query_row(sql, args, |_| true) {
+            Ok(_) => Ok(true),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+            Err(e) => Err(Error::DBError(e.into()))
+        }
+    }
+
     /// Get a stacks header info by burn block and block hash (i.e. by primary key).
     /// Does not get back data about the parent microblock stream.
-    pub fn get_anchored_block_header_info(conn: &Connection, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {
-        let sql = "SELECT * FROM block_headers WHERE burn_header_hash = ?1 AND block_hash = ?2".to_string();
-        let args: &[&dyn ToSql] = &[&burn_header_hash, &block_hash];
+    pub fn get_anchored_block_header_info(conn: &Connection, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {
+        let sql = "SELECT * FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2".to_string();
+        let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash];
         let mut rows = query_rows::<StacksHeaderInfo, _>(conn, &sql, args).map_err(Error::DBError)?;
         if rows.len() > 1 {
-            unreachable!("FATAL: multiple rows for the same block hash")  // should be unreachable, since block_hash/burn_header_hash is the primary key
+            unreachable!("FATAL: multiple rows for the same block hash")  // should be unreachable, since block_hash/consensus_hash is the primary key
         }
 
         Ok(rows.pop())
@@ -214,9 +255,17 @@ impl StacksChainState {
     /// Get the genesis (boot code) block header
     pub fn get_genesis_header_info(conn: &Connection) -> Result<StacksHeaderInfo, Error> {
         // by construction, only one block can have height 0 in this DB
-        let sql = "SELECT * FROM block_headers WHERE burn_header_hash = ?1 AND block_height = 0";
-        let args : &[&dyn ToSql] = &[&FIRST_BURNCHAIN_BLOCK_HASH];
+        let sql = "SELECT * FROM block_headers WHERE consensus_hash = ?1 AND block_height = 0";
+        let args : &[&dyn ToSql] = &[&FIRST_BURNCHAIN_CONSENSUS_HASH];
         let row_opt = query_row(conn, sql, args)?;
         Ok(row_opt.expect("BUG: no genesis header info"))
+    }
+
+    /// Get the parent block ID for this block
+    pub fn get_parent_block_id(conn: &Connection, block_id: &StacksBlockId) -> Result<Option<StacksBlockId>, Error> {
+        let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?1 LIMIT 1".to_string();
+        let args : &[&dyn ToSql] = &[block_id];
+        let mut rows = query_row_columns::<StacksBlockId, _>(conn, &sql, args, "parent_block_id")?;
+        Ok(rows.pop())
     }
 }

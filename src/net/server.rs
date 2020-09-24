@@ -121,7 +121,13 @@ impl HttpPeer {
     /// (will return Error::AlreadyConnected with the event ID)
     pub fn connect_http(&mut self, network_state: &mut NetworkState, data_url: UrlString, addr: SocketAddr, request: Option<HttpRequestType>) -> Result<usize, net_error> {
         if let Some(event_id) = self.find_free_conversation(&data_url) {
-            return Err(net_error::AlreadyConnected(event_id));
+            let http_nk = NeighborKey {
+                peer_version: self.burnchain.peer_version,
+                network_id: self.network_id,
+                addrbytes: PeerAddress::from_socketaddr(&addr),
+                port: addr.port()
+            };
+            return Err(net_error::AlreadyConnected(event_id, http_nk));
         }
 
         let sock = NetworkState::connect(&addr)?;
@@ -725,11 +731,11 @@ mod test {
         test_http_server("test_http_getblock", 51020, 51021, ConnectionOptions::default(), 1, 0,
                         |client_id, ref mut peer_server| {
                             let peer_server_block = make_codec_test_block(25);
-                            let peer_server_burn_block_hash = BurnchainHeaderHash([(client_id+1) as u8; 32]);
-                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
+                            let peer_server_consensus_hash = ConsensusHash([(client_id+1) as u8; 20]);
+                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                             test_debug!("Store peer server index block {:?}", &index_block_hash);
-                            store_staging_block(peer_server.chainstate(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([client_id as u8; 32]), 456, 123);
+                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
 
                             let mut request = HttpRequestType::GetBlock(HttpRequestMetadata::from_host(PeerHost::from_host_port("127.0.0.1".to_string(), 51021)), index_block_hash);
                             request.metadata_mut().keep_alive = false;
@@ -742,8 +748,8 @@ mod test {
                             let http_response_bytes = http_response_bytes_res.unwrap();
 
                             let peer_server_block = make_codec_test_block(25);
-                            let peer_server_burn_block_hash = BurnchainHeaderHash([(client_id+1) as u8; 32]);
-                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
+                            let peer_server_consensus_hash = ConsensusHash([(client_id+1) as u8; 20]);
+                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                             let request_path = format!("/v2/blocks/{}", &index_block_hash);
                             let response = StacksHttp::parse_response(&request_path, &http_response_bytes).unwrap();
@@ -760,11 +766,11 @@ mod test {
         test_http_server("test_http_getblock", 51030, 51031, ConnectionOptions::default(), 10, 0,
                         |client_id, ref mut peer_server| {
                             let peer_server_block = make_codec_test_block(25);
-                            let peer_server_burn_block_hash = BurnchainHeaderHash([(client_id+1) as u8; 32]);
-                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
+                            let peer_server_consensus_hash = ConsensusHash([(client_id+1) as u8; 20]);
+                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                             test_debug!("Store peer server index block {:?}", &index_block_hash);
-                            store_staging_block(peer_server.chainstate(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([client_id as u8; 32]), 456, 123);
+                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
 
                             let mut request = HttpRequestType::GetBlock(HttpRequestMetadata::from_host(PeerHost::from_host_port("127.0.0.1".to_string(), 51031)), index_block_hash);
                             request.metadata_mut().keep_alive = false;
@@ -777,8 +783,8 @@ mod test {
                             let http_response_bytes = http_response_bytes_res.unwrap();
 
                             let peer_server_block = make_codec_test_block(25);
-                            let peer_server_burn_block_hash = BurnchainHeaderHash([(client_id+1) as u8; 32]);
-                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
+                            let peer_server_consensus_hash = ConsensusHash([(client_id+1) as u8; 20]);
+                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                             let request_path = format!("/v2/blocks/{}", &index_block_hash);
                             let response = StacksHttp::parse_response(&request_path, &http_response_bytes).unwrap();
@@ -961,11 +967,11 @@ mod test {
         test_http_server("test_http_noop", 51080, 51081, conn_opts, 1, 600,
                         |client_id, ref mut peer_server| {
                             let peer_server_block = make_codec_test_block(25);
-                            let peer_server_burn_block_hash = BurnchainHeaderHash([(client_id+1) as u8; 32]);
-                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
+                            let peer_server_consensus_hash = ConsensusHash([(client_id+1) as u8; 20]);
+                            let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_consensus_hash, &peer_server_block.block_hash());
 
                             test_debug!("Store peer server index block {:?}", &index_block_hash);
-                            store_staging_block(peer_server.chainstate(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([client_id as u8; 32]), 456, 123);
+                            store_staging_block(peer_server.chainstate(), &peer_server_consensus_hash, &peer_server_block, &ConsensusHash([client_id as u8; 20]), 456, 123);
 
                             let mut request = HttpRequestType::GetBlock(HttpRequestMetadata::from_host(PeerHost::from_host_port("127.0.0.1".to_string(), 51071)), index_block_hash);
                             request.metadata_mut().keep_alive = false;
