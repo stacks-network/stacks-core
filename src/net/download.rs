@@ -386,20 +386,20 @@ impl BlockDownloader {
                     Some(http_response) => match http_response {
                         HttpResponseType::Block(_md, block) => {
                             if StacksBlockHeader::make_index_block_hash(&block_key.consensus_hash, &block.block_hash()) != block_key.index_block_hash {
-                                test_debug!("Invalid block from {:?} ({:?}): did not ask for block {}/{}", &block_key.neighbor, &block_key.data_url, block_key.consensus_hash, block.block_hash());
+                                info!("Invalid block from {:?} ({:?}): did not ask for block {}/{}", &block_key.neighbor, &block_key.data_url, block_key.consensus_hash, block.block_hash());
                                 self.broken_peers.push(event_id);
                                 self.broken_neighbors.push(block_key.neighbor.clone());
                             }
                             else {
                                 // got the block
-                                test_debug!("Got block {}: {}/{}", &block_key.sortition_height, &block_key.consensus_hash, block.block_hash());
+                                debug!("Got block {}: {}/{}", &block_key.sortition_height, &block_key.consensus_hash, block.block_hash());
                                 self.blocks.insert(block_key, block);
                             }
                         },
                         // TODO: redirect?
                         HttpResponseType::NotFound(_, _) => {
                             // remote peer didn't have the block 
-                            test_debug!("Remote neighbor {:?} ({:?}) does not actually have block {} indexed at {} ({})", &block_key.neighbor, &block_key.data_url, block_key.sortition_height, &block_key.index_block_hash, &block_key.consensus_hash);
+                            info!("Remote neighbor {:?} ({:?}) does not actually have block {} indexed at {} ({})", &block_key.neighbor, &block_key.data_url, block_key.sortition_height, &block_key.index_block_hash, &block_key.consensus_hash);
                             
                             // the fact that we asked this peer means that it's block inv indicated
                             // it was present, so the absence is the mark of a broken peer
@@ -408,7 +408,7 @@ impl BlockDownloader {
                         }
                         _ => {
                             // wrong message response
-                            test_debug!("Got bad HTTP response from {:?}: {:?}", &block_key.data_url, &http_response);
+                            info!("Got bad HTTP response from {:?}: {:?}", &block_key.data_url, &http_response);
                             self.broken_peers.push(event_id);
                             self.broken_neighbors.push(block_key.neighbor.clone());
                         }
@@ -467,13 +467,13 @@ impl BlockDownloader {
                         HttpResponseType::Microblocks(_md, microblocks) => {
                             if microblocks.len() == 0 {
                                 // we wouldn't have asked for a 0-length stream
-                                test_debug!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url);
+                                info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url);
                                 self.broken_peers.push(event_id);
                                 self.broken_neighbors.push(block_key.neighbor.clone());
                             }
                             else {
                                 // have microblocks (but we don't know yet if they're well-formed)
-                                test_debug!("Got (tentative) microblocks {}: {}/{}-{}", block_key.sortition_height, &block_key.consensus_hash, &block_key.index_block_hash, microblocks[0].block_hash());
+                                debug!("Got (tentative) microblocks {}: {}/{}-{}", block_key.sortition_height, &block_key.consensus_hash, &block_key.index_block_hash, microblocks[0].block_hash());
                                 self.microblocks.insert(block_key, microblocks);
                             }
                         },
@@ -481,7 +481,7 @@ impl BlockDownloader {
                         HttpResponseType::NotFound(_, _) => {
                             // remote peer didn't have the microblock, even though their blockinv said
                             // they did.
-                            test_debug!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
+                            info!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                             
                             // the fact that we asked this peer means that it's block inv indicated
                             // it was present, so the absence is the mark of a broken peer
@@ -490,7 +490,7 @@ impl BlockDownloader {
                         }
                         _ => {
                             // wrong message response
-                            test_debug!("Got bad HTTP response from {:?}", &block_key.data_url);
+                            info!("Got bad HTTP response from {:?}", &block_key.data_url);
                             self.broken_peers.push(event_id);
                             self.broken_neighbors.push(block_key.neighbor.clone());
                         }
@@ -544,6 +544,7 @@ impl BlockDownloader {
             }
 
             debug!("Begin headers load");
+            let begin_ts = get_epoch_time_ms();
             let last_ancestor = SortitionDB::get_ancestor_snapshot(&ic, first_block_height + sortition_height_end, &tip.sortition_id)?
                 .ok_or_else(|| net_error::DBError(db_error::NotFoundError))?;
             
@@ -556,7 +557,8 @@ impl BlockDownloader {
             for (_i, (_consensus_hash, _block_hash_opt)) in local_blocks.iter().enumerate() {
                 test_debug!("  Loaded {} ({}): {:?}/{:?}", (_i as u64) + sortition_height_start, (_i as u64) + sortition_height_start + first_block_height, _consensus_hash, _block_hash_opt);
             }
-            debug!("End headers load");
+            let end_ts = get_epoch_time_ms();
+            debug!("End headers load ({} ms)", end_ts.saturating_sub(begin_ts));
 
             // update cache 
             SortitionDB::merge_block_header_cache(header_cache, &local_blocks);
