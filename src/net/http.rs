@@ -93,6 +93,7 @@ use std::time::SystemTime;
 
 lazy_static! {
     static ref PATH_GETINFO : Regex = Regex::new(r#"^/v2/info$"#).unwrap();
+    static ref PATH_GETPOXINFO : Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
     static ref PATH_GETNEIGHBORS : Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
     static ref PATH_GETBLOCK : Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_INDEXED : Regex = Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
@@ -1164,6 +1165,7 @@ impl HttpRequestType {
         // TODO: make this static somehow
         let REQUEST_METHODS: &[(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Captures, Option<&str>, &mut R) -> Result<HttpRequestType, net_error>)] = &[
             ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
+            ("GET", &PATH_GETPOXINFO, &HttpRequestType::parse_getpoxinfo),
             ("GET", &PATH_GETNEIGHBORS, &HttpRequestType::parse_getneighbors),
             ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
             ("GET", &PATH_GETMICROBLOCKS_INDEXED, &HttpRequestType::parse_getmicroblocks_indexed),
@@ -1214,6 +1216,16 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetInfo(HttpRequestMetadata::from_preamble(preamble)))
     }
     
+    fn parse_getpoxinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetPoxInfo".to_string()));
+        }
+
+        let tip = HttpRequestType::get_chain_tip_query(query);
+
+        Ok(HttpRequestType::GetPoxInfo(HttpRequestMetadata::from_preamble(preamble), tip))
+    }
+
     fn parse_getneighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetNeighbors".to_string()));
@@ -1502,6 +1514,7 @@ impl HttpRequestType {
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
+            HttpRequestType::GetPoxInfo(ref md, _) => md,
             HttpRequestType::GetNeighbors(ref md) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
             HttpRequestType::GetMicroblocksIndexed(ref md, _) => md,
@@ -1523,6 +1536,7 @@ impl HttpRequestType {
     pub fn metadata_mut(&mut self) -> &mut HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref mut md) => md,
+            HttpRequestType::GetPoxInfo(ref mut md, _) => md,
             HttpRequestType::GetNeighbors(ref mut md) => md,
             HttpRequestType::GetBlock(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksIndexed(ref mut md, _) => md,
@@ -1556,6 +1570,7 @@ impl HttpRequestType {
     pub fn request_path(&self) -> String {
         match self {
             HttpRequestType::GetInfo(_md) => "/v2/info".to_string(),
+            HttpRequestType::GetPoxInfo(_md, tip_opt) => format!("/v2/pox{}", HttpRequestType::make_query_string(tip_opt.as_ref(), true)),
             HttpRequestType::GetNeighbors(_md) => "/v2/neighbors".to_string(),
             HttpRequestType::GetBlock(_md, block_hash) => format!("/v2/blocks/{}", block_hash.to_hex()),
             HttpRequestType::GetMicroblocksIndexed(_md, block_hash) => format!("/v2/microblocks/{}", block_hash.to_hex()),
@@ -1798,6 +1813,7 @@ impl HttpResponseType {
         // TODO: make this static somehow
         let RESPONSE_METHODS : &[(&Regex, &dyn Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>)] = &[
             (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
+            (&PATH_GETPOXINFO, &HttpResponseType::parse_poxinfo),
             (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
             (&PATH_GETMICROBLOCKS_INDEXED, &HttpResponseType::parse_microblocks),
@@ -1845,6 +1861,12 @@ impl HttpResponseType {
         let peer_info = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::PeerInfo(HttpResponseMetadata::from_preamble(request_version, preamble), peer_info))
     }
+
+    fn parse_poxinfo<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        let pox_info = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::PoxInfo(HttpResponseMetadata::from_preamble(request_version, preamble), pox_info))
+    }
+
 
     fn parse_neighbors<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let neighbors_data = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
@@ -1960,6 +1982,7 @@ impl HttpResponseType {
     pub fn metadata(&self) -> &HttpResponseMetadata {
         match *self {
             HttpResponseType::PeerInfo(ref md, _) => md,
+            HttpResponseType::PoxInfo(ref md, _) => md,
             HttpResponseType::Neighbors(ref md, _) => md,
             HttpResponseType::Block(ref md, _) => md,
             HttpResponseType::BlockStream(ref md) => md,
@@ -2061,6 +2084,10 @@ impl HttpResponseType {
             HttpResponseType::PeerInfo(ref md, ref peer_info) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, peer_info)?;
+            },
+            HttpResponseType::PoxInfo(ref md, ref pox_info) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, pox_info)?;
             },
             HttpResponseType::Neighbors(ref md, ref neighbor_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
@@ -2165,6 +2192,7 @@ impl MessageSequence for StacksHttpMessage {
         match *self {
             StacksHttpMessage::Request(ref req) => match req {
                 HttpRequestType::GetInfo(_) => "HTTP(GetInfo)",
+                HttpRequestType::GetPoxInfo(_, _) => "HTTP(GetPoxInfo)",
                 HttpRequestType::GetNeighbors(_) => "HTTP(GetNeighbors)",
                 HttpRequestType::GetBlock(_, _) => "HTTP(GetBlock)",
                 HttpRequestType::GetMicroblocksIndexed(_, _) => "HTTP(GetMicroblocksIndexed)",
@@ -2189,6 +2217,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpResponseType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
+                HttpResponseType::PoxInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::Neighbors(_, _) => "HTTP(Neighbors)",
                 HttpResponseType::Block(_, _) => "HTTP(Block)",
                 HttpResponseType::BlockStream(_) => "HTTP(BlockStream)",

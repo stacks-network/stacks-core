@@ -947,6 +947,18 @@ pub struct RPCPeerInfoData {
     pub exit_at_block_height: Option<u64>,
 }
 
+/// The data we return on GET /v2/pox
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxInfoData {
+    pub contract_id: String,
+    pub first_burnchain_block_height: u128,
+    pub min_amount_ustx: u128,
+    pub prepare_cycle_length: u128,
+    pub rejection_fraction: u128,
+    pub reward_cycle_id: u128,
+    pub reward_cycle_length: u128,
+}
+
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
 #[repr(u8)]
 pub enum HttpVersion {
@@ -1078,6 +1090,7 @@ pub struct RPCNeighborsInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
+    GetPoxInfo(HttpRequestMetadata, Option<StacksBlockId>),
     GetNeighbors(HttpRequestMetadata),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
@@ -1155,6 +1168,7 @@ impl From<&HttpRequestType> for HttpResponseMetadata {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
     PeerInfo(HttpResponseMetadata, RPCPeerInfoData),
+    PoxInfo(HttpResponseMetadata, RPCPoxInfoData),
     Neighbors(HttpResponseMetadata, RPCNeighborsInfo),
     Block(HttpResponseMetadata, StacksBlock),
     BlockStream(HttpResponseMetadata),
