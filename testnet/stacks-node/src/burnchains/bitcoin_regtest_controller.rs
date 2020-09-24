@@ -239,7 +239,7 @@ impl BitcoinRegtestController {
                         .expect("BUG: no data for the canonical chain tip");
 
                     let burnchain_height = burnchain_indexer.get_headers_height()
-                        .map_err(BurnchainControllerError::IndexerError)?;
+                        .map_err(BurnchainControllerError::IndexerError)? - 1;      // 1-indexed, so convert to 0-indexed height
 
                     break (snapshot, burnchain_height, state_transition);
                 }
