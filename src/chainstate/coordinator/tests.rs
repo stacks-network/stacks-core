@@ -162,6 +162,9 @@ impl BlockEventDispatcher for NullEventDispatcher {
                       _receipts: Vec<StacksTransactionReceipt>, _parent: &StacksBlockId) {
         assert!(false, "We should never try to announce to the null dispatcher");
     }
+
+    fn dispatch_boot_receipts(&self, receipts: Vec<StacksTransactionReceipt>) {
+    }
 }
 
 pub fn make_coordinator<'a>(path: &str) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {

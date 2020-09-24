@@ -204,6 +204,10 @@ impl BlockEventDispatcher for EventDispatcher {
         let chain_tip = ChainTip { metadata, block, receipts };
         self.process_chain_tip(&chain_tip, parent)
     }
+
+    fn dispatch_boot_receipts(&self, receipts: Vec<StacksTransactionReceipt>) {
+        self.process_boot_receipts(receipts)
+    }
 }
 
 impl EventDispatcher {
