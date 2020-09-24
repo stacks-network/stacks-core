@@ -1958,6 +1958,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_121_snapshot.index_root = sn121.index_root.clone();
+            block_121_snapshot.burn_header_received_timestamp = sn121.burn_header_received_timestamp;
             assert_eq!(sn121, block_121_snapshot);
         }
         {
@@ -1979,6 +1980,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_122_snapshot.index_root = sn122.index_root.clone();
+            block_122_snapshot.burn_header_received_timestamp = sn122.burn_header_received_timestamp;
             assert_eq!(sn122, block_122_snapshot);
         }
         {
@@ -1999,6 +2001,7 @@ pub mod tests {
             tx.commit().unwrap();
 
             block_123_snapshot.index_root = sn123.index_root.clone();
+            block_123_snapshot.burn_header_received_timestamp = sn123.burn_header_received_timestamp;
             assert_eq!(sn123, block_123_snapshot);
         }
 
@@ -2121,6 +2124,7 @@ pub mod tests {
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
+                block_124_snapshot.burn_header_received_timestamp = sn124.burn_header_received_timestamp;
                 sn124
             };
 
