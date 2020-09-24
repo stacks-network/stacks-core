@@ -9,6 +9,7 @@ use super::operations::BurnchainOpSigner;
 use std::time::Instant;
 use std::fmt;
 
+use stacks::burnchains;
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -16,21 +17,23 @@ use stacks::chainstate::burn::operations::BlockstackOperationType;
 
 #[derive(Debug)]
 pub enum Error {
-    CoordinatorClosed
+    CoordinatorClosed,
+    IndexerError(burnchains::Error)
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
+            Error::IndexerError(ref e) => write!(f, "Indexer error: {:?}", e),
         }
     }
 }
 
 pub trait BurnchainController {
-    fn start(&mut self) -> Result<BurnchainTip, Error>;
+    fn start(&mut self) -> Result<(BurnchainTip, u64), Error>;
     fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) -> bool;
-    fn sync(&mut self) -> Result<BurnchainTip, Error>;
+    fn sync(&mut self) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
     fn get_chain_tip(&mut self) -> BurnchainTip;
