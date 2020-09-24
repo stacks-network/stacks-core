@@ -16,35 +16,35 @@
 (define-constant ERR_NOT_ALLOWED 19)
 
 ;; Min/max number of reward cycles uSTX can be locked for
-(define-constant MIN-POX-REWARD-CYCLES u1)
-(define-constant MAX-POX-REWARD-CYCLES u12)
+(define-constant MIN_POX_REWARD_CYCLES u1)
+(define-constant MAX_POX_REWARD_CYCLES u12)
 
 ;; Default length of the PoX registration window, in burnchain blocks.
 (define-constant PREPARE_CYCLE_LENGTH u250)
 
 ;; Default length of the PoX reward cycle, in burnchain blocks.
-(define-constant REWARD-CYCLE-LENGTH u1000)
+(define-constant REWARD_CYCLE_LENGTH u1000)
 
 ;; Valid values for burnchain address versions.
 ;; These correspond to address hash modes in Stacks 2.0.
-(define-constant ADDRESS-VERSION-P2PKH 0x00)
-(define-constant ADDRESS-VERSION-P2SH 0x01)
-(define-constant ADDRESS-VERSION-P2WPKH 0x02)
-(define-constant ADDRESS-VERSION-P2WSH 0x03)
+(define-constant ADDRESS_VERSION_P2PKH 0x00)
+(define-constant ADDRESS_VERSION_P2SH 0x01)
+(define-constant ADDRESS_VERSION_P2WPKH 0x02)
+(define-constant ADDRESS_VERSION_P2WSH 0x03)
 
 ;; Stacking thresholds
-(define-constant STACKING-THRESHOLD-25 u20000)
-(define-constant STACKING-THRESHOLD-100 u5000)
+(define-constant STACKING_THRESHOLD_25 u20000)
+(define-constant STACKING_THRESHOLD_100 u5000)
 
 ;; PoX disabling threshold (a percent)
-(define-constant POX-REJECTION-FRACTION u25)
+(define-constant POX_REJECTION_FRACTION u25)
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
-(define-data-var pox-reward-cycle-length uint REWARD-CYCLE-LENGTH)
-(define-data-var pox-rejection-fraction uint POX-REJECTION-FRACTION)
 (define-data-var pox-prepare-cycle-length uint PREPARE_CYCLE_LENGTH)
+(define-data-var pox-reward-cycle-length uint REWARD_CYCLE_LENGTH)
+(define-data-var pox-rejection-fraction uint POX_REJECTION_FRACTION)
 (define-data-var first-burnchain-block-height uint u0)
 (define-data-var configured bool false)
 
@@ -317,15 +317,15 @@
 
 ;; Is the address mode valid for a PoX burn address?
 (define-private (check-pox-addr-version (version (buff 1)))
-    (or (is-eq version ADDRESS-VERSION-P2PKH)
-        (is-eq version ADDRESS-VERSION-P2SH)
-        (is-eq version ADDRESS-VERSION-P2WPKH)
-        (is-eq version ADDRESS-VERSION-P2WSH)))
+    (or (is-eq version ADDRESS_VERSION_P2PKH)
+        (is-eq version ADDRESS_VERSION_P2SH)
+        (is-eq version ADDRESS_VERSION_P2WPKH)
+        (is-eq version ADDRESS_VERSION_P2WSH)))
 
 ;; Is the given lock period valid?
 (define-private (check-pox-lock-period (lock-period uint)) 
-    (and (>= lock-period MIN-POX-REWARD-CYCLES) 
-         (<= lock-period MAX-POX-REWARD-CYCLES)))
+    (and (>= lock-period MIN_POX_REWARD_CYCLES) 
+         (<= lock-period MAX_POX_REWARD_CYCLES)))
 
 ;; Evaluate if a participant can stack an amount of STX for a given period.
 ;; This method is designed as a read-only method so that it can be used as 
