@@ -36,7 +36,6 @@ const STATUS_RESP_POST_CONDITION: &str  = "abort_by_post_condition";
 
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
-pub const PATH_BOOT_EVENTS: &str = "boot_events";
 
 impl EventObserver {
 
@@ -109,19 +108,15 @@ impl EventObserver {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
-    fn send_boot_receipts(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_BOOT_EVENTS);
-    }
-
     fn send(&self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip,
-            parent_index_hash: &StacksBlockId) {
+            parent_index_hash: &StacksBlockId, receipts: &Vec<StacksTransactionReceipt>) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(committed, txid, event)|
             event.json_serialize(txid, *committed)
         ).collect();
 
         let mut tx_index: u32 = 0;
-        let serialized_txs: Vec<serde_json::Value> = chain_tip.receipts.iter().map(|receipt| {
+        let serialized_txs: Vec<serde_json::Value> = receipts.iter().map(|receipt| {
             let tx = &receipt.transaction;
 
             let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
@@ -196,6 +191,7 @@ pub struct EventDispatcher {
     mempool_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
+    boot_receipts: Vec<StacksTransactionReceipt>,
 }
 
 impl BlockEventDispatcher for EventDispatcher {
@@ -205,7 +201,7 @@ impl BlockEventDispatcher for EventDispatcher {
         self.process_chain_tip(&chain_tip, parent)
     }
 
-    fn dispatch_boot_receipts(&self, receipts: Vec<StacksTransactionReceipt>) {
+    fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
         self.process_boot_receipts(receipts)
     }
 }
@@ -220,6 +216,7 @@ impl EventDispatcher {
             stx_observers_lookup: HashSet::new(),
             any_event_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
+            boot_receipts: vec![],
         }
     }
 
@@ -228,7 +225,16 @@ impl EventDispatcher {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
         let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
-        for receipt in chain_tip.receipts.iter() {
+
+        let receipts = if chain_tip.metadata.block_height == 1 {
+            let mut receipts = chain_tip.receipts.clone();
+            receipts.append(&mut self.boot_receipts.clone());
+            receipts
+        } else {
+            chain_tip.receipts.clone()
+        };
+
+        for receipt in receipts.iter() {
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
                 match event {
@@ -273,7 +279,7 @@ impl EventDispatcher {
             let filtered_events: Vec<_> = filtered_events_ids.iter()
                 .map(|event_id| &events[*event_id]).collect();
 
-            self.registered_observers[observer_id].send(filtered_events, chain_tip, parent_index_hash);
+            self.registered_observers[observer_id].send(filtered_events, chain_tip, parent_index_hash, &receipts);
         }
     }
 
@@ -295,47 +301,8 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_boot_receipts(&self, receipts: Vec<StacksTransactionReceipt>) {
-        // lazily assemble payload only if we have observers
-
-        let mut encoded_receipts = vec![];
-        let mut tx_index = 0;
-        for receipt in receipts.iter() {
-            let serialized_events: Vec<serde_json::Value> = receipt.events.iter().map(|event|
-                event.json_serialize(&receipt.transaction.txid(), true)
-            ).collect();
-
-            let raw_tx = {
-                let mut bytes = vec![];
-                receipt.transaction.consensus_serialize(&mut bytes).unwrap();
-                let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-                formatted_bytes
-            };
-
-            let contract_interface_json = {
-                match &receipt.contract_analysis {
-                    Some(analysis) => json!(build_contract_interface(analysis)),
-                    None => json!(null)
-                }
-            };
-
-            let val = json!({
-                "txid": format!("0x{}", receipt.transaction.txid()),
-                "tx_index": tx_index,
-                "status": true,
-                "raw_tx": format!("0x{}", raw_tx.join("")),
-                "events": serialized_events,
-                "contract_abi": contract_interface_json
-            });
-            tx_index += 1;
-            encoded_receipts.push(val);
-        }
-
-        let encoded_receipts = serde_json::Value::Array(encoded_receipts);
-
-        for observer in self.registered_observers.iter() {
-            observer.send_boot_receipts(&encoded_receipts);
-        }
+    pub fn process_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
+        self.boot_receipts = receipts;
     }
 
     fn update_dispatch_matrix_if_observer_subscribed(&self, asset_identifier: &AssetIdentifier, event_index: usize, dispatch_matrix: &mut Vec<HashSet<usize>>) {

@@ -163,7 +163,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         assert!(false, "We should never try to announce to the null dispatcher");
     }
 
-    fn dispatch_boot_receipts(&self, receipts: Vec<StacksTransactionReceipt>) {
+    fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
     }
 }
 

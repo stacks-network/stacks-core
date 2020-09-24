@@ -97,7 +97,7 @@ pub trait BlockEventDispatcher {
     fn announce_block(&self, block: StacksBlock, metadata: StacksHeaderInfo,
                       receipts: Vec<StacksTransactionReceipt>, parent: &StacksBlockId);
 
-    fn dispatch_boot_receipts(&self, receipts: Vec<StacksTransactionReceipt>);
+    fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
 }
 
 pub struct ChainsCoordinator <'a, T: BlockEventDispatcher, N: CoordinatorNotices, R: RewardSetProvider> {
@@ -162,7 +162,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider> {
     pub fn run<F>(chain_state_path: &str, burnchain: Burnchain, stacks_mainnet: bool, stacks_chain_id: u32,
                   initial_balances: Option<Vec<(PrincipalData, u64)>>,
-                  block_limit: ExecutionCost, dispatcher: &T, comms: CoordinatorReceivers,
+                  block_limit: ExecutionCost, dispatcher: &mut T, comms: CoordinatorReceivers,
                   boot_block_exec: F)
         where F: FnOnce(&mut ClarityTx), T: BlockEventDispatcher {
 

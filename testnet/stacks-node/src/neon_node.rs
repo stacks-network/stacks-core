@@ -865,7 +865,7 @@ impl InitializedNeonNode {
 impl NeonGenesisNode {
 
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, event_dispatcher: EventDispatcher, boot_block_exec: F) -> Self
+    pub fn new<F>(config: Config, mut event_dispatcher: EventDispatcher, boot_block_exec: F) -> Self
     where F: FnOnce(&mut ClarityTx) -> () {
 
         let keychain = Keychain::default(config.node.seed.clone());
