@@ -1066,7 +1066,7 @@ impl PeerNetwork {
 
     /// Deregister a socket/event pair
     pub fn deregister_peer(&mut self, event_id: usize) -> () {
-        test_debug!("{:?}: Disconnect event {}", &self.local_peer, event_id);
+        debug!("{:?}: Disconnect event {}", &self.local_peer, event_id);
         if self.peers.contains_key(&event_id) {
             self.peers.remove(&event_id);
         }
