@@ -301,10 +301,18 @@ impl EventDispatcher {
                 event.json_serialize(&receipt.transaction.txid(), true)
             ).collect();
 
+            let raw_tx = {
+                let mut bytes = vec![];
+                receipt.transaction.consensus_serialize(&mut bytes).unwrap();
+                let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                formatted_bytes
+            };
+
             let val = json!({
                 "txid": format!("0x{}", receipt.transaction.txid()),
                 "tx_index": tx_index,
                 "status": true,
+                "raw_tx": format!("0x{}", raw_tx.join("")),
                 "events": serialized_events,
             });
             tx_index += 1;
