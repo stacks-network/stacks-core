@@ -638,7 +638,7 @@ pub mod test {
                 }
                 if tenure_id == 2 {
                     let alice_test_tx = make_bare_contract(&alice, 1, 0, "nested-stacker", &format!(
-                        "(define-public (nested-stacks-stx)
+                        "(define-public (nested-stack-stx)
                             (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(alice_test_tx);   
@@ -650,7 +650,7 @@ pub mod test {
                     let mut contract_call = StacksTransaction::new(TransactionVersion::Testnet, auth,
                                                                 TransactionPayload::new_contract_call(key_to_stacks_addr(&alice),
                                                                                                      "nested-stacker",
-                                                                                                     "nested-stacks-stx",
+                                                                                                     "nested-stack-stx",
                                                                                                      vec![]).unwrap());
                     contract_call.chain_id = 0x80000000;
                     contract_call.auth.set_origin_nonce(2);

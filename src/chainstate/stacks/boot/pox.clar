@@ -329,9 +329,9 @@
 
 ;; Evaluate if a participant can stack an amount of STX for a given period.
 ;; This method is designed as a read-only method so that it can be used as 
-;; a set of guard conditions, but also via a read-only RPC call that can be
-;; performed before hand.
-(define-read-only (can-stacks-stx (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+;; a set of guard conditions and also as a read-only RPC call that can be
+;; performed beforehand.
+(define-read-only (can-stack-stx (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                   (amount-ustx uint)
                                   (first-reward-cycle uint)
                                   (num-cycles uint))
@@ -393,7 +393,7 @@
         (err ERR_STACKING_ALREADY_STACKED))
 
     ;; ensure that stacking can be performed
-    (try! (can-stacks-stx pox-addr amount-ustx first-reward-cycle lock-period))
+    (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
     ;; register the PoX address with the amount stacked
     (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx))
