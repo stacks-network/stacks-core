@@ -689,9 +689,9 @@ impl Burnchain {
 
     /// Top-level burnchain sync.
     /// Returns new latest block height.
-    pub fn sync<I: BurnchainIndexer + 'static>(&mut self, comms: &CoordinatorChannels) -> Result<u64, burnchain_error> {
+    pub fn sync<I: BurnchainIndexer + 'static>(&mut self, comms: &CoordinatorChannels, num_burn_blocks: Option<u64>) -> Result<u64, burnchain_error> {
         let mut indexer: I = self.make_indexer()?;
-        let chain_tip = self.sync_with_indexer(&mut indexer, comms.clone())?;
+        let chain_tip = self.sync_with_indexer(&mut indexer, comms.clone(), num_burn_blocks)?;
         Ok(chain_tip.block_height)
     }
 
@@ -860,7 +860,7 @@ impl Burnchain {
     /// Top-level burnchain sync.
     /// Returns the burnchain block header for the new burnchain tip
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
-    pub fn sync_with_indexer<I>(&mut self, indexer: &mut I, coord_comm: CoordinatorChannels) -> Result<BurnchainBlockHeader, burnchain_error>
+    pub fn sync_with_indexer<I>(&mut self, indexer: &mut I, coord_comm: CoordinatorChannels, num_burn_blocks_opt: Option<u64>) -> Result<BurnchainBlockHeader, burnchain_error>
     where I: BurnchainIndexer + 'static {
 
         self.setup_chainstate(indexer)?;
@@ -885,16 +885,22 @@ impl Burnchain {
         // get latest headers.
         debug!("Sync headers from {}", sync_height);
 
-        let end_block = indexer.sync_headers(sync_height, None)?;
-        let mut start_block = match sync_height {
-            0 => 0,
-            _ => sync_height,
-        };
+        // fetch all headers, no matter what
+        let mut end_block = indexer.sync_headers(sync_height, None)?;
+        let mut start_block = sync_height;
         if db_height < start_block {
             start_block = db_height;
         }
         
         debug!("Sync'ed headers from {} to {}. DB at {}", start_block, end_block, db_height);
+
+        if let Some(num_burn_blocks) = num_burn_blocks_opt {
+            if start_block + num_burn_blocks < end_block {
+                debug!("Will download up to burn block height {}, instead of {}", start_block + num_burn_blocks, end_block);
+                end_block = start_block + num_burn_blocks;
+            }
+        }
+        
         if start_block == db_height && db_height == end_block {
             // all caught up
             return Ok(burn_chain_tip);
