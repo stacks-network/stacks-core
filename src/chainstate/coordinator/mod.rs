@@ -223,7 +223,7 @@ impl <'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator <'a, 
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let chain_state_db = StacksChainState::open(false, 0x80000000, &format!("{}/chainstate/", path)).unwrap();
+        let (chain_state_db, _) = StacksChainState::open(false, 0x80000000, &format!("{}/chainstate/", path)).unwrap();
 
         let canonical_sortition_tip = SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 

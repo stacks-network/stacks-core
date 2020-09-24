@@ -1079,7 +1079,7 @@ pub mod test {
             Err(_) => {}
         };
 
-        StacksChainState::open(mainnet, chain_id, &path).unwrap()
+        StacksChainState::open(mainnet, chain_id, &path).unwrap().0
     }
 
     pub fn instantiate_chainstate_with_balances(mainnet: bool, chain_id: u32, test_name: &str, balances: Vec<(StacksAddress, u64)>) -> StacksChainState {
@@ -1092,12 +1092,12 @@ pub mod test {
         };
 
         let initial_balances = Some(balances.into_iter().map(|(addr, balance)| (PrincipalData::from(addr), balance)).collect());
-        StacksChainState::open_and_exec(mainnet, chain_id, &path, initial_balances, |_| {}, ExecutionCost::max_value()).unwrap()
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, initial_balances, |_| {}, ExecutionCost::max_value()).unwrap().0
     }
 
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
-        StacksChainState::open(mainnet, chain_id, &path).unwrap()
+        StacksChainState::open(mainnet, chain_id, &path).unwrap().0
     }
 
     pub fn chainstate_path(test_name: &str) -> String {

@@ -1755,7 +1755,7 @@ mod test {
 
         let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, None, key_expires, PeerAddress::from_ipv4(127, 0, 0, 1), NETWORK_P2P_PORT, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
         let sortdb = SortitionDB::connect(&sortdb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
-        let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+        let (chainstate, _) = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
 
         let pox_id = {
             let ic = sortdb.index_conn();

@@ -148,7 +148,7 @@ pub fn setup_states(paths: &[&str], vrf_keys: &[VRFPrivateKey], committers: &[St
     let block_limit = ExecutionCost::max_value();
 
     for path in paths.iter() {
-        let chain_state_db = StacksChainState::open_and_exec(
+        let (chain_state_db, _) = StacksChainState::open_and_exec(
             false, 0x80000000, &format!("{}/chainstate/", path),
             initial_balances.clone(), |_| {}, block_limit.clone())
             .unwrap();
@@ -207,7 +207,8 @@ pub fn get_chainstate_path(path: &str) -> String {
 }
 
 pub fn get_chainstate(path: &str) -> StacksChainState {
-    StacksChainState::open(false, 0x80000000, &get_chainstate_path(path)).unwrap()
+    let (chainstate, _) = StacksChainState::open(false, 0x80000000, &get_chainstate_path(path)).unwrap();
+    chainstate
 }
 
 fn make_genesis_block(sort_db: &SortitionDB, state: &mut StacksChainState,
