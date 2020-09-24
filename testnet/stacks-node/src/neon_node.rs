@@ -872,7 +872,7 @@ impl NeonGenesisNode {
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
         // do the initial open!
-        let _chain_state = match StacksChainState::open_and_exec(
+        let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             false, 
             TESTNET_CHAIN_ID, 
             &config.get_chainstate_path(), 
@@ -882,6 +882,8 @@ impl NeonGenesisNode {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
+
+        event_dispatcher.process_boot_receipts(receipts);
 
         Self {
             keychain,
