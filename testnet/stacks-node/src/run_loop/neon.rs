@@ -1,4 +1,5 @@
 use std::thread;
+use std::collections::VecDeque;
 
 use crate::{Config, NeonGenesisNode, BurnchainController, EventDispatcher,
             BitcoinRegtestController, Keychain, neon_node};
@@ -8,10 +9,14 @@ use stacks::burnchains::{Address, Burnchain};
 use stacks::burnchains::bitcoin::{address::{BitcoinAddressType}};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
+use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::util::sleep_ms;
+use stacks::util::get_epoch_time_secs;
 
 use super::RunLoopCallbacks;
 
 use crate::monitoring::start_serving_monitoring_metrics;
+use crate::neon_node::TESTNET_CHAIN_ID;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -75,6 +80,20 @@ impl RunLoop {
     fn bump_blocks_processed(&self) {
     }
 
+    fn count_attachable_stacks_blocks(&self, chainstate_path: &String, limit: u64) -> Result<u64, String> {
+        let chainstate = match StacksChainState::open(false, TESTNET_CHAIN_ID, &chainstate_path) {
+            Ok(cs) => cs,
+            Err(e) => {
+                return Err(format!("Failed to open chainstate at '{}': {:?}", chainstate_path, &e));
+            },
+        };
+
+        let cnt = StacksChainState::count_attachable_staging_blocks(&chainstate.blocks_db, limit)
+            .map_err(|e| format!("Failed to count attachable staging blocks: {:?}", &e))?;
+
+        Ok(cnt)
+    }
+
     /// Starts the testnet runloop.
     /// 
     /// This function will block by looping infinitely.
@@ -112,8 +131,8 @@ impl RunLoop {
             false
         };
 
-        let _burnchain_tip = match burnchain.start() {
-            Ok(x) => x,
+        match burnchain.start() {
+            Ok(_) => {},
             Err(e) => {
                 warn!("Burnchain controller stopped: {}", e);
                 return;
@@ -173,15 +192,88 @@ impl RunLoop {
                 start_serving_monitoring_metrics(prometheus_bind);
             });
         }
+        
+        let chainstate_path = self.config.get_chainstate_path();
+        let mut unprocessed_block_samples : VecDeque<i64> = VecDeque::new();
+        let max_samples = 30;
+        let max_staging = 10;
+        let delay_heuristic = 60_000;       // 1 minute
+
+        // how often to sync
+        let sync_frequency = 10;
+        let mut sync_deadline = get_epoch_time_secs() + sync_frequency;
 
         loop {
-            burnchain_tip = match burnchain.sync() {
+            let mut total_blocks_seen = 0;
+            let mut total_recent_changes = 0;
+            let do_sync = match self.count_attachable_stacks_blocks(&chainstate_path, max_staging) {
+                Ok(num_available) => {
+                    unprocessed_block_samples.push_back(num_available as i64);
+                    if unprocessed_block_samples.len() > max_samples {
+                        unprocessed_block_samples.pop_front();
+                    }
+
+                    if num_available > 0 || unprocessed_block_samples.len() < max_samples {
+                        // wait for a bit before asking again (up to a minute total)
+                        sleep_ms((delay_heuristic / max_samples) as u64);
+                    }
+
+                    // take first derivative of samples
+                    let mut deltas = vec![];
+                    let mut prev = *unprocessed_block_samples.front().unwrap_or(&(max_staging as i64));
+                    for (i, sample) in unprocessed_block_samples.iter().enumerate() {
+                        total_blocks_seen += sample;
+                        if i == 0 {
+                            continue;
+                        }
+                        let delta = sample - prev;
+                        prev = *sample;
+                        deltas.push(delta);
+                    }
+
+                    // if first-derivative is `y = 0` for the last 60 seconds, then we can infer
+                    // that we've processed all of the burnchain blocks -- no more are likely to
+                    // arrive late (but we can recover via the PoX unhappy path if that happens)
+                    let mut flatlined = true;
+                    for d in deltas.iter() {
+                        if *d != 0 {
+                            total_recent_changes += 1;
+                            flatlined = false;
+                        }
+                    }
+
+                    flatlined && total_blocks_seen == 0
+                },
+                Err(msg) => {
+                    warn!("{}", msg);
+                    false
+                }
+            };
+
+            if !do_sync {
+                // still working on blocks
+                debug!("Still downloading blocks; will not sync burnchain yet (total blocks seen in sample: {}; total number of changes in sample: {})", total_blocks_seen, total_recent_changes);
+                sleep_ms((delay_heuristic / max_samples) as u64);
+                continue;
+            }
+
+            let now = get_epoch_time_secs();
+            if now < sync_deadline {
+                debug!("Wait until {} to sync with the burnchain", sync_deadline);
+                sleep_ms((sync_deadline - now) * 1000);
+            }
+
+            sync_deadline = get_epoch_time_secs() + sync_frequency;
+
+            let (next_burnchain_tip, burnchain_height) = match burnchain.sync() {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Burnchain controller stopped: {}", e);
                     return;
                 }
             };
+
+            burnchain_tip = next_burnchain_tip;
 
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
@@ -213,14 +305,18 @@ impl RunLoop {
                     return
                 }
             }
-            // now, let's tell the miner to try and mine.
-            if !node.relayer_issue_tenure() {
-                // relayer hung up, exit.
-                error!("Block relayer and miner hung up, exiting.");
-                return
-            }
 
             block_height = next_height;
+            debug!("Synchronized up to block height {} (chain tip height is {})", block_height, burnchain_height);
+
+            if block_height >= burnchain_height {
+                // at tip. proceed to mine.
+                if !node.relayer_issue_tenure() {
+                    // relayer hung up, exit.
+                    error!("Block relayer and miner hung up, exiting.");
+                    return
+                }
+            }
         }
     }
 }
