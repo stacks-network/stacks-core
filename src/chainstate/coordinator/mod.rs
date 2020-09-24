@@ -356,7 +356,7 @@ impl <'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider> 
 
             self.notifier.notify_sortition_processed();
 
-            debug!("Sortition processed: {} (tip {})", &sortition_id, &next_snapshot.burn_header_hash);
+            debug!("Sortition processed: {} (tip {} height {})", &sortition_id, &next_snapshot.burn_header_hash, next_snapshot.block_height);
 
             if sortition_tip_snapshot.block_height < header.block_height {
                 // bump canonical sortition...
