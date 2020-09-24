@@ -2553,6 +2553,13 @@ impl StacksChainState {
         Ok(available)
     }
 
+    /// How many attachable staging blocks do we have?
+    pub fn count_attachable_staging_blocks(blocks_conn: &DBConn, limit: u64) -> Result<u64, Error> {
+        let sql = "SELECT COUNT(*) FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 LIMIT ?1".to_string();
+        let cnt = query_count(blocks_conn, &sql, &[&u64_to_sql(limit)?]).map_err(Error::DBError)?;
+        Ok(cnt as u64)
+    }
+
     /// Given access to the chain state (headers) and the staging blocks, find a staging block we
     /// can process, as well as its parent microblocks that it confirms
     /// Returns Some(microblocks, staging block) if we found a sequence of blocks to process.
