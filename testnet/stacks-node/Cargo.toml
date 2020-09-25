@@ -31,4 +31,5 @@ path = "src/main.rs"
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]
+tx-log = ["stacks/tx_log"]
 default = []
