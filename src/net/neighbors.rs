@@ -1739,7 +1739,7 @@ impl PeerNetwork {
                                         continue;
                                     }
                                     Err(e) => {
-                                        info!("{:?}: Failed to connect to {:?}: {:?}", &network.local_peer, &nk, &e);
+                                        debug!("{:?}: Failed to connect to {:?}: {:?}", &network.local_peer, &nk, &e);
                                         continue;
                                     }
                                 }
@@ -1914,7 +1914,7 @@ impl PeerNetwork {
                         }
                     },
                     Err(e) => {
-                        info!("{:?}: Failed to connect to {:?}: {:?}", &network.local_peer, &nk, &e);
+                        debug!("{:?}: Failed to connect to {:?}: {:?}", &network.local_peer, &nk, &e);
                         continue;
                     }
                 }
