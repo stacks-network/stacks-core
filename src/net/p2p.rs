@@ -527,14 +527,14 @@ impl PeerNetwork {
 
     /// Broadcast a message to a list of neighbors
     pub fn broadcast_message(&mut self, mut neighbor_keys: Vec<NeighborKey>, relay_hints: Vec<RelayData>, message_payload: StacksMessageType) -> () {
-        debug!("{:?}: Will broadcast '{}' to up to {} neighbors", &self.local_peer, message_payload.get_message_name(), neighbor_keys.len());
+        debug!("{:?}: Will broadcast '{}' to up to {} neighbors", &self.local_peer, message_payload.get_message_description(), neighbor_keys.len());
         for nk in neighbor_keys.drain(..) {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
                 if let Some(convo) = self.peers.get_mut(&event_id) {
                     match convo.sign_and_forward(&self.local_peer, &self.chain_view, relay_hints.clone(), message_payload.clone()) {
                         Ok(rh) => {
-                            debug!("{:?}: Broadcasted '{}' to {:?}", &self.local_peer, message_payload.get_message_name(), &nk);
+                            debug!("{:?}: Broadcasted '{}' to {:?}", &self.local_peer, message_payload.get_message_description(), &nk);
                             self.add_relay_handle(event_id, rh);
                         },
                         Err(e) => {
@@ -542,9 +542,15 @@ impl PeerNetwork {
                         }
                     }
                 }
+                else {
+                    debug!("{:?}: No open conversation for {:?}; will not broadcast {:?} to it", &self.local_peer, &nk, message_payload.get_message_description());
+                }
+            }
+            else {
+                debug!("{:?}: No connection open to {:?}; will not broadcast {:?} to it", &self.local_peer, &nk, message_payload.get_message_description());
             }
         }
-        debug!("{:?}: Done broadcasting '{}", &self.local_peer, message_payload.get_message_name());
+        debug!("{:?}: Done broadcasting '{}", &self.local_peer, message_payload.get_message_description());
     }
 
     /// Count how many outbound conversations are going on 
@@ -665,14 +671,14 @@ impl PeerNetwork {
             }
         }
         
-        debug!("Inbound recipient distribution: {:?}", &inbound_dist);
-        debug!("Outbound recipient distribution: {:?}", &outbound_dist);
+        debug!("Inbound recipient distribution (out of {}): {:?}", inbound_neighbors.len(), &inbound_dist);
+        debug!("Outbound recipient distribution (out of {}): {:?}", outbound_neighbors.len(), &outbound_dist);
 
         let mut outbound_sample = RelayerStats::sample_neighbors(outbound_dist, MAX_BROADCAST_OUTBOUND_RECEIVERS);
         let mut inbound_sample = RelayerStats::sample_neighbors(inbound_dist, MAX_BROADCAST_INBOUND_RECEIVERS);
 
-        debug!("Inbound recipients: {:?}", &inbound_sample);
-        debug!("Outbound recipients: {:?}", &outbound_sample);
+        debug!("Inbound recipients (out of {}): {:?}", inbound_neighbors.len(), &inbound_sample);
+        debug!("Outbound recipients (out of {}): {:?}", outbound_neighbors.len(), &outbound_sample);
 
         outbound_sample.append(&mut inbound_sample);
         Ok(outbound_sample)

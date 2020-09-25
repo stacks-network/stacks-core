@@ -60,8 +60,6 @@ use rand::thread_rng;
 
 use vm::costs::ExecutionCost;
 
-// TODO(PoX): update this to HashMap<ConsensusHash, u64> once BlocksAvailableData doesn't need a
-// burn header hash
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
 pub const MAX_RELAYER_STATS : usize = 4096;
@@ -1082,8 +1080,6 @@ impl PeerNetwork {
 
     /// Announce the availability of a set of blocks or microblocks to a peer.
     /// Break the availability into (Micro)BlocksAvailable messages and queue them for transmission.
-    // TODO(PoX): update wanted so it's only a list of consensus hashes (requires
-    // BlocksAvailableData to be updated)
     fn advertize_to_peer<S>(&mut self, recipient: &NeighborKey, wanted: &Vec<(ConsensusHash, BurnchainHeaderHash)>, mut msg_builder: S) -> () 
     where 
         S: FnMut(BlocksAvailableData) -> StacksMessageType
@@ -1120,8 +1116,6 @@ impl PeerNetwork {
     /// Only advertize blocks and microblocks we have that the outbound peer doesn't.
     fn advertize_to_outbound_peer(&mut self, recipient: &NeighborKey, available: &BlocksAvailableMap, microblocks: bool) -> Result<(), net_error> {
         let wanted = PeerNetwork::with_inv_state(self, |ref mut _network, ref mut inv_state| {
-            // TODO(PoX): update wanted so it's only a list of consensus hashes (requires
-            // BlocksAvailableData to be updated)
             let mut wanted : Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
@@ -1161,8 +1155,6 @@ impl PeerNetwork {
     where
         S: FnMut(BlocksAvailableData) -> StacksMessageType
     {
-        // TODO(PoX): update wanted so it's only a list of consensus hashes (requires
-        // BlocksAvailableData to be updated)
         let mut wanted : Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
         for (burn_header_hash, (_, consensus_hash)) in available.iter() {
             wanted.push(((*consensus_hash).clone(), (*burn_header_hash).clone()));
