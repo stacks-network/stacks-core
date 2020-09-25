@@ -1167,6 +1167,7 @@ class BlockstackDB(virtualchain.StateEngine):
         # self.make_backups(block_id)
 
         from ..fast_sync import fast_sync_snapshot
+        # TODO: the -1 is required otherwise the backup files to export cannot be found. what is going on here?
         snapshot_success = fast_sync_snapshot(self.working_dir, export_file_path, None, block_id - 1)
         # TODO: this fails when the test suite runs the `blockstack_verify_database` after the test passes?
         # if not snapshot_success:
