@@ -25,6 +25,7 @@ import testlib
 import virtualchain
 import json
 import time
+import os
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -80,6 +81,11 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
 def check( state_engine ):
+
+    migration_data_file_path = os.path.join( state_engine.working_dir, 'v2_migration_data')
+    if not os.path.exists(migration_data_file_path):
+        print 'v2_migration_data file not found'
+        return False
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "miner" )
