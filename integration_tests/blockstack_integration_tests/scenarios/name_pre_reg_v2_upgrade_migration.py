@@ -97,13 +97,13 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "foo1.miner", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo_1.miner", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         print "still have preorder"
         return False
     
     # registered 
-    name_rec = state_engine.get_name( "foo1.miner" )
+    name_rec = state_engine.get_name( "foo_1.miner" )
     if name_rec is None:
         print "name does not exist"
         return False 

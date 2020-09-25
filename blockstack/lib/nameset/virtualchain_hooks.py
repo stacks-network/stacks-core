@@ -573,8 +573,7 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
        log.error("FATAL: no state engine given")
        os.abort()
 
-
-def db_continue( block_id, consensus_hash ):
+def db_continue( block_id, consensus_hash, db_state=None ):
     """
     (required by virtualchain state engine)
 
@@ -582,6 +581,44 @@ def db_continue( block_id, consensus_hash ):
     Blockstack uses this as a preemption point where it can safely
     exit if the user has so requested.
     """
+
+    if db_state is None:
+       log.error("FATAL: no state engine given to db_continue")
+       os.abort()
+       return
+
+
+    # TODO: create a new RPC endpoint to expose the state changes below, for testing when namespace signal threshold reached, and when import block is reached
+
+    # namespace to watch for miner signals to perform v2 upgrade
+    v2_upgrade_signal_namespace = 'miner'
+    # threshold of required ID registrations
+    v2_upgrade_signal_required_registrations = 20
+    # number of blocks to wait after signal threshold is reached until block import and chainstate dump 
+    v2_upgrade_signal_import_threshold = 500
+    if BLOCKSTACK_TEST:
+        v2_upgrade_signal_import_threshold = 10
+
+    # check if the ID threshold block has already been reached
+    threshold_block_id = db_state.get_v2_upgrade_threshold_block()
+    if threshold_block_id is not None:
+        import_block = db_state.get_v2_import_block_reached()
+        if import_block is None:
+            # check if the required number of blocks have been mined since threshold crossed
+            if (block_id - threshold_block_id == v2_upgrade_signal_import_threshold):
+                # emit parsable log entry and export datafile
+                log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_id))
+                db_state.set_v2_import_block_reached(block_id)
+                db_state.perform_v2_upgrade_datafile_export()
+                log.warn('[v2-upgrade] migration datafile export successful')
+
+    if threshold_block_id is None:
+        # check if threshold is reached at current block height
+        v2_signals = db_state.get_num_names_in_namespace(v2_upgrade_signal_namespace)
+        if (v2_signals >= v2_upgrade_signal_required_registrations):
+            log.debug('[v2-upgrade] namespace signal threshold reached at block: {}'.format(block_id))
+            db_state.set_v2_upgrade_threshold_block(block_id)
+
 
     # every so often, clean up
     if (block_id % 20) == 0:
