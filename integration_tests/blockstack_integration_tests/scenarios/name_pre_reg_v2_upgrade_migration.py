@@ -73,13 +73,6 @@ def scenario( wallets, **kw ):
     for i in xrange(0, block_threshold + 1):
         testlib.next_block( **kw )
 
-    testlib.blockstack_name_preorder( "okay.miner", wallets[6].privkey, wallets[7].addr )
-    testlib.blockstack_name_register( "okay.miner", wallets[6].privkey, wallets[7].addr )
-    testlib.next_block( **kw )
-    testlib.blockstack_name_preorder( "buddy.miner", wallets[6].privkey, wallets[7].addr )
-    testlib.blockstack_name_register( "buddy.miner", wallets[6].privkey, wallets[7].addr )
-    testlib.next_block( **kw )
-
 def check( state_engine ):
 
     migration_data_file_path = os.path.join( state_engine.working_dir, 'v2_migration_data.tar.bz2')
