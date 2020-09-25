@@ -1160,7 +1160,7 @@ class BlockstackDB(virtualchain.StateEngine):
         Export a datafile used for the v2 upgrade.
         """
         # TODO: is this called in a way where db locking isn't an issue?
-        export_file_path = os.path.join( self.working_dir, 'v2_migration_data')
+        export_file_path = os.path.join( self.working_dir, 'v2_migration_data.tar.bz2')
 
         block_id = self.get_current_block()
 

@@ -82,7 +82,7 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
-    migration_data_file_path = os.path.join( state_engine.working_dir, 'v2_migration_data')
+    migration_data_file_path = os.path.join( state_engine.working_dir, 'v2_migration_data.tar.bz2')
     if not os.path.exists(migration_data_file_path):
         print 'v2_migration_data file not found'
         return False
