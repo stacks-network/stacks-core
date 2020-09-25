@@ -1024,37 +1024,26 @@ def namedb_patch_v2_upgrade_signal(con):
 def namedb_get_v2_upgrade_threshold_block(con):
     sql = 'SELECT threshold_block_id FROM v2_upgrade_signal'
     args = ()
-
-    try:
-        rowdata = namedb_query_execute(con, sql, args, abort=False)
-        row = rowdata.fetchone()
-        return row['threshold_block_id']
-    except Exception as e:
-        # threshold block has not been reached
-        return None
+    rowdata = namedb_query_execute(con, sql, args, abort=False)
+    row = rowdata.fetchone()
+    return row['threshold_block_id']
 
 def namedb_set_v2_upgrade_threshold_block(con, block_id):
     existing_block = namedb_get_v2_upgrade_threshold_block(con)
-    if existing_block is not None:
+    if existing_block is not None and existing_block != block_id:
         raise Exception('v2_upgrade_threshold_block has already been set')
-    
     namedb_query_execute(con, 'UPDATE v2_upgrade_signal SET threshold_block_id = ? WHERE id = 1', (block_id,))
 
 def namedb_get_v2_import_block_reached(con):
     sql = 'SELECT import_block_id FROM v2_upgrade_signal'
     args = ()
-
-    try:
-        rowdata = namedb_query_execute(con, sql, args, abort=False)
-        row = rowdata.fetchone()
-        return row['import_block_id']
-    except Exception as e:
-        # threshold block has not been reached
-        return None
+    rowdata = namedb_query_execute(con, sql, args, abort=False)
+    row = rowdata.fetchone()
+    return row['import_block_id']
 
 def namedb_set_v2_import_block_reached(con, block_id):
     existing_block = namedb_get_v2_import_block_reached(con)
-    if existing_block is not None:
+    if existing_block is not None and existing_block != block_id:
         raise Exception('v2_upgrade_import_block has already been set')
     namedb_query_execute(con, 'UPDATE v2_upgrade_signal SET import_block_id = ? WHERE id = 1', (block_id,))
 

@@ -667,39 +667,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         
     nameop['value_hash'] = value_hash
 
-    # TODO: create a new RPC endpoint to expose the state changes below, for testing when namespace signal threshold reached, and when import block is reached
-
-    # namespace to watch for miner signals to perform v2 upgrade
-    v2_upgrade_signal_namespace = 'miner'
-    # threshold of required ID registrations
-    v2_upgrade_signal_required_registrations = 20
-    # number of blocks to wait after signal threshold is reached until block import and chainstate dump 
-    v2_upgrade_signal_import_threshold = 500
-    if BLOCKSTACK_TEST:
-        v2_upgrade_signal_import_threshold = 10
-
-    # check if the ID threshold block has already been reached
-    threshold_block_id = state_engine.get_v2_upgrade_threshold_block()
-    if threshold_block_id is not None:
-        import_block = state_engine.get_v2_import_block_reached()
-        if import_block is None:
-            # check if the required number of blocks have been mined since threshold crossed
-            # TODO: should this check needs to be performed on a per-block hook, not in just this name registration path?
-            if (block_id - threshold_block_id >= v2_upgrade_signal_import_threshold):
-                # emit parsable log entry and export datafile
-                log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_id))
-                import_block = state_engine.set_v2_import_block_reached(block_id)
-                state_engine.perform_v2_upgrade_datafile_export()
-                log.warn('[v2-upgrade] migration datafile export successful')
-                emit parsable log entry
-
-    if threshold_block_id is None and namespace_id == v2_upgrade_signal_namespace:
-        # check if threshold is reached at current block height
-        v2_signals = state_engine.get_num_names_in_namespace(v2_upgrade_signal_namespace)
-        if (v2_signals >= v2_upgrade_signal_required_registrations):
-            log.debug('[v2-upgrade] namespace signal threshold reached at block: {}'.format(block_id))
-            state_engine.set_v2_upgrade_threshold_block(block_id)
-
     return True
 
 
