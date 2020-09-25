@@ -573,7 +573,7 @@ impl StacksChainState {
     fn install_boot_code<F>(chainstate: &mut StacksChainState, 
                             mainnet: bool, 
                             initial_balances: Option<Vec<(PrincipalData, u64)>>,
-                            f: F) -> Result<(), Error>
+                            f: F) -> Result<Vec<StacksTransactionReceipt>, Error>
     where 
         F: FnOnce(&mut ClarityTx) -> ()
     {
@@ -605,6 +605,7 @@ impl StacksChainState {
         };
 
         let mut initial_liquid_ustx = 0u128;
+        let mut receipts = vec![];
 
         {
             let mut clarity_tx = chainstate.block_begin(&NULL_BURN_STATE_DB, &BURNCHAIN_BOOT_CONSENSUS_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
@@ -625,9 +626,10 @@ impl StacksChainState {
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
 
-                clarity_tx.connection().as_transaction(|clarity| {
+                let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
                 })?;
+                receipts.push(tx_receipt);
 
                 boot_code_account.nonce += 1;
             }
@@ -666,40 +668,40 @@ impl StacksChainState {
         }
 
         debug!("Finish install boot code");
-        Ok(())
+        Ok(receipts)
     }
 
-    pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
+    pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {}, ExecutionCost::max_value())
     }
 
     /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
     /// parameters
-    pub fn reopen(&self) -> Result<StacksChainState, Error> {
+    pub fn reopen(&self) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open(self.mainnet, self.chain_id, &self.root_path)
     }
     
     /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
     /// parameters, but with a block limit
-    pub fn reopen_limited(&self, budget: ExecutionCost) -> Result<StacksChainState, Error> {
+    pub fn reopen_limited(&self, budget: ExecutionCost) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None, |_| {}, budget)
     }
 
     pub fn open_testnet<F>(chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>,
-                           in_boot_block: F, block_limit: ExecutionCost) -> Result<StacksChainState, Error>  
+                           in_boot_block: F, block_limit: ExecutionCost) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error>  
     where 
         F: FnOnce(&mut ClarityTx) -> ()
     {
         StacksChainState::open_and_exec(false, chain_id, path_str, initial_balances, in_boot_block, block_limit)
     }
 
-    pub fn open_with_block_limit(mainnet: bool, chain_id: u32, path_str: &str, block_limit: ExecutionCost) -> Result<StacksChainState, Error> {
+    pub fn open_with_block_limit(mainnet: bool, chain_id: u32, path_str: &str, block_limit: ExecutionCost) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {}, block_limit)
     }
 
     pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str,
                             initial_balances: Option<Vec<(PrincipalData, u64)>>,
-                            in_boot_block: F, block_limit: ExecutionCost) -> Result<StacksChainState, Error> 
+                            in_boot_block: F, block_limit: ExecutionCost) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> 
     where
         F: FnOnce(&mut ClarityTx) -> ()
     {
@@ -771,11 +773,13 @@ impl StacksChainState {
             unconfirmed_state: None
         };
 
+        let mut receipts = vec![];
         if !index_exists {
-            StacksChainState::install_boot_code(&mut chainstate, mainnet, initial_balances, in_boot_block)?;
+            let mut res = StacksChainState::install_boot_code(&mut chainstate, mainnet, initial_balances, in_boot_block)?;
+            receipts.append(&mut res);
         }
 
-        Ok(chainstate)
+        Ok((chainstate, receipts))
     }
 
     pub fn config(&self) -> DBConfig {
@@ -1075,7 +1079,7 @@ pub mod test {
             Err(_) => {}
         };
 
-        StacksChainState::open(mainnet, chain_id, &path).unwrap()
+        StacksChainState::open(mainnet, chain_id, &path).unwrap().0
     }
 
     pub fn instantiate_chainstate_with_balances(mainnet: bool, chain_id: u32, test_name: &str, balances: Vec<(StacksAddress, u64)>) -> StacksChainState {
@@ -1088,12 +1092,12 @@ pub mod test {
         };
 
         let initial_balances = Some(balances.into_iter().map(|(addr, balance)| (PrincipalData::from(addr), balance)).collect());
-        StacksChainState::open_and_exec(mainnet, chain_id, &path, initial_balances, |_| {}, ExecutionCost::max_value()).unwrap()
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, initial_balances, |_| {}, ExecutionCost::max_value()).unwrap().0
     }
 
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
-        StacksChainState::open(mainnet, chain_id, &path).unwrap()
+        StacksChainState::open(mainnet, chain_id, &path).unwrap().0
     }
 
     pub fn chainstate_path(test_name: &str) -> String {

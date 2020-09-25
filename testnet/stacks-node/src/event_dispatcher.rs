@@ -104,67 +104,81 @@ impl EventObserver {
         serde_json::Value::Array(raw_txs)
     }
 
+    fn make_new_block_txs_payload(receipt: &StacksTransactionReceipt, tx_index: u32) -> serde_json::Value {
+        let tx = &receipt.transaction;
+
+        let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
+            (false, Value::Response(response_data)) => {
+                let status = if response_data.committed {
+                    STATUS_RESP_TRUE
+                } else {
+                    STATUS_RESP_NOT_COMMITTED
+                };
+                (status, response_data.data.clone())
+            },
+            (true, Value::Response(response_data)) => {
+                (STATUS_RESP_POST_CONDITION, response_data.data.clone())
+            },
+            _ => unreachable!(), // Transaction results should always be a Value::Response type
+        };
+
+        let raw_tx = {
+            let mut bytes = vec![];
+            tx.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        
+        let raw_result = {
+            let mut bytes = vec![];
+            result.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        let contract_interface_json = {
+            match &receipt.contract_analysis {
+                Some(analysis) => json!(build_contract_interface(analysis)),
+                None => json!(null)
+            }
+        };
+        json!({
+            "txid": format!("0x{}", tx.txid()),
+            "tx_index": tx_index,
+            "status": success,
+            "raw_result": format!("0x{}", raw_result.join("")),
+            "raw_tx": format!("0x{}", raw_tx.join("")),
+            "contract_abi": contract_interface_json,
+        })
+    }
+
     fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
     fn send(&self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip,
-            parent_index_hash: &StacksBlockId) {
+            parent_index_hash: &StacksBlockId, boot_receipts: Option<&Vec<StacksTransactionReceipt>>) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(committed, txid, event)|
             event.json_serialize(txid, *committed)
         ).collect();
 
         let mut tx_index: u32 = 0;
-        let serialized_txs: Vec<serde_json::Value> = chain_tip.receipts.iter().map(|receipt| {
-            let tx = &receipt.transaction;
+        let mut serialized_txs = vec![];
 
-            let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
-                (false, Value::Response(response_data)) => {
-                    let status = if response_data.committed {
-                        STATUS_RESP_TRUE
-                    } else {
-                        STATUS_RESP_NOT_COMMITTED
-                    };
-                    (status, response_data.data.clone())
-                },
-                (true, Value::Response(response_data)) => {
-                    (STATUS_RESP_POST_CONDITION, response_data.data.clone())
-                },
-                _ => unreachable!(), // Transaction results should always be a Value::Response type
-            };
-
-            let raw_tx = {
-                let mut bytes = vec![];
-                tx.consensus_serialize(&mut bytes).unwrap();
-                let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-                formatted_bytes
-            };
-            
-            let raw_result = {
-                let mut bytes = vec![];
-                result.consensus_serialize(&mut bytes).unwrap();
-                let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-                formatted_bytes
-            };
-            let contract_interface_json = {
-                match &receipt.contract_analysis {
-                    Some(analysis) => json!(build_contract_interface(analysis)),
-                    None => json!(null)
-                }
-            };
-            let val = json!({
-                "txid": format!("0x{}", tx.txid()),
-                "tx_index": tx_index,
-                "status": success,
-                "raw_result": format!("0x{}", raw_result.join("")),
-                "raw_tx": format!("0x{}", raw_tx.join("")),
-                "contract_abi": contract_interface_json,
-            });
+        for receipt in chain_tip.receipts.iter() {
+            let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
+            serialized_txs.push(payload);
             tx_index += 1;
-            val
-        }).collect();
-        
+        }
+
+        if let Some(boot_receipts) = boot_receipts {
+            for receipt in boot_receipts.iter() {
+                let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
+                serialized_txs.push(payload);
+                tx_index += 1;
+            }    
+        }
+
         // Wrap events
         let payload = json!({
             "block_hash": format!("0x{}", chain_tip.block.block_hash()),
@@ -191,6 +205,7 @@ pub struct EventDispatcher {
     mempool_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
+    boot_receipts: Vec<StacksTransactionReceipt>,
 }
 
 impl BlockEventDispatcher for EventDispatcher {
@@ -198,6 +213,10 @@ impl BlockEventDispatcher for EventDispatcher {
                       receipts: Vec<StacksTransactionReceipt>, parent: &StacksBlockId) {
         let chain_tip = ChainTip { metadata, block, receipts };
         self.process_chain_tip(&chain_tip, parent)
+    }
+
+    fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
+        self.process_boot_receipts(receipts)
     }
 }
 
@@ -211,6 +230,7 @@ impl EventDispatcher {
             stx_observers_lookup: HashSet::new(),
             any_event_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
+            boot_receipts: vec![],
         }
     }
 
@@ -219,6 +239,13 @@ impl EventDispatcher {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
         let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
+
+        let boot_receipts = if chain_tip.metadata.block_height == 1 {
+            Some(&self.boot_receipts)
+        } else {
+            None
+        };
+
         for receipt in chain_tip.receipts.iter() {
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
@@ -264,7 +291,7 @@ impl EventDispatcher {
             let filtered_events: Vec<_> = filtered_events_ids.iter()
                 .map(|event_id| &events[*event_id]).collect();
 
-            self.registered_observers[observer_id].send(filtered_events, chain_tip, parent_index_hash);
+            self.registered_observers[observer_id].send(filtered_events, chain_tip, parent_index_hash, boot_receipts);
         }
     }
 
@@ -284,6 +311,10 @@ impl EventDispatcher {
         for (_, observer) in interested_observers.iter() {
             observer.send_new_mempool_txs(&payload);
         }
+    }
+
+    pub fn process_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
+        self.boot_receipts = receipts;
     }
 
     fn update_dispatch_matrix_if_observer_subscribed(&self, asset_identifier: &AssetIdentifier, event_index: usize, dispatch_matrix: &mut Vec<HashSet<usize>>) {

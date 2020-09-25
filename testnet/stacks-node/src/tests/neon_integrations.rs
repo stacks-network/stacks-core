@@ -340,7 +340,7 @@ fn microblock_integration_test() {
     let microblock = {
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
         let privk = find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024).unwrap();
-        let mut chainstate = StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
+        let (mut chainstate, _) = StacksChainState::open(false, TESTNET_CHAIN_ID, &conf.get_chainstate_path()).unwrap();
 
         // NOTE: it's not a zero execution cost, but there's currently not an easy way to get the
         // block's cost (and it's not like we're going to overflow the block budget in this test).
