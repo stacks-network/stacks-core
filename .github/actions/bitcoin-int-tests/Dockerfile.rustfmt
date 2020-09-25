@@ -1,0 +1,9 @@
+FROM rust:buster
+
+WORKDIR /src
+
+RUN rustup component add rustfmt
+
+COPY . .
+
+RUN cargo fmt --all -q -- --check
