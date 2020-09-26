@@ -620,8 +620,6 @@ pub const HTTP_PREAMBLE_MAX_ENCODED_SIZE : u32 = 4096;
 pub const HTTP_PREAMBLE_MAX_NUM_HEADERS : usize = 64;
 
 /// P2P message preamble -- included in all p2p network messages
-// TODO(PoX): include burnchain header hashes alongside consensus hashes, so peers can at least ask
-// each other if they have PoX anchor blocks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preamble {
     pub peer_version: u32,                          // software version
