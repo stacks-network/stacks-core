@@ -1072,19 +1072,16 @@ impl PeerNetwork {
 
     /// Deregister a socket/event pair
     pub fn deregister_peer(&mut self, event_id: usize) -> () {
-        test_debug!("{:?}: Disconnect event {}", &self.local_peer, event_id);
-        if self.peers.contains_key(&event_id) {
-            self.peers.remove(&event_id);
-        }
+        debug!("{:?}: Disconnect event {}", &self.local_peer, event_id);
 
-        let mut to_remove : Vec<NeighborKey> = vec![];
+        let mut nk_remove : Vec<NeighborKey> = vec![];
         for (neighbor_key, ev_id) in self.events.iter() {
             if *ev_id == event_id {
-                to_remove.push(neighbor_key.clone());
+                nk_remove.push(neighbor_key.clone());
             }
         }
-        for nk in to_remove {
-            // remove events
+        for nk in nk_remove.into_iter() {
+            // remove event state
             self.events.remove(&nk);
 
             // remove inventory state
@@ -1097,30 +1094,22 @@ impl PeerNetwork {
             }
         }
 
-        let mut to_remove : Vec<usize> = vec![];
-
         match self.network {
             None => {},
             Some(ref mut network) => {
-                match self.sockets.get_mut(&event_id) {
-                    None => {},
-                    Some(ref sock) => {
-                        let _ = network.deregister(event_id, sock);
-                        to_remove.push(event_id);   // force it to close anyway
-                    }
+                // deregister socket if connected and registered already
+                if let Some(socket) = self.sockets.remove(&event_id) {
+                    let _ = network.deregister(event_id, &socket);
+                }
+                // deregister socket if still connecting
+                if let Some((socket, ..)) = self.connecting.remove(&event_id) {
+                    let _ = network.deregister(event_id, &socket);
                 }
             }
         }
-
-        // always clear connecting socket state
-        self.connecting.remove(&event_id);
-
-        for event_id in to_remove {
-            // remove socket
-            self.sockets.remove(&event_id);
-            self.connecting.remove(&event_id);
-            self.relay_handles.remove(&event_id);
-        }
+        
+        self.relay_handles.remove(&event_id);
+        self.peers.remove(&event_id);
     }
 
     /// Deregister by neighbor key 
