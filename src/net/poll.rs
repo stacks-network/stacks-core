@@ -106,6 +106,10 @@ impl NetworkState {
         })
     }
 
+    pub fn num_events(&self) -> usize {
+        self.event_map.len()
+    }
+
     fn bind_address(addr: &SocketAddr) -> Result<mio_net::TcpListener, net_error> {
         if !cfg!(test) {
             mio_net::TcpListener::bind(addr)
