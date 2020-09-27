@@ -191,11 +191,6 @@ pub struct BlockDownloader {
 
     /// how often to download
     download_interval: u64,
-
-    /// set of blocks and microblocks we have successfully downloaded (even if they haven't been
-    /// stored yet)
-    blocks_downloaded: HashSet<StacksBlockId>,
-    microblocks_downloaded: HashSet<StacksBlockId>
 }
 
 impl BlockDownloader {
@@ -234,9 +229,6 @@ impl BlockDownloader {
             broken_neighbors: vec![],
 
             download_interval: download_interval,
-
-            blocks_downloaded: HashSet::new(),
-            microblocks_downloaded: HashSet::new(),
         }
     }
 
@@ -725,7 +717,7 @@ impl PeerNetwork {
 
     /// Create block request keys for a range of blocks that are available but that we don't have in a given range of
     /// sortitions.  The same keys can be used to fetch confirmed microblock streams.
-    fn make_requests(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState, downloader: &BlockDownloader, start_sortition_height: u64, microblocks: bool) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    fn make_requests(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState, _downloader: &BlockDownloader, start_sortition_height: u64, microblocks: bool) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
         let scan_batch_size = self.burnchain.pox_constants.reward_cycle_length as u64;
         let mut blocks_to_try : HashMap<u64, VecDeque<BlockRequestKey>> = HashMap::new();
 
@@ -844,14 +836,6 @@ impl PeerNetwork {
                 };
 
             let target_index_block_hash = StacksBlockHeader::make_index_block_hash(&target_consensus_hash, &target_block_hash);
-            if !microblocks && downloader.blocks_downloaded.contains(&target_index_block_hash) {
-                // already downloaded this
-                continue;
-            }
-            if microblocks && downloader.microblocks_downloaded.contains(&target_index_block_hash) {
-                // already downloaded this stream
-                continue;
-            }
 
             // don't request the same data from the same data url, in case multiple peers report the
             // same data url (e.g. two peers sharing a Gaia hub).
@@ -973,6 +957,8 @@ impl PeerNetwork {
                     }
                     test_debug!("{:?}: End microblock requests", &network.local_peer);
 
+                    debug!("{:?}: create block, microblock requests up to heights ({},{})", &network.local_peer, &max_height, &max_mblock_height);
+
                     // queue up block requests in order by sortition height
                     while height <= max_height && (downloader.blocks_to_try.len() as u64) < downloader.max_inflight_requests {
                         if !next_blocks_to_try.contains_key(&height) {
@@ -994,8 +980,8 @@ impl PeerNetwork {
 
                         assert_eq!(height, requests.front().as_ref().unwrap().sortition_height);
 
-                        test_debug!("{:?}: request anchored block for sortition {}: {}/{} ({})", 
-                                    &network.local_peer, height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &requests.front().as_ref().unwrap().index_block_hash);
+                        debug!("{:?}: will request anchored block for sortition {}: {}/{} ({})", 
+                                &network.local_peer, height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &requests.front().as_ref().unwrap().index_block_hash);
 
                         downloader.blocks_to_try.insert(height, requests);
 
@@ -1026,8 +1012,8 @@ impl PeerNetwork {
                         
                         assert_eq!(mblock_height, requests.front().as_ref().unwrap().sortition_height);
 
-                        test_debug!("{:?}: request microblock stream produced by sortition {}: {}/{} ({})", 
-                                    &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &requests.front().as_ref().unwrap().index_block_hash);
+                        debug!("{:?}: will request microblock stream produced by sortition {}: {}/{} ({})", 
+                               &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &requests.front().as_ref().unwrap().index_block_hash);
 
                         downloader.microblocks_to_try.insert(mblock_height, requests);
 
@@ -1037,7 +1023,7 @@ impl PeerNetwork {
                     debug!("{:?}: block download scan now at ({},{}) (was ({},{}))", &network.local_peer, height, mblock_height, block_sortition_height, microblock_sortition_height);
                     
                     if max_height <= next_block_sortition_height && max_mblock_height <= next_microblock_sortition_height {
-                        test_debug!("{:?}: no more requests to make", &network.local_peer);
+                        debug!("{:?}: no more download requests requests to make", &network.local_peer);
                         break;
                     }
 
@@ -1047,7 +1033,7 @@ impl PeerNetwork {
 
                     // at capacity?
                     if (downloader.blocks_to_try.len() as u64) >= downloader.max_inflight_requests || (downloader.microblocks_to_try.len() as u64) >= downloader.max_inflight_requests {
-                        test_debug!("{:?}: queued up {} requests (blocks so far: {}, microblocks so far: {})", &network.local_peer, downloader.blocks_to_try.len(), downloader.blocks_to_try.len(), downloader.microblocks_to_try.len());
+                        debug!("{:?}: queued up {} requests (blocks so far: {}, microblocks so far: {})", &network.local_peer, downloader.blocks_to_try.len(), downloader.blocks_to_try.len(), downloader.microblocks_to_try.len());
                         break;
                     }
                 }
@@ -1057,7 +1043,7 @@ impl PeerNetwork {
                     next_block_sortition_height = next_block_sortition_height + (network.burnchain.pox_constants.reward_cycle_length as u64);
                     next_microblock_sortition_height = next_microblock_sortition_height + (network.burnchain.pox_constants.reward_cycle_length as u64);
 
-                    test_debug!("{:?}: Pessimistically increase block and microblock sortition heights to ({},{})", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
+                    debug!("{:?}: Pessimistically increase block and microblock sortition heights to ({},{})", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
                 }
 
                 downloader.next_block_sortition_height = next_block_sortition_height;
@@ -1266,7 +1252,6 @@ impl PeerNetwork {
 
                 // don't try this again
                 downloader.blocks_to_try.remove(&request_key.sortition_height);
-                downloader.blocks_downloaded.insert(request_key.index_block_hash.clone());
             }
             for (request_key, microblock_stream) in downloader.microblocks.drain() {
                 let block_header = StacksChainState::load_block_header(&chainstate.blocks_path, &request_key.consensus_hash, &request_key.anchor_block_hash)? 
@@ -1288,7 +1273,6 @@ impl PeerNetwork {
 
                 // don't try again
                 downloader.microblocks_to_try.remove(&request_key.sortition_height);
-                downloader.microblocks_downloaded.insert(request_key.index_block_hash.clone());
             }
 
             // clear empties
