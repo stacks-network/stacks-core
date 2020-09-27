@@ -1411,7 +1411,7 @@ impl PeerNetwork {
     }
 
     /// Remove unresponsive peers
-    fn disconnect_unresponsive(&mut self) -> () {
+    fn disconnect_unresponsive(&mut self) -> usize {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
         for (event_id, (socket, _, ts)) in self.connecting.iter() {
@@ -1439,9 +1439,11 @@ impl PeerNetwork {
             }
         }
 
+        let ret = to_remove.len();
         for event_id in to_remove.into_iter() {
             self.deregister_peer(event_id);
         }
+        ret
     }
 
     /// Prune inbound and outbound connections if we can 
@@ -2641,6 +2643,68 @@ mod test {
         let p2p = PeerNetwork::new(db, local_peer, 0x12345678, burnchain, burnchain_view, conn_opts);
         p2p
     }
+
+    #[test]
+    fn test_event_id_no_connecting_leaks() {
+        with_timeout(100, || {
+            let neighbor = make_test_neighbor(2300);
+            let mut p2p = make_test_p2p_network(&vec![]);
+            
+            use std::net::TcpListener;
+            let listener = TcpListener::bind("127.0.0.1:2300").unwrap();
+
+            // start fake neighbor endpoint, which will accept once and wait 35 seconds
+            let endpoint_thread = thread::spawn(move || {
+                let (sock, addr) = listener.accept().unwrap();
+                test_debug!("Accepted {:?}", &addr);
+                thread::sleep(time::Duration::from_millis(35_000));
+            });
+
+            p2p.bind(&"127.0.0.1:2400".parse().unwrap(), &"127.0.0.1:2401".parse().unwrap()).unwrap();
+            p2p.connect_peer(&neighbor.addr).unwrap();
+
+            // start dispatcher
+            let p2p_thread = thread::spawn(move || {
+                let mut total_disconnected = 0;
+                for i in 0..40 {
+                    test_debug!("dispatch batch {}", i);
+
+                    p2p.dispatch_requests();
+                    let mut poll_states = match p2p.network {
+                        None => {
+                            panic!("network not connected");
+                        },
+                        Some(ref mut network) => {
+                            network.poll(100).unwrap()
+                        }
+                    };
+
+                    let mut p2p_poll_state = poll_states.remove(&p2p.p2p_network_handle).unwrap();
+
+                    p2p.process_new_sockets(&mut p2p_poll_state).unwrap();
+                    p2p.process_connecting_sockets(&mut p2p_poll_state);
+                    total_disconnected += p2p.disconnect_unresponsive();
+                
+                    let ne = p2p.network.as_ref().unwrap().num_events();
+                    test_debug!("{} events", ne);
+
+                    thread::sleep(time::Duration::from_millis(1000));
+                }
+
+                assert_eq!(total_disconnected, 1);
+
+                // no leaks -- only server events remain
+                assert_eq!(p2p.network.as_ref().unwrap().num_events(), 2);
+            });
+
+            p2p_thread.join().unwrap();
+            test_debug!("dispatcher thread joined");
+
+            endpoint_thread.join().unwrap();
+            test_debug!("fake endpoint thread joined");
+        })
+    }
+
 
     // tests relay_signed_message()
     #[test]
