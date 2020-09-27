@@ -1006,7 +1006,7 @@ impl InvState {
             // No block is available here anyway, even though the peer agrees with us on the
             // consensus hash.
             // This is bad behavior on the peer's part.
-            test_debug!("No sortition for consensus hash {}", consensus_hash);
+            debug!("No sortition for consensus hash {}", consensus_hash);
             return Err(net_error::InvalidMessage);
         }
 
@@ -1049,7 +1049,7 @@ impl InvState {
                 }
             },
             None => {
-                test_debug!("No inv stats for neighbor {:?}", neighbor_key);
+                debug!("No inv stats for neighbor {:?}", neighbor_key);
                 Ok(None)
             }
         }
@@ -1620,7 +1620,7 @@ impl PeerNetwork {
         self.tip_sort_id = new_tip_sort_id;
         self.pox_id = new_pox_id;
 
-        test_debug!("{:?}: PoX bit vector is {:?}", &self.local_peer, &self.pox_id);
+        debug!("{:?}: PoX bit vector is {:?}", &self.local_peer, &self.pox_id);
 
         Ok(())
     }
