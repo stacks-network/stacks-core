@@ -717,7 +717,7 @@ impl PeerNetwork {
 
     /// Create block request keys for a range of blocks that are available but that we don't have in a given range of
     /// sortitions.  The same keys can be used to fetch confirmed microblock streams.
-    fn make_requests(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState, _downloader: &BlockDownloader, start_sortition_height: u64, microblocks: bool) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    fn make_requests(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState, start_sortition_height: u64, microblocks: bool) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
         let scan_batch_size = self.burnchain.pox_constants.reward_cycle_length as u64;
         let mut blocks_to_try : HashMap<u64, VecDeque<BlockRequestKey>> = HashMap::new();
 
@@ -873,13 +873,13 @@ impl PeerNetwork {
     }
 
     /// Make requests for missing anchored blocks
-    fn make_block_requests(&mut self, sortdb: &SortitionDB, chainstate: &mut StacksChainState, downloader: &BlockDownloader, start_sortition_height: u64) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
-        self.make_requests(sortdb, chainstate, downloader, start_sortition_height, false)
+    fn make_block_requests(&mut self, sortdb: &SortitionDB, chainstate: &mut StacksChainState, start_sortition_height: u64) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+        self.make_requests(sortdb, chainstate, start_sortition_height, false)
     }
 
     /// Make requests for missing confirmed microblocks 
-    fn make_confirmed_microblock_requests(&mut self, sortdb: &SortitionDB, chainstate: &mut StacksChainState, downloader: &BlockDownloader, start_sortition_height: u64) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
-        self.make_requests(sortdb, chainstate, downloader, start_sortition_height, true)
+    fn make_confirmed_microblock_requests(&mut self, sortdb: &SortitionDB, chainstate: &mut StacksChainState, start_sortition_height: u64) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+        self.make_requests(sortdb, chainstate, start_sortition_height, true)
     }
 
     /// Prioritize block requests -- ask for the rarest blocks first
@@ -919,10 +919,10 @@ impl PeerNetwork {
                 while next_block_sortition_height <= network.chain_view.burn_block_height - sortdb.first_block_height || next_microblock_sortition_height <= network.chain_view.burn_block_height - sortdb.first_block_height {
 
                     debug!("{:?}: Make block requests from sortition height {}", &network.local_peer, next_block_sortition_height);
-                    let mut next_blocks_to_try = network.make_block_requests(sortdb, chainstate, downloader, next_block_sortition_height)?;
+                    let mut next_blocks_to_try = network.make_block_requests(sortdb, chainstate, next_block_sortition_height)?;
                     
                     debug!("{:?}: Make microblock requests from sortition height {}", &network.local_peer, next_microblock_sortition_height);
-                    let mut next_microblocks_to_try = network.make_confirmed_microblock_requests(sortdb, chainstate, downloader, next_microblock_sortition_height)?;
+                    let mut next_microblocks_to_try = network.make_confirmed_microblock_requests(sortdb, chainstate, next_microblock_sortition_height)?;
 
                     let mut height = next_block_sortition_height;
                     let mut mblock_height = next_microblock_sortition_height;
@@ -1023,7 +1023,7 @@ impl PeerNetwork {
                     debug!("{:?}: block download scan now at ({},{}) (was ({},{}))", &network.local_peer, height, mblock_height, block_sortition_height, microblock_sortition_height);
                     
                     if max_height <= next_block_sortition_height && max_mblock_height <= next_microblock_sortition_height {
-                        debug!("{:?}: no more download requests requests to make", &network.local_peer);
+                        debug!("{:?}: no more download requests to make", &network.local_peer);
                         break;
                     }
 
