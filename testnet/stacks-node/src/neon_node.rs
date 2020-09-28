@@ -736,9 +736,9 @@ impl InitializedNeonNode {
                         }
                     };
 
-                debug!("Mining tenure's last consensus hash: {}, stacks tip consensus hash: {}",
-                       &burn_block.consensus_hash,
-                       &stacks_tip.consensus_hash);
+                debug!("Mining tenure's last consensus hash: {} (height {}), stacks tip consensus hash: {} (height {})",
+                       &burn_block.consensus_hash, burn_block.block_height,
+                       &stacks_tip.consensus_hash, parent_snapshot.block_height);
 
                 let coinbase_nonce = {
                     let principal = keychain.origin_address().unwrap().into();

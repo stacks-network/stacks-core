@@ -984,7 +984,7 @@ impl PeerNetwork {
         let client_addr = match socket.peer_addr() {
             Ok(addr) => addr,
             Err(e) => {
-                debug!("Failed to get peer address of {:?}: {:?}", &socket, &e);
+                debug!("{:?}: Failed to get peer address of {:?}: {:?}", &self.local_peer, &socket, &e);
                 self.deregister_socket(event_id, socket);
                 return Err(net_error::SocketError);
             }
@@ -1265,11 +1265,12 @@ impl PeerNetwork {
         for event_id in poll_state.ready.iter() {
             if self.connecting.contains_key(event_id) {
                 let (socket, outbound, _) = self.connecting.remove(event_id).unwrap();
-                debug!("{:?}: Connected event {}: {:?} (outbound={})", &self.local_peer, event_id, &socket, outbound);
-
                 let sock_str = format!("{:?}", &socket);
                 if let Err(_e) = self.register_peer(*event_id, socket, outbound) {
-                    debug!("{:?}: Failed to register connected event {} ({}): {:?}", &self.local_peer, event_id, sock_str, &_e);
+                    debug!("{:?}: Failed to register connecting socket on event {} ({}): {:?}", &self.local_peer, event_id, sock_str, &_e);
+                }
+                else {
+                    debug!("{:?}: Registered peer on event {}: {:?} (outbound={})", &self.local_peer, event_id, sock_str, outbound);
                 }
             }
         }
@@ -2108,7 +2109,8 @@ impl PeerNetwork {
                 match res {
                     Ok(Some(block_height)) => block_height,
                     Ok(None) => {
-                        debug!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" }, consensus_hash);
+                        debug!("Ignore {} from {} -- we either do not recognize consensus hash {}, or already know the inventory for it", 
+                               if microblocks { "streamed microblocks" } else { "blocks" }, outbound_neighbor_key, consensus_hash);
                         return None;
                     },
                     Err(net_error::InvalidMessage) => {
