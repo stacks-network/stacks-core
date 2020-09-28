@@ -266,9 +266,6 @@ impl RPCPoxInfoData {
             .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
             .to_owned()
             .expect_u128();
-    
-            println!("=> {}", current_rejection_votes);
-            println!("=> {}", total_liquid_supply_ustx);
             
         let total_required = total_liquid_supply_ustx
             .checked_div(rejection_fraction)
