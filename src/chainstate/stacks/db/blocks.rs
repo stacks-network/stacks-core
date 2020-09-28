@@ -419,7 +419,7 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
                                 consensus_hash TEXT NOT NULL,
-     -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
+                                -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
                                 parent_consensus_hash TEXT NOT NULL,
                                 parent_microblock_hash TEXT NOT NULL,
                                 parent_microblock_seq INT NOT NULL,
@@ -431,6 +431,7 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
                                 commit_burn INT NOT NULL,
                                 sortition_burn INT NOT NULL,
                                 index_block_hash TEXT NOT NULL,        -- used internally; hash of burn header and block header
+                                arrival_time INT NOT NULL,              -- when this block was stored
                                 PRIMARY KEY(anchored_block_hash,consensus_hash)
     );
     CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,consensus_hash);
@@ -1187,7 +1188,8 @@ impl StacksChainState {
                    orphaned, \
                    commit_burn, \
                    sortition_burn, \
-                   index_block_hash) \
+                   index_block_hash,
+                   arrival_time) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
         let args: &[&dyn ToSql] = &[
             &block_hash,
@@ -1203,6 +1205,7 @@ impl StacksChainState {
             &0,
             &u64_to_sql(commit_burn)?,
             &u64_to_sql(sortition_burn)?,
+            &u64_to_sql(get_epoch_time_secs())?,
             &index_block_hash];
 
         tx.execute(&sql, args)
@@ -2544,19 +2547,10 @@ impl StacksChainState {
         Ok(true)
     }
 
-    /// Is there at least one staging block that can be attached?
-    pub fn has_attachable_staging_blocks(blocks_conn: &DBConn) -> Result<bool, Error> {
-        // go through staging blocks and see if any of them match headers and are attachable.
-        // pick randomly -- don't allow the network sender to choose the processing order!
-        let sql = "SELECT 1 FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 LIMIT 1".to_string();
-        let available = blocks_conn.query_row(&sql, NO_PARAMS, |_row| ()).optional().map_err(|e| Error::DBError(db_error::SqliteError(e)))?.is_some();
-        Ok(available)
-    }
-
-    /// How many attachable staging blocks do we have?
-    pub fn count_attachable_staging_blocks(blocks_conn: &DBConn, limit: u64) -> Result<u64, Error> {
-        let sql = "SELECT COUNT(*) FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 LIMIT ?1".to_string();
-        let cnt = query_count(blocks_conn, &sql, &[&u64_to_sql(limit)?]).map_err(Error::DBError)?;
+    /// How many attachable staging blocks do we have, up to a limit?
+    pub fn count_attachable_staging_blocks(blocks_conn: &DBConn, limit: u64, min_arrival_time: u64) -> Result<u64, Error> {
+        let sql = "SELECT COUNT(*) FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 AND arrival_time >= ?1 LIMIT ?2".to_string();
+        let cnt = query_count(blocks_conn, &sql, &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?]).map_err(Error::DBError)?;
         Ok(cnt as u64)
     }
 
@@ -2564,17 +2558,18 @@ impl StacksChainState {
     /// can process, as well as its parent microblocks that it confirms
     /// Returns Some(microblocks, staging block) if we found a sequence of blocks to process.
     /// Returns None if not.
-    fn find_next_staging_block(blocks_conn: &DBConn, blocks_path: &String, headers_conn: &DBConn) -> Result<Option<(Vec<StacksMicroblock>, StagingBlock)>, Error> {
+    fn find_next_staging_block<'a>(blocks_tx: &mut BlocksDBTx<'a>, blocks_path: &String, headers_conn: &DBConn, sort_conn: &DBConn) -> Result<Option<(Vec<StacksMicroblock>, StagingBlock)>, Error> {
         test_debug!("Find next staging block");
 
-        // go through staging blocks and see if any of them match headers and are attachable.
+        // go through staging blocks and see if any of them match headers, are attachable, and are
+        // recent (i.e. less than 10 minutes old)
         // pick randomly -- don't allow the network sender to choose the processing order!
-        let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 ORDER BY RANDOM()".to_string();
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 AND arrival_time >= ?1 ORDER BY RANDOM()".to_string();
         
-        let mut stmt = blocks_conn.prepare(&sql)
+        let mut stmt = blocks_tx.prepare(&sql)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        let mut rows = stmt.query(NO_PARAMS)
+        let mut rows = stmt.query(&[&u64_to_sql(get_epoch_time_secs().saturating_sub(600))?])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         while let Some(row_res) = rows.next() {
@@ -2621,7 +2616,7 @@ impl StacksChainState {
 
                     if can_attach {
                         // try and load up this staging block and its microblocks
-                        match StacksChainState::load_staging_block(blocks_conn, blocks_path, &candidate.consensus_hash, &candidate.anchored_block_hash)? {
+                        match StacksChainState::load_staging_block(blocks_tx, blocks_path, &candidate.consensus_hash, &candidate.anchored_block_hash)? {
                             Some(staging_block) => {
                                 // must be unprocessed -- must have a block
                                 if staging_block.block_data.len() == 0 {
@@ -2629,7 +2624,7 @@ impl StacksChainState {
                                 }
 
                                 // find its microblock parent stream
-                                match StacksChainState::find_parent_staging_microblock_stream(blocks_conn, blocks_path, &staging_block)? {
+                                match StacksChainState::find_parent_staging_microblock_stream(blocks_tx, blocks_path, &staging_block)? {
                                     Some(parent_staging_microblocks) => {
                                         return Ok(Some((parent_staging_microblocks, staging_block)));
                                     },
@@ -2641,6 +2636,21 @@ impl StacksChainState {
                             None => {
                                 // should be impossible -- selected unprocessed blocks
                                 unreachable!("Failed to load staging block when an earlier query indicated that it was present");
+                            }
+                        }
+                    }
+                    else {
+                        // this can happen if a PoX reorg happens
+                        // if this candidate is no longer on the main PoX fork, then delete it
+                        let sn_opt = SortitionDB::get_block_snapshot_consensus(sort_conn, &candidate.consensus_hash)?;
+                        if sn_opt.is_none() {
+                            debug!("Could not attach {}/{}: does not connect to a previously-accepted block, because its consensus hash does not match an existing snapshot", &candidate.consensus_hash, &candidate.anchored_block_hash);
+                            let _ = StacksChainState::delete_orphaned_epoch_data(blocks_tx, &candidate.consensus_hash, &candidate.anchored_block_hash);
+                        }
+                        else if let Some(sn) = sn_opt {
+                            if !sn.pox_valid {
+                                debug!("Could not attach {}/{}: does not connect to a previously-accepted block, because its consensus hash is no longer on the valid PoX fork", &candidate.consensus_hash, &candidate.anchored_block_hash);
+                                let _ = StacksChainState::delete_orphaned_epoch_data(blocks_tx, &candidate.consensus_hash, &candidate.anchored_block_hash);
                             }
                         }
                     }
@@ -2951,7 +2961,7 @@ impl StacksChainState {
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
 
         // this is a transaction against both the headers and staging blocks databases!
-        let (mut next_microblocks, next_staging_block) = match StacksChainState::find_next_staging_block(&chainstate_tx.blocks_tx, &blocks_path, &chainstate_tx.headers_tx)? {
+        let (mut next_microblocks, next_staging_block) = match StacksChainState::find_next_staging_block(&mut chainstate_tx.blocks_tx, &blocks_path, &chainstate_tx.headers_tx, sort_tx)? {
             Some((next_microblocks, next_staging_block)) => (next_microblocks, next_staging_block),
             None => {
                 // no more work to do!
