@@ -27,10 +27,12 @@ use std::default::Default;
 use std::fmt;
 use std::io::Write;
 
-use deps::bitcoin::util::hash::Sha256dHash;
 use deps::bitcoin::blockdata::script::Script;
-use deps::bitcoin::network::serialize::{self, serialize, BitcoinHash, SimpleEncoder, SimpleDecoder};
-use deps::bitcoin::network::encodable::{ConsensusEncodable, ConsensusDecodable, VarInt};
+use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable, VarInt};
+use deps::bitcoin::network::serialize::{
+    self, serialize, BitcoinHash, SimpleDecoder, SimpleEncoder,
+};
+use deps::bitcoin::util::hash::Sha256dHash;
 
 /// A reference to a transaction output
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -105,7 +107,7 @@ pub struct TxIn {
     /// ConsensusEncodable/ConsennsusDecodable, as it is (de)serialized at the end of the full
     /// Transaction. It *is* (de)serialized with the rest of the TxIn in other (de)serializationn
     /// routines.
-    pub witness: Vec<Vec<u8>>
+    pub witness: Vec<Vec<u8>>,
 }
 serde_struct_impl!(TxIn, previous_output, script_sig, sequence, witness);
 
@@ -115,14 +117,17 @@ pub struct TxOut {
     /// The value of the output, in satoshis
     pub value: u64,
     /// The script which must satisfy for the output to be spent
-    pub script_pubkey: Script
+    pub script_pubkey: Script,
 }
 serde_struct_impl!(TxOut, value, script_pubkey);
 
 // This is used as a "null txout" in consensus signing code
 impl Default for TxOut {
     fn default() -> TxOut {
-        TxOut { value: 0xffffffffffffffff, script_pubkey: Script::new() }
+        TxOut {
+            value: 0xffffffffffffffff,
+            script_pubkey: Script::new(),
+        }
     }
 }
 
@@ -149,7 +154,15 @@ impl Transaction {
         let cloned_tx = Transaction {
             version: self.version,
             lock_time: self.lock_time,
-            input: self.input.iter().map(|txin| TxIn { script_sig: Script::new(), witness: vec![], .. *txin }).collect(),
+            input: self
+                .input
+                .iter()
+                .map(|txin| TxIn {
+                    script_sig: Script::new(),
+                    witness: vec![],
+                    ..*txin
+                })
+                .collect(),
             output: self.output.clone(),
         };
         cloned_tx.bitcoin_hash()
@@ -183,17 +196,25 @@ impl Transaction {
     /// # Panics
     /// Panics if `input_index` is greater than or equal to `self.input.len()`
     ///
-    pub fn signature_hash(&self, input_index: usize, script_pubkey: &Script, sighash_u32: u32) -> Sha256dHash {
-        assert!(input_index < self.input.len());  // Panic on OOB
+    pub fn signature_hash(
+        &self,
+        input_index: usize,
+        script_pubkey: &Script,
+        sighash_u32: u32,
+    ) -> Sha256dHash {
+        assert!(input_index < self.input.len()); // Panic on OOB
 
-        let (sighash, anyone_can_pay) = SigHashType::from_u32(sighash_u32).split_anyonecanpay_flag();
+        let (sighash, anyone_can_pay) =
+            SigHashType::from_u32(sighash_u32).split_anyonecanpay_flag();
 
         // Special-case sighash_single bug because this is easy enough.
         if sighash == SigHashType::Single && input_index >= self.output.len() {
-            return Sha256dHash::from(&[1, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0][..]);
+            return Sha256dHash::from(
+                &[
+                    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0,
+                ][..],
+            );
         }
 
         // Build tx to sign
@@ -216,8 +237,18 @@ impl Transaction {
             for (n, input) in self.input.iter().enumerate() {
                 tx.input.push(TxIn {
                     previous_output: input.previous_output,
-                    script_sig: if n == input_index { script_pubkey.clone() } else { Script::new() },
-                    sequence: if n != input_index && (sighash == SigHashType::Single || sighash == SigHashType::None) { 0 } else { input.sequence },
+                    script_sig: if n == input_index {
+                        script_pubkey.clone()
+                    } else {
+                        Script::new()
+                    },
+                    sequence: if n != input_index
+                        && (sighash == SigHashType::Single || sighash == SigHashType::None)
+                    {
+                        0
+                    } else {
+                        input.sequence
+                    },
                     witness: vec![],
                 });
             }
@@ -226,14 +257,22 @@ impl Transaction {
         tx.output = match sighash {
             SigHashType::All => self.output.clone(),
             SigHashType::Single => {
-                let output_iter = self.output.iter()
-                                      .take(input_index + 1)  // sign all outputs up to and including this one, but erase
-                                      .enumerate()            // all of them except for this one
-                                      .map(|(n, out)| if n == input_index { out.clone() } else { TxOut::default() });
+                let output_iter = self
+                    .output
+                    .iter()
+                    .take(input_index + 1) // sign all outputs up to and including this one, but erase
+                    .enumerate() // all of them except for this one
+                    .map(|(n, out)| {
+                        if n == input_index {
+                            out.clone()
+                        } else {
+                            TxOut::default()
+                        }
+                    });
                 output_iter.collect()
             }
             SigHashType::None => vec![],
-            _ => unreachable!()
+            _ => unreachable!(),
         };
         // hash the result
         let mut raw_vec = serialize(&tx).unwrap();
@@ -250,7 +289,8 @@ impl Transaction {
         let mut input_weight = 0;
         let mut inputs_with_witnesses = 0;
         for input in &self.input {
-            input_weight += 4*(32 + 4 + 4 + // outpoint (32+4) + nSequence
+            input_weight += 4
+                * (32 + 4 + 4 + // outpoint (32+4) + nSequence
                 VarInt(input.script_sig.len() as u64).encoded_length() +
                 input.script_sig.len() as u64);
             if !input.witness.is_empty() {
@@ -302,7 +342,7 @@ impl BitcoinHash for Transaction {
 impl_consensus_encoding!(TxOut, value, script_pubkey);
 
 impl<S: SimpleEncoder> ConsensusEncodable<S> for OutPoint {
-    fn consensus_encode(&self, s: &mut S) -> Result <(), serialize::Error> {
+    fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
         self.txid.consensus_encode(s)?;
         self.vout.consensus_encode(s)
     }
@@ -317,7 +357,7 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for OutPoint {
 }
 
 impl<S: SimpleEncoder> ConsensusEncodable<S> for TxIn {
-    fn consensus_encode(&self, s: &mut S) -> Result <(), serialize::Error> {
+    fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
         self.previous_output.consensus_encode(s)?;
         self.script_sig.consensus_encode(s)?;
         self.sequence.consensus_encode(s)
@@ -335,7 +375,7 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for TxIn {
 }
 
 impl<S: SimpleEncoder> ConsensusEncodable<S> for Transaction {
-    fn consensus_encode(&self, s: &mut S) -> Result <(), serialize::Error> {
+    fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
         self.version.consensus_encode(s)?;
         let mut have_witness = false;
         for input in &self.input {
@@ -369,14 +409,12 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Transaction {
             let segwit_flag: u8 = ConsensusDecodable::consensus_decode(d)?;
             match segwit_flag {
                 // Empty tx
-                0 => {
-                    Ok(Transaction {
-                        version: version,
-                        input: input,
-                        output: vec![],
-                        lock_time: ConsensusDecodable::consensus_decode(d)?,
-                    })
-                }
+                0 => Ok(Transaction {
+                    version: version,
+                    input: input,
+                    output: vec![],
+                    lock_time: ConsensusDecodable::consensus_decode(d)?,
+                }),
                 // BIP144 input witnesses
                 1 => {
                     let mut input: Vec<TxIn> = ConsensusDecodable::consensus_decode(d)?;
@@ -385,7 +423,9 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Transaction {
                         txin.witness = ConsensusDecodable::consensus_decode(d)?;
                     }
                     if !input.is_empty() && input.iter().all(|input| input.witness.is_empty()) {
-                        Err(serialize::Error::ParseFailed("witness flag set but no witnesses present"))
+                        Err(serialize::Error::ParseFailed(
+                            "witness flag set but no witnesses present",
+                        ))
                     } else {
                         Ok(Transaction {
                             version: version,
@@ -396,9 +436,7 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Transaction {
                     }
                 }
                 // We don't support anything else
-                x => {
-                    Err(serialize::Error::UnsupportedSegwitFlag(x))
-                }
+                x => Err(serialize::Error::UnsupportedSegwitFlag(x)),
             }
         // non-segwit
         } else {
@@ -417,55 +455,56 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Transaction {
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum SigHashType {
     /// 0x1: Sign all outputs
-    All		= 0x01,
+    All = 0x01,
     /// 0x2: Sign no outputs --- anyone can choose the destination
-    None	= 0x02,
+    None = 0x02,
     /// 0x3: Sign the output whose index matches this input's index. If none exists,
     /// sign the hash `0000000000000000000000000000000000000000000000000000000000000001`.
     /// (This rule is probably an unintentional C++ism, but it's consensus so we have
     /// to follow it.)
-    Single	= 0x03,
+    Single = 0x03,
     /// 0x81: Sign all outputs but only this input
-    AllPlusAnyoneCanPay		= 0x81,
+    AllPlusAnyoneCanPay = 0x81,
     /// 0x82: Sign no outputs and only this input
-    NonePlusAnyoneCanPay	= 0x82,
+    NonePlusAnyoneCanPay = 0x82,
     /// 0x83: Sign one output and only this input (see `Single` for what "one output" means)
-    SinglePlusAnyoneCanPay	= 0x83
+    SinglePlusAnyoneCanPay = 0x83,
 }
 
 impl SigHashType {
-     /// Break the sighash flag into the "real" sighash flag and the ANYONECANPAY boolean
-     fn split_anyonecanpay_flag(&self) -> (SigHashType, bool) {
-         match *self {
-             SigHashType::All		=> (SigHashType::All, false),
-             SigHashType::None		=> (SigHashType::None, false),
-             SigHashType::Single	=> (SigHashType::Single, false),
-             SigHashType::AllPlusAnyoneCanPay		=> (SigHashType::All, true),
-             SigHashType::NonePlusAnyoneCanPay		=> (SigHashType::None, true),
-             SigHashType::SinglePlusAnyoneCanPay	=> (SigHashType::Single, true)
-         }
-     }
+    /// Break the sighash flag into the "real" sighash flag and the ANYONECANPAY boolean
+    fn split_anyonecanpay_flag(&self) -> (SigHashType, bool) {
+        match *self {
+            SigHashType::All => (SigHashType::All, false),
+            SigHashType::None => (SigHashType::None, false),
+            SigHashType::Single => (SigHashType::Single, false),
+            SigHashType::AllPlusAnyoneCanPay => (SigHashType::All, true),
+            SigHashType::NonePlusAnyoneCanPay => (SigHashType::None, true),
+            SigHashType::SinglePlusAnyoneCanPay => (SigHashType::Single, true),
+        }
+    }
 
-     /// Reads a 4-byte uint32 as a sighash type
-     pub fn from_u32(n: u32) -> SigHashType {
-         match n & 0x9f {
-             // "real" sighashes
-             0x01 => SigHashType::All,
-             0x02 => SigHashType::None,
-             0x03 => SigHashType::Single,
-             0x81 => SigHashType::AllPlusAnyoneCanPay,
-             0x82 => SigHashType::NonePlusAnyoneCanPay,
-             0x83 => SigHashType::SinglePlusAnyoneCanPay,
-             // catchalls
-             x if x & 0x80 == 0x80 => SigHashType::AllPlusAnyoneCanPay,
-             _ => SigHashType::All
-         }
-     }
+    /// Reads a 4-byte uint32 as a sighash type
+    pub fn from_u32(n: u32) -> SigHashType {
+        match n & 0x9f {
+            // "real" sighashes
+            0x01 => SigHashType::All,
+            0x02 => SigHashType::None,
+            0x03 => SigHashType::Single,
+            0x81 => SigHashType::AllPlusAnyoneCanPay,
+            0x82 => SigHashType::NonePlusAnyoneCanPay,
+            0x83 => SigHashType::SinglePlusAnyoneCanPay,
+            // catchalls
+            x if x & 0x80 == 0x80 => SigHashType::AllPlusAnyoneCanPay,
+            _ => SigHashType::All,
+        }
+    }
 
-     /// Converts to a u32
-     pub fn as_u32(&self) -> u32 { *self as u32 }
+    /// Converts to a u32
+    pub fn as_u32(&self) -> u32 {
+        *self as u32
+    }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -473,8 +512,8 @@ mod tests {
 
     use deps;
     use deps::bitcoin::blockdata::script::Script;
-    use deps::bitcoin::network::serialize::BitcoinHash;
     use deps::bitcoin::network::serialize::deserialize;
+    use deps::bitcoin::network::serialize::BitcoinHash;
     use deps::bitcoin::util::hash::Sha256dHash;
     use util::hash::hex_bytes;
 
@@ -485,12 +524,12 @@ mod tests {
     }
 
     #[test]
-    fn test_is_coinbase () {
-        use deps::bitcoin::network::constants::Network;
+    fn test_is_coinbase() {
         use deps::bitcoin::blockdata::constants;
+        use deps::bitcoin::network::constants::Network;
 
         let genesis = deps::bitcoin::blockdata::constants::genesis_block(Network::Bitcoin);
-        assert! (genesis.txdata[0].is_coin_base());
+        assert!(genesis.txdata[0].is_coin_base());
         let hex_tx = hex_bytes("0100000001a15d57094aa7a21a28cb20b59aab8fc7d1149a3bdbcddba9c622e4f5f6a99ece010000006c493046022100f93bb0e7d8db7bd46e40132d1f8242026e045f03a0efe71bbb8e3f475e970d790221009337cd7f1f929f00cc6ff01f03729b069a7c21b59b1736ddfee5db5946c5da8c0121033b9b137ee87d5a812d6f506efdd37f0affa7ffc310711c06c7f3e097c9447c52ffffffff0100e1f505000000001976a9140389035a9225b3839e2bbf32d826a1e222031fd888ac00000000").unwrap();
         let tx: Transaction = deserialize(&hex_tx).unwrap();
         assert!(!tx.is_coin_base());
@@ -508,15 +547,19 @@ mod tests {
         assert_eq!(realtx.input.len(), 1);
         // In particular this one is easy to get backward -- in bitcoin hashes are encoded
         // as little-endian 256-bit numbers rather than as data strings.
-        assert_eq!(realtx.input[0].previous_output.txid.be_hex_string(),
-                   "ce9ea9f6f5e422c6a9dbcddb3b9a14d1c78fab9ab520cb281aa2a74a09575da1".to_string());
+        assert_eq!(
+            realtx.input[0].previous_output.txid.be_hex_string(),
+            "ce9ea9f6f5e422c6a9dbcddb3b9a14d1c78fab9ab520cb281aa2a74a09575da1".to_string()
+        );
         assert_eq!(realtx.input[0].previous_output.vout, 1);
         assert_eq!(realtx.output.len(), 1);
         assert_eq!(realtx.lock_time, 0);
 
-        assert_eq!(realtx.bitcoin_hash().be_hex_string(),
-                   "a6eab3c14ab5272a58a5ba91505ba1a4b6d7a3a9fcbd187b6cd99a7b6d548cb7".to_string());
-        assert_eq!(realtx.get_weight(), 193*4);
+        assert_eq!(
+            realtx.bitcoin_hash().be_hex_string(),
+            "a6eab3c14ab5272a58a5ba91505ba1a4b6d7a3a9fcbd187b6cd99a7b6d548cb7".to_string()
+        );
+        assert_eq!(realtx.get_weight(), 193 * 4);
     }
 
     #[test]
@@ -525,7 +568,10 @@ mod tests {
         let mut tx: Transaction = deserialize(&hex_tx).unwrap();
 
         let old_ntxid = tx.ntxid();
-        assert_eq!(old_ntxid.be_hex_string(), "c3573dbea28ce24425c59a189391937e00d255150fa973d59d61caf3a06b601d");
+        assert_eq!(
+            old_ntxid.be_hex_string(),
+            "c3573dbea28ce24425c59a189391937e00d255150fa973d59d61caf3a06b601d"
+        );
         // changing sigs does not affect it
         tx.input[0].script_sig = Script::new();
         assert_eq!(old_ntxid, tx.ntxid());
@@ -569,8 +615,14 @@ mod tests {
         ).unwrap();
         let tx: Transaction = deserialize(&hex_tx).unwrap();
 
-        assert_eq!(tx.bitcoin_hash().be_hex_string(), "d6ac4a5e61657c4c604dcde855a1db74ec6b3e54f32695d72c5e11c7761ea1b4");
-        assert_eq!(tx.txid().be_hex_string(), "9652aa62b0e748caeec40c4cb7bc17c6792435cc3dfe447dd1ca24f912a1c6ec");
+        assert_eq!(
+            tx.bitcoin_hash().be_hex_string(),
+            "d6ac4a5e61657c4c604dcde855a1db74ec6b3e54f32695d72c5e11c7761ea1b4"
+        );
+        assert_eq!(
+            tx.txid().be_hex_string(),
+            "9652aa62b0e748caeec40c4cb7bc17c6792435cc3dfe447dd1ca24f912a1c6ec"
+        );
         assert_eq!(tx.get_weight(), 2718);
 
         // non-segwit tx from my mempool
@@ -584,11 +636,23 @@ mod tests {
         ).unwrap();
         let tx: Transaction = deserialize(&hex_tx).unwrap();
 
-        assert_eq!(tx.bitcoin_hash().be_hex_string(), "971ed48a62c143bbd9c87f4bafa2ef213cfa106c6e140f111931d0be307468dd");
-        assert_eq!(tx.txid().be_hex_string(), "971ed48a62c143bbd9c87f4bafa2ef213cfa106c6e140f111931d0be307468dd");
+        assert_eq!(
+            tx.bitcoin_hash().be_hex_string(),
+            "971ed48a62c143bbd9c87f4bafa2ef213cfa106c6e140f111931d0be307468dd"
+        );
+        assert_eq!(
+            tx.txid().be_hex_string(),
+            "971ed48a62c143bbd9c87f4bafa2ef213cfa106c6e140f111931d0be307468dd"
+        );
     }
 
-    fn run_test_sighash(tx: &str, script: &str, input_index: usize, hash_type: i32, expected_result: &str) {
+    fn run_test_sighash(
+        tx: &str,
+        script: &str,
+        input_index: usize,
+        hash_type: i32,
+        expected_result: &str,
+    ) {
         let tx: Transaction = deserialize(&hex_bytes(tx).unwrap()[..]).unwrap();
         let script = Script::from(hex_bytes(script).unwrap());
         let mut raw_expected = hex_bytes(expected_result).unwrap();
@@ -894,6 +958,4 @@ mod tests {
         run_test_sighash("b3cad3a7041c2c17d90a2cd994f6c37307753fa3635e9ef05ab8b1ff121ca11239a0902e700300000009ab635300006aac5163ffffffffcec91722c7468156dce4664f3c783afef147f0e6f80739c83b5f09d5a09a57040200000004516a6552ffffffff969d1c6daf8ef53a70b7cdf1b4102fb3240055a8eaeaed2489617cd84cfd56cf020000000352ab53ffffffff46598b6579494a77b593681c33422a99559b9993d77ca2fa97833508b0c169f80200000009655300655365516351ffffffff04d7ddf800000000000853536a65ac6351ab09f3420300000000056aab65abac33589d04000000000952656a65655151acac944d6f0400000000006a8004ba", "005165", 1, 1035865506, "fe1dc9e8554deecf8f50c417c670b839cc9d650722ebaaf36572418756075d58");
         run_test_sighash("cf781855040a755f5ba85eef93837236b34a5d3daeb2dbbdcf58bb811828d806ed05754ab8010000000351ac53ffffffffda1e264727cf55c67f06ebcc56dfe7fa12ac2a994fecd0180ce09ee15c480f7d00000000096351516a51acac00ab53dd49ff9f334befd6d6f87f1a832cddfd826a90b78fd8cf19a52cb8287788af94e939d6020000000700525251ac526310d54a7e8900ed633f0f6f0841145aae7ee0cbbb1e2a0cae724ee4558dbabfdc58ba6855010000000552536a53abfd1b101102c51f910500000000096300656a525252656a300bee010000000009ac52005263635151abe19235c9", "53005365", 2, 1422854188, "d5981bd4467817c1330da72ddb8760d6c2556cd809264b2d85e6d274609fc3a3");
     }
-
 }
-

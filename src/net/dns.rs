@@ -18,38 +18,38 @@
 */
 
 use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::Receiver;
-use std::sync::mpsc::TrySendError;
-use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::RecvError;
 use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::TryRecvError;
+use std::sync::mpsc::TrySendError;
 
 use std::hash::{Hash, Hasher};
 use std::net::ToSocketAddrs;
 
-use net::PeerAddress;
+use net::asn::ASEntry4;
+use net::Error as net_error;
 use net::Neighbor;
 use net::NeighborKey;
-use net::Error as net_error;
-use net::asn::ASEntry4;
+use net::PeerAddress;
 
-use net::*;
 use net::codec::*;
+use net::*;
 
-use util::sleep_ms;
 use util::db::Error as db_error;
+use util::sleep_ms;
 
 use std::net::SocketAddr;
 
-use std::collections::VecDeque;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 
-use util::log;
-use util::get_epoch_time_secs;
 use util::get_epoch_time_ms;
+use util::get_epoch_time_secs;
 use util::hash::to_hex;
+use util::log;
 
 /// In Rust, there's no easy way to do non-blocking DNS lookups (I blame getaddrinfo), so do it in
 /// a separate thread, and implement a way for the block downloader to periodically poll for
@@ -58,7 +58,7 @@ use util::hash::to_hex;
 pub struct DNSRequest {
     pub host: String,
     pub port: u16,
-    pub timeout: u128        // in millis
+    pub timeout: u128, // in millis
 }
 
 impl DNSRequest {
@@ -66,7 +66,7 @@ impl DNSRequest {
         DNSRequest {
             host: host,
             port: port,
-            timeout: timeout
+            timeout: timeout,
         }
     }
 
@@ -92,21 +92,21 @@ impl PartialEq for DNSRequest {
 #[derive(Debug, PartialEq, Clone)]
 pub struct DNSResponse {
     pub request: DNSRequest,
-    pub result: Result<Vec<SocketAddr>, String>
+    pub result: Result<Vec<SocketAddr>, String>,
 }
 
 impl DNSResponse {
     pub fn new(request: DNSRequest, result: Result<Vec<SocketAddr>, String>) -> DNSResponse {
         DNSResponse {
             request: request,
-            result: result
+            result: result,
         }
     }
 
     pub fn error(request: DNSRequest, errstr: String) -> DNSResponse {
         DNSResponse {
             request: request,
-            result: Err(errstr)
+            result: Err(errstr),
         }
     }
 }
@@ -119,7 +119,7 @@ pub struct DNSResolver {
     max_inflight: u64,
 
     // used mainly for testing
-    hardcoded: HashMap<(String, u16), Vec<SocketAddr>>
+    hardcoded: HashMap<(String, u16), Vec<SocketAddr>>,
 }
 
 #[derive(Debug)]
@@ -133,14 +133,14 @@ impl DNSResolver {
     pub fn new(max_inflight: u64) -> (DNSResolver, DNSClient) {
         let (dns_chan_tx, dns_chan_rx) = sync_channel(1024);
         let (socket_chan_tx, socket_chan_rx) = sync_channel(1024);
-        
+
         let client = DNSClient::new(socket_chan_tx, dns_chan_rx);
         let resolver = DNSResolver {
             queries: VecDeque::new(),
             inbound: socket_chan_rx,
             outbound: dns_chan_tx,
             max_inflight: max_inflight,
-            hardcoded: HashMap::new()
+            hardcoded: HashMap::new(),
         };
         (resolver, client)
     }
@@ -157,14 +157,14 @@ impl DNSResolver {
         // TODO: this is a blocking operation, but there's not really a good solution here other
         // than to just do this in a separate thread :shrug:
         test_debug!("Resolve {}:{}", &req.host, req.port);
-        let addrs : Vec<SocketAddr> = match (req.host.as_str(), req.port).to_socket_addrs() {
+        let addrs: Vec<SocketAddr> = match (req.host.as_str(), req.port).to_socket_addrs() {
             Ok(iter) => {
                 let mut list = vec![];
                 for addr in iter {
                     list.push(addr);
                 }
                 list
-            },
+            }
             Err(ioe) => {
                 return DNSResponse::error(req, format!("DNS resolve error: {:?}", &ioe));
             }
@@ -185,26 +185,27 @@ impl DNSResolver {
                     if req.is_timed_out() {
                         let resp = DNSResponse::error(req, "DNS request timed out".to_string());
                         if let Err(TrySendError::Disconnected(_)) = self.outbound.try_send(resp) {
-                            test_debug!("DNS client inbox disconnected -- could not issue timeout error");
+                            test_debug!(
+                                "DNS client inbox disconnected -- could not issue timeout error"
+                            );
                             return Err(net_error::ConnectionBroken);
                         }
-                    }
-                    else if (self.queries.len() as u64) < self.max_inflight {
+                    } else if (self.queries.len() as u64) < self.max_inflight {
                         test_debug!("Queued {:?}", &req);
                         self.queries.push_back(req);
                         received += 1;
-                    }
-                    else {
-                        let resp = DNSResponse::error(req, "Too many DNS requests in-flight".to_string());
+                    } else {
+                        let resp =
+                            DNSResponse::error(req, "Too many DNS requests in-flight".to_string());
                         if let Err(TrySendError::Disconnected(_)) = self.outbound.try_send(resp) {
                             test_debug!("DNS client inbox disconnected -- could not issue too-many-requests error");
                             return Err(net_error::ConnectionBroken);
                         }
                     }
-                },
+                }
                 Err(TryRecvError::Empty) => {
                     break;
-                },
+                }
                 Err(_e) => {
                     test_debug!("Failed to receive DNS inbox: {:?}", &_e);
                     return Err(net_error::ConnectionBroken);
@@ -239,7 +240,7 @@ impl DNSResolver {
                     if count == 0 {
                         sleep_ms(100);
                     }
-                },
+                }
                 Err(_e) => {
                     test_debug!("Failed to drain DNS inbox; exiting");
                     break;
@@ -270,13 +271,15 @@ impl DNSClient {
         DNSClient {
             requests_tx: inbound,
             requests_rx: outbound,
-            requests: HashMap::new()
+            requests: HashMap::new(),
         }
     }
 
     pub fn queue_lookup(&mut self, host: &str, port: u16, timeout: u128) -> Result<(), net_error> {
         let req = DNSRequest::new(host.to_string(), port, timeout);
-        self.requests_tx.send(req.clone()).map_err(|_se| net_error::LookupError("Failed to queue DNS query".to_string()))?;
+        self.requests_tx
+            .send(req.clone())
+            .map_err(|_se| net_error::LookupError("Failed to queue DNS query".to_string()))?;
         self.requests.insert(req, None);
         Ok(())
     }
@@ -290,7 +293,10 @@ impl DNSClient {
             }
         }
         for req in to_remove.drain(..) {
-            self.requests.insert(req.clone(), Some(DNSResponse::error(req, "DNS lookup timed out".to_string())));
+            self.requests.insert(
+                req.clone(),
+                Some(DNSResponse::error(req, "DNS lookup timed out".to_string())),
+            );
         }
     }
 
@@ -305,20 +311,24 @@ impl DNSClient {
                         if !resp.request.is_timed_out() {
                             self.requests.insert(resp.request.clone(), Some(resp));
                             num_recved += 1;
-                        }
-                        else {
-                            self.requests.insert(resp.request.clone(), Some(DNSResponse::error(resp.request, "DNS lookup timed out".to_string())));
+                        } else {
+                            self.requests.insert(
+                                resp.request.clone(),
+                                Some(DNSResponse::error(
+                                    resp.request,
+                                    "DNS lookup timed out".to_string(),
+                                )),
+                            );
                         }
                     }
-                },
+                }
                 Err(TryRecvError::Empty) => {
                     break;
-                },
+                }
                 Err(TryRecvError::Disconnected) => {
                     if num_recved == 0 {
                         return Err(net_error::RecvError("Disconnected".to_string()));
-                    }
-                    else {
+                    } else {
                         break;
                     }
                 }
@@ -330,22 +340,25 @@ impl DNSClient {
     pub fn poll_lookup(&mut self, host: &str, port: u16) -> Result<Option<DNSResponse>, net_error> {
         let req = DNSRequest::new(host.to_string(), port, 0);
         if !self.requests.contains_key(&req) {
-            return Err(net_error::LookupError(format!("No such pending lookup: {}:{}", host, port)));
+            return Err(net_error::LookupError(format!(
+                "No such pending lookup: {}:{}",
+                host, port
+            )));
         }
 
         let _ = match self.requests.get(&req) {
             Some(None) => {
                 return Ok(None);
-            },
-            Some(Some(resp)) => {
-                resp
-            },
+            }
+            Some(Some(resp)) => resp,
             None => {
                 unreachable!();
             }
         };
 
-        let resp = self.requests.remove(&req)
+        let resp = self
+            .requests
+            .remove(&req)
             .expect("BUG: had key but then didn't")
             .expect("BUG: had response but then didn't");
 
@@ -359,10 +372,10 @@ impl DNSClient {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
     use net::test::*;
-    use util::*;
+    use std::collections::HashMap;
     use std::error::Error;
+    use util::*;
 
     #[test]
     fn dns_start_stop() {
@@ -374,7 +387,9 @@ mod test {
     #[test]
     fn dns_resolve_one_name() {
         let (mut client, thread_handle) = dns_thread_start(100);
-        client.queue_lookup("www.google.com", 80, get_epoch_time_ms() + 120_000).unwrap();
+        client
+            .queue_lookup("www.google.com", 80, get_epoch_time_ms() + 120_000)
+            .unwrap();
         let mut resolved_addrs = None;
         loop {
             client.try_recv().unwrap();
@@ -383,7 +398,7 @@ mod test {
                     test_debug!("addrs: {:?}", &addrs);
                     resolved_addrs = Some(addrs);
                     break;
-                },
+                }
                 None => {}
             }
             sleep_ms(100);
@@ -393,7 +408,7 @@ mod test {
 
         dns_thread_shutdown(client, thread_handle);
     }
-    
+
     #[test]
     fn dns_resolve_10_names() {
         let (mut client, thread_handle) = dns_thread_start(100);
@@ -407,11 +422,13 @@ mod test {
             "www.coinmarketcap.com",
             "core.blockstack.org",
             "news.ycombinator.com",
-            "lobste.rs"
+            "lobste.rs",
         ];
 
         for name in names.iter() {
-            client.queue_lookup(name, 80, get_epoch_time_ms() + 120_000).unwrap();
+            client
+                .queue_lookup(name, 80, get_epoch_time_ms() + 120_000)
+                .unwrap();
         }
 
         let mut resolved_addrs = HashMap::new();
@@ -427,7 +444,7 @@ mod test {
                         test_debug!("name {} addrs: {:?}", name, &addrs);
                         resolved_addrs.insert(name.to_string(), addrs);
                         break;
-                    },
+                    }
                     None => {}
                 }
             }
@@ -445,7 +462,9 @@ mod test {
     #[test]
     fn dns_resolve_invalid_name() {
         let (mut client, thread_handle) = dns_thread_start(100);
-        client.queue_lookup("asdfjkl;", 80, get_epoch_time_ms() + 120_000_000).unwrap();
+        client
+            .queue_lookup("asdfjkl;", 80, get_epoch_time_ms() + 120_000_000)
+            .unwrap();
         let mut resolved_error = None;
         loop {
             client.try_recv().unwrap();
@@ -454,27 +473,34 @@ mod test {
                     test_debug!("addrs: {:?}", &resp);
                     resolved_error = Some(resp);
                     break;
-                },
+                }
                 None => {}
             }
             sleep_ms(100);
         }
         test_debug!("asdfjkl;:80 is {:?}", &resolved_error);
         assert!(resolved_error.is_some());
-        assert!(resolved_error.unwrap().result.unwrap_err().find("DNS resolve error").is_some());
+        assert!(resolved_error
+            .unwrap()
+            .result
+            .unwrap_err()
+            .find("DNS resolve error")
+            .is_some());
 
         dns_thread_shutdown(client, thread_handle);
     }
-    
+
     #[test]
     fn dns_resolve_no_such_name() {
         let (mut client, thread_handle) = dns_thread_start(100);
-        client.queue_lookup("www.google.com", 80, get_epoch_time_ms() + 120_000_000).unwrap();
+        client
+            .queue_lookup("www.google.com", 80, get_epoch_time_ms() + 120_000_000)
+            .unwrap();
         let mut resolved_err = None;
         loop {
             client.try_recv().unwrap();
             match client.poll_lookup("www.facebook.com", 80) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => {
                     resolved_err = Some(e);
                     break;
@@ -483,14 +509,18 @@ mod test {
             sleep_ms(100);
         }
         assert!(resolved_err.is_some());
-        assert!(format!("{:?}", &resolved_err.unwrap()).find("No such pending lookup").is_some());
+        assert!(format!("{:?}", &resolved_err.unwrap())
+            .find("No such pending lookup")
+            .is_some());
         dns_thread_shutdown(client, thread_handle);
     }
 
     #[test]
     fn dns_resolve_timeout() {
         let (mut client, thread_handle) = dns_thread_start(100);
-        client.queue_lookup("www.google.com", 80, get_epoch_time_ms() + 100).unwrap();
+        client
+            .queue_lookup("www.google.com", 80, get_epoch_time_ms() + 100)
+            .unwrap();
         sleep_ms(200);
         let mut resolved_err = None;
         loop {
@@ -509,7 +539,9 @@ mod test {
         }
         assert!(resolved_err.is_some());
         eprintln!("{:?}", &resolved_err);
-        assert!(format!("{:?}", &resolved_err.unwrap()).find("timed out").is_some());
+        assert!(format!("{:?}", &resolved_err.unwrap())
+            .find("timed out")
+            .is_some());
         dns_thread_shutdown(client, thread_handle);
     }
 }

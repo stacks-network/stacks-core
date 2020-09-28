@@ -1,17 +1,19 @@
-use std::process::{Command, Child, Stdio};
+use std::process::{Child, Command, Stdio};
 
-use crate::{Config};
 use crate::helium::RunLoop;
+use crate::Config;
 
-use stacks::chainstate::burn::operations::BlockstackOperationType::{LeaderBlockCommit, LeaderKeyRegister};
-use stacks::util::hash::{hex_bytes};
+use stacks::chainstate::burn::operations::BlockstackOperationType::{
+    LeaderBlockCommit, LeaderKeyRegister,
+};
+use stacks::util::hash::hex_bytes;
 
+use super::PUBLISH_CONTRACT;
 use std::env;
-use std::io::{BufReader, BufRead};
-use super::{PUBLISH_CONTRACT};
+use std::io::{BufRead, BufReader};
 
 pub enum BitcoinCoreError {
-    SpawnFailed(String)
+    SpawnFailed(String),
 }
 
 type BitcoinResult<T> = Result<T, BitcoinCoreError>;
@@ -22,17 +24,16 @@ pub struct BitcoinCoreController {
 }
 
 impl BitcoinCoreController {
-
     pub fn new(config: Config) -> BitcoinCoreController {
         BitcoinCoreController {
             bitcoind_process: None,
-            config
+            config,
         }
     }
 
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
         std::fs::create_dir_all(&self.config.get_burnchain_path()).unwrap();
-        
+
         let mut command = Command::new("bitcoind");
         command
             .stdout(Stdio::piped())
@@ -48,12 +49,15 @@ impl BitcoinCoreController {
             .arg(&format!("-datadir={}", self.config.get_burnchain_path()))
             .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
 
-        match (&self.config.burnchain.username, &self.config.burnchain.password) {
+        match (
+            &self.config.burnchain.username,
+            &self.config.burnchain.password,
+        ) {
             (Some(username), Some(password)) => {
                 command
                     .arg(&format!("-rpcuser={}", username))
                     .arg(&format!("-rpcpassword={}", password));
-            },
+            }
             _ => {}
         }
 
@@ -61,7 +65,7 @@ impl BitcoinCoreController {
 
         let mut process = match command.spawn() {
             Ok(child) => child,
-            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e)))
+            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
         };
 
         eprintln!("bitcoind spawned, waiting for startup");
@@ -70,7 +74,9 @@ impl BitcoinCoreController {
         let mut line = String::new();
         while let Ok(bytes_read) = out_reader.read_line(&mut line) {
             if bytes_read == 0 {
-                return Err(BitcoinCoreError::SpawnFailed("Bitcoind closed before spawning network".into()))
+                return Err(BitcoinCoreError::SpawnFailed(
+                    "Bitcoind closed before spawning network".into(),
+                ));
             }
             if line.contains("Done loading") {
                 break;
@@ -84,7 +90,6 @@ impl BitcoinCoreController {
         Ok(())
     }
 
-
     pub fn kill_bitcoind(&mut self) {
         if let Some(mut bitcoind_process) = self.bitcoind_process.take() {
             bitcoind_process.kill().unwrap();
@@ -93,7 +98,6 @@ impl BitcoinCoreController {
 }
 
 impl Drop for BitcoinCoreController {
-
     fn drop(&mut self) {
         self.kill_bitcoind();
     }
@@ -103,7 +107,7 @@ impl Drop for BitcoinCoreController {
 #[ignore]
 fn bitcoind_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return
+        return;
     }
 
     let mut conf = super::new_test_conf();
@@ -124,9 +128,11 @@ fn bitcoind_integration_test() {
     let num_rounds = 6;
     let mut run_loop = RunLoop::new(conf);
 
-    run_loop.callbacks.on_burn_chain_initialized(|burnchain_controller| {
-        burnchain_controller.bootstrap_chain(201);
-    });
+    run_loop
+        .callbacks
+        .on_burn_chain_initialized(|burnchain_controller| {
+            burnchain_controller.bootstrap_chain(201);
+        });
 
     // In this serie of tests, the callback is fired post-burnchain-sync, pre-stacks-sync
     run_loop.callbacks.on_new_burn_chain_state(|round, burnchain_tip, chain_tip| {
@@ -148,7 +154,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 0);
                             assert!(op.parent_vtxindex == 0);
                             assert!(op.burn_fee == 5000);
@@ -174,7 +180,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 203);
                             assert!(op.burn_fee == 5000);
                         }
@@ -201,14 +207,14 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 204);
                             assert!(op.burn_fee == 5000);
                         }
                         _ => assert!(false)
                     }
-                }           
-            
+                }
+
                 assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             3 => {
@@ -228,13 +234,13 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 205);
                             assert!(op.burn_fee == 5000);
                         }
                         _ => assert!(false)
                     }
-                }            
+                }
 
                 assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
@@ -255,7 +261,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 206);
                             assert!(op.burn_fee == 5000);
                         }
@@ -282,14 +288,14 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 207);
                             assert!(op.burn_fee == 5000);
                         }
                         _ => assert!(false)
                     }
                 }
-                
+
                 assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             _ => {}
@@ -301,7 +307,7 @@ fn bitcoind_integration_test() {
         match round {
             1 => {
                 // On round 1, publish the KV contract
-                // $ cat /tmp/out.clar 
+                // $ cat /tmp/out.clar
                 // (define-map store ((key (string-ascii 32))) ((value (string-ascii 32))))
                 // (define-public (get-value (key (string-ascii 32)))
                 //     (begin
@@ -358,74 +364,91 @@ fn bitcoind_integration_test() {
 
     // Use block's hook for asserting expectations
     // In this serie of tests, the callback is fired post-burnchain-sync, post-stacks-sync
-    run_loop.callbacks.on_new_stacks_chain_state(|round, burnchain_tip, chain_tip, _chain_state, _burn_dbconn| {
-        match round {
-            0 => {
-                // Inspecting the chain at round 0.
-                // - Chain length should be 1.
-                assert!(chain_tip.metadata.block_height == 1);
-                
-                // Block #1 should only have 0 txs
-                assert!(chain_tip.block.txs.len() == 1);
+    run_loop.callbacks.on_new_stacks_chain_state(
+        |round, burnchain_tip, chain_tip, _chain_state, _burn_dbconn| {
+            match round {
+                0 => {
+                    // Inspecting the chain at round 0.
+                    // - Chain length should be 1.
+                    assert!(chain_tip.metadata.block_height == 1);
 
-                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
-            },
-            1 => {
-                // Inspecting the chain at round 1.
-                // - Chain length should be 2.
-                assert!(chain_tip.metadata.block_height == 2);
-                
-                // Block #2 should only have 2 txs
-                assert!(chain_tip.block.txs.len() == 2);
+                    // Block #1 should only have 0 txs
+                    assert!(chain_tip.block.txs.len() == 1);
 
-                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
+                    assert!(
+                        chain_tip.block.header.block_hash()
+                            == burnchain_tip.block_snapshot.winning_stacks_block_hash
+                    );
+                }
+                1 => {
+                    // Inspecting the chain at round 1.
+                    // - Chain length should be 2.
+                    assert!(chain_tip.metadata.block_height == 2);
 
-            },
-            2 => {
-                // Inspecting the chain at round 2.
-                // - Chain length should be 3.
-                assert!(chain_tip.metadata.block_height == 3);
-                
-                // Block #3 should only have 2 txs
-                assert!(chain_tip.block.txs.len() == 2);
+                    // Block #2 should only have 2 txs
+                    assert!(chain_tip.block.txs.len() == 2);
 
-                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
+                    assert!(
+                        chain_tip.block.header.block_hash()
+                            == burnchain_tip.block_snapshot.winning_stacks_block_hash
+                    );
+                }
+                2 => {
+                    // Inspecting the chain at round 2.
+                    // - Chain length should be 3.
+                    assert!(chain_tip.metadata.block_height == 3);
 
-            },
-            3 => {
-                // Inspecting the chain at round 3.
-                // - Chain length should be 4.
-                assert!(chain_tip.metadata.block_height == 4);
-                
-                // Block #4 should only have 2 txs
-                assert!(chain_tip.block.txs.len() == 2);
+                    // Block #3 should only have 2 txs
+                    assert!(chain_tip.block.txs.len() == 2);
 
-                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
-            },
-            4 => {
-                // Inspecting the chain at round 4.
-                // - Chain length should be 5.
-                assert!(chain_tip.metadata.block_height == 5);
-                
-                // Block #5 should only have 2 txs
-                assert!(chain_tip.block.txs.len() == 2);
+                    assert!(
+                        chain_tip.block.header.block_hash()
+                            == burnchain_tip.block_snapshot.winning_stacks_block_hash
+                    );
+                }
+                3 => {
+                    // Inspecting the chain at round 3.
+                    // - Chain length should be 4.
+                    assert!(chain_tip.metadata.block_height == 4);
 
-                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
+                    // Block #4 should only have 2 txs
+                    assert!(chain_tip.block.txs.len() == 2);
 
-            },
-            5 => {
-                // Inspecting the chain at round 5.
-                // - Chain length should be 6.
-                assert!(chain_tip.metadata.block_height == 6);
-                
-                // Block #6 should only have 2 txs
-                assert!(chain_tip.block.txs.len() == 2);
+                    assert!(
+                        chain_tip.block.header.block_hash()
+                            == burnchain_tip.block_snapshot.winning_stacks_block_hash
+                    );
+                }
+                4 => {
+                    // Inspecting the chain at round 4.
+                    // - Chain length should be 5.
+                    assert!(chain_tip.metadata.block_height == 5);
 
-                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
-            },
-            _ => {}
-        }
-    });
+                    // Block #5 should only have 2 txs
+                    assert!(chain_tip.block.txs.len() == 2);
+
+                    assert!(
+                        chain_tip.block.header.block_hash()
+                            == burnchain_tip.block_snapshot.winning_stacks_block_hash
+                    );
+                }
+                5 => {
+                    // Inspecting the chain at round 5.
+                    // - Chain length should be 6.
+                    assert!(chain_tip.metadata.block_height == 6);
+
+                    // Block #6 should only have 2 txs
+                    assert!(chain_tip.block.txs.len() == 2);
+
+                    assert!(
+                        chain_tip.block.header.block_hash()
+                            == burnchain_tip.block_snapshot.winning_stacks_block_hash
+                    );
+                }
+                _ => {}
+            }
+        },
+    );
     run_loop.start(num_rounds).unwrap();
 
     controller.kill_bitcoind();

@@ -2,18 +2,17 @@ extern crate blockstack_lib;
 extern crate serde_json;
 
 use blockstack_lib::{
-    chainstate::stacks::index::storage::{TrieFileStorage},
     chainstate::burn::BlockHeaderHash,
-    vm::types::{QualifiedContractIdentifier},
-    vm::database::{MarfedKV, NULL_HEADER_DB}, 
-    vm::clarity::ClarityInstance, 
+    chainstate::stacks::index::storage::TrieFileStorage,
+    vm::clarity::ClarityInstance,
     vm::costs::ExecutionCost,
+    vm::database::{MarfedKV, NULL_HEADER_DB},
+    vm::types::QualifiedContractIdentifier,
 };
 
 use std::env;
-use std::process;
 use std::fmt::Write;
-
+use std::process;
 
 fn test_via_tx(scaling: u32, inner_loop: &str, other_decl: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();
@@ -21,22 +20,25 @@ fn test_via_tx(scaling: u32, inner_loop: &str, other_decl: &str) -> ExecutionCos
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
-    let blocks = [TrieFileStorage::block_sentinel(),
-                  BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
-                  BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap()];
+    let blocks = [
+        TrieFileStorage::block_sentinel(),
+        BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
+        BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap(),
+    ];
 
     {
-        let mut conn = clarity_instance.begin_block(&blocks[0],
-                                                    &blocks[1],
-                                                    &NULL_HEADER_DB);
+        let mut conn = clarity_instance.begin_block(&blocks[0], &blocks[1], &NULL_HEADER_DB);
 
         let mut contract = "(define-constant list-0 (list 0))".to_string();
 
         for i in 0..15 {
             contract.push_str("\n");
-            contract.push_str(
-                &format!("(define-constant list-{} (concat list-{} list-{}))",
-                         i+1, i, i));
+            contract.push_str(&format!(
+                "(define-constant list-{} (concat list-{} list-{}))",
+                i + 1,
+                i,
+                i
+            ));
         }
 
         contract.push_str("\n");
@@ -44,29 +46,44 @@ fn test_via_tx(scaling: u32, inner_loop: &str, other_decl: &str) -> ExecutionCos
         contract.push_str("\n");
         contract.push_str(inner_loop);
 
-        write!(contract, "\n(define-private (outer-loop) (map inner-loop list-10))\n").unwrap();
+        write!(
+            contract,
+            "\n(define-private (outer-loop) (map inner-loop list-10))\n"
+        )
+        .unwrap();
         write!(contract, "(define-public (do-it) (begin \n").unwrap();
         for _i in 0..scaling {
             write!(contract, "(outer-loop)\n").unwrap();
         }
         write!(contract, " (ok 1)))\n").unwrap();
 
-
-        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+        let (ct_ast, _ct_analysis) = conn
+            .analyze_smart_contract(&contract_identifier, &contract)
+            .unwrap();
         conn.initialize_smart_contract(
             // initialize the ok contract without errs, but still abort.
-            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+            &contract_identifier,
+            &ct_ast,
+            &contract,
+            |_, _| false,
+        )
+        .unwrap();
 
         conn.commit_to_block(&blocks[1]);
     }
 
     {
         let mut conn = clarity_instance.begin_block(&blocks[1], &blocks[2], &NULL_HEADER_DB);
-        conn.run_contract_call(&contract_identifier.clone().into(),
-                               &contract_identifier, "do-it", &[], |_, _| false).unwrap();
+        conn.run_contract_call(
+            &contract_identifier.clone().into(),
+            &contract_identifier,
+            "do-it",
+            &[],
+            |_, _| false,
+        )
+        .unwrap();
         conn.commit_to_block(&blocks[2]).get_total()
     }
-
 }
 
 // on a fairly underpowered laptop:
@@ -122,25 +139,15 @@ fn main() {
     let scalar = argv[2].parse().expect("Invalid scalar");
 
     let result = match argv[1].as_str() {
-        "runtime" => {
-            runtime_hash_test(scalar)
-        },
-        "read-length" => {
-            read_length_test(scalar)
-        },
-        "read-count" => {
-            read_count_test(scalar)
-        },
-        "write-count" => {
-            write_count_test(scalar)
-        },
-        "write-length" => {
-            write_length_test(scalar)
-        },
+        "runtime" => runtime_hash_test(scalar),
+        "read-length" => read_length_test(scalar),
+        "read-count" => read_count_test(scalar),
+        "write-count" => write_count_test(scalar),
+        "write-length" => write_length_test(scalar),
         _ => {
             eprintln!("bad test name");
             process::exit(1);
-        },
+        }
     };
 
     println!("{}", serde_json::to_string(&result).unwrap());

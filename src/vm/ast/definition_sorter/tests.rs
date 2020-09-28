@@ -1,12 +1,12 @@
-use vm::analysis::{mem_type_check as run_analysis_helper};
-use vm::ast::parser;
-use vm::types::QualifiedContractIdentifier;
-use vm::ast::errors::{ParseResult};
-use vm::ast::types::{ContractAST, BuildASTPass};
-use vm::ast::errors::{ParseErrors};
+use vm::analysis::mem_type_check as run_analysis_helper;
 use vm::ast::definition_sorter::DefinitionSorter;
+use vm::ast::errors::ParseErrors;
+use vm::ast::errors::ParseResult;
 use vm::ast::expression_identifier::ExpressionIdentifier;
+use vm::ast::parser;
+use vm::ast::types::{BuildASTPass, ContractAST};
 use vm::database::MemoryBackingStore;
+use vm::types::QualifiedContractIdentifier;
 
 fn run_scoped_parsing_helper(contract: &str) -> ParseResult<ContractAST> {
     let contract_identifier = QualifiedContractIdentifier::transient();
@@ -19,8 +19,7 @@ fn run_scoped_parsing_helper(contract: &str) -> ParseResult<ContractAST> {
 
 #[test]
 fn should_succeed_sorting_contract_call() {
-    let contract =
-        "(define-read-only (foo-function (a int))
+    let contract = "(define-read-only (foo-function (a int))
            (contract-call? .contract-b foo-function a))";
     run_scoped_parsing_helper(contract).unwrap();
 }
@@ -55,7 +54,6 @@ fn should_succeed_sorting_contract_case_2() {
     run_scoped_parsing_helper(contract).unwrap();
 }
 
-
 #[test]
 fn should_raise_dependency_cycle_case_1() {
     let contract = r#"
@@ -65,7 +63,10 @@ fn should_raise_dependency_cycle_case_1() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false });
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    });
 }
 
 #[test]
@@ -78,7 +79,10 @@ fn should_raise_dependency_cycle_case_2() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false });
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    });
 }
 
 #[test]
@@ -100,7 +104,10 @@ fn should_raise_dependency_cycle_case_let() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    })
 }
 
 #[test]
@@ -122,7 +129,10 @@ fn should_raise_dependency_cycle_case_get() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    })
 }
 
 #[test]
@@ -146,7 +156,10 @@ fn should_raise_dependency_cycle_case_fetch_entry() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    })
 }
 
 #[test]
@@ -170,7 +183,10 @@ fn should_raise_dependency_cycle_case_delete_entry() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    })
 }
 
 #[test]
@@ -194,7 +210,10 @@ fn should_raise_dependency_cycle_case_set_entry() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    })
 }
 
 #[test]
@@ -218,7 +237,10 @@ fn should_raise_dependency_cycle_case_insert_entry() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    })
 }
 
 #[test]
@@ -229,9 +251,11 @@ fn should_raise_dependency_cycle_case_fetch_contract_entry() {
     "#;
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
-    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
+    assert!(match err.err {
+        ParseErrors::CircularReference(_) => true,
+        _ => false,
+    })
 }
-
 
 #[test]
 fn should_not_build_cycle_within_defined_args_types() {
@@ -262,4 +286,3 @@ fn should_not_conflict_with_atoms_from_trait_definitions() {
 
     run_scoped_parsing_helper(contract).unwrap();
 }
-

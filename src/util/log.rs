@@ -23,40 +23,35 @@ use std::env;
 // Message Priorities/Levels
 // Apache Conventions defined here: https://commons.apache.org/proper/commons-logging/guide.html#Message_PrioritiesLevels
 //
-// Severe errors that cause premature termination. 
+// Severe errors that cause premature termination.
 // Expect these to be immediately visible on a status console.
-pub const LOG_FATAL : u8 = 6;
-// Other runtime errors or unexpected conditions. 
+pub const LOG_FATAL: u8 = 6;
+// Other runtime errors or unexpected conditions.
 // Expect these to be immediately visible on a status console.
-pub const LOG_ERROR : u8 = 5;
-// Use of deprecated APIs, poor use of API, 'almost' errors, other runtime situations that are undesirable or unexpected, but not necessarily "wrong". 
+pub const LOG_ERROR: u8 = 5;
+// Use of deprecated APIs, poor use of API, 'almost' errors, other runtime situations that are undesirable or unexpected, but not necessarily "wrong".
 // Expect these to be immediately visible on a status console.
-pub const LOG_WARN : u8 = 4;
-// Interesting runtime events (startup/shutdown). 
+pub const LOG_WARN: u8 = 4;
+// Interesting runtime events (startup/shutdown).
 // Expect these to be immediately visible on a console, so be conservative and keep to a minimum
-pub const LOG_INFO : u8 = 3;
-// Detailed information on the flow through the system. 
+pub const LOG_INFO: u8 = 3;
+// Detailed information on the flow through the system.
 // Expect these to be written to logs only.
-pub const LOG_DEBUG : u8 = 2;
-// More detailed information. 
+pub const LOG_DEBUG: u8 = 2;
+// More detailed information.
 // Expect these to be written to logs only.
-pub const LOG_TRACE : u8 = 1;
-
+pub const LOG_TRACE: u8 = 1;
 
 // per-thread log level and log format
 thread_local!(static loglevel: RefCell<u8> = RefCell::new(LOG_INFO));
 
 pub fn set_loglevel(ll: u8) -> Result<(), String> {
-    loglevel.with(move |level| {
-        match ll {
-            LOG_TRACE..=LOG_FATAL => {
-                *level.borrow_mut() = ll;
-                Ok(())
-            },
-            _ => {
-                Err("Invalid log level".to_string())
-            }
+    loglevel.with(move |level| match ll {
+        LOG_TRACE..=LOG_FATAL => {
+            *level.borrow_mut() = ll;
+            Ok(())
         }
+        _ => Err("Invalid log level".to_string()),
     })
 }
 
@@ -172,4 +167,3 @@ macro_rules! fatal {
         }
     })
 }
-

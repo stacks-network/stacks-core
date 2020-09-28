@@ -1,14 +1,22 @@
-use vm::costs::{cost_functions, CostOverflowingMath};
-use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
-use vm::types::{Value, SequenceData, CharType, ListData, signatures::ListTypeData, TypeSignature::BoolType, TypeSignature};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::{LocalContext, Environment, CallableType, eval, apply, lookup_function};
-use std::convert::TryInto;
 use std::cmp;
+use std::convert::TryInto;
+use vm::costs::{cost_functions, CostOverflowingMath};
+use vm::errors::{
+    check_argument_count, CheckErrors, InterpreterResult as Result, RuntimeErrorType,
+};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::types::{
+    signatures::ListTypeData, CharType, ListData, SequenceData, TypeSignature,
+    TypeSignature::BoolType, Value,
+};
+use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
 
-pub fn list_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    let eval_tried: Result<Vec<Value>> =
-        args.iter().map(|x| eval(x, env, context)).collect();
+pub fn list_cons(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    let eval_tried: Result<Vec<Value>> = args.iter().map(|x| eval(x, env, context)).collect();
     let args = eval_tried?;
 
     let mut arg_size = 0;
@@ -21,13 +29,16 @@ pub fn list_cons(args: &[SymbolicExpression], env: &mut Environment, context: &L
     Value::list_from(args)
 }
 
-pub fn special_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_filter(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
     check_argument_count(2, args)?;
 
     runtime_cost!(cost_functions::FILTER, env, 0)?;
 
-    let function_name = args[0].match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
+    let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let mut sequence = eval(&args[1], env, context)?;
     let function = lookup_function(&function_name, env)?;
@@ -40,22 +51,25 @@ pub fn special_filter(args: &[SymbolicExpression], env: &mut Environment, contex
                 if let Value::Bool(include) = filter_eval {
                     return Ok(include);
                 } else {
-                    return Err(CheckErrors::TypeValueError(BoolType, filter_eval).into())
+                    return Err(CheckErrors::TypeValueError(BoolType, filter_eval).into());
                 }
             })?;
-        },
-        _ => return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+        }
+        _ => return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
     };
     Ok(sequence)
 }
 
-pub fn special_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_fold(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
     check_argument_count(3, args)?;
 
     runtime_cost!(cost_functions::FOLD, env, 0)?;
 
-    let function_name = args[0].match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
+    let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(&function_name, env)?;
     let mut sequence = eval(&args[1], env, context)?;
@@ -63,87 +77,117 @@ pub fn special_fold(args: &[SymbolicExpression], env: &mut Environment, context:
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => {
-            sequence_data.atom_values()
+            sequence_data
+                .atom_values()
                 .into_iter()
                 .try_fold(initial, |acc, x| {
-                    apply(&function, &[x, SymbolicExpression::atom_value(acc)], env, context)
+                    apply(
+                        &function,
+                        &[x, SymbolicExpression::atom_value(acc)],
+                        env,
+                        context,
+                    )
                 })
-        },
-        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+        }
+        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
     }
 }
 
-pub fn special_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_map(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
     check_argument_count(2, args)?;
 
     runtime_cost!(cost_functions::MAP, env, 0)?;
 
-    let function_name = args[0].match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
+    let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
     let mut sequence = eval(&args[1], env, context)?;
     let function = lookup_function(&function_name, env)?;
 
     let mapped_sequence: Vec<_> = match sequence {
-        Value::Sequence(ref mut sequence_data) => {
-            sequence_data.atom_values()
-                .into_iter()
-                .map(|argument| apply(&function, &[argument], env, context))
-                .collect()
-        },
-        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+        Value::Sequence(ref mut sequence_data) => sequence_data
+            .atom_values()
+            .into_iter()
+            .map(|argument| apply(&function, &[argument], env, context))
+            .collect(),
+        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
     }?;
     Value::list_from(mapped_sequence)
 }
 
-pub fn special_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_append(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let sequence = eval(&args[0], env, context)?;
     match sequence {
         Value::Sequence(SequenceData::List(list)) => {
-            let element =  eval(&args[1], env, context)?;
-            let ListData { mut data, type_signature } = list;
+            let element = eval(&args[1], env, context)?;
+            let ListData {
+                mut data,
+                type_signature,
+            } = list;
             let (entry_type, size) = type_signature.destruct();
-            let element_type = TypeSignature::type_of(&element); 
-            runtime_cost!(cost_functions::APPEND, env,
-                          u64::from(cmp::max(entry_type.size(), element_type.size())))?;
+            let element_type = TypeSignature::type_of(&element);
+            runtime_cost!(
+                cost_functions::APPEND,
+                env,
+                u64::from(cmp::max(entry_type.size(), element_type.size()))
+            )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Value::list_from(vec![ element ])
+                return Value::list_from(vec![element]);
             }
-            if let Ok(next_entry_type) = TypeSignature::least_supertype(&entry_type, &element_type) {
+            if let Ok(next_entry_type) = TypeSignature::least_supertype(&entry_type, &element_type)
+            {
                 let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
                 data.push(element);
                 Ok(Value::Sequence(SequenceData::List(ListData {
                     type_signature: next_type_signature,
-                    data })))
+                    data,
+                })))
             } else {
                 Err(CheckErrors::TypeValueError(entry_type, element).into())
             }
-        },
-        _ => Err(CheckErrors::ExpectedListApplication.into())
+        }
+        _ => Err(CheckErrors::ExpectedListApplication.into()),
     }
 }
 
-pub fn special_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_concat(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
     let mut other_wrapped_seq = eval(&args[1], env, context)?;
 
-    runtime_cost!(cost_functions::CONCAT, env,
-                  u64::from(wrapped_seq.size()).cost_overflow_add(
-                      u64::from(other_wrapped_seq.size()))?)?;
+    runtime_cost!(
+        cost_functions::CONCAT,
+        env,
+        u64::from(wrapped_seq.size()).cost_overflow_add(u64::from(other_wrapped_seq.size()))?
+    )?;
 
     match (&mut wrapped_seq, &mut other_wrapped_seq) {
         (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => seq.append(other_seq),
-        _ => Err(RuntimeErrorType::BadTypeConstruction.into())
+        _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
     }?;
 
     Ok(wrapped_seq)
 }
 
-pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_as_max_len(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let mut sequence = eval(&args[0], env, context)?;
@@ -153,7 +197,9 @@ pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, co
     if let Some(Value::UInt(expected_len)) = args[1].match_literal_value() {
         let sequence_len = match sequence {
             Value::Sequence(ref sequence_data) => sequence_data.len() as u128,
-            _ => return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+            _ => {
+                return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+            }
         };
         if sequence_len > *expected_len {
             Ok(Value::none())
@@ -165,13 +211,16 @@ pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, co
         }
     } else {
         let actual_len = eval(&args[1], env, context)?;
-        Err(CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::type_of(&actual_len)).into())
+        Err(
+            CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::type_of(&actual_len))
+                .into(),
+        )
     }
 }
 
 pub fn native_len(sequence: Value) -> Result<Value> {
     match sequence {
         Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
-        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
     }
 }

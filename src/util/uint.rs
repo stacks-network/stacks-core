@@ -23,7 +23,6 @@
 //! The functions here are designed to be fast.
 //!
 /// Borrowed with gratitude from Andrew Poelstra's rust-bitcoin library
-
 use std::fmt;
 
 /// A trait which allows numbers to act as fixed-size bit arrays
@@ -51,7 +50,7 @@ pub trait BitArray {
 }
 
 macro_rules! construct_uint {
-    ($name:ident, $n_words:expr) => (
+    ($name:ident, $n_words:expr) => {
         /// Little-endian large integer type
         #[repr(C)]
         pub struct $name(pub [u64; $n_words]);
@@ -72,13 +71,15 @@ macro_rules! construct_uint {
                 arr[0] as u64
             }
 
-
             /// Return the least number of bits needed to represent the number
             #[inline]
             pub fn bits(&self) -> usize {
                 let &$name(ref arr) = self;
                 for i in 1..$n_words {
-                    if arr[$n_words - i] > 0 { return (0x40 * ($n_words - i + 1)) - arr[$n_words - i].leading_zeros() as usize; }
+                    if arr[$n_words - i] > 0 {
+                        return (0x40 * ($n_words - i + 1))
+                            - arr[$n_words - i].leading_zeros() as usize;
+                    }
                 }
                 0x40 - arr[0].leading_zeros() as usize
             }
@@ -117,7 +118,7 @@ macro_rules! construct_uint {
                 $name::from_u64(init as u64)
             }
 
-            /// Create an object from a given unsigned 128-bit integer 
+            /// Create an object from a given unsigned 128-bit integer
             pub fn from_u128(init: u128) -> $name {
                 let mut ret = [0u64; $n_words];
                 ret[0] = (init & 0xffffffffffffffffffffffffffffffff) as u64;
@@ -125,7 +126,7 @@ macro_rules! construct_uint {
                 $name(ret)
             }
 
-            /// max 
+            /// max
             pub fn max() -> $name {
                 let ret = [0xffffffffffffffff; $n_words];
                 $name(ret)
@@ -137,7 +138,7 @@ macro_rules! construct_uint {
                 for i in 0..$n_words {
                     let bytes = self.0[i].to_le_bytes();
                     for j in 0..bytes.len() {
-                        ret[i*8 + j] = bytes[j];
+                        ret[i * 8 + j] = bytes[j];
                     }
                 }
                 ret
@@ -160,7 +161,11 @@ macro_rules! construct_uint {
                         b_carry = true;
                     }
                 }
-                if b_carry { $name(ret) + $name(carry) } else { $name(ret) }
+                if b_carry {
+                    $name(ret) + $name(carry)
+                } else {
+                    $name(ret)
+                }
             }
         }
 
@@ -194,7 +199,7 @@ macro_rules! construct_uint {
                 let mut sub_copy = self;
                 let mut shift_copy = other;
                 let mut ret = [0u64; $n_words];
-        
+
                 let my_bits = self.bits();
                 let your_bits = other.bits();
 
@@ -215,7 +220,9 @@ macro_rules! construct_uint {
                         sub_copy = sub_copy - shift_copy;
                     }
                     shift_copy = shift_copy >> 1;
-                    if shift == 0 { break; }
+                    if shift == 0 {
+                        break;
+                    }
                     shift -= 1;
                 }
 
@@ -254,17 +261,28 @@ macro_rules! construct_uint {
             fn trailing_zeros(&self) -> usize {
                 let &$name(ref arr) = self;
                 for i in 0..($n_words - 1) {
-                    if arr[i] > 0 { return (0x40 * i) + arr[i].trailing_zeros() as usize; }
+                    if arr[i] > 0 {
+                        return (0x40 * i) + arr[i].trailing_zeros() as usize;
+                    }
                 }
                 (0x40 * ($n_words - 1)) + arr[$n_words - 1].trailing_zeros() as usize
             }
 
-            fn zero() -> $name { $name([0; $n_words]) }
+            fn zero() -> $name {
+                $name([0; $n_words])
+            }
             fn one() -> $name {
-                $name({ let mut ret = [0; $n_words]; ret[0] = 1; ret })
+                $name({
+                    let mut ret = [0; $n_words];
+                    ret[0] = 1;
+                    ret
+                })
             }
             fn max() -> $name {
-                $name({ let ret = [0xffffffffffffffff; $n_words]; ret})
+                $name({
+                    let ret = [0xffffffffffffffff; $n_words];
+                    ret
+                })
             }
         }
 
@@ -391,7 +409,7 @@ macro_rules! construct_uint {
                 <dyn fmt::Debug>::fmt(self, f)
             }
         }
-    );
+    };
 }
 
 construct_uint!(Uint256, 4);
@@ -416,7 +434,7 @@ impl Uint256 {
 }
 
 impl Uint512 {
-    /// from Uint256 
+    /// from Uint256
     pub fn from_uint256(n: &Uint256) -> Uint512 {
         let mut tmp = [0u64; 8];
         for i in 0..4 {
@@ -436,8 +454,8 @@ impl Uint512 {
 
 #[cfg(test)]
 mod tests {
-    use util::uint::Uint256;
     use util::uint::BitArray;
+    use util::uint::Uint256;
 
     #[test]
     pub fn uint256_bits_test() {
@@ -466,15 +484,25 @@ mod tests {
 
     #[test]
     pub fn uint256_display_test() {
-        assert_eq!(format!("{}", Uint256::from_u64(0xDEADBEEF)),
-                   "0x00000000000000000000000000000000000000000000000000000000deadbeef");
-        assert_eq!(format!("{}", Uint256::from_u64(u64::max_value())),
-                   "0x000000000000000000000000000000000000000000000000ffffffffffffffff");
+        assert_eq!(
+            format!("{}", Uint256::from_u64(0xDEADBEEF)),
+            "0x00000000000000000000000000000000000000000000000000000000deadbeef"
+        );
+        assert_eq!(
+            format!("{}", Uint256::from_u64(u64::max_value())),
+            "0x000000000000000000000000000000000000000000000000ffffffffffffffff"
+        );
 
-        let max_val = Uint256([0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF,
-                               0xFFFFFFFFFFFFFFFF]);
-        assert_eq!(format!("{}", max_val),
-                   "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        let max_val = Uint256([
+            0xFFFFFFFFFFFFFFFF,
+            0xFFFFFFFFFFFFFFFF,
+            0xFFFFFFFFFFFFFFFF,
+            0xFFFFFFFFFFFFFFFF,
+        ]);
+        assert_eq!(
+            format!("{}", max_val),
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        );
     }
 
     #[test]
@@ -505,23 +533,39 @@ mod tests {
         let shl = add << 88;
         assert_eq!(shl, Uint256([0u64, 0xDFBD5B7DDE000000, 0x1BD5B7D, 0]));
         let shr = shl >> 40;
-        assert_eq!(shr, Uint256([0x7DDE000000000000u64, 0x0001BD5B7DDFBD5B, 0, 0]));
+        assert_eq!(
+            shr,
+            Uint256([0x7DDE000000000000u64, 0x0001BD5B7DDFBD5B, 0, 0])
+        );
         // Increment
         let mut incr = shr;
         incr.increment();
-        assert_eq!(incr, Uint256([0x7DDE000000000001u64, 0x0001BD5B7DDFBD5B, 0, 0]));
+        assert_eq!(
+            incr,
+            Uint256([0x7DDE000000000001u64, 0x0001BD5B7DDFBD5B, 0, 0])
+        );
         // Subtraction
         let sub = incr - init;
-        assert_eq!(sub, Uint256([0x9F30411021524112u64, 0x0001BD5B7DDFBD5A, 0, 0]));
+        assert_eq!(
+            sub,
+            Uint256([0x9F30411021524112u64, 0x0001BD5B7DDFBD5A, 0, 0])
+        );
         // Multiplication
         let mult = sub.mul_u32(300);
-        assert_eq!(mult, Uint256([0x8C8C3EE70C644118u64, 0x0209E7378231E632, 0, 0]));
+        assert_eq!(
+            mult,
+            Uint256([0x8C8C3EE70C644118u64, 0x0209E7378231E632, 0, 0])
+        );
         // Division
-        assert_eq!(Uint256::from_u64(105) /
-                   Uint256::from_u64(5),
-                   Uint256::from_u64(21));
+        assert_eq!(
+            Uint256::from_u64(105) / Uint256::from_u64(5),
+            Uint256::from_u64(21)
+        );
         let div = mult / Uint256::from_u64(300);
-        assert_eq!(div, Uint256([0x9F30411021524112u64, 0x0001BD5B7DDFBD5A, 0, 0]));
+        assert_eq!(
+            div,
+            Uint256([0x9F30411021524112u64, 0x0001BD5B7DDFBD5A, 0, 0])
+        );
         // TODO: bit inversion
     }
 
@@ -537,11 +581,41 @@ mod tests {
         let u256_res = u224_res.mul_u32(0xFFFFFFFF);
 
         assert_eq!(u96_res, Uint256([0xffffffff21524111u64, 0xDEADBEEE, 0, 0]));
-        assert_eq!(u128_res, Uint256([0x21524111DEADBEEFu64, 0xDEADBEEE21524110, 0, 0]));
-        assert_eq!(u160_res, Uint256([0xBD5B7DDD21524111u64, 0x42A4822200000001, 0xDEADBEED, 0]));
-        assert_eq!(u192_res, Uint256([0x63F6C333DEADBEEFu64, 0xBD5B7DDFBD5B7DDB, 0xDEADBEEC63F6C334, 0]));
-        assert_eq!(u224_res, Uint256([0x7AB6FBBB21524111u64, 0xFFFFFFFBA69B4558, 0x854904485964BAAA, 0xDEADBEEB]));
-        assert_eq!(u256_res, Uint256([0xA69B4555DEADBEEFu64, 0xA69B455CD41BB662, 0xD41BB662A69B4550, 0xDEADBEEAA69B455C]));
+        assert_eq!(
+            u128_res,
+            Uint256([0x21524111DEADBEEFu64, 0xDEADBEEE21524110, 0, 0])
+        );
+        assert_eq!(
+            u160_res,
+            Uint256([0xBD5B7DDD21524111u64, 0x42A4822200000001, 0xDEADBEED, 0])
+        );
+        assert_eq!(
+            u192_res,
+            Uint256([
+                0x63F6C333DEADBEEFu64,
+                0xBD5B7DDFBD5B7DDB,
+                0xDEADBEEC63F6C334,
+                0
+            ])
+        );
+        assert_eq!(
+            u224_res,
+            Uint256([
+                0x7AB6FBBB21524111u64,
+                0xFFFFFFFBA69B4558,
+                0x854904485964BAAA,
+                0xDEADBEEB
+            ])
+        );
+        assert_eq!(
+            u256_res,
+            Uint256([
+                0xA69B4555DEADBEEFu64,
+                0xA69B455CD41BB662,
+                0xD41BB662A69B4550,
+                0xDEADBEEAA69B455C
+            ])
+        );
     }
 
     #[test]
@@ -550,12 +624,22 @@ mod tests {
 
         let u128_res = u64_val * u64_val;
 
-        assert_eq!(u128_res, Uint256([0x048D1354216DA321u64, 0xC1B1CD13A4D13D46, 0, 0]));
+        assert_eq!(
+            u128_res,
+            Uint256([0x048D1354216DA321u64, 0xC1B1CD13A4D13D46, 0, 0])
+        );
 
         let u256_res = u128_res * u128_res;
 
-        assert_eq!(u256_res, Uint256([0xF4E166AAD40D0A41u64, 0xF5CF7F3618C2C886u64,
-                                      0x4AFCFF6F0375C608u64, 0x928D92B4D7F5DF33u64]));
+        assert_eq!(
+            u256_res,
+            Uint256([
+                0xF4E166AAD40D0A41u64,
+                0xF5CF7F3618C2C886u64,
+                0x4AFCFF6F0375C608u64,
+                0x928D92B4D7F5DF33u64
+            ])
+        );
     }
 
     #[test]
@@ -575,11 +659,18 @@ mod tests {
         assert_eq!(init << 64, Uint256([0, 0xDEADBEEFDEADBEEF, 0, 0]));
         let add = (init << 64) + init;
         assert_eq!(add, Uint256([0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0, 0]));
-        assert_eq!(add >> 0, Uint256([0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0, 0]));
-        assert_eq!(add << 0, Uint256([0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0, 0]));
+        assert_eq!(
+            add >> 0,
+            Uint256([0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0, 0])
+        );
+        assert_eq!(
+            add << 0,
+            Uint256([0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0, 0])
+        );
         assert_eq!(add >> 64, Uint256([0xDEADBEEFDEADBEEF, 0, 0, 0]));
-        assert_eq!(add << 64, Uint256([0, 0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0]));
+        assert_eq!(
+            add << 64,
+            Uint256([0, 0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0])
+        );
     }
 }
-
-

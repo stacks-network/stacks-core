@@ -25,12 +25,12 @@
 
 extern crate blockstack_lib;
 
+use blockstack_lib::{clarity, util::log};
 use std::env;
-use blockstack_lib::{ util::log, clarity };
 
 fn main() {
     log::set_loglevel(log::LOG_DEBUG).unwrap();
-    let argv : Vec<String> = env::args().collect();
+    let argv: Vec<String> = env::args().collect();
 
     clarity::invoke_command(&argv[0], &argv[1..]);
 }

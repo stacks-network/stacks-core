@@ -1,16 +1,15 @@
 use assert_json_diff;
 use serde_json;
 
-use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::{AnalysisDatabase, contract_interface_builder::build_contract_interface};
-use vm::database::MemoryBackingStore;
 use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
+use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use vm::ast::parse;
+use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 
-const SIMPLE_TOKENS: &str =
-        "(define-map tokens ((account principal)) ((balance uint)))
+const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance uint)))
          (define-read-only (my-get-token-balance (account principal))
             (let ((balance
                   (get balance (map-get? tokens (tuple (account account))))))
@@ -35,8 +34,7 @@ const SIMPLE_TOKENS: &str =
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u300))";
 
-const SIMPLE_NAMES: &str =
-        "(define-constant burn-address 'SP000000000000000000002Q6VF78)
+const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
            (if (< name u100000) u1000 u100))
          
@@ -94,7 +92,6 @@ const SIMPLE_NAMES: &str =
                     (err 3))
                   (err 4))))";
 
-
 #[test]
 fn test_names_tokens_contracts_interface() {
     const INTERFACE_TEST_CONTRACT: &str = "
@@ -139,10 +136,10 @@ fn test_names_tokens_contracts_interface() {
         (define-read-only (ro-f02 (a1 int)) 0)
     ";
 
-
     let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap().1;
     let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
-    let test_contract_json: serde_json::Value = serde_json::from_str(&test_contract_json_str).unwrap();
+    let test_contract_json: serde_json::Value =
+        serde_json::from_str(&test_contract_json_str).unwrap();
 
     let test_contract_json_expected: serde_json::Value = serde_json::from_str(r#"{
         "functions": [
@@ -350,9 +347,7 @@ fn test_names_tokens_contracts_interface() {
     eprintln!("{}", test_contract_json_str);
 
     assert_json_eq!(test_contract_json, test_contract_json_expected);
-
 }
-
 
 #[test]
 fn test_names_tokens_contracts() {
@@ -367,7 +362,8 @@ fn test_names_tokens_contracts() {
     db.execute(|db| {
         type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
         type_check(&names_contract_id, &mut names_contract, db, true)
-    }).unwrap();
+    })
+    .unwrap();
 }
 
 #[test]
@@ -382,9 +378,11 @@ fn test_names_tokens_contracts_bad() {
                         (buyer tx-sender))) (ok u1))
                (err 1)))";
 
-    let names_contract =
-        format!("{}
-                 {}", SIMPLE_NAMES, broken_public);
+    let names_contract = format!(
+        "{}
+                 {}",
+        SIMPLE_NAMES, broken_public
+    );
 
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
@@ -397,64 +395,62 @@ fn test_names_tokens_contracts_bad() {
     db.execute(|db| {
         db.test_insert_contract_hash(&tokens_contract_id);
         type_check(&tokens_contract_id, &mut tokens_contract, db, true)
-    }).unwrap();
+    })
+    .unwrap();
 
-    let err = db.execute(|db| type_check(&names_contract_id, &mut names_contract, db, true)).unwrap_err();
+    let err = db
+        .execute(|db| type_check(&names_contract_id, &mut names_contract, db, true))
+        .unwrap_err();
     assert!(match &err.err {
-            &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
-                eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
-                format!("{} {}", expected_type, actual_type) == "uint bool"
-            },
-            _ => false
+        &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
+            eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
+            format!("{} {}", expected_type, actual_type) == "uint bool"
+        }
+        _ => false,
     });
 }
 
 #[test]
 fn test_bad_map_usage() {
-    let bad_fetch =
-        "(define-map tokens ((account principal)) ((balance int)))
+    let bad_fetch = "(define-map tokens ((account principal)) ((balance int)))
          (define-private (my-get-token-balance (account int))
             (let ((balance
                   (get balance (map-get? tokens (tuple (account account))))))
               balance))";
-    let bad_delete =
-        "(define-map tokens ((account principal)) ((balance int)))
+    let bad_delete = "(define-map tokens ((account principal)) ((balance int)))
          (define-private (del-balance (account principal))
             (map-delete tokens (tuple (balance account))))";
-    let bad_set_1 =
-        "(define-map tokens ((account principal)) ((balance int)))
+    let bad_set_1 = "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
             (map-set tokens (tuple (account account)) (tuple (balance \"foo\"))))";
-    let bad_set_2 =
-        "(define-map tokens ((account principal)) ((balance int)))
+    let bad_set_2 = "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
             (map-set tokens (tuple (account \"abc\")) (tuple (balance 0))))";
-    let bad_insert_1 =
-        "(define-map tokens ((account principal)) ((balance int)))
+    let bad_insert_1 = "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
             (map-insert tokens (tuple (account account)) (tuple (balance \"foo\"))))";
-    let bad_insert_2 =
-        "(define-map tokens ((account principal)) ((balance int)))
+    let bad_insert_2 = "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
             (map-insert tokens (tuple (account \"abc\")) (tuple (balance 0))))";
 
-    let unhandled_option =
-        "(define-map tokens ((account principal)) ((balance int)))
+    let unhandled_option = "(define-map tokens ((account principal)) ((balance int)))
          (define-private (plus-balance (account principal))
            (+ (get balance (map-get? tokens (tuple (account account)))) 1))";
 
-    let tests = [bad_fetch,
-                 bad_delete,
-                 bad_set_1,
-                 bad_set_2,
-                 bad_insert_1,
-                 bad_insert_2];
+    let tests = [
+        bad_fetch,
+        bad_delete,
+        bad_set_1,
+        bad_set_2,
+        bad_insert_1,
+        bad_insert_2,
+    ];
 
     for contract in tests.iter() {
         let err = mem_type_check(contract).unwrap_err();
         assert!(match err.err {
-            CheckErrors::TypeError(_,_) => true,
-            _ => false
+            CheckErrors::TypeError(_, _) => true,
+            _ => false,
         });
     }
 
@@ -470,11 +466,9 @@ fn test_same_function_name() {
     let ca_id = QualifiedContractIdentifier::local("contract-a").unwrap();
     let cb_id = QualifiedContractIdentifier::local("contract-b").unwrap();
 
-    let contract_b =
-        "(define-read-only (foo-function (a int)) (+ a 1))";
+    let contract_b = "(define-read-only (foo-function (a int)) (+ a 1))";
 
-    let contract_a =
-        "(define-read-only (foo-function (a int))
+    let contract_a = "(define-read-only (foo-function (a int))
            (contract-call? .contract-b foo-function a))";
 
     let mut ca = parse(&ca_id, contract_a).unwrap();
@@ -485,14 +479,14 @@ fn test_same_function_name() {
     db.execute(|db| {
         type_check(&cb_id, &mut cb, db, true)?;
         type_check(&ca_id, &mut ca, db, true)
-    }).unwrap();
+    })
+    .unwrap();
 }
 
 #[test]
 fn test_expects() {
     use vm::analysis::type_check;
-    let okay =
-        "(define-map tokens ((id int)) ((balance int)))
+    let okay = "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!
                               (get balance (map-get? tokens (tuple (id 0))))
@@ -530,7 +524,8 @@ fn test_expects() {
             (let ((balance (unwrap!
                               (get balance (map-get? tokens (tuple (id 0))))
                               (err 1))))
-              (err false)))"];
+              (err false)))",
+    ];
 
     let bad_default_type = "(define-map tokens ((id int)) ((balance int)))
          (default-to false (get balance (map-get? tokens (tuple (id 0)))))";
@@ -546,13 +541,13 @@ fn test_expects() {
     ";
 
     mem_type_check(okay).unwrap();
-    
+
     for unmatched_return_types in bad_return_types_tests.iter() {
         let err = mem_type_check(unmatched_return_types).unwrap_err();
         eprintln!("unmatched_return_types returned check error: {}", err);
         assert!(match &err.err {
             &CheckErrors::ReturnTypesMustMatch(_, _) => true,
-            _ => false
+            _ => false,
         })
     }
 
@@ -560,21 +555,20 @@ fn test_expects() {
     eprintln!("bad_default_types returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::DefaultTypesMustMatch(_, _) => true,
-        _ => false
+        _ => false,
     });
 
     let err = mem_type_check(notype_response_type).unwrap_err();
     eprintln!("notype_response_type returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::CouldNotDetermineResponseErrType => true,
-        _ => false
+        _ => false,
     });
 
     let err = mem_type_check(notype_response_type_2).unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::CouldNotDetermineResponseOkType => true,
-        _ => false
+        _ => false,
     });
-
 }

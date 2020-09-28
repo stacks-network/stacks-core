@@ -1,5 +1,5 @@
-use stacks::burnchains::{PrivateKey};
-use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey, Secp256k1PrivateKey};
+use stacks::burnchains::PrivateKey;
+use stacks::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 
 pub struct BurnchainOpSigner {
     secret_key: Secp256k1PrivateKey,
@@ -9,7 +9,6 @@ pub struct BurnchainOpSigner {
 }
 
 impl BurnchainOpSigner {
-
     pub fn new(secret_key: Secp256k1PrivateKey, is_one_off: bool) -> BurnchainOpSigner {
         BurnchainOpSigner {
             secret_key: secret_key,
@@ -31,10 +30,10 @@ impl BurnchainOpSigner {
 
         let signature = match self.secret_key.sign(hash) {
             Ok(r) => r,
-            _ => return None
+            _ => return None,
         };
         self.usages += 1;
-        
+
         if self.is_one_off && self.usages == 1 {
             self.is_disposed = true;
         }

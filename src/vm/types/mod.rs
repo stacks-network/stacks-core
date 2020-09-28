@@ -1,22 +1,25 @@
 pub mod serialization;
 pub mod signatures;
 
-use std::{fmt, cmp};
-use std::convert::{TryInto, TryFrom};
 use std::collections::BTreeMap;
+use std::convert::{TryFrom, TryInto};
 use std::{char, str};
+use std::{cmp, fmt};
 
 use regex::Regex;
 
 use address::c32;
-use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
-use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError, InterpreterError};
 use util::hash;
+use vm::errors::{
+    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+};
+use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
 
 pub use vm::types::signatures::{
-    TupleTypeSignature, AssetIdentifier, FixedFunction, FunctionSignature,
-    TypeSignature, SequenceSubtype, StringSubtype, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    BUFF_65, BUFF_64, BUFF_33, BUFF_32, BUFF_20, BUFF_1, BufferLength, StringUTF8Length
+    parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
+    FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
+    StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_32, BUFF_33,
+    BUFF_64, BUFF_65,
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -31,7 +34,7 @@ pub const WRAPPER_VALUE_SIZE: u32 = 1;
 pub struct TupleData {
     // todo: remove type_signature
     pub type_signature: TupleTypeSignature,
-    pub data_map: BTreeMap<ClarityName, Value>
+    pub data_map: BTreeMap<ClarityName, Value>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,27 +46,28 @@ pub struct BuffData {
 pub struct ListData {
     pub data: Vec<Value>,
     // todo: remove type_signature
-    pub type_signature: ListTypeData
+    pub type_signature: ListTypeData,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
-
     pub fn transient() -> StandardPrincipalData {
-        Self(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])
+        Self(
+            1,
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        )
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct QualifiedContractIdentifier {
     pub issuer: StandardPrincipalData,
-    pub name: ContractName
+    pub name: ContractName,
 }
 
 impl QualifiedContractIdentifier {
-
     pub fn new(issuer: StandardPrincipalData, name: ContractName) -> QualifiedContractIdentifier {
         Self { issuer, name }
     }
@@ -75,9 +79,9 @@ impl QualifiedContractIdentifier {
 
     pub fn transient() -> QualifiedContractIdentifier {
         let name = String::from("__transient").try_into().unwrap();
-        Self { 
-            issuer: StandardPrincipalData::transient(), 
-            name
+        Self {
+            issuer: StandardPrincipalData::transient(),
+            name,
         }
     }
 
@@ -85,7 +89,10 @@ impl QualifiedContractIdentifier {
         let split: Vec<_> = literal.splitn(2, ".").collect();
         if split.len() != 2 {
             return Err(RuntimeErrorType::ParseError(
-                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+                "Invalid principal literal: expected a `.` in a qualified contract name"
+                    .to_string(),
+            )
+            .into());
         }
         let sender = PrincipalData::parse_standard_principal(split[0])?;
         let name = split[1].to_string().try_into()?;
@@ -111,7 +118,7 @@ pub enum PrincipalData {
 
 pub enum ContractIdentifier {
     Relative(ContractName),
-    Qualified(QualifiedContractIdentifier)
+    Qualified(QualifiedContractIdentifier),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,14 +139,17 @@ pub struct TraitIdentifier {
 }
 
 impl TraitIdentifier {
-
-    pub fn new(issuer: StandardPrincipalData, contract_name: ContractName, name: ClarityName) -> TraitIdentifier {
-        Self { 
-            name, 
+    pub fn new(
+        issuer: StandardPrincipalData,
+        contract_name: ContractName,
+        name: ClarityName,
+    ) -> TraitIdentifier {
+        Self {
+            name,
             contract_identifier: QualifiedContractIdentifier {
                 issuer,
-                name: contract_name
-            }
+                name: contract_name,
+            },
         }
     }
 
@@ -150,15 +160,20 @@ impl TraitIdentifier {
     }
 
     pub fn parse_sugared_syntax(literal: &str) -> Result<(ContractName, ClarityName)> {
-        let (_ , contract_name, name) = Self::parse(literal)?;
+        let (_, contract_name, name) = Self::parse(literal)?;
         Ok((contract_name, name))
     }
 
-    pub fn parse(literal: &str) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
+    pub fn parse(
+        literal: &str,
+    ) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
         let split: Vec<_> = literal.splitn(3, ".").collect();
         if split.len() != 3 {
             return Err(RuntimeErrorType::ParseError(
-                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+                "Invalid principal literal: expected a `.` in a qualified contract name"
+                    .to_string(),
+            )
+            .into());
         }
 
         let issuer = match split[0].len() {
@@ -192,7 +207,6 @@ pub enum SequenceData {
 }
 
 impl SequenceData {
-
     pub fn atom_values(&mut self) -> Vec<SymbolicExpression> {
         match self {
             SequenceData::Buffer(ref mut data) => data.atom_values(),
@@ -211,19 +225,26 @@ impl SequenceData {
         }
     }
 
-    pub fn filter<F>(&mut self, filter: &mut F) -> Result<()> where F: FnMut(SymbolicExpression) -> Result<bool> {
-        
-        // Note: this macro can probably get removed once 
+    pub fn filter<F>(&mut self, filter: &mut F) -> Result<()>
+    where
+        F: FnMut(SymbolicExpression) -> Result<bool>,
+    {
+        // Note: this macro can probably get removed once
         // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
         // is available in rust stable channel (experimental at this point).
         macro_rules! drain_filter {
             ($data:expr, $seq_type:ident) => {
                 let mut i = 0;
                 while i != $data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i]));
+                    let atom_value =
+                        SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i]));
                     match filter(atom_value) {
-                        Ok(res) if res == false => { $data.data.remove(i); },
-                        Ok(_) => { i += 1; },
+                        Ok(res) if res == false => {
+                            $data.data.remove(i);
+                        }
+                        Ok(_) => {
+                            i += 1;
+                        }
                         Err(err) => return Err(err),
                     }
                 }
@@ -233,36 +254,39 @@ impl SequenceData {
         match self {
             SequenceData::Buffer(ref mut data) => {
                 drain_filter!(data, BuffData);
-            },
+            }
             SequenceData::List(ref mut data) => {
                 drain_filter!(data, ListData);
-            },
+            }
             SequenceData::String(CharType::ASCII(ref mut data)) => {
                 drain_filter!(data, ASCIIData);
-            },
+            }
             SequenceData::String(CharType::UTF8(ref mut data)) => {
                 drain_filter!(data, UTF8Data);
-            },
+            }
         }
         Ok(())
     }
 
     pub fn append(&mut self, other_seq: &mut SequenceData) -> Result<()> {
-
         match (self, other_seq) {
-            (SequenceData::List(ref mut inner_data), SequenceData::List(ref mut other_inner_data)) => {
-                inner_data.append(other_inner_data)
-            },
-            (SequenceData::Buffer(ref mut inner_data), SequenceData::Buffer(ref mut other_inner_data)) => {
-                inner_data.append(other_inner_data)
-            },
-            (SequenceData::String(CharType::ASCII(ref mut inner_data)), SequenceData::String(CharType::ASCII(ref mut other_inner_data))) => {
-                inner_data.append(other_inner_data)
-            },
-            (SequenceData::String(CharType::UTF8(ref mut inner_data)), SequenceData::String(CharType::UTF8(ref mut other_inner_data))) => {
-                inner_data.append(other_inner_data)
-            },
-            _ => Err(RuntimeErrorType::BadTypeConstruction.into())
+            (
+                SequenceData::List(ref mut inner_data),
+                SequenceData::List(ref mut other_inner_data),
+            ) => inner_data.append(other_inner_data),
+            (
+                SequenceData::Buffer(ref mut inner_data),
+                SequenceData::Buffer(ref mut other_inner_data),
+            ) => inner_data.append(other_inner_data),
+            (
+                SequenceData::String(CharType::ASCII(ref mut inner_data)),
+                SequenceData::String(CharType::ASCII(ref mut other_inner_data)),
+            ) => inner_data.append(other_inner_data),
+            (
+                SequenceData::String(CharType::UTF8(ref mut inner_data)),
+                SequenceData::String(CharType::UTF8(ref mut other_inner_data)),
+            ) => inner_data.append(other_inner_data),
+            _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
         }?;
         Ok(())
     }
@@ -278,7 +302,7 @@ impl fmt::Display for CharType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             CharType::ASCII(string) => write!(f, "{}", string),
-            CharType::UTF8(string) => write!(f, "{}", string), 
+            CharType::UTF8(string) => write!(f, "{}", string),
         }
     }
 }
@@ -328,9 +352,8 @@ impl fmt::Display for UTF8Data {
 }
 
 pub trait SequencedValue<T> {
-
     fn type_signature(&self) -> TypeSignature;
-    
+
     fn items(&self) -> &Vec<T>;
 
     fn drained_items(&mut self) -> Vec<T>;
@@ -338,14 +361,14 @@ pub trait SequencedValue<T> {
     fn to_value(v: &T) -> Value;
 
     fn atom_values(&mut self) -> Vec<SymbolicExpression> {
-        self.drained_items().iter().map(|item| {
-            SymbolicExpression::atom_value(Self::to_value(&item))
-        }).collect()
+        self.drained_items()
+            .iter()
+            .map(|item| SymbolicExpression::atom_value(Self::to_value(&item)))
+            .collect()
     }
 }
 
 impl SequencedValue<Value> for ListData {
-    
     fn items(&self) -> &Vec<Value> {
         &self.data
     }
@@ -353,7 +376,7 @@ impl SequencedValue<Value> for ListData {
     fn drained_items(&mut self) -> Vec<Value> {
         self.data.drain(..).collect()
     }
-    
+
     fn type_signature(&self) -> TypeSignature {
         TypeSignature::SequenceType(SequenceSubtype::ListType(self.type_signature.clone()))
     }
@@ -364,7 +387,6 @@ impl SequencedValue<Value> for ListData {
 }
 
 impl SequencedValue<u8> for BuffData {
-    
     fn items(&self) -> &Vec<u8> {
         &self.data
     }
@@ -385,7 +407,6 @@ impl SequencedValue<u8> for BuffData {
 }
 
 impl SequencedValue<u8> for ASCIIData {
-    
     fn items(&self) -> &Vec<u8> {
         &self.data
     }
@@ -397,7 +418,9 @@ impl SequencedValue<u8> for ASCIIData {
     fn type_signature(&self) -> TypeSignature {
         let buff_length = BufferLength::try_from(self.data.len())
             .expect("ERROR: Too large of a buffer successfully constructed.");
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_length)))
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            buff_length,
+        )))
     }
 
     fn to_value(v: &u8) -> Value {
@@ -407,7 +430,6 @@ impl SequencedValue<u8> for ASCIIData {
 }
 
 impl SequencedValue<Vec<u8>> for UTF8Data {
-    
     fn items(&self) -> &Vec<Vec<u8>> {
         &self.data
     }
@@ -441,7 +463,7 @@ impl OptionalData {
     pub fn type_signature(&self) -> TypeSignature {
         let type_result = match self.data {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(&v)),
-            None => TypeSignature::new_option(TypeSignature::NoType)
+            None => TypeSignature::new_option(TypeSignature::NoType),
         };
         type_result.expect("Should not have constructed too large of a type.")
     }
@@ -451,11 +473,15 @@ impl ResponseData {
     pub fn type_signature(&self) -> TypeSignature {
         let type_result = match self.committed {
             true => TypeSignature::new_response(
-                TypeSignature::type_of(&self.data), TypeSignature::NoType),
+                TypeSignature::type_of(&self.data),
+                TypeSignature::NoType,
+            ),
             false => TypeSignature::new_response(
-                TypeSignature::NoType, TypeSignature::type_of(&self.data))
+                TypeSignature::NoType,
+                TypeSignature::type_of(&self.data),
+            ),
         };
-        type_result.expect("Should not have constructed too large of a type.")        
+        type_result.expect("Should not have constructed too large of a type.")
     }
 }
 
@@ -492,7 +518,8 @@ impl Value {
             Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Optional(OptionalData {
-                data: Some(Box::new(data)) }))
+                data: Some(Box::new(data)),
+            }))
         }
     }
 
@@ -501,15 +528,24 @@ impl Value {
     }
 
     pub fn okay_true() -> Value {
-        Value::Response(ResponseData { committed: true, data: Box::new(Value::Bool(true)) })
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Bool(true)),
+        })
     }
 
     pub fn err_uint(ecode: u128) -> Value {
-        Value::Response(ResponseData { committed: false, data: Box::new(Value::UInt(ecode)) })
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::UInt(ecode)),
+        })
     }
 
     pub fn err_none() -> Value {
-        Value::Response(ResponseData { committed: false, data: Box::new(NONE.clone()) })
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(NONE.clone()),
+        })
     }
 
     pub fn okay(data: Value) -> Result<Value> {
@@ -518,9 +554,10 @@ impl Value {
         } else if data.depth() + 1 > MAX_TYPE_DEPTH {
             Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
-            Ok(Value::Response(ResponseData { 
+            Ok(Value::Response(ResponseData {
                 committed: true,
-                data: Box::new(data) }))
+                data: Box::new(data),
+            }))
         }
     }
 
@@ -530,9 +567,10 @@ impl Value {
         } else if data.depth() + 1 > MAX_TYPE_DEPTH {
             Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
-            Ok(Value::Response(ResponseData { 
+            Ok(Value::Response(ResponseData {
                 committed: false,
-                data: Box::new(data) }))
+                data: Box::new(data),
+            }))
         }
     }
 
@@ -552,7 +590,7 @@ impl Value {
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         //   so we do not need to perform that check here.
         if (expected_type.get_max_len() as usize) < list_data.len() {
-            return Err(InterpreterError::FailureConstructingListWithType.into())
+            return Err(InterpreterError::FailureConstructingListWithType.into());
         }
 
         {
@@ -560,12 +598,15 @@ impl Value {
 
             for item in &list_data {
                 if !expected_item_type.admits(&item) {
-                    return Err(InterpreterError::FailureConstructingListWithType.into())
+                    return Err(InterpreterError::FailureConstructingListWithType.into());
                 }
             }
         }
 
-        Ok(Value::Sequence(SequenceData::List(ListData { data: list_data, type_signature: expected_type })))
+        Ok(Value::Sequence(SequenceData::List(ListData {
+            data: list_data,
+            type_signature: expected_type,
+        })))
     }
 
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
@@ -576,14 +617,19 @@ impl Value {
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
         let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
-        Ok(Value::Sequence(SequenceData::List(ListData { data: list_data, type_signature: type_sig })))
+        Ok(Value::Sequence(SequenceData::List(ListData {
+            data: list_data,
+            type_signature: type_sig,
+        })))
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;
         // construct the buffer
-        Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: buff_data })))
+        Ok(Value::Sequence(SequenceData::Buffer(BuffData {
+            data: buff_data,
+        })))
     }
 
     pub fn buff_from_byte(byte: u8) -> Value {
@@ -599,12 +645,15 @@ impl Value {
                 return Err(CheckErrors::InvalidCharactersDetected.into());
             }
         }
-        // construct the string        
-        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data: bytes }))))
+        // construct the string
+        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
+            ASCIIData { data: bytes },
+        ))))
     }
 
     pub fn string_utf8_from_string_utf8_literal(tokenized_str: String) -> Result<Value> {
-        let wrapped_codepoints_matcher = Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}").unwrap();
+        let wrapped_codepoints_matcher =
+            Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}").unwrap();
         let mut window = tokenized_str.as_str();
         let mut cursor = 0;
         let mut data: Vec<Vec<u8>> = vec![];
@@ -632,14 +681,16 @@ impl Value {
 
             window = &tokenized_str[cursor..];
         }
-        // construct the string        
-        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
+        // construct the string
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
+            UTF8Data { data },
+        ))))
     }
 
     pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value> {
         let validated_utf8_str = match str::from_utf8(&bytes) {
             Ok(string) => string,
-            _ => return Err(CheckErrors::InvalidCharactersDetected.into())
+            _ => return Err(CheckErrors::InvalidCharactersDetected.into()),
         };
         let mut data = vec![];
         for char in validated_utf8_str.chars() {
@@ -650,14 +701,15 @@ impl Value {
         // check the string size
         StringUTF8Length::try_from(data.len())?;
 
-        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))))
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
+            UTF8Data { data },
+        ))))
     }
 
     pub fn expect_u128(self) -> u128 {
         if let Value::UInt(inner) = self {
             inner
-        }
-        else {
+        } else {
             panic!(format!("Value '{:?}' is not a u128", &self));
         }
     }
@@ -665,8 +717,7 @@ impl Value {
     pub fn expect_i128(self) -> i128 {
         if let Value::Int(inner) = self {
             inner
-        }
-        else {
+        } else {
             panic!(format!("Value '{:?}' is not an i128", &self));
         }
     }
@@ -675,12 +726,14 @@ impl Value {
         if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
             if buffdata.data.len() == sz {
                 buffdata.data
+            } else {
+                panic!(format!(
+                    "Value buffer has len {}, expected {}",
+                    buffdata.data.len(),
+                    sz
+                ));
             }
-            else {
-                panic!(format!("Value buffer has len {}, expected {}", buffdata.data.len(), sz));
-            }
-        }
-        else {
+        } else {
             panic!(format!("Value '{:?}' is not a buff", &self));
         }
     }
@@ -688,8 +741,7 @@ impl Value {
     pub fn expect_bool(self) -> bool {
         if let Value::Bool(b) = self {
             b
-        }
-        else {
+        } else {
             panic!(format!("Value '{:?}' is not a bool", &self));
         }
     }
@@ -697,8 +749,7 @@ impl Value {
     pub fn expect_tuple(self) -> TupleData {
         if let Value::Tuple(data) = self {
             data
-        }
-        else {
+        } else {
             panic!(format!("Value '{:?}' is not a tuple", &self));
         }
     }
@@ -707,10 +758,9 @@ impl Value {
         if let Value::Optional(opt) = self {
             match opt.data {
                 Some(boxed_value) => Some(*boxed_value),
-                None => None
+                None => None,
             }
-        }
-        else {
+        } else {
             panic!(format!("Value '{:?}' is not an optional", &self));
         }
     }
@@ -718,8 +768,7 @@ impl Value {
     pub fn expect_principal(self) -> PrincipalData {
         if let Value::Principal(p) = self {
             p
-        }
-        else {
+        } else {
             panic!(format!("Value '{:?}' is not a principal", &self));
         }
     }
@@ -728,26 +777,22 @@ impl Value {
         if let Value::Response(res_data) = self {
             if res_data.committed {
                 Ok(*res_data.data)
-            }
-            else {
+            } else {
                 Err(*res_data.data)
             }
-        }
-        else {
+        } else {
             panic!("FATAL: not a response");
         }
     }
-    
+
     pub fn expect_result_ok(self) -> Value {
         if let Value::Response(res_data) = self {
             if res_data.committed {
                 *res_data.data
-            }
-            else {
+            } else {
                 panic!("FATAL: not a (ok ..)");
             }
-        }
-        else {
+        } else {
             panic!("FATAL: not a response");
         }
     }
@@ -756,12 +801,10 @@ impl Value {
         if let Value::Response(res_data) = self {
             if !res_data.committed {
                 *res_data.data
-            }
-            else {
+            } else {
                 panic!("FATAL: not a (err ..)");
             }
-        }
-        else {
+        } else {
             panic!("FATAL: not a response");
         }
     }
@@ -820,7 +863,7 @@ impl fmt::Display for OptionalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.data {
             Some(ref x) => write!(f, "(some {})", x),
-            None => write!(f, "none")
+            None => write!(f, "none"),
         }
     }
 }
@@ -829,7 +872,7 @@ impl fmt::Display for ResponseData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.committed {
             true => write!(f, "(ok {})", self.data),
-            false => write!(f, "(err {})", self.data)
+            false => write!(f, "(err {})", self.data),
         }
     }
 }
@@ -876,9 +919,7 @@ impl PrincipalData {
     pub fn version(&self) -> u8 {
         match self {
             PrincipalData::Standard(StandardPrincipalData(version, _)) => *version,
-            PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => {
-                issuer.0
-            }
+            PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => issuer.0,
         }
     }
 
@@ -893,8 +934,7 @@ impl PrincipalData {
         if literal.contains(".") {
             PrincipalData::parse_qualified_contract_principal(literal)
         } else {
-            PrincipalData::parse_standard_principal(literal)
-                .map(PrincipalData::from)
+            PrincipalData::parse_standard_principal(literal).map(PrincipalData::from)
         }
     }
 
@@ -904,11 +944,14 @@ impl PrincipalData {
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
-        let (version, data) = c32::c32_address_decode(&literal)
-            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x)) })?;
+        let (version, data) = c32::c32_address_decode(&literal).map_err(|x| {
+            RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x))
+        })?;
         if data.len() != 20 {
             return Err(RuntimeErrorType::ParseError(
-                "Invalid principal literal: Expected 20 data bytes.".to_string()).into());
+                "Invalid principal literal: Expected 20 data bytes.".to_string(),
+            )
+            .into());
         }
         let mut fixed_data = [0; 20];
         fixed_data.copy_from_slice(&data[..20]);
@@ -918,8 +961,7 @@ impl PrincipalData {
 
 impl StandardPrincipalData {
     pub fn to_address(&self) -> String {
-        c32::c32_address(self.0, &self.1[..])
-            .unwrap_or_else(|_| "INVALID_C32_ADD".to_string())
+        c32::c32_address(self.0, &self.1[..]).unwrap_or_else(|_| "INVALID_C32_ADD".to_string())
     }
 }
 
@@ -933,12 +975,13 @@ impl fmt::Display for StandardPrincipalData {
 impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PrincipalData::Standard(sender) => {
-                write!(f, "{}", sender)                
-            },
-            PrincipalData::Contract(contract_identifier) => {
-                write!(f, "{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
-            }
+            PrincipalData::Standard(sender) => write!(f, "{}", sender),
+            PrincipalData::Contract(contract_identifier) => write!(
+                f,
+                "{}.{}",
+                contract_identifier.issuer,
+                contract_identifier.name.to_string()
+            ),
         }
     }
 }
@@ -986,8 +1029,14 @@ impl From<TupleData> for Value {
 }
 
 impl TupleData {
-    fn new(type_signature: TupleTypeSignature, data_map: BTreeMap<ClarityName, Value>) -> Result<TupleData> {
-        let t = TupleData { type_signature, data_map };
+    fn new(
+        type_signature: TupleTypeSignature,
+        data_map: BTreeMap<ClarityName, Value>,
+    ) -> Result<TupleData> {
+        let t = TupleData {
+            type_signature,
+            data_map,
+        };
         Ok(t)
     }
 
@@ -1011,10 +1060,14 @@ impl TupleData {
         Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
     }
 
-    pub fn from_data_typed(mut data: Vec<(ClarityName, Value)>, expected: &TupleTypeSignature) -> Result<TupleData> {
+    pub fn from_data_typed(
+        mut data: Vec<(ClarityName, Value)>,
+        expected: &TupleTypeSignature,
+    ) -> Result<TupleData> {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
-            let expected_type = expected.field_type(&name)
+            let expected_type = expected
+                .field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
             if !expected_type.admits(&value) {
                 return Err(InterpreterError::FailureConstructingTupleWithType.into());
@@ -1025,13 +1078,15 @@ impl TupleData {
     }
 
     pub fn get(&self, name: &str) -> Result<&Value> {
-        self.data_map.get(name)
-            .ok_or_else(|| CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into())
+        self.data_map.get(name).ok_or_else(|| {
+            CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
+        })
     }
 
     pub fn get_owned(mut self, name: &str) -> Result<Value> {
-        self.data_map.remove(name)
-            .ok_or_else(|| CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into())
+        self.data_map.remove(name).ok_or_else(|| {
+            CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
+        })
     }
 }
 
@@ -1054,60 +1109,79 @@ mod test {
         assert_eq!(
             Value::list_with_type(
                 vec![Value::Int(5), Value::Int(2)],
-                ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()),
-            Err(InterpreterError::FailureConstructingListWithType.into()));
+                ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()
+            ),
+            Err(InterpreterError::FailureConstructingListWithType.into())
+        );
         assert_eq!(
             ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE as u32),
-            Err(CheckErrors::ValueTooLarge));
+            Err(CheckErrors::ValueTooLarge)
+        );
 
         assert_eq!(
-            Value::buff_from(
-                vec![0; (MAX_VALUE_SIZE+1) as usize]),
-            Err(CheckErrors::ValueTooLarge.into()));
+            Value::buff_from(vec![0; (MAX_VALUE_SIZE + 1) as usize]),
+            Err(CheckErrors::ValueTooLarge.into())
+        );
 
         // Test that wrappers (okay, error, some)
         //   correctly error when _they_ cause the value size
         //   to exceed the max value size (note, the buffer constructor
         //   isn't causing the error).
         assert_eq!(
-            Value::okay(
-                Value::buff_from(
-                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-            Err(CheckErrors::ValueTooLarge.into()));
+            Value::okay(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into())
+        );
 
         assert_eq!(
-            Value::error(
-                Value::buff_from(
-                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-            Err(CheckErrors::ValueTooLarge.into()));
+            Value::error(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into())
+        );
 
         assert_eq!(
-            Value::some(
-                Value::buff_from(
-                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-            Err(CheckErrors::ValueTooLarge.into()));
+            Value::some(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into())
+        );
 
         // Test that the depth limit is correctly enforced:
         //   for tuples, lists, somes, okays, errors.
 
         let cons = || {
-            Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
-                Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
-                    Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
-                        Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
-                            Value::Int(1))?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?) };
+            Value::some(Value::some(Value::some(Value::some(Value::some(
+                Value::some(Value::some(Value::some(Value::some(Value::some(
+                    Value::some(Value::some(Value::some(Value::some(Value::some(
+                        Value::some(Value::some(Value::some(Value::some(Value::some(
+                            Value::some(Value::some(Value::some(Value::some(Value::some(
+                                Value::some(Value::some(Value::some(Value::some(
+                                    Value::some(Value::some(Value::Int(1))?)?,
+                                )?)?)?)?,
+                            )?)?)?)?)?,
+                        )?)?)?)?)?,
+                    )?)?)?)?)?,
+                )?)?)?)?)?,
+            )?)?)?)?)
+        };
         let inner_value = cons().unwrap();
-        assert_eq!(TupleData::from_data(vec![("a".into(), inner_value.clone())]),
-                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+        assert_eq!(
+            TupleData::from_data(vec![("a".into(), inner_value.clone())]),
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        );
 
-        assert_eq!(Value::list_from(vec![inner_value.clone()]),
-                   Err(CheckErrors::TypeSignatureTooDeep.into()));
-        assert_eq!(Value::okay(inner_value.clone()),
-                   Err(CheckErrors::TypeSignatureTooDeep.into()));
-        assert_eq!(Value::error(inner_value.clone()),
-                   Err(CheckErrors::TypeSignatureTooDeep.into()));
-        assert_eq!(Value::some(inner_value.clone()),
-                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+        assert_eq!(
+            Value::list_from(vec![inner_value.clone()]),
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        );
+        assert_eq!(
+            Value::okay(inner_value.clone()),
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        );
+        assert_eq!(
+            Value::error(inner_value.clone()),
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        );
+        assert_eq!(
+            Value::some(inner_value.clone()),
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        );
 
         if std::env::var("CIRCLE_TESTING") == Ok("1".to_string()) {
             println!("Skipping allocation test on Circle");
@@ -1117,9 +1191,9 @@ mod test {
         // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
         if (u32::max_value() as usize) < usize::max_value() {
             assert_eq!(
-                Value::buff_from(
-                    vec![0; (u32::max_value() as usize) + 10]),
-                Err(CheckErrors::ValueTooLarge.into()));
+                Value::buff_from(vec![0; (u32::max_value() as usize) + 10]),
+                Err(CheckErrors::ValueTooLarge.into())
+            );
         }
     }
 
@@ -1138,22 +1212,45 @@ mod test {
 
     #[test]
     fn test_some_displays() {
-        assert_eq!(&format!("{}", Value::list_from(vec![Value::Int(10), Value::Int(5)]).unwrap()),
-                   "(10 5)");
-        assert_eq!(&format!("{}", Value::some(Value::Int(10)).unwrap()),
-                   "(some 10)");
-        assert_eq!(&format!("{}", Value::okay(Value::Int(10)).unwrap()),
-                   "(ok 10)");
-        assert_eq!(&format!("{}", Value::error(Value::Int(10)).unwrap()),
-                   "(err 10)");
-        assert_eq!(&format!("{}", Value::none()),
-                   "none");
-        assert_eq!(&format!("{}", Value::from(
-            PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap())),
-                   "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+        assert_eq!(
+            &format!(
+                "{}",
+                Value::list_from(vec![Value::Int(10), Value::Int(5)]).unwrap()
+            ),
+            "(10 5)"
+        );
+        assert_eq!(
+            &format!("{}", Value::some(Value::Int(10)).unwrap()),
+            "(some 10)"
+        );
+        assert_eq!(
+            &format!("{}", Value::okay(Value::Int(10)).unwrap()),
+            "(ok 10)"
+        );
+        assert_eq!(
+            &format!("{}", Value::error(Value::Int(10)).unwrap()),
+            "(err 10)"
+        );
+        assert_eq!(&format!("{}", Value::none()), "none");
+        assert_eq!(
+            &format!(
+                "{}",
+                Value::from(
+                    PrincipalData::parse_standard_principal(
+                        "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G"
+                    )
+                    .unwrap()
+                )
+            ),
+            "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G"
+        );
 
-        assert_eq!(&format!("{}", Value::from(TupleData::from_data(
-            vec![("a".into(), Value::Int(2))]).unwrap())),
-                   "(tuple (a 2))");
+        assert_eq!(
+            &format!(
+                "{}",
+                Value::from(TupleData::from_data(vec![("a".into(), Value::Int(2))]).unwrap())
+            ),
+            "(tuple (a 2))"
+        );
     }
 }

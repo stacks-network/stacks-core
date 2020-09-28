@@ -20,13 +20,14 @@
 
 #![allow(non_camel_case_types)]
 
-#[cfg(feature = "serde")] use serde;
+#[cfg(feature = "serde")]
+use serde;
 
 // Heavy stick to translate between opcode types
 use std::mem::transmute;
 
-use deps::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use deps::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 
 // Note: I am deliberately not implementing PartialOrd or Ord on the
 //       opcode enum. If you want to check ranges of opcodes, etc.,
@@ -358,13 +359,13 @@ pub enum All {
     /// Pop the top two stack items and push 0 if both are numerically equal, else push 1
     OP_NUMNOTEQUAL = 0x9e,
     /// Pop the top two items; push 1 if the second is less than the top, 0 otherwise
-    OP_LESSTHAN  = 0x9f,
+    OP_LESSTHAN = 0x9f,
     /// Pop the top two items; push 1 if the second is greater than the top, 0 otherwise
-    OP_GREATERTHAN  = 0xa0,
+    OP_GREATERTHAN = 0xa0,
     /// Pop the top two items; push 1 if the second is <= the top, 0 otherwise
-    OP_LESSTHANOREQUAL  = 0xa1,
+    OP_LESSTHANOREQUAL = 0xa1,
     /// Pop the top two items; push 1 if the second is >= the top, 0 otherwise
-    OP_GREATERTHANOREQUAL  = 0xa2,
+    OP_GREATERTHANOREQUAL = 0xa2,
     /// Pop the top two items; push the smaller
     OP_MIN = 0xa3,
     /// Pop the top two items; push the larger
@@ -559,75 +560,88 @@ impl All {
     /// Classifies an Opcode into a broad class
     #[inline]
     pub fn classify(&self) -> Class {
-      // 17 opcodes
-      if *self == All::OP_VERIF || *self == All::OP_VERNOTIF ||
-         *self == All::OP_CAT || *self == All::OP_SUBSTR ||
-         *self == All::OP_LEFT || *self == All::OP_RIGHT ||
-         *self == All::OP_INVERT || *self == All::OP_AND ||
-         *self == All::OP_OR || *self == All::OP_XOR ||
-         *self == All::OP_2MUL || *self == All::OP_2DIV ||
-         *self == All::OP_MUL || *self == All::OP_DIV || *self == All::OP_MOD ||
-         *self == All::OP_LSHIFT || *self == All::OP_RSHIFT {
-        Class::IllegalOp
-      // 11 opcodes
-      } else if *self == All::OP_NOP ||
-                (All::OP_NOP1 as u8 <= *self as u8 &&
-                 *self as u8 <= All::OP_NOP10 as u8) {
-        Class::NoOp
-      // 75 opcodes
-      } else if *self == All::OP_RESERVED || *self == All::OP_VER || *self == All::OP_RETURN ||
-                *self == All::OP_RESERVED1 || *self == All::OP_RESERVED2 ||
-                *self as u8 >= All::OP_RETURN_186 as u8 {
-        Class::ReturnOp
-      // 1 opcode
-      } else if *self == All::OP_PUSHNUM_NEG1 {
-        Class::PushNum(-1)
-      // 16 opcodes
-      } else if All::OP_PUSHNUM_1 as u8 <= *self as u8 &&
-                *self as u8 <= All::OP_PUSHNUM_16 as u8 {
-        Class::PushNum(1 + *self as i32 - All::OP_PUSHNUM_1 as i32)
-      // 76 opcodes
-      } else if *self as u8 <= All::OP_PUSHBYTES_75 as u8 {
-        Class::PushBytes(*self as u32)
-      // 60 opcodes
-      } else {
-        Class::Ordinary(unsafe { transmute(*self) })
-      }
+        // 17 opcodes
+        if *self == All::OP_VERIF
+            || *self == All::OP_VERNOTIF
+            || *self == All::OP_CAT
+            || *self == All::OP_SUBSTR
+            || *self == All::OP_LEFT
+            || *self == All::OP_RIGHT
+            || *self == All::OP_INVERT
+            || *self == All::OP_AND
+            || *self == All::OP_OR
+            || *self == All::OP_XOR
+            || *self == All::OP_2MUL
+            || *self == All::OP_2DIV
+            || *self == All::OP_MUL
+            || *self == All::OP_DIV
+            || *self == All::OP_MOD
+            || *self == All::OP_LSHIFT
+            || *self == All::OP_RSHIFT
+        {
+            Class::IllegalOp
+        // 11 opcodes
+        } else if *self == All::OP_NOP
+            || (All::OP_NOP1 as u8 <= *self as u8 && *self as u8 <= All::OP_NOP10 as u8)
+        {
+            Class::NoOp
+        // 75 opcodes
+        } else if *self == All::OP_RESERVED
+            || *self == All::OP_VER
+            || *self == All::OP_RETURN
+            || *self == All::OP_RESERVED1
+            || *self == All::OP_RESERVED2
+            || *self as u8 >= All::OP_RETURN_186 as u8
+        {
+            Class::ReturnOp
+        // 1 opcode
+        } else if *self == All::OP_PUSHNUM_NEG1 {
+            Class::PushNum(-1)
+        // 16 opcodes
+        } else if All::OP_PUSHNUM_1 as u8 <= *self as u8 && *self as u8 <= All::OP_PUSHNUM_16 as u8
+        {
+            Class::PushNum(1 + *self as i32 - All::OP_PUSHNUM_1 as i32)
+        // 76 opcodes
+        } else if *self as u8 <= All::OP_PUSHBYTES_75 as u8 {
+            Class::PushBytes(*self as u32)
+        // 60 opcodes
+        } else {
+            Class::Ordinary(unsafe { transmute(*self) })
+        }
     }
 }
 
 impl From<u8> for All {
     #[inline]
     fn from(b: u8) -> All {
-      unsafe { transmute(b) }
+        unsafe { transmute(b) }
     }
 }
-
 
 display_from_debug!(All);
 
 impl<D: SimpleDecoder> ConsensusDecodable<D> for All {
     #[inline]
     fn consensus_decode(d: &mut D) -> Result<All, serialize::Error> {
-      Ok(All::from(d.read_u8()?))
+        Ok(All::from(d.read_u8()?))
     }
 }
 
 impl<S: SimpleEncoder> ConsensusEncodable<S> for All {
     #[inline]
     fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
-      s.emit_u8(*self as u8)
+        s.emit_u8(*self as u8)
     }
 }
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for All {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-  where
-      S: serde::Serializer,
-  {
-      serializer.serialize_str(&self.to_string())
-  }
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 /// Empty stack is also FALSE
@@ -642,30 +656,30 @@ pub static OP_CSV: All = All::OP_NOP3;
 /// Broad categories of opcodes with similar behavior
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Class {
-  /// Pushes the given number onto the stack
-  PushNum(i32),
-  /// Pushes the given number of bytes onto the stack
-  PushBytes(u32),
-  /// Fails the script if executed
-  ReturnOp,
-  /// Fails the script even if not executed
-  IllegalOp,
-  /// Does nothing
-  NoOp,
-  /// Any opcode not covered above
-  Ordinary(Ordinary)
+    /// Pushes the given number onto the stack
+    PushNum(i32),
+    /// Pushes the given number of bytes onto the stack
+    PushBytes(u32),
+    /// Fails the script if executed
+    ReturnOp,
+    /// Fails the script even if not executed
+    IllegalOp,
+    /// Does nothing
+    NoOp,
+    /// Any opcode not covered above
+    Ordinary(Ordinary),
 }
 
 display_from_debug!(Class);
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for Class {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-  where
-      S: serde::Serializer,
-  {
-      serializer.serialize_str(&self.to_string())
-  }
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 macro_rules! ordinary_opcode {
@@ -689,7 +703,7 @@ ordinary_opcode! {
   OP_TOALTSTACK, OP_FROMALTSTACK,
   OP_2DROP, OP_2DUP, OP_3DUP, OP_2OVER, OP_2ROT, OP_2SWAP,
   OP_DROP, OP_DUP, OP_NIP, OP_OVER, OP_PICK, OP_ROLL, OP_ROT, OP_SWAP, OP_TUCK,
-  OP_IFDUP, OP_DEPTH, OP_SIZE, 
+  OP_IFDUP, OP_DEPTH, OP_SIZE,
   // equality
   OP_EQUAL, OP_EQUALVERIFY,
   // arithmetic
@@ -703,5 +717,3 @@ ordinary_opcode! {
   OP_CODESEPARATOR, OP_CHECKSIG, OP_CHECKSIGVERIFY,
   OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY
 }
-
-

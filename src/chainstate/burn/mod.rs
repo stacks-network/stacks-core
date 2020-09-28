@@ -18,47 +18,43 @@
 */
 
 /// This module contains the code for processing the burn chain state database
-
 pub mod db;
 pub mod distribution;
 pub mod operations;
 pub mod sortition;
 
-pub const CONSENSUS_HASH_LIFETIME : u32 = 24;
+pub const CONSENSUS_HASH_LIFETIME: u32 = 24;
 
-use std::fmt;
 use std::convert::TryInto;
+use std::fmt;
 use std::io::Write;
 
-use burnchains::Txid;
 use burnchains::Address;
-use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
+use burnchains::PublicKey;
+use burnchains::Txid;
 
+use util::hash::{to_hex, Hash160};
 use util::vrf::VRFProof;
-use util::hash::{Hash160, to_hex};
 
-use sha2::Sha256;
+use rand::Rng;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use ripemd160::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;
-use rand::SeedableRng;
-use rand::Rng;
-use rand_chacha::ChaCha20Rng;
+use sha2::Sha256;
 
-use chainstate::burn::db::sortdb::{
-    SortitionId, SortitionHandleTx,
-    PoxId,
-};
+use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
 
 use util::db::Error as db_error;
 
 use core::SYSTEM_FORK_SET_VERSION;
 
+use util::hash::Hash32;
+use util::hash::Sha512Trunc256Sum;
 use util::log;
 use util::uint::Uint256;
-use util::hash::Sha512Trunc256Sum;
-use util::hash::Hash32;
 
 use chainstate::stacks::index::TrieHash;
 
@@ -66,26 +62,27 @@ pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
-pub const CONSENSUS_HASH_ENCODED_SIZE : u32 = 20;
+pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
 
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 impl_byte_array_serde!(BlockHeaderHash);
-pub const BLOCK_HEADER_HASH_ENCODED_SIZE : usize = 32;
+pub const BLOCK_HEADER_HASH_ENCODED_SIZE: usize = 32;
 
 pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
 impl_byte_array_serde!(VRFSeed);
-pub const VRF_SEED_ENCODED_SIZE : u32 = 32;
+pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
 
 impl VRFSeed {
     /// First-ever VRF seed from the genesis block.  It's all 0's
     pub fn initial() -> VRFSeed {
-        VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()
+        VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+            .unwrap()
     }
 
     pub fn from_proof(proof: &VRFProof) -> VRFSeed {
@@ -98,13 +95,13 @@ impl VRFSeed {
     }
 }
 
-// operations hash -- the sha256 hash of a sequence of transaction IDs 
+// operations hash -- the sha256 hash of a sequence of transaction IDs
 pub struct OpsHash(pub [u8; 32]);
 impl_array_newtype!(OpsHash, u8, 32);
 impl_array_hexstring_fmt!(OpsHash);
 impl_byte_array_newtype!(OpsHash, u8, 32);
 
-// rolling hash of PoW outputs to mix with the VRF seed on sortition 
+// rolling hash of PoW outputs to mix with the VRF seed on sortition
 pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);
@@ -115,7 +112,7 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 pub enum Opcodes {
     LeaderBlockCommit = '[' as u8,
     LeaderKeyRegister = '^' as u8,
-    UserBurnSupport = '_' as u8
+    UserBurnSupport = '_' as u8,
 }
 
 // a burnchain block snapshot
@@ -127,21 +124,21 @@ pub struct BlockSnapshot {
     pub parent_burn_header_hash: BurnchainHeaderHash,
     pub consensus_hash: ConsensusHash,
     pub ops_hash: OpsHash,
-    pub total_burn: u64,        // how many burn tokens have been destroyed since genesis
-    pub sortition: bool,        // whether or not a sortition happened in this block (will be false if there were no burns)
-    pub sortition_hash: SortitionHash,  // rolling hash of the burn chain's block headers -- this gets mixed with the sortition VRF seed
-    pub winning_block_txid: Txid,       // txid of the leader block commit that won sortition.  Will all 0's if sortition is false. 
-    pub winning_stacks_block_hash: BlockHeaderHash,     // hash of Stacks block that won sortition (will be all 0's if sortition is false)
-    pub index_root: TrieHash,           // root hash of the index over the materialized view of all inserted data
-    pub num_sortitions: u64,       // how many stacks blocks exist
-    pub stacks_block_accepted: bool,    // did we download, store, and incorporate the stacks block into the chain state
-    pub stacks_block_height: u64,       // if we accepted a block, this is its height
-    pub arrival_index: u64,             // this is the $(arrival_index)-th block to be accepted
-    pub canonical_stacks_tip_height: u64,               // memoized canonical stacks chain tip
-    pub canonical_stacks_tip_hash: BlockHeaderHash,     // memoized canonical stacks chain tip
+    pub total_burn: u64, // how many burn tokens have been destroyed since genesis
+    pub sortition: bool, // whether or not a sortition happened in this block (will be false if there were no burns)
+    pub sortition_hash: SortitionHash, // rolling hash of the burn chain's block headers -- this gets mixed with the sortition VRF seed
+    pub winning_block_txid: Txid, // txid of the leader block commit that won sortition.  Will all 0's if sortition is false.
+    pub winning_stacks_block_hash: BlockHeaderHash, // hash of Stacks block that won sortition (will be all 0's if sortition is false)
+    pub index_root: TrieHash, // root hash of the index over the materialized view of all inserted data
+    pub num_sortitions: u64,  // how many stacks blocks exist
+    pub stacks_block_accepted: bool, // did we download, store, and incorporate the stacks block into the chain state
+    pub stacks_block_height: u64,    // if we accepted a block, this is its height
+    pub arrival_index: u64,          // this is the $(arrival_index)-th block to be accepted
+    pub canonical_stacks_tip_height: u64, // memoized canonical stacks chain tip
+    pub canonical_stacks_tip_hash: BlockHeaderHash, // memoized canonical stacks chain tip
     pub canonical_stacks_tip_consensus_hash: ConsensusHash, // memoized canonical stacks chain tip
     pub sortition_id: SortitionId,
-    pub pox_valid: bool
+    pub pox_valid: bool,
 }
 
 impl BlockHeaderHash {
@@ -189,7 +186,7 @@ impl SortitionHash {
     pub fn choose(&self, max: u32) -> u32 {
         let mut rng = ChaCha20Rng::from_seed(self.0.clone());
         let index: u32 = rng.gen_range(0, max);
-        assert!(index <  max);
+        assert!(index < max);
         index
     }
 
@@ -197,14 +194,14 @@ impl SortitionHash {
     pub fn to_uint256(&self) -> Uint256 {
         let mut tmp = [0u64; 4];
         for i in 0..4 {
-            let b = (self.0[8*i] as u64) +
-                    ((self.0[8*i + 1] as u64) << 8) +
-                    ((self.0[8*i + 2] as u64) << 16) +
-                    ((self.0[8*i + 3] as u64) << 24) +
-                    ((self.0[8*i + 4] as u64) << 32) +
-                    ((self.0[8*i + 5] as u64) << 40) +
-                    ((self.0[8*i + 6] as u64) << 48) +
-                    ((self.0[8*i + 7] as u64) << 56);
+            let b = (self.0[8 * i] as u64)
+                + ((self.0[8 * i + 1] as u64) << 8)
+                + ((self.0[8 * i + 2] as u64) << 16)
+                + ((self.0[8 * i + 3] as u64) << 24)
+                + ((self.0[8 * i + 4] as u64) << 32)
+                + ((self.0[8 * i + 5] as u64) << 40)
+                + ((self.0[8 * i + 6] as u64) << 48)
+                + ((self.0[8 * i + 7] as u64) << 56);
 
             tmp[i] = b;
         }
@@ -238,9 +235,15 @@ impl ConsensusHash {
     /// for the resulting consensus hash, and the geometric series of previous consensus
     /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
     /// least-recent.
-    pub fn from_ops(burn_header_hash: &BurnchainHeaderHash, opshash: &OpsHash, total_burn: u64, prev_consensus_hashes: &Vec<ConsensusHash>, pox_id: &PoxId) -> ConsensusHash {
+    pub fn from_ops(
+        burn_header_hash: &BurnchainHeaderHash,
+        opshash: &OpsHash,
+        total_burn: u64,
+        prev_consensus_hashes: &Vec<ConsensusHash>,
+        pox_id: &PoxId,
+    ) -> ConsensusHash {
         // NOTE: unlike stacks v1, we calculate the next consensus hash
-        // simply as a hash-chain of the new ops hash, the sequence of 
+        // simply as a hash-chain of the new ops hash, the sequence of
         // previous consensus hashes, and the total burn that went into this
         // consensus hash.  We don't turn them into Merkle trees first.
         // We also make it so the consensus hash commits to both the transactions and the block
@@ -253,7 +256,7 @@ impl ConsensusHash {
             use sha2::Digest;
             let mut hasher = Sha256::new();
 
-            // fork-set version... 
+            // fork-set version...
             hasher.input(SYSTEM_FORK_SET_VERSION);
 
             // burn block hash...
@@ -261,7 +264,7 @@ impl ConsensusHash {
 
             // ops hash...
             hasher.input(opshash.as_bytes());
-            
+
             // total burn amount on this fork...
             hasher.input(&burn_bytes);
 
@@ -279,7 +282,7 @@ impl ConsensusHash {
         use ripemd160::Digest;
         let mut r160 = Ripemd160::new();
         r160.input(&result);
-        
+
         let mut ch_bytes = [0u8; 20];
         ch_bytes.copy_from_slice(r160.result().as_slice());
         ConsensusHash(ch_bytes)
@@ -287,13 +290,21 @@ impl ConsensusHash {
 
     /// Get the previous consensus hashes that must be hashed to find
     /// the *next* consensus hash at a particular block.
-    pub fn get_prev_consensus_hashes(sort_tx: &mut SortitionHandleTx, block_height: u64, first_block_height: u64) -> Result<Vec<ConsensusHash>, db_error> {
+    pub fn get_prev_consensus_hashes(
+        sort_tx: &mut SortitionHandleTx,
+        block_height: u64,
+        first_block_height: u64,
+    ) -> Result<Vec<ConsensusHash>, db_error> {
         let mut i = 0;
         let mut prev_chs = vec![];
         while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
-            let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
-            let prev_ch = sort_tx.get_consensus_at(prev_block)
-                .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, &sort_tx.context.chain_tip))
+            let prev_block: u64 = block_height - (((1 as u64) << i) - 1);
+            let prev_ch = sort_tx
+                .get_consensus_at(prev_block)
+                .expect(&format!(
+                    "FATAL: failed to get consensus hash at {} in fork {}",
+                    prev_block, &sort_tx.context.chain_tip
+                ))
                 .unwrap_or(ConsensusHash::empty());
 
             debug!("Consensus at {}: {}", prev_block, &prev_ch);
@@ -305,7 +316,7 @@ impl ConsensusHash {
             }
         }
         if i == 64 {
-            // won't happen for a long, long time 
+            // won't happen for a long, long time
             panic!("FATAL ERROR: numeric overflow when calculating a consensus hash for {} from genesis block height {}", block_height, first_block_height);
         }
 
@@ -313,11 +324,27 @@ impl ConsensusHash {
     }
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    pub fn from_parent_block_data(sort_tx: &mut SortitionHandleTx, opshash: &OpsHash, parent_block_height: u64,
-                                  first_block_height: u64, this_block_hash: &BurnchainHeaderHash,
-                                  total_burn: u64, pox_id: &PoxId) -> Result<ConsensusHash, db_error> {
-        let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(sort_tx, parent_block_height, first_block_height)?;
-        Ok(ConsensusHash::from_ops(this_block_hash, opshash, total_burn, &prev_consensus_hashes, pox_id))
+    pub fn from_parent_block_data(
+        sort_tx: &mut SortitionHandleTx,
+        opshash: &OpsHash,
+        parent_block_height: u64,
+        first_block_height: u64,
+        this_block_hash: &BurnchainHeaderHash,
+        total_burn: u64,
+        pox_id: &PoxId,
+    ) -> Result<ConsensusHash, db_error> {
+        let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(
+            sort_tx,
+            parent_block_height,
+            first_block_height,
+        )?;
+        Ok(ConsensusHash::from_ops(
+            this_block_hash,
+            opshash,
+            total_burn,
+            &prev_consensus_hashes,
+            pox_id,
+        ))
     }
 
     /// raw consensus hash
@@ -332,13 +359,12 @@ impl ConsensusHash {
         use ripemd160::Digest;
         let mut r160 = Ripemd160::new();
         r160.input(&result);
-        
+
         let mut ch_bytes = [0u8; 20];
         ch_bytes.copy_from_slice(r160.result().as_slice());
         ConsensusHash(ch_bytes)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -349,20 +375,23 @@ mod tests {
 
     use burnchains::BurnchainHeaderHash;
 
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
 
+    use util::db::Error as db_error;
     use util::hash::{hex_bytes, Hash160};
     use util::log;
-    use util::db::Error as db_error;
 
     use rusqlite::Connection;
-    
+
     use util::get_epoch_time_secs;
 
     #[test]
     fn get_prev_consensus_hashes() {
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
         let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
         let mut burn_block_hashes = vec![];
         {
@@ -373,17 +402,71 @@ mod tests {
                     pox_valid: true,
                     block_height: i,
                     burn_header_timestamp: get_epoch_time_secs(),
-                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    sortition_id: SortitionId([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]),
-                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i-1 }) as u8]).unwrap(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, i as u8,
+                    ])
+                    .unwrap(),
+                    sortition_id: SortitionId([
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, i as u8,
+                    ]),
+                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        (if i == 0 { 0xff } else { i - 1 }) as u8,
+                    ])
+                    .unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i as u8,
+                    ])
+                    .unwrap(),
+                    ops_hash: OpsHash::from_bytes(&[
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, i as u8,
+                    ])
+                    .unwrap(),
                     total_burn: i,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
-                    winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    index_root: TrieHash::from_empty_data(),     // will be overwritten
+                    winning_block_txid: Txid::from_hex(
+                        "0000000000000000000000000000000000000000000000000000000000000000",
+                    )
+                    .unwrap(),
+                    winning_stacks_block_hash: BlockHeaderHash::from_hex(
+                        "0000000000000000000000000000000000000000000000000000000000000000",
+                    )
+                    .unwrap(),
+                    index_root: TrieHash::from_empty_data(), // will be overwritten
                     num_sortitions: i,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
@@ -392,151 +475,474 @@ mod tests {
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
-                let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
-                let next_index_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], None, None).unwrap();
+                let mut tx =
+                    SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
+                let next_index_root = tx
+                    .append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], None, None)
+                    .unwrap();
                 burn_block_hashes.push(snapshot_row.sortition_id.clone());
                 tx.commit().unwrap();
                 prev_snapshot = snapshot_row;
             }
-            
-         }
+        }
 
         let mut ic = SortitionHandleTx::begin(&mut db, burn_block_hashes.last().unwrap()).unwrap();
 
         let prev_chs_0 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 0, 0).unwrap();
-        assert_eq!(prev_chs_0, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_0,
+            vec![ConsensusHash::from_bytes(&[
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+            ])
+            .unwrap()]
+        );
+
         let prev_chs_1 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 1, 0).unwrap();
-        assert_eq!(prev_chs_1, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_1,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_2 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 2, 0).unwrap();
-        assert_eq!(prev_chs_2, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_2,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_3 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 3, 0).unwrap();
-        assert_eq!(prev_chs_3, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_3,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_4 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 4, 0).unwrap();
-        assert_eq!(prev_chs_4, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_4,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_5 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 5, 0).unwrap();
-        assert_eq!(prev_chs_5, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_5,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_6 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 6, 0).unwrap();
-        assert_eq!(prev_chs_6, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_6,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_7 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 7, 0).unwrap();
-        assert_eq!(prev_chs_7, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_7,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_8 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 8, 0).unwrap();
-        assert_eq!(prev_chs_8, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_8,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_62 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 62, 0).unwrap();
-        assert_eq!(prev_chs_62, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,61]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,59]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,55]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,47]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,31]).unwrap()]);
+        assert_eq!(
+            prev_chs_62,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 61
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 59
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 55
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 47
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 31
+                ])
+                .unwrap()
+            ]
+        );
 
         let prev_chs_63 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 63, 0).unwrap();
-        assert_eq!(prev_chs_63, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,60]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,56]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,48]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,32]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+        assert_eq!(
+            prev_chs_63,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 63
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 56
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 48
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ])
+                .unwrap()
+            ]
+        );
 
         let prev_chs_64 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 64, 0).unwrap();
-        assert_eq!(prev_chs_64, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,61]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,57]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,49]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
+        assert_eq!(
+            prev_chs_64,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 63
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 61
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 57
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 49
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 33
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+                ])
+                .unwrap()
+            ]
+        );
 
         let prev_chs_126 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 126, 0).unwrap();
-        assert_eq!(prev_chs_126, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,126]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,125]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,123]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,119]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,111]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,95]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap()]);
+        assert_eq!(
+            prev_chs_126,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 126
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 125
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 123
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 119
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 111
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 95
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 63
+                ])
+                .unwrap()
+            ]
+        );
 
         let prev_chs_127 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 127, 0).unwrap();
-        assert_eq!(prev_chs_127, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,126]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,124]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,120]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,112]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,96]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+        assert_eq!(
+            prev_chs_127,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 126
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 124
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 120
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 112
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 96
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ])
+                .unwrap()
+            ]
+        );
 
         let prev_chs_128 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 128, 0).unwrap();
-        assert_eq!(prev_chs_128, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,125]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,121]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,113]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,97]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,65]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-        
+        assert_eq!(
+            prev_chs_128,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 125
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 121
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 113
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 97
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 65
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+                ])
+                .unwrap()
+            ]
+        );
+
         let prev_chs_254 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 254, 0).unwrap();
-        assert_eq!(prev_chs_254, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,254]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,253]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,251]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,247]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,239]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,223]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,191]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap()]);
+        assert_eq!(
+            prev_chs_254,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 254
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 253
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 251
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 247
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 239
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 223
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 191
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127
+                ])
+                .unwrap()
+            ]
+        );
 
         let prev_chs_255 = ConsensusHash::get_prev_consensus_hashes(&mut ic, 255, 0).unwrap();
-        assert_eq!(prev_chs_255, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,254]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,248]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,240]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,224]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,192]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+        assert_eq!(
+            prev_chs_255,
+            vec![
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 254
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 252
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 248
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 224
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 192
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128
+                ])
+                .unwrap(),
+                ConsensusHash::from_bytes(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ])
+                .unwrap()
+            ]
+        );
     }
 }

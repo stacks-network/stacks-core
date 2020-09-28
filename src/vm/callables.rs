@@ -1,46 +1,51 @@
-use std::fmt;
+use std::collections::HashMap;
 use std::convert::TryInto;
-use std::collections::{HashMap};
+use std::fmt;
 use std::iter::FromIterator;
 
 use chainstate::stacks::events::StacksTransactionEvent;
 
 use vm::costs::{cost_functions, SimpleCostSpecification};
 
-use vm::errors::{InterpreterResult as Result, Error, check_argument_count};
 use vm::analysis::errors::CheckErrors;
-use vm::representations::{SymbolicExpression, ClarityName};
-use vm::types::{TypeSignature, QualifiedContractIdentifier, TraitIdentifier, PrincipalData, FunctionType};
-use vm::{eval, Value, LocalContext, Environment};
 use vm::contexts::ContractContext;
+use vm::errors::{check_argument_count, Error, InterpreterResult as Result};
+use vm::representations::{ClarityName, SymbolicExpression};
+use vm::types::{
+    FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
+};
+use vm::{eval, Environment, LocalContext, Value};
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
     NativeFunction(&'static str, NativeHandle, SimpleCostSpecification),
-    SpecialFunction(&'static str, &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
+    SpecialFunction(
+        &'static str,
+        &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>,
+    ),
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub enum DefineType {
     ReadOnly,
     Public,
-    Private
+    Private,
 }
 
-#[derive(Clone,Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DefinedFunction {
     identifier: FunctionIdentifier,
     name: ClarityName,
     arg_types: Vec<TypeSignature>,
     pub define_type: DefineType,
     arguments: Vec<ClarityName>,
-    body: SymbolicExpression
+    body: SymbolicExpression,
 }
 
 pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
-    MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>)
+    MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>),
 }
 
 impl NativeHandle {
@@ -49,23 +54,21 @@ impl NativeHandle {
             NativeHandle::SingleArg(function) => {
                 check_argument_count(1, &args)?;
                 function(args.pop().unwrap())
-            },
+            }
             NativeHandle::DoubleArg(function) => {
                 check_argument_count(2, &args)?;
                 let second = args.pop().unwrap();
                 let first = args.pop().unwrap();
                 function(first, second)
-            },
-            NativeHandle::MoreArg(function) => {
-                function(args)
             }
+            NativeHandle::MoreArg(function) => function(args),
         }
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct FunctionIdentifier {
-    identifier: String
+    identifier: String,
 }
 
 impl fmt::Display for FunctionIdentifier {
@@ -75,11 +78,13 @@ impl fmt::Display for FunctionIdentifier {
 }
 
 impl DefinedFunction {
-    pub fn new(mut arguments: Vec<(ClarityName, TypeSignature)>, 
-               body: SymbolicExpression,
-               define_type: DefineType, 
-               name: &ClarityName, 
-               context_name: &str) -> DefinedFunction {
+    pub fn new(
+        mut arguments: Vec<(ClarityName, TypeSignature)>,
+        body: SymbolicExpression,
+        define_type: DefineType,
+        name: &ClarityName,
+        context_name: &str,
+    ) -> DefinedFunction {
         let (argument_names, types) = arguments.drain(..).unzip();
 
         DefinedFunction {
@@ -88,42 +93,60 @@ impl DefinedFunction {
             arguments: argument_names,
             define_type,
             body,
-            arg_types: types
+            arg_types: types,
         }
     }
 
     pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
-        runtime_cost!(cost_functions::USER_FUNCTION_APPLICATION,
-                      env, self.arguments.len())?;
+        runtime_cost!(
+            cost_functions::USER_FUNCTION_APPLICATION,
+            env,
+            self.arguments.len()
+        )?;
         for arg_type in self.arg_types.iter() {
-            runtime_cost!(cost_functions::TYPE_CHECK_COST,
-                          env, arg_type)?;
+            runtime_cost!(cost_functions::TYPE_CHECK_COST, env, arg_type)?;
         }
 
         let mut context = LocalContext::new();
         if args.len() != self.arguments.len() {
-            Err(CheckErrors::IncorrectArgumentCount(self.arguments.len(), args.len()))?
+            Err(CheckErrors::IncorrectArgumentCount(
+                self.arguments.len(),
+                args.len(),
+            ))?
         }
 
-        let mut arg_iterator: Vec<_> = self.arguments.iter().zip(self.arg_types.iter()).zip(args.iter()).collect();
+        let mut arg_iterator: Vec<_> = self
+            .arguments
+            .iter()
+            .zip(self.arg_types.iter())
+            .zip(args.iter())
+            .collect();
 
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
-            
+
             match (type_sig, value) {
-                (TypeSignature::TraitReferenceType(trait_identifier), Value::Principal(PrincipalData::Contract(callee_contract_id))) => {
+                (
+                    TypeSignature::TraitReferenceType(trait_identifier),
+                    Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                ) => {
                     // Argument is a trait reference, probably leading to a dynamic contract call
                     // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                     // The code fetching and checking the trait is implemented in the contract_call eval function.
-                    context.callable_contracts.insert(name.clone(), (callee_contract_id.clone(), trait_identifier.clone()));
-                },
+                    context.callable_contracts.insert(
+                        name.clone(),
+                        (callee_contract_id.clone(), trait_identifier.clone()),
+                    );
+                }
                 _ => {
                     if !type_sig.admits(value) {
-                        return Err(CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into())
+                        return Err(
+                            CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
+                        );
                     }
                     if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
-                        return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
-                    }        
+                        return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                    }
                 }
             }
         }
@@ -134,28 +157,37 @@ impl DefinedFunction {
         //    pull that out and return it.
         match result {
             Ok(r) => Ok(r),
-            Err(e) => {
-                match e {
-                    Error::ShortReturn(v) => Ok(v.into()),
-                    _ => Err(e)
-                }
-            }
+            Err(e) => match e {
+                Error::ShortReturn(v) => Ok(v.into()),
+                _ => Err(e),
+            },
         }
     }
 
-    pub fn check_trait_expectations(&self, 
-                                    contract_defining_trait: &ContractContext,
-                                    trait_identifier: &TraitIdentifier) -> Result<()> {
-
+    pub fn check_trait_expectations(
+        &self,
+        contract_defining_trait: &ContractContext,
+        trait_identifier: &TraitIdentifier,
+    ) -> Result<()> {
         let trait_name = trait_identifier.name.to_string();
-        let constraining_trait = contract_defining_trait.lookup_trait_definition(&trait_name)
+        let constraining_trait = contract_defining_trait
+            .lookup_trait_definition(&trait_name)
             .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
-        let expected_sig = constraining_trait.get(&self.name)
-            .ok_or(CheckErrors::TraitMethodUnknown(trait_name.to_string(), self.name.to_string()))?;
-        
+        let expected_sig =
+            constraining_trait
+                .get(&self.name)
+                .ok_or(CheckErrors::TraitMethodUnknown(
+                    trait_name.to_string(),
+                    self.name.to_string(),
+                ))?;
+
         let args = self.arg_types.iter().map(|a| a.clone()).collect();
         if !expected_sig.check_args_trait_compliance(args) {
-            return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
+            return Err(CheckErrors::BadTraitImplementation(
+                trait_name.clone(),
+                self.name.to_string(),
+            )
+            .into());
         }
 
         Ok(())
@@ -169,7 +201,7 @@ impl DefinedFunction {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),
             DefineType::Public => env.execute_function_as_transaction(self, args, None),
-            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None)
+            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None),
         }
     }
 
@@ -177,7 +209,7 @@ impl DefinedFunction {
         match self.define_type {
             DefineType::Public => true,
             DefineType::Private => false,
-            DefineType::ReadOnly => true
+            DefineType::ReadOnly => true,
         }
     }
 
@@ -199,11 +231,15 @@ impl CallableType {
 impl FunctionIdentifier {
     fn new_native_function(name: &str) -> FunctionIdentifier {
         let identifier = format!("_native_:{}", name);
-        FunctionIdentifier { identifier: identifier }
+        FunctionIdentifier {
+            identifier: identifier,
+        }
     }
 
     fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
         let identifier = format!("{}:{}", context, name);
-        FunctionIdentifier { identifier: identifier }
+        FunctionIdentifier {
+            identifier: identifier,
+        }
     }
 }

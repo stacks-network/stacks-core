@@ -1,23 +1,22 @@
 use std::convert::TryInto;
-use std::io::{BufReader, Read};
 use std::fs::File;
+use std::io::{BufReader, Read};
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use rand::RngCore;
 
-use stacks::burnchains::{
-    MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
+use stacks::util::hash::{hex_bytes, to_hex};
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::util::hash::{to_hex, hex_bytes};
-use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
 use stacks::vm::costs::ExecutionCost;
+use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
-use super::node::TESTNET_CHAIN_ID;
 use super::neon_node::TESTNET_PEER_VERSION;
+use super::node::TESTNET_CHAIN_ID;
 
 const MINIMUM_DUST_FEE: u64 = 5500;
 
@@ -36,7 +35,7 @@ impl ConfigFile {
         let path = File::open(path).unwrap();
         let mut config_file_reader = BufReader::new(path);
         let mut config_file = vec![];
-        config_file_reader.read_to_end(&mut config_file).unwrap();    
+        config_file_reader.read_to_end(&mut config_file).unwrap();
         toml::from_slice(&config_file[..]).unwrap()
     }
 
@@ -44,7 +43,7 @@ impl ConfigFile {
         toml::from_slice(&content.as_bytes()).unwrap()
     }
 
-    pub fn neon() -> ConfigFile {    
+    pub fn neon() -> ConfigFile {
         let burnchain = BurnchainConfigFile {
             mode: Some("neon".to_string()),
             rpc_port: Some(18443),
@@ -86,7 +85,7 @@ impl ConfigFile {
         }
     }
 
-    pub fn argon() -> ConfigFile {    
+    pub fn argon() -> ConfigFile {
         let burnchain = BurnchainConfigFile {
             mode: Some("argon".to_string()),
             rpc_port: Some(18443),
@@ -129,7 +128,7 @@ impl ConfigFile {
         }
     }
 
-    pub fn krypton() -> ConfigFile {    
+    pub fn krypton() -> ConfigFile {
         let burnchain = BurnchainConfigFile {
             mode: Some("krypton".to_string()),
             rpc_port: Some(18443),
@@ -172,7 +171,7 @@ impl ConfigFile {
         }
     }
 
-    pub fn xenon() -> ConfigFile {    
+    pub fn xenon() -> ConfigFile {
         let burnchain = BurnchainConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
@@ -315,14 +314,12 @@ pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
 };
 
 impl Config {
-
     pub fn from_config_file_path(path: &str) -> Config {
         let config_file = ConfigFile::from_path(path);
         Config::from_config_file(config_file)
     }
 
     pub fn from_config_file(config_file: ConfigFile) -> Config {
-
         let default_node_config = NodeConfig::default();
         let node = match config_file.node {
             Some(node) => {
@@ -330,8 +327,10 @@ impl Config {
                 let mut node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
-                        Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
-                        None => default_node_config.seed
+                        Some(seed) => {
+                            hex_bytes(&seed).expect("Seed should be a hex encoded string")
+                        }
+                        None => default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
                     rpc_bind: rpc_bind.clone(),
@@ -340,21 +339,27 @@ impl Config {
                     bootstrap_node: None,
                     data_url: match node.data_url {
                         Some(data_url) => data_url,
-                        None => format!("http://{}", rpc_bind)
+                        None => format!("http://{}", rpc_bind),
                     },
                     local_peer_seed: match node.local_peer_seed {
-                        Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
-                        None => default_node_config.local_peer_seed
+                        Some(seed) => {
+                            hex_bytes(&seed).expect("Seed should be a hex encoded string")
+                        }
+                        None => default_node_config.local_peer_seed,
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
-                    mine_microblocks: node.mine_microblocks.unwrap_or(default_node_config.mine_microblocks),
-                    wait_time_for_microblocks: node.wait_time_for_microblocks.unwrap_or(default_node_config.wait_time_for_microblocks),
+                    mine_microblocks: node
+                        .mine_microblocks
+                        .unwrap_or(default_node_config.mine_microblocks),
+                    wait_time_for_microblocks: node
+                        .wait_time_for_microblocks
+                        .unwrap_or(default_node_config.wait_time_for_microblocks),
                     prometheus_bind: node.prometheus_bind,
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
-            },
-            None => default_node_config
+            }
+            None => default_node_config,
         };
 
         let default_burnchain_config = BurnchainConfig::default();
@@ -363,61 +368,92 @@ impl Config {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
-                    burn_fee_cap: burnchain.burn_fee_cap.unwrap_or(default_burnchain_config.burn_fee_cap),
-                    commit_anchor_block_within: burnchain.commit_anchor_block_within.unwrap_or(default_burnchain_config.commit_anchor_block_within),
+                    burn_fee_cap: burnchain
+                        .burn_fee_cap
+                        .unwrap_or(default_burnchain_config.burn_fee_cap),
+                    commit_anchor_block_within: burnchain
+                        .commit_anchor_block_within
+                        .unwrap_or(default_burnchain_config.commit_anchor_block_within),
                     peer_host: match burnchain.peer_host {
                         Some(peer_host) => {
                             // Using std::net::LookupHost would be preferable, but it's
                             // unfortunately unstable at this point.
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                            let mut addrs_iter = format!("{}:1", peer_host).to_socket_addrs().unwrap();
+                            let mut addrs_iter =
+                                format!("{}:1", peer_host).to_socket_addrs().unwrap();
                             let sock_addr = addrs_iter.next().unwrap();
                             format!("{}", sock_addr.ip())
                         }
-                        None => default_burnchain_config.peer_host
+                        None => default_burnchain_config.peer_host,
                     },
-                    peer_port: burnchain.peer_port.unwrap_or(default_burnchain_config.peer_port),
-                    rpc_port: burnchain.rpc_port.unwrap_or(default_burnchain_config.rpc_port),
-                    rpc_ssl: burnchain.rpc_ssl.unwrap_or(default_burnchain_config.rpc_ssl),
+                    peer_port: burnchain
+                        .peer_port
+                        .unwrap_or(default_burnchain_config.peer_port),
+                    rpc_port: burnchain
+                        .rpc_port
+                        .unwrap_or(default_burnchain_config.rpc_port),
+                    rpc_ssl: burnchain
+                        .rpc_ssl
+                        .unwrap_or(default_burnchain_config.rpc_ssl),
                     username: burnchain.username,
                     password: burnchain.password,
-                    timeout: burnchain.timeout.unwrap_or(default_burnchain_config.timeout),
-                    spv_headers_path: burnchain.spv_headers_path.unwrap_or(node.get_default_spv_headers_path()),
-                    first_block: burnchain.first_block.unwrap_or(default_burnchain_config.first_block),
+                    timeout: burnchain
+                        .timeout
+                        .unwrap_or(default_burnchain_config.timeout),
+                    spv_headers_path: burnchain
+                        .spv_headers_path
+                        .unwrap_or(node.get_default_spv_headers_path()),
+                    first_block: burnchain
+                        .first_block
+                        .unwrap_or(default_burnchain_config.first_block),
                     magic_bytes: default_burnchain_config.magic_bytes,
                     local_mining_public_key: burnchain.local_mining_public_key,
-                    burnchain_op_tx_fee: burnchain.burnchain_op_tx_fee.unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
-                    process_exit_at_block_height: burnchain.process_exit_at_block_height
+                    burnchain_op_tx_fee: burnchain
+                        .burnchain_op_tx_fee
+                        .unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
+                    process_exit_at_block_height: burnchain.process_exit_at_block_height,
                 }
-            },
-            None => default_burnchain_config
+            }
+            None => default_burnchain_config,
         };
 
         let supported_modes = vec!["mocknet", "helium", "neon", "argon", "krypton", "xenon"];
 
-        if !supported_modes.contains(&burnchain.mode.as_str())  {
-            panic!("Setting burnchain.network not supported (should be: {})", supported_modes.join(", "))
+        if !supported_modes.contains(&burnchain.mode.as_str()) {
+            panic!(
+                "Setting burnchain.network not supported (should be: {})",
+                supported_modes.join(", ")
+            )
         }
 
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
-        
+
         let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
-            Some(balances) => {
-                balances.iter().map(|balance| {
-                    let address: PrincipalData = PrincipalData::parse_standard_principal(&balance.address).unwrap().into();
-                    InitialBalance { address, amount: balance.amount }
-                }).collect()
-            },
-            None => vec![]
+            Some(balances) => balances
+                .iter()
+                .map(|balance| {
+                    let address: PrincipalData =
+                        PrincipalData::parse_standard_principal(&balance.address)
+                            .unwrap()
+                            .into();
+                    InitialBalance {
+                        address,
+                        amount: balance.amount,
+                    }
+                })
+                .collect(),
+            None => vec![],
         };
 
         let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
                 let mut observers = vec![];
                 for observer in raw_observers {
-                    let events_keys: Vec<EventKeyType> = observer.events_keys.iter()
+                    let events_keys: Vec<EventKeyType> = observer
+                        .events_keys
+                        .iter()
                         .map(|e| EventKeyType::from_string(e).unwrap())
                         .collect();
 
@@ -425,23 +461,21 @@ impl Config {
 
                     observers.push(EventObserverConfig {
                         endpoint,
-                        events_keys
+                        events_keys,
                     });
                 }
                 observers
             }
-            None => vec![]
+            None => vec![],
         };
 
         // check for observer config in env vars
         match std::env::var("STACKS_EVENT_OBSERVER") {
-            Ok(val) => {
-                events_observers.push(EventObserverConfig {
-                    endpoint: val,
-                    events_keys: vec![EventKeyType::AnyEvent],
-                })
-            },
-            _ => ()
+            Ok(val) => events_observers.push(EventObserverConfig {
+                endpoint: val,
+                events_keys: vec![EventKeyType::AnyEvent],
+            }),
+            _ => (),
         };
 
         let connection_options = match config_file.connection_options {
@@ -451,56 +485,140 @@ impl Config {
                         let addr = public_ip_address.parse::<SocketAddr>().unwrap();
                         println!("addr.parse {:?}", addr);
                         Some((PeerAddress::from_socketaddr(&addr), addr.port()))
-                    },
-                    None => None
+                    }
+                    None => None,
                 };
-                let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS.read_only_call_limit.clone();
-                opts.read_only_call_limit_write_length.map(|x| { read_only_call_limit.write_length = x; });
-                opts.read_only_call_limit_write_count.map(|x| { read_only_call_limit.write_count = x; });
-                opts.read_only_call_limit_read_length.map(|x| { read_only_call_limit.read_length = x; });
-                opts.read_only_call_limit_read_count.map(|x| { read_only_call_limit.read_count = x; });
-                opts.read_only_call_limit_runtime.map(|x| { read_only_call_limit.runtime = x; });
+                let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS
+                    .read_only_call_limit
+                    .clone();
+                opts.read_only_call_limit_write_length.map(|x| {
+                    read_only_call_limit.write_length = x;
+                });
+                opts.read_only_call_limit_write_count.map(|x| {
+                    read_only_call_limit.write_count = x;
+                });
+                opts.read_only_call_limit_read_length.map(|x| {
+                    read_only_call_limit.read_length = x;
+                });
+                opts.read_only_call_limit_read_count.map(|x| {
+                    read_only_call_limit.read_count = x;
+                });
+                opts.read_only_call_limit_runtime.map(|x| {
+                    read_only_call_limit.runtime = x;
+                });
                 ConnectionOptions {
                     read_only_call_limit,
-                    inbox_maxlen: opts.inbox_maxlen.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inbox_maxlen.clone()),
-                    outbox_maxlen: opts.outbox_maxlen.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.outbox_maxlen.clone()),
-                    timeout: opts.timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.timeout.clone()),
-                    idle_timeout: opts.idle_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.idle_timeout.clone()),
-                    heartbeat: opts.heartbeat.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.heartbeat.clone()),
-                    private_key_lifetime: opts.private_key_lifetime.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.private_key_lifetime.clone()),
-                    num_neighbors: opts.num_neighbors.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_neighbors.clone()),
-                    num_clients: opts.num_clients.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_clients.clone()),
-                    soft_num_neighbors: opts.soft_num_neighbors.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_neighbors.clone()),
-                    soft_num_clients: opts.soft_num_clients.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_clients.clone()),
-                    max_neighbors_per_host: opts.max_neighbors_per_host.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_neighbors_per_host.clone()),
-                    max_clients_per_host: opts.max_clients_per_host.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_clients_per_host.clone()),
-                    soft_max_neighbors_per_host: opts.soft_max_neighbors_per_host.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_host.clone()),
-                    soft_max_neighbors_per_org: opts.soft_max_neighbors_per_org.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_org.clone()),
-                    soft_max_clients_per_host: opts.soft_max_clients_per_host.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_clients_per_host.clone()),
-                    walk_interval: opts.walk_interval.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
-                    dns_timeout: opts.dns_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
-                    max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks.clone()),
-                    maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size.clone()),
-                    download_interval: opts.download_interval.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval.clone()),
-                    inv_sync_interval: opts.inv_sync_interval.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval.clone()),
+                    inbox_maxlen: opts
+                        .inbox_maxlen
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inbox_maxlen.clone()),
+                    outbox_maxlen: opts
+                        .outbox_maxlen
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.outbox_maxlen.clone()),
+                    timeout: opts
+                        .timeout
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.timeout.clone()),
+                    idle_timeout: opts
+                        .idle_timeout
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.idle_timeout.clone()),
+                    heartbeat: opts
+                        .heartbeat
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.heartbeat.clone()),
+                    private_key_lifetime: opts.private_key_lifetime.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS
+                            .private_key_lifetime
+                            .clone()
+                    }),
+                    num_neighbors: opts
+                        .num_neighbors
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_neighbors.clone()),
+                    num_clients: opts
+                        .num_clients
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_clients.clone()),
+                    soft_num_neighbors: opts.soft_num_neighbors.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_neighbors.clone()
+                    }),
+                    soft_num_clients: opts.soft_num_clients.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_clients.clone()
+                    }),
+                    max_neighbors_per_host: opts.max_neighbors_per_host.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS
+                            .max_neighbors_per_host
+                            .clone()
+                    }),
+                    max_clients_per_host: opts.max_clients_per_host.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS
+                            .max_clients_per_host
+                            .clone()
+                    }),
+                    soft_max_neighbors_per_host: opts.soft_max_neighbors_per_host.unwrap_or_else(
+                        || {
+                            HELIUM_DEFAULT_CONNECTION_OPTIONS
+                                .soft_max_neighbors_per_host
+                                .clone()
+                        },
+                    ),
+                    soft_max_neighbors_per_org: opts.soft_max_neighbors_per_org.unwrap_or_else(
+                        || {
+                            HELIUM_DEFAULT_CONNECTION_OPTIONS
+                                .soft_max_neighbors_per_org
+                                .clone()
+                        },
+                    ),
+                    soft_max_clients_per_host: opts.soft_max_clients_per_host.unwrap_or_else(
+                        || {
+                            HELIUM_DEFAULT_CONNECTION_OPTIONS
+                                .soft_max_clients_per_host
+                                .clone()
+                        },
+                    ),
+                    walk_interval: opts
+                        .walk_interval
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
+                    dns_timeout: opts
+                        .dns_timeout
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
+                    max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS
+                            .max_inflight_blocks
+                            .clone()
+                    }),
+                    maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(
+                        || {
+                            HELIUM_DEFAULT_CONNECTION_OPTIONS
+                                .maximum_call_argument_size
+                                .clone()
+                        },
+                    ),
+                    download_interval: opts.download_interval.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval.clone()
+                    }),
+                    inv_sync_interval: opts.inv_sync_interval.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval.clone()
+                    }),
                     public_ip_address: ip_addr,
-                    ..ConnectionOptions::default() 
+                    ..ConnectionOptions::default()
                 }
-            },
-            None => {
-                HELIUM_DEFAULT_CONNECTION_OPTIONS.clone()
             }
+            None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
         let block_limit = match config_file.block_limit {
             Some(opts) => ExecutionCost {
-                write_length: opts.write_length.unwrap_or(HELIUM_BLOCK_LIMIT.write_length.clone()),
-                write_count:  opts.write_count.unwrap_or(HELIUM_BLOCK_LIMIT.write_count.clone()),
-                read_length:  opts.read_length.unwrap_or(HELIUM_BLOCK_LIMIT.read_length.clone()),
-                read_count:  opts.read_count.unwrap_or(HELIUM_BLOCK_LIMIT.read_count.clone()),
-                runtime:  opts.runtime.unwrap_or(HELIUM_BLOCK_LIMIT.runtime.clone()),
+                write_length: opts
+                    .write_length
+                    .unwrap_or(HELIUM_BLOCK_LIMIT.write_length.clone()),
+                write_count: opts
+                    .write_count
+                    .unwrap_or(HELIUM_BLOCK_LIMIT.write_count.clone()),
+                read_length: opts
+                    .read_length
+                    .unwrap_or(HELIUM_BLOCK_LIMIT.read_length.clone()),
+                read_count: opts
+                    .read_count
+                    .unwrap_or(HELIUM_BLOCK_LIMIT.read_count.clone()),
+                runtime: opts.runtime.unwrap_or(HELIUM_BLOCK_LIMIT.runtime.clone()),
             },
-            None => HELIUM_BLOCK_LIMIT.clone()
+            None => HELIUM_BLOCK_LIMIT.clone(),
         };
 
         Config {
@@ -509,7 +627,7 @@ impl Config {
             initial_balances,
             events_observers,
             connection_options,
-            block_limit
+            block_limit,
         }
     }
 
@@ -522,9 +640,11 @@ impl Config {
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
-        format!("{}/burnchain/db/{}/{}/sortition.db/", self.node.working_dir, self.burnchain.chain, "regtest")
+        format!(
+            "{}/burnchain/db/{}/{}/sortition.db/",
+            self.node.working_dir, self.burnchain.chain, "regtest"
+        )
     }
-
 
     pub fn get_chainstate_path(&self) -> String {
         format!("{}/chainstate/", self.node.working_dir)
@@ -535,7 +655,12 @@ impl Config {
     }
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
-        let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
+        let new_balance = InitialBalance {
+            address: PrincipalData::parse_standard_principal(&address)
+                .unwrap()
+                .into(),
+            amount,
+        };
         self.initial_balances.push(new_balance);
     }
 
@@ -593,7 +718,7 @@ pub struct BurnchainConfig {
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: u64,
-    pub process_exit_at_block_height: Option<u64>
+    pub process_exit_at_block_height: Option<u64>,
 }
 
 impl BurnchainConfig {
@@ -622,13 +747,15 @@ impl BurnchainConfig {
     pub fn get_rpc_url(&self) -> String {
         let scheme = match self.rpc_ssl {
             true => "https://",
-            false => "http://"
+            false => "http://",
         };
         format!("{}{}:{}", scheme, self.peer_host, self.rpc_port)
     }
 
     pub fn get_rpc_socket_addr(&self) -> SocketAddr {
-        let mut addrs_iter = format!("{}:{}", self.peer_host, self.rpc_port).to_socket_addrs().unwrap();
+        let mut addrs_iter = format!("{}:{}", self.peer_host, self.rpc_port)
+            .to_socket_addrs()
+            .unwrap();
         let sock_addr = addrs_iter.next().unwrap();
         sock_addr
     }
@@ -637,8 +764,10 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "helium" | "neon" | "argon" | "krypton" => ("regtest".to_string(), BitcoinNetworkType::Regtest),
-            _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest")
+            "helium" | "neon" | "argon" | "krypton" => {
+                ("regtest".to_string(), BitcoinNetworkType::Regtest)
+            }
+            _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest"),
         }
     }
 }
@@ -682,7 +811,6 @@ pub struct NodeConfig {
 }
 
 impl NodeConfig {
-
     fn default() -> NodeConfig {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 8];
@@ -736,7 +864,7 @@ impl NodeConfig {
                             peer_version: TESTNET_PEER_VERSION,
                             network_id: TESTNET_CHAIN_ID,
                             addrbytes: PeerAddress::from_socketaddr(&sock_addr),
-                            port: sock_addr.port()
+                            port: sock_addr.port(),
                         },
                         public_key: Secp256k1PublicKey::from_hex(public_key).unwrap(),
                         expire_block: 99999,
@@ -746,14 +874,13 @@ impl NodeConfig {
                         asn: 0,
                         org: 0,
                         in_degree: 0,
-                        out_degree: 0
+                        out_degree: 0,
                     };
                     self.bootstrap_node = Some(neighbor);
-                },
+                }
                 _ => {}
             }
         }
-
     }
 }
 
@@ -797,7 +924,6 @@ pub struct BlockLimitFile {
     pub runtime: Option<u64>,
 }
 
-
 #[derive(Clone, Deserialize, Default)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
@@ -840,34 +966,44 @@ impl EventKeyType {
     fn from_string(raw_key: &str) -> Option<EventKeyType> {
         if raw_key == "*" {
             return Some(EventKeyType::AnyEvent);
-        } 
+        }
 
         if raw_key == "stx" {
             return Some(EventKeyType::STXEvent);
-        } 
-        
+        }
+
         if raw_key == "memtx" {
             return Some(EventKeyType::MemPoolTransactions);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();
-        if comps.len() ==  1 {
+        if comps.len() == 1 {
             let split: Vec<_> = comps[0].split(".").collect();
             if split.len() != 3 {
-                return None
+                return None;
             }
-            let components = (PrincipalData::parse_standard_principal(split[0]), split[1].to_string().try_into(), split[2].to_string().try_into());
+            let components = (
+                PrincipalData::parse_standard_principal(split[0]),
+                split[1].to_string().try_into(),
+                split[2].to_string().try_into(),
+            );
             match components {
                 (Ok(address), Ok(name), Ok(asset_name)) => {
                     let contract_identifier = QualifiedContractIdentifier::new(address, name);
-                    let asset_identifier = AssetIdentifier { contract_identifier, asset_name };
+                    let asset_identifier = AssetIdentifier {
+                        contract_identifier,
+                        asset_name,
+                    };
                     Some(EventKeyType::AssetEvent(asset_identifier))
-                },
-                (_, _, _) => None
+                }
+                (_, _, _) => None,
             }
         } else if comps.len() == 2 {
             if let Ok(contract_identifier) = QualifiedContractIdentifier::parse(comps[0]) {
-                Some(EventKeyType::SmartContractEvent((contract_identifier, comps[1].to_string())))
+                Some(EventKeyType::SmartContractEvent((
+                    contract_identifier,
+                    comps[1].to_string(),
+                )))
             } else {
                 None
             }
