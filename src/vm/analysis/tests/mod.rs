@@ -1,7 +1,7 @@
-use vm::ast::parse;
-use vm::analysis::{AnalysisDatabase, mem_type_check};
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::{ContractAnalysis, type_check};
+use vm::analysis::{mem_type_check, AnalysisDatabase};
+use vm::analysis::{type_check, ContractAnalysis};
+use vm::ast::parse;
 
 mod costs;
 
@@ -9,7 +9,9 @@ mod costs;
 fn test_list_types_must_match() {
     let snippet = "(list 1 true)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'"));
+    assert!(
+        format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'")
+    );
 }
 
 #[test]
@@ -17,47 +19,56 @@ fn test_type_error() {
     let snippet = "(+ true 1)";
     let err = mem_type_check(snippet).unwrap_err();
     println!("{}", err.diagnostic);
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int' or 'uint', found 'bool'"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("expecting expression of type 'int' or 'uint', found 'bool'"));
 
     let snippet = "(+ 1 true)";
     let err = mem_type_check(snippet).unwrap_err();
     println!("{}", err.diagnostic);
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'"));
+    assert!(
+        format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'")
+    );
 }
 
 #[test]
 fn test_union_type_error() {
     let snippet = "(hash160 true)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type '(buff 1048576)', 'uint' or 'int', found 'bool'"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("expecting expression of type '(buff 1048576)', 'uint' or 'int', found 'bool'"));
 }
 
 #[test]
 fn test_expected_optional_type() {
     let snippet = "(is-none 1)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'optional', found 'int'"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("expecting expression of type 'optional', found 'int'"));
 }
 
 #[test]
 fn test_expected_response_type() {
     let snippet = "(is-ok 1)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'response', found 'int'"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("expecting expression of type 'response', found 'int'"));
 }
 
 #[test]
 fn test_could_not_determine_response_ok_type() {
     let snippet = "(unwrap! (err \"error\") 0)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"));
 }
 
 #[test]
 fn test_could_not_determine_response_err_type() {
     let snippet = "(unwrap-err! (ok 1) 0)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("attempted to obtain 'err' value from response, but 'err' type is indeterminate"));
+    assert!(format!("{}", err.diagnostic).contains(
+        "attempted to obtain 'err' value from response, but 'err' type is indeterminate"
+    ));
 }
 
 #[test]
@@ -89,7 +100,8 @@ fn test_expected_tuple() {
 fn test_no_such_tuple_field() {
     let snippet = "(get val (tuple (value 100)))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("cannot find field 'val' in tuple '(tuple (value int))'"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("cannot find field 'val' in tuple '(tuple (value int))'"));
 }
 
 #[test]
@@ -110,7 +122,9 @@ fn test_tuple_expects_pairs() {
 fn test_no_such_variable() {
     let snippet = "(var-get unicorn)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("use of unresolved persisted variable 'unicorn'"));
+    assert!(
+        format!("{}", err.diagnostic).contains("use of unresolved persisted variable 'unicorn'")
+    );
 }
 
 #[test]
@@ -152,7 +166,8 @@ fn test_bad_map_type_definition() {
 fn test_public_function_must_return_response() {
     let snippet = "(define-public (fn) 1)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("public functions must return an expression of type 'response', found 'int'"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("public functions must return an expression of type 'response', found 'int'"));
 }
 
 #[test]
@@ -166,7 +181,8 @@ fn test_define_variable_bad_signature() {
 fn test_return_types_must_match() {
     let snippet = "(define-private (mismatched) (begin (unwrap! (ok 1) false) 1))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("detected two execution paths, returning two different expression types"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("detected two execution paths, returning two different expression types"));
 }
 
 #[test]
@@ -187,7 +203,8 @@ fn test_no_such_block_info_property() {
 fn test_get_block_info_expect_property_name() {
     let snippet = "(get-block-info? 0 1)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("missing property name for block info introspection"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("missing property name for block info introspection"));
 }
 
 #[test]
@@ -208,7 +225,8 @@ fn test_non_function_application() {
 fn test_expected_list_or_buff() {
     let snippet = "(filter not 4)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8'"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8'"));
 }
 
 #[test]
@@ -251,19 +269,23 @@ fn test_incorrect_argument_count() {
 fn test_if_arms_must_match() {
     let snippet = "(if true true 1)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expression types returned by the arms of 'if' must match (got 'bool' and 'int')"));
+    assert!(format!("{}", err.diagnostic).contains(
+        "expression types returned by the arms of 'if' must match (got 'bool' and 'int')"
+    ));
 }
 
 #[test]
 fn test_default_types_must_match() {
     let snippet = "(default-to 1 (some true))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expression types passed in 'default-to' must match (got 'int' and 'bool')"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("expression types passed in 'default-to' must match (got 'int' and 'bool')"));
 }
 
 #[test]
 fn test_write_attempt_in_readonly() {
     let snippet = "(define-data-var x int 0) (define-read-only (fn) (var-set x 1))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting read-only statements, detected a writing operation"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("expecting read-only statements, detected a writing operation"));
 }

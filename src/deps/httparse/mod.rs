@@ -27,23 +27,23 @@
 //! # httparse
 //!
 //! A push library for parsing HTTP/1.x requests and responses.
-//! 
+//!
 //! Originally written by Sean McArthur.
 //!
 //! Modified by Jude Nelson to remove all unsafe code.
+use std::error;
 use std::fmt;
+use std::mem;
 use std::result;
 use std::str;
-use std::mem;
-use std::error;
 
 macro_rules! next {
-    ($bytes:ident) => ({
+    ($bytes:ident) => {{
         match $bytes.next() {
             Some(b) => b,
-            None => return Ok(Status::Partial)
+            None => return Ok(Status::Partial),
         }
-    })
+    }};
 }
 
 macro_rules! expect {
@@ -62,9 +62,9 @@ macro_rules! complete {
     ($e:expr) => {
         match $e? {
             Status::Complete(v) => v,
-            Status::Partial => return Ok(Status::Partial)
+            Status::Partial => return Ok(Status::Partial),
         }
-    }
+    };
 }
 
 macro_rules! byte_map {
@@ -98,7 +98,7 @@ macro_rules! newline {
 pub struct Bytes<'a> {
     slice: &'a [u8],
     pos: usize,
-    skipped_pos: usize
+    skipped_pos: usize,
 }
 
 impl<'a> Bytes<'a> {
@@ -107,7 +107,7 @@ impl<'a> Bytes<'a> {
         Bytes {
             slice: slice,
             pos: 0,
-            skipped_pos: 0
+            skipped_pos: 0,
         }
     }
 
@@ -182,7 +182,10 @@ impl<'a> Iterator for Bytes<'a> {
     #[inline]
     fn next(&mut self) -> Option<u8> {
         if self.slice_peek().len() > self.pos {
-            let b = self.slice_peek().get(self.pos).expect("BUG: read beyond end of buffer");
+            let b = self
+                .slice_peek()
+                .get(self.pos)
+                .expect("BUG: read beyond end of buffer");
             self.pos += 1;
             Some(*b)
         } else {
@@ -201,7 +204,11 @@ macro_rules! bytes8_methods {
         #[inline]
         pub fn $f(&mut self) -> u8 {
             self.assert_pos($pos);
-            let b = self.bytes.slice_peek().get(self.bytes.pos).expect("BUG: read beyond end of buffer");
+            let b = self
+                .bytes
+                .slice_peek()
+                .get(self.bytes.pos)
+                .expect("BUG: read beyond end of buffer");
             self.bytes.pos += 1;
             *b
         }
@@ -215,7 +222,7 @@ macro_rules! bytes8_methods {
         bytes8_methods!(_5, 5);
         bytes8_methods!(_6, 6);
         bytes8_methods!(_7, 7);
-    }
+    };
 }
 
 impl<'a, 'b: 'a> Bytes8<'a, 'b> {
@@ -228,7 +235,7 @@ impl<'a, 'b: 'a> Bytes8<'a, 'b> {
             pos: 0,
         }
     }
-    
+
     #[inline]
     fn assert_pos(&mut self, pos: usize) {
         assert!(self.pos == pos);
@@ -262,31 +269,25 @@ fn is_token(b: u8) -> bool {
 // i.e. A-Z a-z 0-9 !#$%&'*+-._();:@=,/?[]~^
 // TODO: Make a stricter checking for URI string?
 static URI_MAP: [bool; 256] = byte_map![
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//  \0                            \n
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//  commands
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //  \0                            \n
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //  commands
     0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-//  \w !  "  #  $  %  &  '  (  )  *  +  ,  -  .  /
+    //  \w !  "  #  $  %  &  '  (  )  *  +  ,  -  .  /
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
-//  0  1  2  3  4  5  6  7  8  9  :  ;  <  =  >  ?
+    //  0  1  2  3  4  5  6  7  8  9  :  ;  <  =  >  ?
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-//  @  A  B  C  D  E  F  G  H  I  J  K  L  M  N  O
+    //  @  A  B  C  D  E  F  G  H  I  J  K  L  M  N  O
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-//  P  Q  R  S  T  U  V  W  X  Y  Z  [  \  ]  ^  _
+    //  P  Q  R  S  T  U  V  W  X  Y  Z  [  \  ]  ^  _
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-//  `  a  b  c  d  e  f  g  h  i  j  k  l  m  n  o
+    //  `  a  b  c  d  e  f  g  h  i  j  k  l  m  n  o
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-//  p  q  r  s  t  u  v  w  x  y  z  {  |  }  ~  del
-//   ====== Extended ASCII (aka. obs-text) ======
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    //  p  q  r  s  t  u  v  w  x  y  z  {  |  }  ~  del
+    //   ====== Extended ASCII (aka. obs-text) ======
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
 #[inline]
@@ -295,22 +296,14 @@ fn is_uri_token(b: u8) -> bool {
 }
 
 static HEADER_NAME_MAP: [bool; 256] = byte_map![
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-    0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+    0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
 #[inline]
@@ -319,24 +312,15 @@ fn is_header_name_token(b: u8) -> bool {
 }
 
 static HEADER_VALUE_MAP: [bool; 256] = byte_map![
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 ];
-
 
 #[inline]
 fn is_header_value_token(b: u8) -> bool {
@@ -361,7 +345,7 @@ pub enum Error {
     /// Invalid byte in HTTP version.
     Version,
     /// Invalid chunk size
-    ChunkSize
+    ChunkSize,
 }
 
 impl Error {
@@ -375,7 +359,7 @@ impl Error {
             Error::Token => "invalid token",
             Error::TooManyHeaders => "too many headers",
             Error::Version => "invalid HTTP version",
-            Error::ChunkSize => "invalid chunk size"
+            Error::ChunkSize => "invalid chunk size",
         }
     }
 }
@@ -411,7 +395,7 @@ pub enum Status<T> {
     /// The completed result.
     Complete(T),
     /// A partial result.
-    Partial
+    Partial,
 }
 
 impl<T> Status<T> {
@@ -420,7 +404,7 @@ impl<T> Status<T> {
     pub fn is_complete(&self) -> bool {
         match *self {
             Status::Complete(..) => true,
-            Status::Partial => false
+            Status::Partial => false,
         }
     }
 
@@ -429,7 +413,7 @@ impl<T> Status<T> {
     pub fn is_partial(&self) -> bool {
         match *self {
             Status::Complete(..) => false,
-            Status::Partial => true
+            Status::Partial => true,
         }
     }
 
@@ -439,7 +423,7 @@ impl<T> Status<T> {
     pub fn unwrap(self) -> T {
         match self {
             Status::Complete(t) => t,
-            Status::Partial => panic!("Tried to unwrap Status::Partial")
+            Status::Partial => panic!("Tried to unwrap Status::Partial"),
         }
     }
 }
@@ -458,7 +442,7 @@ pub struct Request<'headers, 'buf: 'headers> {
     /// The request version, such as `HTTP/1.1`.
     pub version: Option<u8>,
     /// The request headers.
-    pub headers: &'headers mut [Header<'buf>]
+    pub headers: &'headers mut [Header<'buf>],
 }
 
 impl<'h, 'b> Request<'h, 'b> {
@@ -499,16 +483,16 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
                 // there's `\r`, so it's safe to bump 1 pos
                 bytes.bump();
                 expect!(bytes.next() == b'\n' => Err(Error::NewLine));
-            },
+            }
             Some(b'\n') => {
                 // there's `\n`, so it's safe to bump 1 pos
                 bytes.bump();
-            },
+            }
             Some(..) => {
                 bytes.slice();
                 return Ok(Status::Complete(()));
-            },
-            None => return Ok(Status::Partial)
+            }
+            None => return Ok(Status::Partial),
         }
     }
 }
@@ -525,7 +509,7 @@ pub struct Response<'headers, 'buf: 'headers> {
     /// The response reason-phrase, such as `OK`.
     pub reason: Option<&'buf str>,
     /// The response headers.
-    pub headers: &'headers mut [Header<'buf>]
+    pub headers: &'headers mut [Header<'buf>],
 }
 
 impl<'h, 'b> Response<'h, 'b> {
@@ -563,16 +547,15 @@ impl<'h, 'b> Response<'h, 'b> {
             b' ' => {
                 bytes.slice();
                 self.reason = Some(complete!(parse_reason(&mut bytes)));
-            },
+            }
             b'\r' => {
                 expect!(bytes.next() == b'\n' => Err(Error::Status));
                 bytes.slice();
                 self.reason = Some("");
-            },
+            }
             b'\n' => self.reason = Some(""),
             _ => return Err(Error::Status),
         }
-
 
         let len = orig_len - bytes.len();
         let headers_len = complete!(parse_headers_iter(&mut self.headers, &mut bytes));
@@ -596,7 +579,10 @@ pub struct Header<'a> {
 
 /// An empty header, useful for constructing a `Header` array to pass in for
 /// parsing.
-pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
+pub const EMPTY_HEADER: Header<'static> = Header {
+    name: "",
+    value: b"",
+};
 
 #[inline]
 fn parse_version(bytes: &mut Bytes) -> Result<u8> {
@@ -611,9 +597,9 @@ fn parse_version(bytes: &mut Bytes) -> Result<u8> {
         let v = match eight._7() {
             b'0' => 0,
             b'1' => 1,
-            _ => return Err(Error::Version)
+            _ => return Err(Error::Version),
         };
-        return Ok(Status::Complete(v))
+        return Ok(Status::Complete(v));
     }
 
     // else (but not in `else` because of borrow checker)
@@ -691,16 +677,15 @@ fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     }
 }
 
-
 #[inline]
 fn parse_code(bytes: &mut Bytes) -> Result<u16> {
     let hundreds = expect!(bytes.next() == b'0'..=b'9' => Err(Error::Status));
     let tens = expect!(bytes.next() == b'0'..=b'9' => Err(Error::Status));
     let ones = expect!(bytes.next() == b'0'..=b'9' => Err(Error::Status));
 
-    Ok(Status::Complete((hundreds - b'0') as u16 * 100 +
-        (tens - b'0') as u16 * 10 +
-        (ones - b'0') as u16))
+    Ok(Status::Complete(
+        (hundreds - b'0') as u16 * 100 + (tens - b'0') as u16 * 10 + (ones - b'0') as u16,
+    ))
 }
 
 /// Parse a buffer of bytes as headers.
@@ -709,17 +694,20 @@ fn parse_code(bytes: &mut Bytes) -> Result<u16> {
 /// buffer that parsing stopped at, and a sliced reference to the parsed
 /// headers. The length of the slice will be equal to the number of properly
 /// parsed headers.
-pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
-    -> Result<(usize, &'h [Header<'b>])> {
+pub fn parse_headers<'b: 'h, 'h>(
+    src: &'b [u8],
+    mut dst: &'h mut [Header<'b>],
+) -> Result<(usize, &'h [Header<'b>])> {
     let mut iter = Bytes::new(src);
     let pos = complete!(parse_headers_iter(&mut dst, &mut iter));
     Ok(Status::Complete((pos, dst)))
 }
 
-
 #[inline]
-fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut Bytes<'a>)
-    -> Result<usize> {
+fn parse_headers_iter<'a, 'b>(
+    headers: &mut &mut [Header<'a>],
+    bytes: &'b mut Bytes<'a>,
+) -> Result<usize> {
     let mut num_headers: usize = 0;
     let mut count: usize = 0;
     let mut result = Err(Error::TooManyHeaders);
@@ -743,7 +731,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 
             let header = match iter.next() {
                 Some(header) => header,
-                None => break 'headers
+                None => break 'headers,
             };
 
             num_headers += 1;
@@ -752,7 +740,8 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                 let b = next!(bytes);
                 if b == b':' {
                     count += bytes.pos();
-                    header.name = str::from_utf8(bytes.slice_skip(1)).map_err(|_e| Error::HeaderName)?;
+                    header.name =
+                        str::from_utf8(bytes.slice_skip(1)).map_err(|_e| Error::HeaderName)?;
                     break 'name;
                 } else if !is_header_name_token(b) {
                     return Err(Error::HeaderName);
@@ -762,7 +751,6 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             let mut b;
 
             'value: loop {
-
                 // eat white space between colon and value
                 'whitespace: loop {
                     b = next!(bytes);
@@ -781,13 +769,13 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                 // parse value till EOL
 
                 macro_rules! check {
-                    ($bytes:ident, $i:ident) => ({
+                    ($bytes:ident, $i:ident) => {{
                         b = $bytes.$i();
                         if !is_header_value_token(b) {
                             break 'value;
                         }
-                    });
-                    ($bytes:ident) => ({
+                    }};
+                    ($bytes:ident) => {{
                         check!($bytes, _0);
                         check!($bytes, _1);
                         check!($bytes, _2);
@@ -796,7 +784,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                         check!($bytes, _5);
                         check!($bytes, _6);
                         check!($bytes, _7);
-                    })
+                    }};
                 }
                 while let Some(mut bytes8) = bytes.next_8() {
                     check!(bytes8);
@@ -810,7 +798,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             }
 
             //found_ctl
-            let value_slice : &[u8] = if b == b'\r' {
+            let value_slice: &[u8] = if b == b'\r' {
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip those 2 bytes
@@ -823,9 +811,10 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                 return Err(Error::HeaderValue);
             };
             // trim trailing whitespace in the header
-            if let Some(last_visible) = value_slice.iter().rposition(|b| *b != b' ' && *b != b'\t' ) {
+            if let Some(last_visible) = value_slice.iter().rposition(|b| *b != b' ' && *b != b'\t')
+            {
                 // There is at least one non-whitespace character.
-                header.value = &value_slice[0..last_visible+1];
+                header.value = &value_slice[0..last_visible + 1];
             } else {
                 // There is no non-whitespace character. This can only happen when value_slice is
                 // empty.
@@ -842,8 +831,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 ///
 /// The return value, if complete and successful, includes the index of the
 /// buffer that parsing stopped at, and the size of the following chunk.
-pub fn parse_chunk_size(buf: &[u8])
-    -> result::Result<Status<(usize, u64)>, Error> {
+pub fn parse_chunk_size(buf: &[u8]) -> result::Result<Status<(usize, u64)>, Error> {
     const RADIX: u64 = 16;
     let mut bytes = Bytes::new(buf);
     let mut size = 0u64;
@@ -853,36 +841,40 @@ pub fn parse_chunk_size(buf: &[u8])
     loop {
         let b = next!(bytes);
         match b {
-            b'0' ..= b'9' if in_chunk_size => {
+            b'0'..=b'9' if in_chunk_size => {
                 if count > 15 {
                     return Err(Error::ChunkSize);
                 }
                 count += 1;
                 size = size.checked_mul(RADIX).ok_or(Error::ChunkSize)?;
-                size = size.checked_add((b - b'0') as u64).ok_or(Error::ChunkSize)?;
+                size = size
+                    .checked_add((b - b'0') as u64)
+                    .ok_or(Error::ChunkSize)?;
+            }
+            b'a'..=b'f' if in_chunk_size => {
+                if count > 15 {
+                    return Err(Error::ChunkSize);
+                }
+                count += 1;
+                size = size.checked_mul(RADIX).ok_or(Error::ChunkSize)?;
+                size = size
+                    .checked_add((b + 10 - b'a') as u64)
+                    .ok_or(Error::ChunkSize)?;
+            }
+            b'A'..=b'F' if in_chunk_size => {
+                if count > 15 {
+                    return Err(Error::ChunkSize);
+                }
+                count += 1;
+                size = size.checked_mul(RADIX).ok_or(Error::ChunkSize)?;
+                size = size
+                    .checked_add((b + 10 - b'A') as u64)
+                    .ok_or(Error::ChunkSize)?;
+            }
+            b'\r' => match next!(bytes) {
+                b'\n' => break,
+                _ => return Err(Error::ChunkSize),
             },
-            b'a' ..= b'f' if in_chunk_size => {
-                if count > 15 {
-                    return Err(Error::ChunkSize);
-                }
-                count += 1;
-                size = size.checked_mul(RADIX).ok_or(Error::ChunkSize)?;
-                size = size.checked_add((b + 10 - b'a') as u64).ok_or(Error::ChunkSize)?;
-            }
-            b'A' ..= b'F' if in_chunk_size => {
-                if count > 15 {
-                    return Err(Error::ChunkSize);
-                }
-                count += 1;
-                size = size.checked_mul(RADIX).ok_or(Error::ChunkSize)?;
-                size = size.checked_add((b + 10 - b'A') as u64).ok_or(Error::ChunkSize)?;
-            }
-            b'\r' => {
-                match next!(bytes) {
-                    b'\n' => break,
-                    _ => return Err(Error::ChunkSize),
-                }
-            }
             // If we weren't in the extension yet, the ";" signals its start
             b';' if !in_ext => {
                 in_ext = true;
@@ -909,7 +901,7 @@ pub fn parse_chunk_size(buf: &[u8])
 
 #[cfg(test)]
 mod tests {
-    use super::{Request, Response, Status, Error, EMPTY_HEADER, shrink, parse_chunk_size};
+    use super::{parse_chunk_size, shrink, Error, Request, Response, Status, EMPTY_HEADER};
 
     const NUM_OF_HEADERS: usize = 4;
 
@@ -926,23 +918,23 @@ mod tests {
     }
 
     macro_rules! req {
-        ($name:ident, $buf:expr, |$arg:ident| $body:expr) => (
+        ($name:ident, $buf:expr, |$arg:ident| $body:expr) => {
             req! {$name, $buf, Ok(Status::Complete($buf.len())), |$arg| $body }
-        );
-        ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => (
-        #[test]
-        fn $name() {
-            let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
-            let mut req = Request::new(&mut headers[..]);
-            let status = req.parse($buf.as_ref());
-            assert_eq!(status, $len);
-            closure(req);
+        };
+        ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => {
+            #[test]
+            fn $name() {
+                let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+                let mut req = Request::new(&mut headers[..]);
+                let status = req.parse($buf.as_ref());
+                assert_eq!(status, $len);
+                closure(req);
 
-            fn closure($arg: Request) {
-                $body
+                fn closure($arg: Request) {
+                    $body
+                }
             }
-        }
-        )
+        };
     }
 
     req! {
@@ -1072,7 +1064,6 @@ mod tests {
         }
     }
 
-
     req! {
         test_request_partial,
         b"GET / HTTP/1.1\r\n\r", Ok(Status::Partial),
@@ -1131,7 +1122,6 @@ mod tests {
         |_r| {}
     }
 
-
     req! {
         test_request_with_invalid_but_short_version,
         b"GET / HTTP/1!",
@@ -1140,23 +1130,23 @@ mod tests {
     }
 
     macro_rules! res {
-        ($name:ident, $buf:expr, |$arg:ident| $body:expr) => (
+        ($name:ident, $buf:expr, |$arg:ident| $body:expr) => {
             res! {$name, $buf, Ok(Status::Complete($buf.len())), |$arg| $body }
-        );
-        ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => (
-        #[test]
-        fn $name() {
-            let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
-            let mut res = Response::new(&mut headers[..]);
-            let status = res.parse($buf.as_ref());
-            assert_eq!(status, $len);
-            closure(res);
+        };
+        ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => {
+            #[test]
+            fn $name() {
+                let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+                let mut res = Response::new(&mut headers[..]);
+                let status = res.parse($buf.as_ref());
+                assert_eq!(status, $len);
+                closure(res);
 
-            fn closure($arg: Response) {
-                $body
+                fn closure($arg: Response) {
+                    $body
+                }
             }
-        }
-        )
+        };
     }
 
     res! {
@@ -1256,19 +1246,43 @@ mod tests {
     #[test]
     fn test_chunk_size() {
         assert_eq!(parse_chunk_size(b"0\r\n"), Ok(Status::Complete((3, 0))));
-        assert_eq!(parse_chunk_size(b"12\r\nchunk"), Ok(Status::Complete((4, 18))));
-        assert_eq!(parse_chunk_size(b"3086d\r\n"), Ok(Status::Complete((7, 198765))));
-        assert_eq!(parse_chunk_size(b"3735AB1;foo bar*\r\n"), Ok(Status::Complete((18, 57891505))));
-        assert_eq!(parse_chunk_size(b"3735ab1 ; baz \r\n"), Ok(Status::Complete((16, 57891505))));
+        assert_eq!(
+            parse_chunk_size(b"12\r\nchunk"),
+            Ok(Status::Complete((4, 18)))
+        );
+        assert_eq!(
+            parse_chunk_size(b"3086d\r\n"),
+            Ok(Status::Complete((7, 198765)))
+        );
+        assert_eq!(
+            parse_chunk_size(b"3735AB1;foo bar*\r\n"),
+            Ok(Status::Complete((18, 57891505)))
+        );
+        assert_eq!(
+            parse_chunk_size(b"3735ab1 ; baz \r\n"),
+            Ok(Status::Complete((16, 57891505)))
+        );
         assert_eq!(parse_chunk_size(b"77a65\r"), Ok(Status::Partial));
         assert_eq!(parse_chunk_size(b"ab"), Ok(Status::Partial));
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(Error::ChunkSize));
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(Error::ChunkSize));
         assert_eq!(parse_chunk_size(b"567xf8a\r\n"), Err(Error::ChunkSize));
-        assert_eq!(parse_chunk_size(b"ffffffffffffffff\r\n"), Ok(Status::Complete((18, u64::max_value()))));
-        assert_eq!(parse_chunk_size(b"1ffffffffffffffff\r\n"), Err(Error::ChunkSize));
-        assert_eq!(parse_chunk_size(b"Affffffffffffffff\r\n"), Err(Error::ChunkSize));
-        assert_eq!(parse_chunk_size(b"fffffffffffffffff\r\n"), Err(Error::ChunkSize));
+        assert_eq!(
+            parse_chunk_size(b"ffffffffffffffff\r\n"),
+            Ok(Status::Complete((18, u64::max_value())))
+        );
+        assert_eq!(
+            parse_chunk_size(b"1ffffffffffffffff\r\n"),
+            Err(Error::ChunkSize)
+        );
+        assert_eq!(
+            parse_chunk_size(b"Affffffffffffffff\r\n"),
+            Err(Error::ChunkSize)
+        );
+        assert_eq!(
+            parse_chunk_size(b"fffffffffffffffff\r\n"),
+            Err(Error::ChunkSize)
+        );
     }
 
     #[cfg(feature = "std")]

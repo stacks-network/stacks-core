@@ -24,48 +24,43 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 
 use chainstate::burn::operations::{
-    LeaderBlockCommitOp,
-    LeaderKeyRegisterOp,
+    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     UserBurnSupportOp,
-    BlockstackOperation,
-    BlockstackOperationType,
 };
 
 use util::db::DBConn;
 use util::db::DBTx;
 
-use chainstate::burn::db::sortdb::{
-    SortitionHandleTx
-};
+use chainstate::burn::db::sortdb::SortitionHandleTx;
 use chainstate::stacks::index::TrieHash;
 
-use burnchains::BurnchainTransaction;
-use burnchains::Txid;
 use burnchains::Address;
-use burnchains::PublicKey;
-use burnchains::BurnchainHeaderHash;
-use burnchains::BurnchainBlockHeader;
 use burnchains::Burnchain;
+use burnchains::BurnchainBlockHeader;
+use burnchains::BurnchainHeaderHash;
+use burnchains::BurnchainTransaction;
+use burnchains::PublicKey;
+use burnchains::Txid;
 
 use address::AddressHashMode;
 
-use chainstate::stacks::StacksAddress;
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::StacksPrivateKey;
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::StacksAddress;
+use chainstate::stacks::StacksPrivateKey;
+use chainstate::stacks::StacksPublicKey;
 
-use net::StacksMessageCodec;
-use net::codec::{write_next};
+use net::codec::write_next;
 use net::Error as net_error;
+use net::StacksMessageCodec;
 
-use util::vrf::{VRF,VRFPublicKey,VRFPrivateKey};
-use util::log;
 use util::hash::DoubleSha256;
+use util::log;
+use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 struct ParsedData {
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
-    pub memo: Vec<u8>
+    pub memo: Vec<u8>,
 }
 
 impl LeaderKeyRegisterOp {
@@ -86,12 +81,23 @@ impl LeaderKeyRegisterOp {
     }
 
     #[cfg(test)]
-    pub fn new_from_secrets(privks: &Vec<StacksPrivateKey>, num_sigs: u16, hash_mode: &AddressHashMode, prover_key: &VRFPrivateKey) -> Option<LeaderKeyRegisterOp> {
-        let pubks = privks.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
-        let addr = match StacksAddress::from_public_keys(hash_mode.to_version_testnet(), hash_mode, num_sigs as usize, &pubks) {
-            Some(a) => {
-                a
-            },
+    pub fn new_from_secrets(
+        privks: &Vec<StacksPrivateKey>,
+        num_sigs: u16,
+        hash_mode: &AddressHashMode,
+        prover_key: &VRFPrivateKey,
+    ) -> Option<LeaderKeyRegisterOp> {
+        let pubks = privks
+            .iter()
+            .map(|ref pk| StacksPublicKey::from_private(pk))
+            .collect();
+        let addr = match StacksAddress::from_public_keys(
+            hash_mode.to_version_testnet(),
+            hash_mode,
+            num_sigs as usize,
+            &pubks,
+        ) {
+            Some(a) => a,
             None => {
                 return None;
             }
@@ -99,7 +105,7 @@ impl LeaderKeyRegisterOp {
         let prover_pubk = VRFPublicKey::from_private(prover_key);
         Some(LeaderKeyRegisterOp::new(&addr, &prover_pubk))
     }
-    
+
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
@@ -108,21 +114,23 @@ impl LeaderKeyRegisterOp {
             |------|--|---------------|-----------------------|---------------------------|
              magic  op consensus hash   proving public key               memo
 
-            
+
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
         */
-        // memo can be empty, and magic + op are omitted 
+        // memo can be empty, and magic + op are omitted
         if data.len() < 52 {
             // too short to have a consensus hash and proving public key
-            warn!("LEADER_KEY_REGISTER payload is malformed ({} bytes)", data.len());
+            warn!(
+                "LEADER_KEY_REGISTER payload is malformed ({} bytes)",
+                data.len()
+            );
             return None;
         }
 
-        let consensus_hash = ConsensusHash::from_bytes(&data[0..20]).expect("FATAL: invalid byte slice for consensus hash");
+        let consensus_hash = ConsensusHash::from_bytes(&data[0..20])
+            .expect("FATAL: invalid byte slice for consensus hash");
         let pubkey = match VRFPublicKey::from_bytes(&data[20..52].to_vec()) {
-            Some(pubk) => {
-                pubk
-            },
+            Some(pubk) => pubk,
             None => {
                 warn!("Invalid VRF public key");
                 return None;
@@ -134,22 +142,34 @@ impl LeaderKeyRegisterOp {
         Some(ParsedData {
             consensus_hash,
             public_key: pubkey,
-            memo: memo.to_vec()
+            memo: memo.to_vec(),
         })
     }
 
-    fn parse_from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction) -> Result<LeaderKeyRegisterOp, op_error> {
+    fn parse_from_tx(
+        block_height: u64,
+        block_hash: &BurnchainHeaderHash,
+        tx: &BurnchainTransaction,
+    ) -> Result<LeaderKeyRegisterOp, op_error> {
         // can't be too careful...
         let inputs = tx.get_signers();
         let outputs = tx.get_recipients();
 
         if inputs.len() == 0 {
-            test_debug!("Invalid tx: inputs: {}, outputs: {}", inputs.len(), outputs.len());
+            test_debug!(
+                "Invalid tx: inputs: {}, outputs: {}",
+                inputs.len(),
+                outputs.len()
+            );
             return Err(op_error::InvalidInput);
         }
 
         if outputs.len() < 1 {
-            test_debug!("Invalid tx: inputs: {}, outputs: {}", inputs.len(), outputs.len());
+            test_debug!(
+                "Invalid tx: inputs: {}, outputs: {}",
+                inputs.len(),
+                outputs.len()
+            );
             return Err(op_error::InvalidInput);
         }
 
@@ -159,9 +179,7 @@ impl LeaderKeyRegisterOp {
         }
 
         let data = match LeaderKeyRegisterOp::parse_data(&tx.data()) {
-            Some(data) => {
-                data
-            },
+            Some(data) => data,
             None => {
                 test_debug!("Invalid tx data");
                 return Err(op_error::ParseError);
@@ -185,7 +203,6 @@ impl LeaderKeyRegisterOp {
 }
 
 impl StacksMessageCodec for LeaderKeyRegisterOp {
-
     /*
         Wire format:
 
@@ -196,8 +213,9 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
         write_next(fd, &self.consensus_hash)?;
-        fd.write_all(&self.public_key.as_bytes()[..]).map_err(net_error::WriteError)?;    
-        
+        fd.write_all(&self.public_key.as_bytes()[..])
+            .map_err(net_error::WriteError)?;
+
         let memo = match self.memo.len() {
             l if l <= 25 => self.memo[0..].to_vec().clone(),
             _ => self.memo[0..25].to_vec().clone(),
@@ -213,7 +231,10 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
 }
 
 impl BlockstackOperation for LeaderKeyRegisterOp {
-    fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<LeaderKeyRegisterOp, op_error> {
+    fn from_tx(
+        block_header: &BurnchainBlockHeader,
+        tx: &BurnchainTransaction,
+    ) -> Result<LeaderKeyRegisterOp, op_error> {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 }
@@ -224,11 +245,14 @@ impl LeaderKeyRegisterOp {
         // Keys must be unique -- no one can register the same key twice
         /////////////////////////////////////////////////////////////////
 
-        // key selected here must never have been submitted on this fork before 
+        // key selected here must never have been submitted on this fork before
         let has_key_already = tx.has_VRF_public_key(&self.public_key)?;
 
         if has_key_already {
-            warn!("Invalid leader key registration: public key {} previously used", &self.public_key.to_hex());
+            warn!(
+                "Invalid leader key registration: public key {} previously used",
+                &self.public_key.to_hex()
+            );
             return Err(op_error::LeaderKeyAlreadyRegistered);
         }
 
@@ -237,10 +261,15 @@ impl LeaderKeyRegisterOp {
         /////////////////////////////////////////////////////////////////
 
         let consensus_hash_recent = tx.is_fresh_consensus_hash(
-            burnchain.consensus_hash_lifetime.into(), &self.consensus_hash)?;
+            burnchain.consensus_hash_lifetime.into(),
+            &self.consensus_hash,
+        )?;
 
         if !consensus_hash_recent {
-            warn!("Invalid leader key registration: invalid consensus hash {}", &self.consensus_hash);
+            warn!(
+                "Invalid leader key registration: invalid consensus hash {}",
+                &self.consensus_hash
+            );
             return Err(op_error::LeaderKeyBadConsensusHash);
         }
 
@@ -252,27 +281,24 @@ impl LeaderKeyRegisterOp {
 pub mod tests {
     use super::*;
     use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::*;
 
-    use deps::bitcoin::network::serialize::deserialize;
     use deps::bitcoin::blockdata::transaction::Transaction;
+    use deps::bitcoin::network::serialize::deserialize;
 
-    use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash, BlockSnapshot};
-    
+    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+
+    use chainstate::burn::db::sortdb::*;
+    use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, to_hex};
     use util::log;
-    use util::get_epoch_time_secs;
-    use chainstate::burn::db::sortdb::*;
 
     use chainstate::burn::operations::{
-        LeaderBlockCommitOp,
-        LeaderKeyRegisterOp,
+        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
         UserBurnSupportOp,
-        BlockstackOperation,
-        BlockstackOperationType
     };
 
     pub struct OpFixture {
@@ -283,18 +309,20 @@ pub mod tests {
 
     struct CheckFixture {
         op: LeaderKeyRegisterOp,
-        res: Result<(), op_error>
+        res: Result<(), op_error>,
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
-        let tx_bin = hex_bytes(hex_str)
-            .map_err(|_e| "failed to decode hex string")?;
-        let tx = deserialize(&tx_bin.to_vec())
-            .map_err(|_e| "failed to deserialize")?;
+        let tx_bin = hex_bytes(hex_str).map_err(|_e| "failed to decode hex string")?;
+        let tx = deserialize(&tx_bin.to_vec()).map_err(|_e| "failed to deserialize")?;
         Ok(tx)
     }
 
-    pub fn get_test_fixtures(vtxindex: u32, block_height: u64, burn_header_hash: BurnchainHeaderHash) -> Vec<OpFixture> {
+    pub fn get_test_fixtures(
+        vtxindex: u32,
+        block_height: u64,
+        burn_header_hash: BurnchainHeaderHash,
+    ) -> Vec<OpFixture> {
         vec![
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402203a176d95803e8d51e7884d38750322c4bfa55307a71291ef8db65191edd665f1022056f5d1720d1fde8d6a163c79f73f22f874ef9e186e98e5b60fa8ac64d298e77a012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
@@ -357,7 +385,10 @@ pub mod tests {
     fn test_parse() {
         let vtxindex = 1;
         let block_height = 694;
-        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let burn_header_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
 
         let tx_fixtures = get_test_fixtures(vtxindex, block_height, burn_header_hash);
 
@@ -366,49 +397,50 @@ pub mod tests {
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let header = match tx_fixture.result {
-                Some(ref op) => {
-                    BurnchainBlockHeader {
-                        block_height: op.block_height,
-                        block_hash: op.burn_header_hash.clone(),
-                        parent_block_hash: op.burn_header_hash.clone(),
-                        num_txs: 1,
-                        timestamp: get_epoch_time_secs()
-                    }
+                Some(ref op) => BurnchainBlockHeader {
+                    block_height: op.block_height,
+                    block_hash: op.burn_header_hash.clone(),
+                    parent_block_hash: op.burn_header_hash.clone(),
+                    num_txs: 1,
+                    timestamp: get_epoch_time_secs(),
                 },
-                None => {
-                    BurnchainBlockHeader {
-                        block_height: 0,
-                        block_hash: BurnchainHeaderHash([0u8; 32]),
-                        parent_block_hash: BurnchainHeaderHash([0u8; 32]),
-                        num_txs: 0,
-                        timestamp: get_epoch_time_secs()
-                    }
-                }
+                None => BurnchainBlockHeader {
+                    block_height: 0,
+                    block_hash: BurnchainHeaderHash([0u8; 32]),
+                    parent_block_hash: BurnchainHeaderHash([0u8; 32]),
+                    num_txs: 0,
+                    timestamp: get_epoch_time_secs(),
+                },
             };
-            let burnchain_tx = BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
+            let burnchain_tx =
+                BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
             let op = LeaderKeyRegisterOp::from_tx(&header, &burnchain_tx);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
-
                     let opstr = {
-                        let mut buffer= vec![];
+                        let mut buffer = vec![];
                         let mut magic_bytes = BLOCKSTACK_MAGIC_MAINNET.as_bytes().to_vec();
                         buffer.append(&mut magic_bytes);
-                        parsed_tx.consensus_serialize(&mut buffer).expect("FATAL: invalid operation");
+                        parsed_tx
+                            .consensus_serialize(&mut buffer)
+                            .expect("FATAL: invalid operation");
                         to_hex(&buffer)
                     };
 
                     assert_eq!(tx_fixture.opstr, opstr);
                     assert_eq!(parsed_tx, result);
-                },
-                (Err(_e), None) => {},
+                }
+                (Err(_e), None) => {}
                 (Ok(_parsed_tx), None) => {
                     test_debug!("Parsed a tx when we should not have: {}", tx_fixture.txstr);
                     assert!(false);
-                },
+                }
                 (Err(_e), Some(_result)) => {
-                    test_debug!("Did not parse a tx when we should have: {}", tx_fixture.txstr);
+                    test_debug!(
+                        "Did not parse a tx when we should have: {}",
+                        tx_fixture.txstr
+                    );
                     assert!(false);
                 }
             };
@@ -417,21 +449,53 @@ pub mod tests {
 
     #[test]
     fn test_check() {
-        
         let first_block_height = 121;
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
-        
-        let block_122_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap();
-        let block_123_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
-        let block_124_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap();
-        let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000006").unwrap();
-        let block_126_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000007").unwrap();
-        let block_127_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000008").unwrap();
-        let block_128_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000009").unwrap();
-        let block_129_hash = BurnchainHeaderHash::from_hex("000000000000000000000000000000000000000000000000000000000000000a").unwrap();
-        let block_130_hash = BurnchainHeaderHash::from_hex("000000000000000000000000000000000000000000000000000000000000000b").unwrap();
-        let block_131_hash = BurnchainHeaderHash::from_hex("000000000000000000000000000000000000000000000000000000000000000c").unwrap();
-        
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000123",
+        )
+        .unwrap();
+
+        let block_122_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        )
+        .unwrap();
+        let block_123_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000003",
+        )
+        .unwrap();
+        let block_124_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000004",
+        )
+        .unwrap();
+        let block_125_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000006",
+        )
+        .unwrap();
+        let block_126_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000007",
+        )
+        .unwrap();
+        let block_127_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000008",
+        )
+        .unwrap();
+        let block_128_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000009",
+        )
+        .unwrap();
+        let block_129_hash = BurnchainHeaderHash::from_hex(
+            "000000000000000000000000000000000000000000000000000000000000000a",
+        )
+        .unwrap();
+        let block_130_hash = BurnchainHeaderHash::from_hex(
+            "000000000000000000000000000000000000000000000000000000000000000b",
+        )
+        .unwrap();
+        let block_131_hash = BurnchainHeaderHash::from_hex(
+            "000000000000000000000000000000000000000000000000000000000000000c",
+        )
+        .unwrap();
+
         let block_header_hashes = [
             block_122_hash.clone(),
             block_123_hash.clone(),
@@ -442,7 +506,7 @@ pub mod tests {
             block_128_hash.clone(),
             block_129_hash.clone(),
             block_130_hash.clone(),
-            block_131_hash.clone()
+            block_131_hash.clone(),
         ];
 
         let burnchain = Burnchain {
@@ -457,28 +521,45 @@ pub mod tests {
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone(),
         };
-        
+
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
-        let leader_key_1 = LeaderKeyRegisterOp { 
-            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
-            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+        let leader_key_1 = LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash::from_bytes(
+                &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
+            )
+            .unwrap(),
+            public_key: VRFPublicKey::from_bytes(
+                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                    .unwrap(),
+            )
+            .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
+            address: StacksAddress::from_bitcoin_address(
+                &BitcoinAddress::from_scriptpubkey(
+                    BitcoinNetworkType::Testnet,
+                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
+                )
+                .unwrap(),
+            ),
 
-            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            txid: Txid::from_bytes_be(
+                &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
+                    .unwrap(),
+            )
+            .unwrap(),
             vtxindex: 456,
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
         };
-       
+
         let block_ops = vec![
             // 122
             vec![],
             // 123
-            vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone())
-            ],
+            vec![BlockstackOperationType::LeaderKeyRegister(
+                leader_key_1.clone(),
+            )],
             // 124
             vec![],
             // 125
@@ -508,13 +589,45 @@ pub mod tests {
                     burn_header_hash: block_header_hashes[i as usize].clone(),
                     sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
-                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        (i + 1) as u8,
+                    ])
+                    .unwrap(),
+                    ops_hash: OpsHash::from_bytes(&[
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, i as u8,
+                    ])
+                    .unwrap(),
                     total_burn: i,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
-                    winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_block_txid: Txid::from_hex(
+                        "0000000000000000000000000000000000000000000000000000000000000000",
+                    )
+                    .unwrap(),
+                    winning_stacks_block_hash: BlockHeaderHash::from_hex(
+                        "0000000000000000000000000000000000000000000000000000000000000000",
+                    )
+                    .unwrap(),
                     index_root: TrieHash::from_empty_data(),
                     num_sortitions: i + 1,
                     stacks_block_accepted: false,
@@ -524,9 +637,18 @@ pub mod tests {
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 };
-                let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
+                let mut tx =
+                    SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
 
-                let next_tip_root = tx.append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &block_ops[i as usize], None, None).unwrap();
+                let next_tip_root = tx
+                    .append_chain_tip_snapshot(
+                        &prev_snapshot,
+                        &snapshot_row,
+                        &block_ops[i as usize],
+                        None,
+                        None,
+                    )
+                    .unwrap();
                 snapshot_row.index_root = next_tip_root;
 
                 tx.commit().unwrap();
@@ -537,14 +659,36 @@ pub mod tests {
 
         let check_fixtures = vec![
             CheckFixture {
-                // reject -- key already registered 
+                // reject -- key already registered
                 op: LeaderKeyRegisterOp {
-                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
-                    public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(
+                        &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
+                    )
+                    .unwrap(),
+                    public_key: VRFPublicKey::from_bytes(
+                        &hex_bytes(
+                            "a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
+                    address: StacksAddress::from_bitcoin_address(
+                        &BitcoinAddress::from_scriptpubkey(
+                            BitcoinNetworkType::Testnet,
+                            &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac")
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    ),
 
-                    txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+                    txid: Txid::from_bytes_be(
+                        &hex_bytes(
+                            "1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
                     vtxindex: 455,
                     block_height: 123,
                     burn_header_hash: block_123_hash.clone(),
@@ -554,12 +698,34 @@ pub mod tests {
             CheckFixture {
                 // reject -- invalid consensus hash
                 op: LeaderKeyRegisterOp {
-                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1000000000000000000000000000000000000000").unwrap()).unwrap(),
-                    public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(
+                        &hex_bytes("1000000000000000000000000000000000000000").unwrap(),
+                    )
+                    .unwrap(),
+                    public_key: VRFPublicKey::from_bytes(
+                        &hex_bytes(
+                            "bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
+                    address: StacksAddress::from_bitcoin_address(
+                        &BitcoinAddress::from_scriptpubkey(
+                            BitcoinNetworkType::Testnet,
+                            &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac")
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    ),
 
-                    txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+                    txid: Txid::from_bytes_be(
+                        &hex_bytes(
+                            "1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
                     vtxindex: 456,
                     block_height: 123,
                     burn_header_hash: block_123_hash.clone(),
@@ -567,20 +733,42 @@ pub mod tests {
                 res: Err(op_error::LeaderKeyBadConsensusHash),
             },
             CheckFixture {
-                // accept 
+                // accept
                 op: LeaderKeyRegisterOp {
-                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
-                    public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(
+                        &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
+                    )
+                    .unwrap(),
+                    public_key: VRFPublicKey::from_bytes(
+                        &hex_bytes(
+                            "bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
+                    address: StacksAddress::from_bitcoin_address(
+                        &BitcoinAddress::from_scriptpubkey(
+                            BitcoinNetworkType::Testnet,
+                            &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac")
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    ),
 
-                    txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+                    txid: Txid::from_bytes_be(
+                        &hex_bytes(
+                            "1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562",
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
                     vtxindex: 456,
                     block_height: 123,
                     burn_header_hash: block_123_hash.clone(),
                 },
-                res: Ok(())
-            }
+                res: Ok(()),
+            },
         ];
 
         for fixture in check_fixtures {
@@ -589,13 +777,19 @@ pub mod tests {
                 block_hash: fixture.op.burn_header_hash.clone(),
                 parent_block_hash: fixture.op.burn_header_hash.clone(),
                 num_txs: 1,
-                timestamp: get_epoch_time_secs()
+                timestamp: get_epoch_time_secs(),
             };
-            let mut ic = SortitionHandleTx::begin(&mut db, &SortitionId::stubbed(&fixture.op.burn_header_hash)).unwrap();
-            assert_eq!(format!("{:?}", &fixture.res), format!("{:?}", &fixture.op.check(&burnchain, &mut ic)));
+            let mut ic = SortitionHandleTx::begin(
+                &mut db,
+                &SortitionId::stubbed(&fixture.op.burn_header_hash),
+            )
+            .unwrap();
+            assert_eq!(
+                format!("{:?}", &fixture.res),
+                format!("{:?}", &fixture.op.check(&burnchain, &mut ic))
+            );
         }
     }
 
     // TODO: make VRF keys expire
 }
-

@@ -17,24 +17,20 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::io;
-use std::io::prelude::*;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
-use std::collections::{HashSet, HashMap};
+use std::io;
+use std::io::prelude::*;
 
+use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-use chainstate::stacks::db::*;
 
 use std::path::{Path, PathBuf};
 
 use util::db::Error as db_error;
-use util::db::{
-    DBConn,
-    query_rows,
-    query_count
-};
+use util::db::{query_count, query_rows, DBConn};
 
 use util::strings::StacksString;
 
@@ -44,27 +40,15 @@ use chainstate::burn::db::sortdb::*;
 
 use net::Error as net_error;
 
-use vm::types::{
-    PrincipalData,
-    StandardPrincipalData,
-    QualifiedContractIdentifier
-};
+use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 
-use vm::contexts::{
-    OwnedEnvironment,
-    AssetMap
-};
+use vm::contexts::{AssetMap, OwnedEnvironment};
 
-use vm::ast::build_ast;
 use vm::analysis::run_analysis;
-use vm::types::{
-    Value,
-    AssetIdentifier
-};
+use vm::ast::build_ast;
+use vm::types::{AssetIdentifier, Value};
 
-use vm::clarity::{
-    ClarityConnection
-};
+use vm::clarity::ClarityConnection;
 
 pub use vm::analysis::errors::CheckErrors;
 use vm::errors::Error as clarity_vm_error;
@@ -74,23 +58,34 @@ use vm::database::ClarityDatabase;
 use vm::contracts::Contract;
 
 impl StacksChainState {
-    pub fn get_contract<T: ClarityConnection>(clarity_tx: &mut T, contract_id: &QualifiedContractIdentifier) -> Result<Option<Contract>, Error> {
-        clarity_tx.with_clarity_db_readonly(|ref mut db| {
-            match db.get_contract(contract_id) {
+    pub fn get_contract<T: ClarityConnection>(
+        clarity_tx: &mut T,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> Result<Option<Contract>, Error> {
+        clarity_tx
+            .with_clarity_db_readonly(|ref mut db| match db.get_contract(contract_id) {
                 Ok(c) => Ok(Some(c)),
                 Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchContract(_))) => Ok(None),
                 Err(e) => Err(clarity_error::Interpreter(e)),
-            }
-        }).map_err(Error::ClarityError)
+            })
+            .map_err(Error::ClarityError)
     }
-    
-    pub fn get_data_var<T: ClarityConnection>(clarity_tx: &mut T, contract_id: &QualifiedContractIdentifier, data_var: &str) -> Result<Option<Value>, Error> {
-        clarity_tx.with_clarity_db_readonly(|ref mut db| {
-            match db.lookup_variable(contract_id, data_var) {
-                Ok(c) => Ok(Some(c)),
-                Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => Ok(None),
-                Err(e) => Err(clarity_error::Interpreter(e)),
-            }
-        }).map_err(Error::ClarityError)
+
+    pub fn get_data_var<T: ClarityConnection>(
+        clarity_tx: &mut T,
+        contract_id: &QualifiedContractIdentifier,
+        data_var: &str,
+    ) -> Result<Option<Value>, Error> {
+        clarity_tx
+            .with_clarity_db_readonly(|ref mut db| {
+                match db.lookup_variable(contract_id, data_var) {
+                    Ok(c) => Ok(Some(c)),
+                    Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => {
+                        Ok(None)
+                    }
+                    Err(e) => Err(clarity_error::Interpreter(e)),
+                }
+            })
+            .map_err(Error::ClarityError)
     }
 }

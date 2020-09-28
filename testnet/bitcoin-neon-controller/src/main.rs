@@ -1,34 +1,28 @@
-#[macro_use] extern crate serde_derive;
+#[macro_use]
+extern crate serde_derive;
 
-use std::io::{BufReader, Read};
-use std::fs::File;
 use std::env;
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::thread::{self, sleep};
 use std::time::Duration;
-use std::time::{UNIX_EPOCH, SystemTime};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use async_h1::{client};
+use async_h1::client;
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task;
-use base64::{encode};
-use http_types::{
-    Response, 
-    StatusCode, 
-    Method, 
-    headers,
-    Request, 
-    Url
-};
+use base64::encode;
+use http_types::{headers, Method, Request, Response, StatusCode, Url};
 use serde::Deserialize;
 use serde_json::Deserializer;
 use toml;
 
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
 
 #[async_std::main]
 async fn main() -> http_types::Result<()> {
-    let argv : Vec<String> = env::args().collect();
+    let argv: Vec<String> = env::args().collect();
 
     // Guard: config missing
     if argv.len() != 2 {
@@ -47,21 +41,25 @@ async fn main() -> http_types::Result<()> {
         let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(dur) => dur,
             Err(err) => err.duration(),
-        }.as_secs() as u64;
+        }
+        .as_secs() as u64;
 
         let genesis_timestamp = if env::var("DYNAMIC_GENESIS_TIMESTAMP") == Ok("1".into()) {
-            println!("INFO: detected DYNAMIC_GENESIS_TIMESTAMP, will set the genesis timestamp to {}", now);
+            println!(
+                "INFO: detected DYNAMIC_GENESIS_TIMESTAMP, will set the genesis timestamp to {}",
+                now
+            );
             now.clone()
         } else {
             match std::env::var("STATIC_GENESIS_TIMESTAMP") {
-                Ok(val) =>  match val.parse::<u64>() {
+                Ok(val) => match val.parse::<u64>() {
                     Ok(val) => val,
                     Err(err) => {
                         println!("WARN: parsing STATIC_GENESIS_TIMESTAMP failed ({:?}), falling back on {}", err, config.neon.genesis_timestamp);
                         config.neon.genesis_timestamp
-                    },
+                    }
                 },
-                _ => config.neon.genesis_timestamp
+                _ => config.neon.genesis_timestamp,
             }
         };
 
@@ -134,12 +132,13 @@ async fn main() -> http_types::Result<()> {
 async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_types::Result<()> {
     println!("starting new connection from {}", stream.peer_addr()?);
     async_h1::accept(&addr, stream.clone(), |mut req| async {
-        match (req.method(), req.url().path(), req.header(&headers::CONTENT_TYPE)) {
-            (Method::Get, "/ping", Some(_content_type)) => {
-                Ok(Response::new(StatusCode::Ok))
-            },
+        match (
+            req.method(),
+            req.url().path(),
+            req.header(&headers::CONTENT_TYPE),
+        ) {
+            (Method::Get, "/ping", Some(_content_type)) => Ok(Response::new(StatusCode::Ok)),
             (Method::Post, "/", Some(_content_types)) => {
-                
                 let (res, buffer) = async_std::task::block_on(async move {
                     let mut buffer = Vec::new();
                     let mut body = req.take_body();
@@ -147,9 +146,9 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
                     (res, buffer)
                 });
 
-                // Guard: can't be read 
+                // Guard: can't be read
                 if res.is_err() {
-                    return Ok(Response::new(StatusCode::MethodNotAllowed))
+                    return Ok(Response::new(StatusCode::MethodNotAllowed));
                 }
 
                 let mut deserializer = Deserializer::from_slice(&buffer);
@@ -157,16 +156,16 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
                 // Guard: can't be parsed
                 let rpc_req: RPCRequest = match RPCRequest::deserialize(&mut deserializer) {
                     Ok(rpc_req) => rpc_req,
-                    _ => return Ok(Response::new(StatusCode::MethodNotAllowed))
+                    _ => return Ok(Response::new(StatusCode::MethodNotAllowed)),
                 };
 
                 println!("{:?}", rpc_req);
 
                 let authorized_methods = &config.neon.whitelisted_rpc_calls;
-                
+
                 // Guard: unauthorized method
                 if !authorized_methods.contains(&rpc_req.method) {
-                    return Ok(Response::new(StatusCode::MethodNotAllowed))
+                    return Ok(Response::new(StatusCode::MethodNotAllowed));
                 }
 
                 // Forward the request
@@ -179,40 +178,40 @@ async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_ty
                         let _ = response.append_header("Content-Type", "application/json");
                         response.set_body(res.take_body());
                         response
-                    },
+                    }
                     Err(err) => {
                         println!("Unable to reach host: {:?}", err);
-                        return Ok(Response::new(StatusCode::MethodNotAllowed))
+                        return Ok(Response::new(StatusCode::MethodNotAllowed));
                     }
                 };
                 Ok(response)
-            },
-            _ => {
-                Ok(Response::new(StatusCode::MethodNotAllowed))
             }
+            _ => Ok(Response::new(StatusCode::MethodNotAllowed)),
         }
-    }).await?;
+    })
+    .await?;
 
     Ok(())
 }
 
 async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<bool> {
-
     let req = RPCRequest::is_chain_bootstrapped();
 
     let mut backoff: f64 = 1.0;
     let mut rng = thread_rng();
-    let mut resp =  loop {
-
+    let mut resp = loop {
         backoff = (2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0))).min(60.0);
         let duration = Duration::from_millis((backoff * 1_000.0) as u64);
 
         let stream = match TcpStream::connect(config.neon.bitcoind_rpc_host.clone()).await {
             Ok(stream) => stream,
             Err(e) => {
-                println!("Error while trying to connect to {}: {:?}", config.neon.bitcoind_rpc_host, e);
+                println!(
+                    "Error while trying to connect to {}: {:?}",
+                    config.neon.bitcoind_rpc_host, e
+                );
                 sleep(duration);
-                continue
+                continue;
             }
         };
 
@@ -222,7 +221,7 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
         match response {
             Ok(response) => {
                 break response;
-            },
+            }
             Err(e) => {
                 println!("Error: {:?}", e);
                 sleep(duration);
@@ -237,7 +236,7 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
         (res, buffer)
     });
 
-    // Guard: can't be read 
+    // Guard: can't be read
     if res.is_err() {
         panic!("Chain height could not be determined")
     }
@@ -248,7 +247,7 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
     // Guard: can't be parsed
     let rpc_resp: RPCResult = match RPCResult::deserialize(&mut deserializer) {
         Ok(rpc_req) => rpc_req,
-        _ => panic!("Chain height could not be determined")
+        _ => panic!("Chain height could not be determined"),
     };
 
     match (rpc_resp.result, rpc_resp.error) {
@@ -258,7 +257,7 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
                 if let Some(message) = keys.get("message") {
                     if let Some(message) = message.as_str() {
                         if message == "Block height out of range" {
-                            return Ok(true)
+                            return Ok(true);
                         }
                     }
                 }
@@ -279,22 +278,22 @@ async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile
         Ok(stream) => stream,
         Err(err) => {
             println!("ERROR: connection failed  - {:?}", err);
-            return
+            return;
         }
     };
     let body = match serde_json::to_vec(&rpc_req) {
         Ok(body) => body,
         Err(err) => {
             println!("ERROR: serialization failed  - {:?}", err);
-            return
+            return;
         }
     };
     let req = build_request(&config, body);
     match client::connect(stream.clone(), req).await {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => {
             println!("ERROR: rpc invokation failed  - {:?}", err);
-            return
+            return;
         }
     };
 }
@@ -302,9 +301,12 @@ async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile
 fn build_request(config: &ConfigFile, body: Vec<u8>) -> Request {
     let url = Url::parse(&format!("http://{}/", config.neon.bitcoind_rpc_host)).unwrap();
     let mut req = Request::new(Method::Post, url);
-    req.append_header("Authorization", config.neon.authorization_token()).unwrap();
-    req.append_header("Content-Type", "application/json").unwrap();
-    req.append_header("Host", format!("{}", config.neon.bitcoind_rpc_host)).unwrap();
+    req.append_header("Authorization", config.neon.authorization_token())
+        .unwrap();
+    req.append_header("Content-Type", "application/json")
+        .unwrap();
+    req.append_header("Host", format!("{}", config.neon.bitcoind_rpc_host))
+        .unwrap();
     req.set_body(body);
     req
 }
@@ -331,13 +333,12 @@ pub struct RPCResult {
 }
 
 impl RPCRequest {
-
     pub fn generate_next_block_req(blocks_count: u64, address: String) -> RPCRequest {
         RPCRequest {
             method: "generatetoaddress".to_string(),
             params: serde_json::Value::Array(vec![blocks_count.into(), address.into()]),
             id: 0.into(),
-            jsonrpc: "2.0".to_string().into()
+            jsonrpc: "2.0".to_string().into(),
         }
     }
 
@@ -346,7 +347,7 @@ impl RPCRequest {
             method: "getblockhash".to_string(),
             params: serde_json::Value::Array(vec![200.into()]),
             id: 0.into(),
-            jsonrpc: "2.0".to_string().into()
+            jsonrpc: "2.0".to_string().into(),
         }
     }
 }
@@ -358,12 +359,11 @@ pub struct ConfigFile {
 }
 
 impl ConfigFile {
-
     pub fn from_path(path: &str) -> ConfigFile {
         let path = File::open(path).unwrap();
         let mut config_reader = BufReader::new(path);
         let mut config = vec![];
-        config_reader.read_to_end(&mut config).unwrap();    
+        config_reader.read_to_end(&mut config).unwrap();
         toml::from_slice(&config[..]).unwrap()
     }
 }
@@ -387,13 +387,15 @@ pub struct RegtestConfig {
     /// Used for deducting the right amount of blocks
     genesis_timestamp: u64,
     /// List of whitelisted RPC calls
-    whitelisted_rpc_calls: Vec<String>, 
+    whitelisted_rpc_calls: Vec<String>,
 }
 
 impl RegtestConfig {
-
     pub fn authorization_token(&self) -> String {
-        let token = encode(format!("{}:{}", self.bitcoind_rpc_user, self.bitcoind_rpc_pass));
+        let token = encode(format!(
+            "{}:{}",
+            self.bitcoind_rpc_user, self.bitcoind_rpc_pass
+        ));
         format!("Basic {}", token)
     }
 }

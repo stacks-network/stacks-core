@@ -17,62 +17,57 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::fs;
 use std::cmp;
-use std::io::{Read, Seek, Write, SeekFrom};
+use std::fs;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 
-use deps::bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
+use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use deps::bitcoin::blockdata::constants::genesis_block;
 use deps::bitcoin::network::constants::Network;
 use deps::bitcoin::network::encodable::VarInt;
-use deps::bitcoin::network::serialize::{serialize, deserialize, BitcoinHash};
 use deps::bitcoin::network::message as btc_message;
+use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
 use deps::bitcoin::util::hash::Sha256dHash;
 
 use util::uint::Uint256;
 
-use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
-use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
+use burnchains::bitcoin::BitcoinNetworkType;
+use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::PeerMessage;
 
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-use rusqlite::types::{FromSql, FromSqlResult, ValueRef, ToSql, ToSqlOutput, FromSqlError};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::Row;
 use rusqlite::Transaction;
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
-use util::get_epoch_time_secs;
-use util::log;
-use util::hash::{to_hex, hex_bytes};
 use util::db::{
-    query_row,
-    query_rows,
-    DBConn,
-    DBTx,
-    u64_to_sql,
-    Error as db_error,
-    FromColumn,
-    FromRow,
-    tx_begin_immediate,
-    tx_busy_handler,
+    query_row, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx,
+    Error as db_error, FromColumn, FromRow,
 };
+use util::get_epoch_time_secs;
+use util::hash::{hex_bytes, to_hex};
+use util::log;
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
-const GENESIS_BLOCK_HASH_MAINNET: &'static str = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
-const GENESIS_BLOCK_MERKLE_ROOT_MAINNET: &'static str = "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b";
+const GENESIS_BLOCK_HASH_MAINNET: &'static str =
+    "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
+const GENESIS_BLOCK_MERKLE_ROOT_MAINNET: &'static str =
+    "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b";
 
-const GENESIS_BLOCK_HASH_TESTNET: &'static str = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943";
+const GENESIS_BLOCK_HASH_TESTNET: &'static str =
+    "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943";
 
-const GENESIS_BLOCK_HASH_REGTEST: &'static str = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
+const GENESIS_BLOCK_HASH_REGTEST: &'static str =
+    "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
 
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
-const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60;   // two weeks, in seconds
+const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in seconds
 
-const SPV_SQL : &[&'static str] = &[
-    r#"
+const SPV_SQL: &[&'static str] = &[r#"
     CREATE TABLE headers(
         version INTEGER NOT NULL,
         prev_blockhash TEXT NOT NULL,
@@ -82,8 +77,7 @@ const SPV_SQL : &[&'static str] = &[
         nonce INTEGER NOT NULL,
         height INTEGER PRIMARY KEY NOT NULL     -- not part of BlockHeader, but used by us internally
     );
-    "#
-];
+    "#];
 
 pub struct SpvClient {
     pub headers_path: String,
@@ -93,7 +87,7 @@ pub struct SpvClient {
     pub network_id: BitcoinNetworkType,
     readwrite: bool,
     reverse_order: bool,
-    headers_db: DBConn
+    headers_db: DBConn,
 }
 
 impl FromSql for Sha256dHash {
@@ -119,12 +113,12 @@ impl ToSql for Sha256dHash {
 
 impl FromRow<BlockHeader> for BlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<BlockHeader, db_error> {
-        let version : u32 = row.get("version");
-        let prev_blockhash : Sha256dHash = Sha256dHash::from_column(row, "prev_blockhash")?;
-        let merkle_root : Sha256dHash = Sha256dHash::from_column(row, "merkle_root")?;
-        let time : u32 = row.get("time");
-        let bits : u32 = row.get("bits");
-        let nonce : u32 = row.get("nonce");
+        let version: u32 = row.get("version");
+        let prev_blockhash: Sha256dHash = Sha256dHash::from_column(row, "prev_blockhash")?;
+        let merkle_root: Sha256dHash = Sha256dHash::from_column(row, "merkle_root")?;
+        let time: u32 = row.get("time");
+        let bits: u32 = row.get("bits");
+        let nonce: u32 = row.get("nonce");
 
         Ok(BlockHeader {
             version,
@@ -132,13 +126,20 @@ impl FromRow<BlockHeader> for BlockHeader {
             merkle_root,
             time,
             bits,
-            nonce
+            nonce,
         })
     }
 }
 
 impl SpvClient {
-    pub fn new(headers_path: &str, start_block: u64, end_block: Option<u64>, network_id: BitcoinNetworkType, readwrite: bool, reverse_order: bool) -> Result<SpvClient, btc_error> {
+    pub fn new(
+        headers_path: &str,
+        start_block: u64,
+        end_block: Option<u64>,
+        network_id: BitcoinNetworkType,
+        readwrite: bool,
+        reverse_order: bool,
+    ) -> Result<SpvClient, btc_error> {
         let conn = SpvClient::db_open(headers_path, readwrite)?;
         let mut client = SpvClient {
             headers_path: headers_path.to_owned(),
@@ -148,7 +149,7 @@ impl SpvClient {
             network_id: network_id,
             readwrite: readwrite,
             reverse_order: reverse_order,
-            headers_db: conn
+            headers_db: conn,
         };
 
         if readwrite {
@@ -161,7 +162,7 @@ impl SpvClient {
     pub fn conn(&self) -> &DBConn {
         &self.headers_db
     }
-    
+
     pub fn tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, btc_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly.into());
@@ -171,45 +172,43 @@ impl SpvClient {
 
         Ok(tx)
     }
-    
+
     fn db_instantiate(conn: &mut DBConn) -> Result<(), btc_error> {
         let tx = tx_begin_immediate(conn)?;
 
         for row_text in SPV_SQL {
-            tx.execute(row_text, NO_PARAMS).map_err(db_error::SqliteError)?;
+            tx.execute(row_text, NO_PARAMS)
+                .map_err(db_error::SqliteError)?;
         }
-    
+
         tx.commit().map_err(db_error::SqliteError)?;
         Ok(())
     }
 
     fn db_open(headers_path: &str, readwrite: bool) -> Result<DBConn, btc_error> {
         let mut create_flag = false;
-        let open_flags =
-            if fs::metadata(headers_path).is_err() {
-                // need to create 
-                if readwrite {
-                    create_flag = true;
-                    OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
-                }
-                else {
-                    return Err(btc_error::DBError(db_error::NoDBError));
-                }
+        let open_flags = if fs::metadata(headers_path).is_err() {
+            // need to create
+            if readwrite {
+                create_flag = true;
+                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+            } else {
+                return Err(btc_error::DBError(db_error::NoDBError));
             }
-            else {
-                // can just open 
-                if readwrite {
-                    OpenFlags::SQLITE_OPEN_READ_WRITE
-                }
-                else {
-                    OpenFlags::SQLITE_OPEN_READ_ONLY
-                }
-            };
+        } else {
+            // can just open
+            if readwrite {
+                OpenFlags::SQLITE_OPEN_READ_WRITE
+            } else {
+                OpenFlags::SQLITE_OPEN_READ_ONLY
+            }
+        };
 
-        let mut conn = Connection::open_with_flags(headers_path, open_flags)
+        let mut conn =
+            Connection::open_with_flags(headers_path, open_flags).map_err(db_error::SqliteError)?;
+
+        conn.busy_handler(Some(tx_busy_handler))
             .map_err(db_error::SqliteError)?;
-        
-        conn.busy_handler(Some(tx_busy_handler)).map_err(db_error::SqliteError)?;
 
         if create_flag {
             SpvClient::db_instantiate(&mut conn)?;
@@ -240,8 +239,11 @@ impl SpvClient {
 
     /// Validate a headers message we requested
     /// * must have at least one header
-    /// * headers must be contiguous 
-    fn validate_header_integrity(start_height: u64, headers: &Vec<LoneBlockHeader>) -> Result<(), btc_error> {
+    /// * headers must be contiguous
+    fn validate_header_integrity(
+        start_height: u64,
+        headers: &Vec<LoneBlockHeader>,
+    ) -> Result<(), btc_error> {
         if headers.len() == 0 {
             return Ok(());
         }
@@ -254,11 +256,16 @@ impl SpvClient {
         }
 
         for i in 1..headers.len() {
-            let prev_header = &headers[i-1];
+            let prev_header = &headers[i - 1];
             let cur_header = &headers[i];
 
             if cur_header.header.prev_blockhash != prev_header.header.bitcoin_hash() {
-                warn!("Bad SPV header for block {}: header prev_blockhash {} != prev_header hash {}", start_height + (i as u64), cur_header.header.prev_blockhash, prev_header.header.bitcoin_hash());
+                warn!(
+                    "Bad SPV header for block {}: header prev_blockhash {} != prev_header hash {}",
+                    start_height + (i as u64),
+                    cur_header.header.prev_blockhash,
+                    prev_header.header.bitcoin_hash()
+                );
                 return Err(btc_error::NoncontiguousHeader);
             }
         }
@@ -268,8 +275,16 @@ impl SpvClient {
 
     /// Verify that the given headers have the correct amount of work to be appended to our
     /// local header chain.  Checks the difficulty between [interval, interval+1]
-    fn validate_header_work(&self, interval_start: u64, interval_end: u64) -> Result<(), btc_error> {
-        debug!("Validate PoW between blocks {}-{}", interval_start * BLOCK_DIFFICULTY_CHUNK_SIZE, interval_end * BLOCK_DIFFICULTY_CHUNK_SIZE);
+    fn validate_header_work(
+        &self,
+        interval_start: u64,
+        interval_end: u64,
+    ) -> Result<(), btc_error> {
+        debug!(
+            "Validate PoW between blocks {}-{}",
+            interval_start * BLOCK_DIFFICULTY_CHUNK_SIZE,
+            interval_end * BLOCK_DIFFICULTY_CHUNK_SIZE
+        );
         assert!(interval_start <= interval_end);
         if interval_start == 0 {
             return Ok(());
@@ -283,8 +298,10 @@ impl SpvClient {
                     return Ok(());
                 }
             };
-            
-            for block_height in (i * BLOCK_DIFFICULTY_CHUNK_SIZE)..((i + 1) * BLOCK_DIFFICULTY_CHUNK_SIZE) {
+
+            for block_height in
+                (i * BLOCK_DIFFICULTY_CHUNK_SIZE)..((i + 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)
+            {
                 match self.read_block_header(block_height)? {
                     None => {
                         // out of headers
@@ -298,7 +315,13 @@ impl SpvClient {
                         }
                         let header_hash = header_i.header.bitcoin_hash().into_le();
                         if difficulty <= header_hash {
-                            error!("block {} hash {} has less work than difficulty {} in {}", block_height, header_i.header.bitcoin_hash(), difficulty, self.headers_path);
+                            error!(
+                                "block {} hash {} has less work than difficulty {} in {}",
+                                block_height,
+                                header_i.header.bitcoin_hash(),
+                                difficulty,
+                                self.headers_path
+                            );
                             return Err(btc_error::InvalidPoW);
                         }
                     }
@@ -310,17 +333,31 @@ impl SpvClient {
 
     /// Report how many block headers we have downloaded to the given path.
     pub fn get_headers_height(&self) -> Result<u64, btc_error> {
-        match query_row::<u64, _>(&self.headers_db, "SELECT MAX(height) FROM headers", NO_PARAMS)? {
+        match query_row::<u64, _>(
+            &self.headers_db,
+            "SELECT MAX(height) FROM headers",
+            NO_PARAMS,
+        )? {
             Some(x) => Ok(x + 1),
-            None => Ok(0)
+            None => Ok(0),
         }
     }
 
-    /// Read the block header at a particular height 
+    /// Read the block header at a particular height
     /// Returns None if the requested block height is beyond the end of the headers file
-    pub fn read_block_header(&self, block_height: u64) -> Result<Option<LoneBlockHeader>, btc_error> {
-        let header_opt : Option<BlockHeader> = query_row(&self.headers_db, "SELECT * FROM headers WHERE height = ?1", &[&u64_to_sql(block_height)?])?;
-        Ok(header_opt.map(|h| LoneBlockHeader { header: h, tx_count: VarInt(0) }))
+    pub fn read_block_header(
+        &self,
+        block_height: u64,
+    ) -> Result<Option<LoneBlockHeader>, btc_error> {
+        let header_opt: Option<BlockHeader> = query_row(
+            &self.headers_db,
+            "SELECT * FROM headers WHERE height = ?1",
+            &[&u64_to_sql(block_height)?],
+        )?;
+        Ok(header_opt.map(|h| LoneBlockHeader {
+            header: h,
+            tx_count: VarInt(0),
+        }))
     }
 
     /// Get a range of block headers from a file.
@@ -329,16 +366,23 @@ impl SpvClient {
     /// start_block is off the end of the file).
     /// If the range does _not_ include start_block, then this method returns an empty array (even
     /// if there are headers in the range).
-    pub fn read_block_headers(&self, start_block: u64, end_block: u64) -> Result<Vec<LoneBlockHeader>, btc_error> {
+    pub fn read_block_headers(
+        &self,
+        start_block: u64,
+        end_block: u64,
+    ) -> Result<Vec<LoneBlockHeader>, btc_error> {
         let mut headers = vec![];
 
         let sql_query = "SELECT * FROM headers WHERE height >= ?1 AND height < ?2 ORDER BY height";
-        let sql_args : &[&dyn ToSql] = &[&u64_to_sql(start_block)?, &u64_to_sql(end_block)?];
+        let sql_args: &[&dyn ToSql] = &[&u64_to_sql(start_block)?, &u64_to_sql(end_block)?];
 
-        let mut stmt = self.headers_db.prepare(sql_query)
+        let mut stmt = self
+            .headers_db
+            .prepare(sql_query)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
 
-        let mut rows = stmt.query(sql_args)
+        let mut rows = stmt
+            .query(sql_args)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
 
         // gather, but make sure we get _all_ headers
@@ -346,15 +390,18 @@ impl SpvClient {
         while let Some(row_res) = rows.next() {
             match row_res {
                 Ok(row) => {
-                    let height : u64 = u64::from_column(&row, "height")?;
+                    let height: u64 = u64::from_column(&row, "height")?;
                     if height != next_height {
                         break;
                     }
                     next_height += 1;
 
                     let next_header = BlockHeader::from_row(&row)?;
-                    headers.push(LoneBlockHeader { header: next_header, tx_count: VarInt(0) });
-                },
+                    headers.push(LoneBlockHeader {
+                        header: next_header,
+                        tx_count: VarInt(0),
+                    });
+                }
                 Err(e) => {
                     return Err(btc_error::DBError(db_error::SqliteError(e)));
                 }
@@ -365,28 +412,52 @@ impl SpvClient {
     }
 
     /// Insert a block header
-    fn insert_block_header<'a>(tx: &mut DBTx<'a>, header: BlockHeader, height: u64) -> Result<(), btc_error> {
+    fn insert_block_header<'a>(
+        tx: &mut DBTx<'a>,
+        header: BlockHeader,
+        height: u64,
+    ) -> Result<(), btc_error> {
         let sql = "INSERT OR REPLACE INTO headers 
         (version, prev_blockhash, merkle_root, time, bits, nonce, height)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
-        let args : &[&dyn ToSql] = &[&header.version, &header.prev_blockhash, &header.merkle_root, &header.time, &header.bits, &header.nonce, &u64_to_sql(height)?];
-        tx.execute(sql, args).map_err(|e| btc_error::DBError(db_error::SqliteError(e))).and_then(|_x| Ok(()))
+        let args: &[&dyn ToSql] = &[
+            &header.version,
+            &header.prev_blockhash,
+            &header.merkle_root,
+            &header.time,
+            &header.bits,
+            &header.nonce,
+            &u64_to_sql(height)?,
+        ];
+        tx.execute(sql, args)
+            .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))
+            .and_then(|_x| Ok(()))
     }
 
-    /// Initialize the block headers file with the genesis block hash 
+    /// Initialize the block headers file with the genesis block hash
     fn init_block_headers(&mut self) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
         let (genesis_block, genesis_block_hash_str) = match self.network_id {
-            BitcoinNetworkType::Mainnet => (genesis_block(Network::Bitcoin), GENESIS_BLOCK_HASH_MAINNET),
-            BitcoinNetworkType::Testnet => (genesis_block(Network::Testnet), GENESIS_BLOCK_HASH_TESTNET),
-            BitcoinNetworkType::Regtest => (genesis_block(Network::Regtest), GENESIS_BLOCK_HASH_REGTEST),
+            BitcoinNetworkType::Mainnet => {
+                (genesis_block(Network::Bitcoin), GENESIS_BLOCK_HASH_MAINNET)
+            }
+            BitcoinNetworkType::Testnet => {
+                (genesis_block(Network::Testnet), GENESIS_BLOCK_HASH_TESTNET)
+            }
+            BitcoinNetworkType::Regtest => {
+                (genesis_block(Network::Regtest), GENESIS_BLOCK_HASH_REGTEST)
+            }
         };
-        
+
         // sanity check
-        let genesis_block_hash = Sha256dHash::from_hex(genesis_block_hash_str)
-            .map_err(btc_error::HashError)?;
+        let genesis_block_hash =
+            Sha256dHash::from_hex(genesis_block_hash_str).map_err(btc_error::HashError)?;
         if genesis_block.header.bitcoin_hash() != genesis_block_hash {
-            error!("Failed passing genesis block sanity check ({} != {})", genesis_block.header.bitcoin_hash(), genesis_block_hash);
+            error!(
+                "Failed passing genesis block sanity check ({} != {})",
+                genesis_block.header.bitcoin_hash(),
+                genesis_block_hash
+            );
             panic!();
         }
 
@@ -403,13 +474,17 @@ impl SpvClient {
     /// -- store them
     /// Can error if there has been a reorg, or if the headers don't correspond to headers we asked
     /// for.
-    fn handle_headers(&mut self, insert_height: u64, block_headers: Vec<LoneBlockHeader>) -> Result<(), btc_error> {
+    fn handle_headers(
+        &mut self,
+        insert_height: u64,
+        block_headers: Vec<LoneBlockHeader>,
+    ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
         let num_headers = block_headers.len();
         let first_header_hash = block_headers[0].header.bitcoin_hash();
         let last_header_hash = block_headers[block_headers.len() - 1].header.bitcoin_hash();
-            
+
         if !self.reverse_order {
             // fetching headers in ascending order
             self.insert_block_headers_after(insert_height, block_headers)
@@ -418,85 +493,116 @@ impl SpvClient {
                     e
                 })?;
 
-            // check work 
+            // check work
             let chain_tip = self.get_headers_height()?;
-            self.validate_header_work((chain_tip - 1) / BLOCK_DIFFICULTY_CHUNK_SIZE, chain_tip / BLOCK_DIFFICULTY_CHUNK_SIZE + 1)
-                .map_err(|e| {
-                    error!("Received headers with bad target, difficulty, or continuity: {:?}", &e);
-                    e
-                })?;
-        }
-        else {
-            // fetching headers in descending order 
+            self.validate_header_work(
+                (chain_tip - 1) / BLOCK_DIFFICULTY_CHUNK_SIZE,
+                chain_tip / BLOCK_DIFFICULTY_CHUNK_SIZE + 1,
+            )
+            .map_err(|e| {
+                error!(
+                    "Received headers with bad target, difficulty, or continuity: {:?}",
+                    &e
+                );
+                e
+            })?;
+        } else {
+            // fetching headers in descending order
             self.insert_block_headers_before(insert_height, block_headers)
                 .map_err(|e| {
                     error!("Failed to insert block headers: {:?}", &e);
                     e
                 })?;
-            
+
             // check work
-            let interval_start = 
-                if insert_height % BLOCK_DIFFICULTY_CHUNK_SIZE == 0 {
-                    insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE
-                }
-                else {
-                    insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE + 1
-                };
+            let interval_start = if insert_height % BLOCK_DIFFICULTY_CHUNK_SIZE == 0 {
+                insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE
+            } else {
+                insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE + 1
+            };
 
             self.validate_header_work(interval_start, interval_start + 1)
                 .map_err(|e| {
-                    error!("Received headers with bad target, difficulty, or continuity: {:?}", &e);
+                    error!(
+                        "Received headers with bad target, difficulty, or continuity: {:?}",
+                        &e
+                    );
                     e
                 })?;
         }
 
         if num_headers > 0 {
-            debug!("Handled {} Headers: {}-{}", num_headers, first_header_hash, last_header_hash);
-        }
-        else {
+            debug!(
+                "Handled {} Headers: {}-{}",
+                num_headers, first_header_hash, last_header_hash
+            );
+        } else {
             debug!("Handled empty header reply");
         }
 
-        return Ok(()); 
+        return Ok(());
     }
 
     /// Write a run of continuous headers to a particular location.
     /// Does _not_ check for continuity!
-    fn write_block_headers(&mut self, height: u64, headers: Vec<LoneBlockHeader>) -> Result<(), btc_error> {
+    fn write_block_headers(
+        &mut self,
+        height: u64,
+        headers: Vec<LoneBlockHeader>,
+    ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
-        debug!("Write {} headers at {} at {}", headers.len(), &self.headers_path, height);
+        debug!(
+            "Write {} headers at {} at {}",
+            headers.len(),
+            &self.headers_path,
+            height
+        );
         let mut tx = self.tx_begin()?;
         for (i, header) in headers.into_iter().enumerate() {
             SpvClient::insert_block_header(&mut tx, header.header, height + (i as u64))?;
         }
-        tx.commit().map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
+        tx.commit()
+            .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
         Ok(())
     }
 
     /// Insert block headers into the headers DB.
     /// Verify that the first header's parent exists and connects with this header chain, and verify that
-    /// the headers are themselves contiguous. 
+    /// the headers are themselves contiguous.
     /// start_height refers to the _parent block_ of the given header stream.
-    pub fn insert_block_headers_after(&mut self, start_height: u64, block_headers: Vec<LoneBlockHeader>) -> Result<(), btc_error> {
+    pub fn insert_block_headers_after(
+        &mut self,
+        start_height: u64,
+        block_headers: Vec<LoneBlockHeader>,
+    ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
         if block_headers.len() == 0 {
-            // no-op 
-            return Ok(())
+            // no-op
+            return Ok(());
         }
 
-        debug!("Insert {} headers to {} after block {}", block_headers.len(), &self.headers_path, start_height);
-        
-        SpvClient::validate_header_integrity(start_height, &block_headers)
-            .map_err(|e| {
-                error!("Received invalid headers: {:?}", &e);
-                e
-            })?;
+        debug!(
+            "Insert {} headers to {} after block {}",
+            block_headers.len(),
+            &self.headers_path,
+            start_height
+        );
+
+        SpvClient::validate_header_integrity(start_height, &block_headers).map_err(|e| {
+            error!("Received invalid headers: {:?}", &e);
+            e
+        })?;
 
         let parent_header = match self.read_block_header(start_height)? {
             Some(header) => header,
             None => {
-                warn!("No header for block {} -- cannot insert {} headers into {}", start_height, block_headers.len(), self.headers_path);
+                warn!(
+                    "No header for block {} -- cannot insert {} headers into {}",
+                    start_height,
+                    block_headers.len(),
+                    self.headers_path
+                );
                 return Err(btc_error::NoncontiguousHeader);
             }
         };
@@ -508,29 +614,38 @@ impl SpvClient {
             return Err(btc_error::NoncontiguousHeader);
         }
 
-        // store them 
-        self.write_block_headers(start_height+1, block_headers)
+        // store them
+        self.write_block_headers(start_height + 1, block_headers)
     }
-    
+
     /// Insert block headers into the headers DB.
     /// If the last header's child exists, verify that it connects with the given header chain.
     /// start_height refers to the _parent block_ of the given header stream
-    pub fn insert_block_headers_before(&mut self, start_height: u64, block_headers: Vec<LoneBlockHeader>) -> Result<(), btc_error> {
+    pub fn insert_block_headers_before(
+        &mut self,
+        start_height: u64,
+        block_headers: Vec<LoneBlockHeader>,
+    ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
         if block_headers.len() == 0 {
-            // no-op 
-            return Ok(())
+            // no-op
+            return Ok(());
         }
-        
+
         let end_height = start_height + (block_headers.len() as u64);
 
-        debug!("Insert {} headers to {} in range {}-{}", block_headers.len(), &self.headers_path, start_height, end_height);
-        
-        SpvClient::validate_header_integrity(start_height, &block_headers)
-            .map_err(|e| {
-                error!("Received invalid headers: {:?}", &e);
-                e
-            })?;
+        debug!(
+            "Insert {} headers to {} in range {}-{}",
+            block_headers.len(),
+            &self.headers_path,
+            start_height,
+            end_height
+        );
+
+        SpvClient::validate_header_integrity(start_height, &block_headers).map_err(|e| {
+            error!("Received invalid headers: {:?}", &e);
+            e
+        })?;
 
         match self.read_block_header(end_height)? {
             Some(child_header) => {
@@ -545,7 +660,10 @@ impl SpvClient {
             None => {
                 // if we're inserting headers in reverse order, we're not guaranteed to have the
                 // child.
-                debug!("No header for child block {}, so will not validate continuity", end_height);
+                debug!(
+                    "No header for child block {}, so will not validate continuity",
+                    end_height
+                );
             }
         }
 
@@ -557,14 +675,17 @@ impl SpvClient {
                           start_height, &parent_header.header, parent_header.header.bitcoin_hash(), &block_headers[0].header, &block_headers[0].header.bitcoin_hash());
                     return Err(btc_error::NoncontiguousHeader);
                 }
-            },
+            }
             None => {
-                debug!("No header for parent block {}, so will not validate continuity", start_height-1);
+                debug!(
+                    "No header for parent block {}, so will not validate continuity",
+                    start_height - 1
+                );
             }
         }
 
-        // store them 
-        self.write_block_headers(start_height+1, block_headers)
+        // store them
+        self.write_block_headers(start_height + 1, block_headers)
     }
 
     /// Drop headers after a block height (i.e. due to a reorg).
@@ -572,11 +693,19 @@ impl SpvClient {
     pub fn drop_headers(&mut self, new_max_height: u64) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
-        debug!("Drop all headers after block {} in {}", new_max_height, self.headers_path);
+        debug!(
+            "Drop all headers after block {} in {}",
+            new_max_height, self.headers_path
+        );
 
         let tx = self.tx_begin()?;
-        tx.execute("DELETE FROM headers WHERE height > ?1", &[&u64_to_sql(new_max_height)?]).map_err(db_error::SqliteError)?;
-        tx.commit().map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
+        tx.execute(
+            "DELETE FROM headers WHERE height > ?1",
+            &[&u64_to_sql(new_max_height)?],
+        )
+        .map_err(db_error::SqliteError)?;
+        tx.commit()
+            .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
         Ok(())
     }
 
@@ -584,35 +713,51 @@ impl SpvClient {
     /// the `interval` parameter is the difficulty interval -- a 2016-block interval.
     /// Returns (new bits, new target)
     pub fn get_target(&self, interval: u64) -> Result<Option<(u32, Uint256)>, btc_error> {
-        let max_target =
-            if self.network_id == BitcoinNetworkType::Regtest {
-                // in regtest mode there's no difficulty adjustment active.
-                // it uses the highest possible difficulty -- represents nBits = 0x207fffff
-                return Ok(Some((0x207fffff, Uint256([0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x7fffffff00000000]))));
-            }
-            else {
-                Uint256([0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x00000000ffff0000])
-            };
+        let max_target = if self.network_id == BitcoinNetworkType::Regtest {
+            // in regtest mode there's no difficulty adjustment active.
+            // it uses the highest possible difficulty -- represents nBits = 0x207fffff
+            return Ok(Some((
+                0x207fffff,
+                Uint256([
+                    0x0000000000000000,
+                    0x0000000000000000,
+                    0x0000000000000000,
+                    0x7fffffff00000000,
+                ]),
+            )));
+        } else {
+            Uint256([
+                0x0000000000000000,
+                0x0000000000000000,
+                0x0000000000000000,
+                0x00000000ffff0000,
+            ])
+        };
 
         if interval == 0 {
-            panic!("Invalid argument: interval must be positive (got {})", interval);
+            panic!(
+                "Invalid argument: interval must be positive (got {})",
+                interval
+            );
         }
 
-        let first_header = match self.read_block_header((interval - 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)? {
-            Some(header) => header,
-            None => {
-                // haven't got here yet
-                return Ok(None);
-            }
-        };
+        let first_header =
+            match self.read_block_header((interval - 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)? {
+                Some(header) => header,
+                None => {
+                    // haven't got here yet
+                    return Ok(None);
+                }
+            };
 
-        let last_header = match self.read_block_header(interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1)? {
-            Some(header) => header,
-            None=> {
-                // whatever the current header is 
-                return Ok(None);
-            }
-        };
+        let last_header =
+            match self.read_block_header(interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1)? {
+                Some(header) => header,
+                None => {
+                    // whatever the current header is
+                    return Ok(None);
+                }
+            };
 
         // find actual timespan as being clamped between +/- 4x of the target timespan
         let measured_timespan = (last_header.header.time - first_header.header.time) as u64;
@@ -624,22 +769,35 @@ impl SpvClient {
         assert!(filtered_timespan < u32::max_value() as u64);
 
         let last_target = last_header.header.target();
-        let new_target = cmp::min(max_target, (last_target.mul_u32(filtered_timespan as u32)) / (Uint256::from_u64(target_timespan)));
+        let new_target = cmp::min(
+            max_target,
+            (last_target.mul_u32(filtered_timespan as u32)) / (Uint256::from_u64(target_timespan)),
+        );
         let new_bits = BlockHeader::compact_target_from_u256(&new_target);
         return Ok(Some((new_bits, new_target)));
     }
 
     /// Ask for the next batch of headers (note that this will return the maximal size of headers)
-    pub fn send_next_getheaders(&mut self, indexer: &mut BitcoinIndexer, block_height: u64) -> Result<(), btc_error> {
+    pub fn send_next_getheaders(
+        &mut self,
+        indexer: &mut BitcoinIndexer,
+        block_height: u64,
+    ) -> Result<(), btc_error> {
         // ask for the next batch
         let block_header = match self.read_block_header(block_height) {
             Ok(Some(header)) => header,
             Ok(None) => {
-                debug!("No header found for block {} in {}", block_height, &self.headers_path);
+                debug!(
+                    "No header found for block {} in {}",
+                    block_height, &self.headers_path
+                );
                 return Err(btc_error::MissingHeader);
-            },
+            }
             Err(e) => {
-                warn!("Failed to read block header at height {} in {}: {:?}", block_height, &self.headers_path, &e);
+                warn!(
+                    "Failed to read block header at height {} in {}: {:?}",
+                    block_height, &self.headers_path, &e
+                );
                 return Err(e);
             }
         };
@@ -648,8 +806,7 @@ impl SpvClient {
 }
 
 impl BitcoinMessageHandler for SpvClient {
-
-    /// Trait message handler 
+    /// Trait message handler
     /// initiate the conversation with the bitcoin peer
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error> {
         let start_height = self.cur_block_height;
@@ -660,15 +817,25 @@ impl BitcoinMessageHandler for SpvClient {
             return Ok(false);
         }
 
-        debug!("Get headers {}-{} to {}", self.cur_block_height, self.end_block_height.unwrap(), self.headers_path);
+        debug!(
+            "Get headers {}-{} to {}",
+            self.cur_block_height,
+            self.end_block_height.unwrap(),
+            self.headers_path
+        );
 
         indexer.runtime.last_getheaders_send_time = get_epoch_time_secs();
-        self.send_next_getheaders(indexer, start_height).and_then(|_r| Ok(true))
+        self.send_next_getheaders(indexer, start_height)
+            .and_then(|_r| Ok(true))
     }
 
     /// Trait message handler
     /// Take headers, validate them, and ask for more
-    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: PeerMessage) -> Result<bool, btc_error> {
+    fn handle_message(
+        &mut self,
+        indexer: &mut BitcoinIndexer,
+        msg: PeerMessage,
+    ) -> Result<bool, btc_error> {
         assert!(self.end_block_height.is_some());
 
         let end_block_height = self.end_block_height.unwrap();
@@ -676,17 +843,22 @@ impl BitcoinMessageHandler for SpvClient {
         match msg {
             btc_message::NetworkMessage::Headers(mut block_headers) => {
                 if self.cur_block_height >= end_block_height {
-                    // done 
+                    // done
                     return Ok(false);
                 }
 
-                // only handle headers we asked for 
+                // only handle headers we asked for
                 if end_block_height - self.cur_block_height < block_headers.len() as u64 {
-                    info!("Truncate received headers from block range {}-{} to range {}-{}", 
-                          self.cur_block_height, end_block_height, self.cur_block_height, self.cur_block_height + (block_headers.len() as u64) - end_block_height);
+                    info!(
+                        "Truncate received headers from block range {}-{} to range {}-{}",
+                        self.cur_block_height,
+                        end_block_height,
+                        self.cur_block_height,
+                        self.cur_block_height + (block_headers.len() as u64) - end_block_height
+                    );
                     block_headers.truncate((end_block_height - self.cur_block_height) as usize);
                 }
-                
+
                 let insert_height = self.cur_block_height;
                 let num_headers = block_headers.len();
 
@@ -701,12 +873,17 @@ impl BitcoinMessageHandler for SpvClient {
                 // clear timeout
                 indexer.runtime.last_getheaders_send_time = 0;
 
-                debug!("Request headers for blocks {} - {} in range {} - {}", block_height, block_height + 2000, self.start_block_height, end_block_height);
-                self.send_next_getheaders(indexer, block_height).and_then(|_| Ok(true))
+                debug!(
+                    "Request headers for blocks {} - {} in range {} - {}",
+                    block_height,
+                    block_height + 2000,
+                    self.start_block_height,
+                    end_block_height
+                );
+                self.send_next_getheaders(indexer, block_height)
+                    .and_then(|_| Ok(true))
             }
-            x => {
-                Err(btc_error::UnhandledMessage(x))
-            }
+            x => Err(btc_error::UnhandledMessage(x)),
         }
     }
 }
@@ -720,8 +897,8 @@ mod test {
 
     use std::fs::*;
 
-    use deps::bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
-    use deps::bitcoin::network::serialize::{serialize, deserialize, BitcoinHash};
+    use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+    use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
     use deps::bitcoin::util::hash::Sha256dHash;
 
     use util::log;
@@ -731,21 +908,30 @@ mod test {
     fn get_genesis_regtest_header() -> LoneBlockHeader {
         let genesis_regtest_header = LoneBlockHeader {
             header: BlockHeader {
-                bits: 545259519, 
-                merkle_root: Sha256dHash::from_hex("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b").unwrap(),
-                nonce: 2, 
-                prev_blockhash: Sha256dHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                bits: 545259519,
+                merkle_root: Sha256dHash::from_hex(
+                    "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
+                )
+                .unwrap(),
+                nonce: 2,
+                prev_blockhash: Sha256dHash::from_hex(
+                    "0000000000000000000000000000000000000000000000000000000000000000",
+                )
+                .unwrap(),
                 time: 1296688602,
-                version: 1
+                version: 1,
             },
-            tx_count: VarInt(0)
+            tx_count: VarInt(0),
         };
         genesis_regtest_header
     }
 
     #[test]
     fn test_spv_mainnet_genesis_header() {
-        let genesis_prev_blockhash = Sha256dHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let genesis_prev_blockhash = Sha256dHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
         let genesis_merkle_root = Sha256dHash::from_hex(GENESIS_BLOCK_MERKLE_ROOT_MAINNET).unwrap();
         let genesis_block_hash = Sha256dHash::from_hex(GENESIS_BLOCK_HASH_MAINNET).unwrap();
 
@@ -756,9 +942,9 @@ mod test {
                 merkle_root: genesis_merkle_root,
                 time: 1231006505,
                 bits: 0x1d00ffff,
-                nonce: 2083236893
+                nonce: 2083236893,
             },
-            tx_count: VarInt(0)
+            tx_count: VarInt(0),
         };
 
         test_debug!("\n");
@@ -779,32 +965,65 @@ mod test {
 
         let first_regtest_header = LoneBlockHeader {
             header: BlockHeader {
-                bits: 545259519, 
-                merkle_root: Sha256dHash::from_hex("20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c").unwrap(),
-                nonce: 2, 
-                prev_blockhash: Sha256dHash::from_hex("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206").unwrap(),
-                time: 1587626881, 
-                version: 0x20000000
+                bits: 545259519,
+                merkle_root: Sha256dHash::from_hex(
+                    "20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c",
+                )
+                .unwrap(),
+                nonce: 2,
+                prev_blockhash: Sha256dHash::from_hex(
+                    "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+                )
+                .unwrap(),
+                time: 1587626881,
+                version: 0x20000000,
             },
-            tx_count: VarInt(0)
+            tx_count: VarInt(0),
         };
 
-        let mut spv_client = SpvClient::new("/tmp/test-spv-load_store_header.dat", 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
+        let mut spv_client = SpvClient::new(
+            "/tmp/test-spv-load_store_header.dat",
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            false,
+        )
+        .unwrap();
         assert_eq!(spv_client.get_headers_height().unwrap(), 1);
-        assert_eq!(spv_client.read_block_header(0).unwrap().unwrap(), genesis_regtest_header);
+        assert_eq!(
+            spv_client.read_block_header(0).unwrap().unwrap(),
+            genesis_regtest_header
+        );
 
         {
             let mut tx = spv_client.tx_begin().unwrap();
-            SpvClient::insert_block_header(&mut tx, first_regtest_header.header.clone(), 1).unwrap();
+            SpvClient::insert_block_header(&mut tx, first_regtest_header.header.clone(), 1)
+                .unwrap();
             tx.commit().unwrap();
         }
 
         assert_eq!(spv_client.get_headers_height().unwrap(), 2);
-        assert_eq!(spv_client.read_block_header(0).unwrap().unwrap(), genesis_regtest_header);
-        assert_eq!(spv_client.read_block_headers(0, 1).unwrap(), vec![genesis_regtest_header.clone()]);
-        assert_eq!(spv_client.read_block_header(1).unwrap().unwrap(), first_regtest_header);
-        assert_eq!(spv_client.read_block_headers(1, 2).unwrap(), vec![first_regtest_header.clone()]);
-        assert_eq!(spv_client.read_block_headers(0, 10).unwrap(), vec![genesis_regtest_header, first_regtest_header]);
+        assert_eq!(
+            spv_client.read_block_header(0).unwrap().unwrap(),
+            genesis_regtest_header
+        );
+        assert_eq!(
+            spv_client.read_block_headers(0, 1).unwrap(),
+            vec![genesis_regtest_header.clone()]
+        );
+        assert_eq!(
+            spv_client.read_block_header(1).unwrap().unwrap(),
+            first_regtest_header
+        );
+        assert_eq!(
+            spv_client.read_block_headers(1, 2).unwrap(),
+            vec![first_regtest_header.clone()]
+        );
+        assert_eq!(
+            spv_client.read_block_headers(0, 10).unwrap(),
+            vec![genesis_regtest_header, first_regtest_header]
+        );
     }
 
     #[test]
@@ -816,60 +1035,93 @@ mod test {
         let headers = vec![
             LoneBlockHeader {
                 header: BlockHeader {
-                    bits: 545259519, 
-                    merkle_root: Sha256dHash::from_hex("20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c").unwrap(),
-                    nonce: 2, 
-                    prev_blockhash: Sha256dHash::from_hex("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206").unwrap(),
-                    time: 1587626881, 
-                    version: 0x20000000
+                    bits: 545259519,
+                    merkle_root: Sha256dHash::from_hex(
+                        "20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c",
+                    )
+                    .unwrap(),
+                    nonce: 2,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+                    )
+                    .unwrap(),
+                    time: 1587626881,
+                    version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac",
+                    )
+                    .unwrap(),
                     nonce: 1,
-                    prev_blockhash: Sha256dHash::from_hex("606d31daaaa5919f3720d8440dd99d31f2a4e4189c65879f19ae43268425e74b").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "606d31daaaa5919f3720d8440dd99d31f2a4e4189c65879f19ae43268425e74b",
+                    )
+                    .unwrap(),
                     time: 1587626882,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47",
+                    )
+                    .unwrap(),
                     nonce: 4,
-                    prev_blockhash: Sha256dHash::from_hex("2fa2f451ac27f0e5cd3760ba6cdf34ef46adb76a44d96bc0f3bf3e713dd955f0").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "2fa2f451ac27f0e5cd3760ba6cdf34ef46adb76a44d96bc0f3bf3e713dd955f0",
+                    )
+                    .unwrap(),
                     time: 1587626882,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
-            }
+                tx_count: VarInt(0),
+            },
         ];
-        
-        let mut spv_client = SpvClient::new("/tmp/test-spv-store_headers_after.dat", 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
-        spv_client.insert_block_headers_after(0, headers.clone()).unwrap();
-        
+
+        let mut spv_client = SpvClient::new(
+            "/tmp/test-spv-store_headers_after.dat",
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            false,
+        )
+        .unwrap();
+        spv_client
+            .insert_block_headers_after(0, headers.clone())
+            .unwrap();
+
         assert_eq!(spv_client.read_block_headers(1, 10).unwrap(), headers);
 
         // should fail
-        if let Err(btc_error::NoncontiguousHeader) = spv_client.insert_block_headers_after(1, headers.clone()) {
-        }
-        else {
+        if let Err(btc_error::NoncontiguousHeader) =
+            spv_client.insert_block_headers_after(1, headers.clone())
+        {
+        } else {
             assert!(false);
         }
 
         // should fail
-        if let Err(btc_error::NoncontiguousHeader) = spv_client.insert_block_headers_after(9, headers.clone()) {
-        }
-        else {
+        if let Err(btc_error::NoncontiguousHeader) =
+            spv_client.insert_block_headers_after(9, headers.clone())
+        {
+        } else {
             assert!(false);
         }
 
         spv_client.drop_headers(1).unwrap();
-        assert_eq!(spv_client.read_block_headers(0, 10).unwrap(), vec![genesis_regtest_header, headers[0].clone()]);
+        assert_eq!(
+            spv_client.read_block_headers(0, 10).unwrap(),
+            vec![genesis_regtest_header, headers[0].clone()]
+        );
     }
 
     #[test]
@@ -881,47 +1133,83 @@ mod test {
         let headers = vec![
             LoneBlockHeader {
                 header: BlockHeader {
-                    bits: 545259519, 
-                    merkle_root: Sha256dHash::from_hex("20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c").unwrap(),
-                    nonce: 2, 
-                    prev_blockhash: Sha256dHash::from_hex("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206").unwrap(),
-                    time: 1587626881, 
-                    version: 0x20000000
+                    bits: 545259519,
+                    merkle_root: Sha256dHash::from_hex(
+                        "20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c",
+                    )
+                    .unwrap(),
+                    nonce: 2,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+                    )
+                    .unwrap(),
+                    time: 1587626881,
+                    version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac",
+                    )
+                    .unwrap(),
                     nonce: 1,
-                    prev_blockhash: Sha256dHash::from_hex("606d31daaaa5919f3720d8440dd99d31f2a4e4189c65879f19ae43268425e74b").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "606d31daaaa5919f3720d8440dd99d31f2a4e4189c65879f19ae43268425e74b",
+                    )
+                    .unwrap(),
                     time: 1587626882,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47",
+                    )
+                    .unwrap(),
                     nonce: 4,
-                    prev_blockhash: Sha256dHash::from_hex("2fa2f451ac27f0e5cd3760ba6cdf34ef46adb76a44d96bc0f3bf3e713dd955f0").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "2fa2f451ac27f0e5cd3760ba6cdf34ef46adb76a44d96bc0f3bf3e713dd955f0",
+                    )
+                    .unwrap(),
                     time: 1587626882,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
-            }
+                tx_count: VarInt(0),
+            },
         ];
-        
-        let mut spv_client = SpvClient::new("/tmp/test-spv-store_headers_before.dat", 0, None, BitcoinNetworkType::Regtest, true, true).unwrap();
-        spv_client.insert_block_headers_before(1, headers[1..].to_vec()).unwrap();
 
-        assert_eq!(spv_client.read_block_headers(2, 10).unwrap(), headers[1..].to_vec());
-        assert_eq!(spv_client.read_block_headers(0, 10).unwrap(), vec![genesis_regtest_header.clone()]);      // gap
-        assert_eq!(spv_client.read_block_headers(1, 10).unwrap(), vec![]);      // gap
+        let mut spv_client = SpvClient::new(
+            "/tmp/test-spv-store_headers_before.dat",
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            true,
+        )
+        .unwrap();
+        spv_client
+            .insert_block_headers_before(1, headers[1..].to_vec())
+            .unwrap();
 
-        spv_client.insert_block_headers_before(0, headers[0..1].to_vec()).unwrap();
+        assert_eq!(
+            spv_client.read_block_headers(2, 10).unwrap(),
+            headers[1..].to_vec()
+        );
+        assert_eq!(
+            spv_client.read_block_headers(0, 10).unwrap(),
+            vec![genesis_regtest_header.clone()]
+        ); // gap
+        assert_eq!(spv_client.read_block_headers(1, 10).unwrap(), vec![]); // gap
+
+        spv_client
+            .insert_block_headers_before(0, headers[0..1].to_vec())
+            .unwrap();
         assert_eq!(spv_client.read_block_headers(1, 10).unwrap(), headers);
 
         let mut all_headers = vec![genesis_regtest_header.clone()];
@@ -930,21 +1218,25 @@ mod test {
         assert_eq!(spv_client.read_block_headers(0, 10).unwrap(), all_headers);
 
         // should fail
-        if let Err(btc_error::NoncontiguousHeader) = spv_client.insert_block_headers_before(2, headers.clone()) {
-        }
-        else {
+        if let Err(btc_error::NoncontiguousHeader) =
+            spv_client.insert_block_headers_before(2, headers.clone())
+        {
+        } else {
             assert!(false);
         }
-        
+
         // should fail
-        if let Err(btc_error::NoncontiguousHeader) = spv_client.insert_block_headers_before(1, headers.clone()) {
-        }
-        else {
+        if let Err(btc_error::NoncontiguousHeader) =
+            spv_client.insert_block_headers_before(1, headers.clone())
+        {
+        } else {
             assert!(false);
         }
 
         // should succeed
-        spv_client.insert_block_headers_before(9, headers.clone()).unwrap();
+        spv_client
+            .insert_block_headers_before(9, headers.clone())
+            .unwrap();
     }
 
     #[test]
@@ -954,10 +1246,11 @@ mod test {
             return;
         }
         let db_path = env::var("BLOCKSTACK_SPV_HEADERS_DB").unwrap();
-        let spv_client = SpvClient::new(&db_path, 0, None, BitcoinNetworkType::Mainnet, false, false).unwrap();
-        
+        let spv_client =
+            SpvClient::new(&db_path, 0, None, BitcoinNetworkType::Mainnet, false, false).unwrap();
+
         for i in 99..100 {
-            spv_client.validate_header_work(i, i+1).unwrap();
+            spv_client.validate_header_work(i, i + 1).unwrap();
         }
     }
 }

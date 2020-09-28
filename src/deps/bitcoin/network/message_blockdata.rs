@@ -35,7 +35,7 @@ pub enum InvType {
     /// Witness Block
     WitnessBlock,
     /// Witness Transaction
-    WitnessTransaction
+    WitnessTransaction,
 }
 
 // Some simple messages
@@ -50,7 +50,7 @@ pub struct GetBlocksMessage {
     /// if possible and block 1 otherwise.
     pub locator_hashes: Vec<Sha256dHash>,
     /// References the block to stop at, or zero to just fetch the maximum 500 blocks
-    pub stop_hash: Sha256dHash
+    pub stop_hash: Sha256dHash,
 }
 
 /// The `getheaders` message
@@ -63,7 +63,7 @@ pub struct GetHeadersMessage {
     /// if possible and block 1 otherwise.
     pub locator_hashes: Vec<Sha256dHash>,
     /// References the header to stop at, or zero to just fetch the maximum 2000 headers
-    pub stop_hash: Sha256dHash
+    pub stop_hash: Sha256dHash,
 }
 
 /// An inventory object --- a reference to a Bitcoin object
@@ -72,7 +72,7 @@ pub struct Inventory {
     /// The type of object that is referenced
     pub inv_type: InvType,
     /// The object's hash
-    pub hash: Sha256dHash
+    pub hash: Sha256dHash,
 }
 
 impl GetBlocksMessage {
@@ -81,7 +81,7 @@ impl GetBlocksMessage {
         GetBlocksMessage {
             version: constants::PROTOCOL_VERSION,
             locator_hashes: locator_hashes.clone(),
-            stop_hash: stop_hash
+            stop_hash: stop_hash,
         }
     }
 }
@@ -94,7 +94,7 @@ impl GetHeadersMessage {
         GetHeadersMessage {
             version: constants::PROTOCOL_VERSION,
             locator_hashes: locator_hashes,
-            stop_hash: stop_hash
+            stop_hash: stop_hash,
         }
     }
 }
@@ -105,12 +105,13 @@ impl<S: SimpleEncoder> ConsensusEncodable<S> for Inventory {
     #[inline]
     fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
         match self.inv_type {
-            InvType::Error => 0u32, 
+            InvType::Error => 0u32,
             InvType::Transaction => 1,
             InvType::Block => 2,
             InvType::WitnessBlock => 0x40000002,
-            InvType::WitnessTransaction => 0x40000001
-        }.consensus_encode(s)?;
+            InvType::WitnessTransaction => 0x40000001,
+        }
+        .consensus_encode(s)?;
         self.hash.consensus_encode(s)
     }
 }
@@ -125,16 +126,16 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Inventory {
                 1 => InvType::Transaction,
                 2 => InvType::Block,
                 // TODO do not fail here
-                _ => { panic!("bad inventory type field") }
+                _ => panic!("bad inventory type field"),
             },
-            hash: ConsensusDecodable::consensus_decode(d)?
+            hash: ConsensusDecodable::consensus_decode(d)?,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{GetHeadersMessage, GetBlocksMessage};
+    use super::{GetBlocksMessage, GetHeadersMessage};
 
     use util::hash::hex_bytes as hex_decode;
 
@@ -144,14 +145,18 @@ mod tests {
     #[test]
     fn getblocks_message_test() {
         let from_sat = hex_decode("72110100014a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let genhash = hex_decode("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b").unwrap();
+        let genhash =
+            hex_decode("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b").unwrap();
 
         let decode: Result<GetBlocksMessage, _> = deserialize(&from_sat);
         assert!(decode.is_ok());
         let real_decode = decode.unwrap();
         assert_eq!(real_decode.version, 70002);
         assert_eq!(real_decode.locator_hashes.len(), 1);
-        assert_eq!(serialize(&real_decode.locator_hashes[0]).ok(), Some(genhash));
+        assert_eq!(
+            serialize(&real_decode.locator_hashes[0]).ok(),
+            Some(genhash)
+        );
         assert_eq!(real_decode.stop_hash, Default::default());
 
         assert_eq!(serialize(&real_decode).ok(), Some(from_sat));
@@ -160,17 +165,20 @@ mod tests {
     #[test]
     fn getheaders_message_test() {
         let from_sat = hex_decode("72110100014a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let genhash = hex_decode("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b").unwrap();
+        let genhash =
+            hex_decode("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b").unwrap();
 
         let decode: Result<GetHeadersMessage, _> = deserialize(&from_sat);
         assert!(decode.is_ok());
         let real_decode = decode.unwrap();
         assert_eq!(real_decode.version, 70002);
         assert_eq!(real_decode.locator_hashes.len(), 1);
-        assert_eq!(serialize(&real_decode.locator_hashes[0]).ok(), Some(genhash));
+        assert_eq!(
+            serialize(&real_decode.locator_hashes[0]).ok(),
+            Some(genhash)
+        );
         assert_eq!(real_decode.stop_hash, Default::default());
 
         assert_eq!(serialize(&real_decode).ok(), Some(from_sat));
     }
 }
-

@@ -1,23 +1,26 @@
+use util::hash::hex_bytes;
+use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
+use vm::contracts::Contract;
+use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
-use vm::errors::{Error, CheckErrors, RuntimeErrorType};
-use vm::types::{Value, PrincipalData, ResponseData, QualifiedContractIdentifier, AssetIdentifier};
-use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap, AssetMapEntry};
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
-use vm::contracts::Contract;
-use util::hash::hex_bytes;
-use vm::tests::{with_memory_environment, with_marfed_environment, symbols_from_values,
-                execute, is_err_code, is_committed};
+use vm::tests::{
+    execute, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
+    with_memory_environment,
+};
+use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
-use vm::contexts::{Environment};
-use vm::costs::{ExecutionCost};
-use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
-                   NULL_HEADER_DB, NULL_BURN_STATE_DB};
-use chainstate::stacks::events::StacksTransactionEvent;
-use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::events::StacksTransactionEvent;
+use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::StacksBlockId;
+use vm::contexts::Environment;
+use vm::costs::ExecutionCost;
+use vm::database::{
+    ClarityDatabase, MarfedKV, MemoryBackingStore, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
 
 use chainstate::stacks::StacksBlockHeader;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -104,8 +107,13 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     }
 }
 
-fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_identifier: &QualifiedContractIdentifier,
-                       tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+fn execute_transaction(
+    env: &mut OwnedEnvironment,
+    issuer: Value,
+    contract_identifier: &QualifiedContractIdentifier,
+    tx: &str,
+    args: &[SymbolicExpression],
+) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
     env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
 }
 
@@ -117,8 +125,8 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
                           (define-map map-foo ((a int)) ((b int)))
                           (define-public (foo-exec (a int)) (ok 1))";
 
-
-    let contract_self = format!("(define-map map-foo ((a int)) ((b int)))
+    let contract_self = format!(
+        "(define-map map-foo ((a int)) ((b int)))
                          (define-non-fungible-token nft-foo int)
                          (define-fungible-token ft-foo)
                          (define-data-var var-foo int 0)
@@ -126,44 +134,72 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
                          (define-constant list-foo (list true))
                          (define-constant list-bar (list 1))
                          (use-trait trait-1 .contract-trait.trait-1)
-                         (define-public (execute (contract <trait-1>)) (ok {}))", prog);
+                         (define-public (execute (contract <trait-1>)) (ok {}))",
+        prog
+    );
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!()
+        _ => panic!(),
     };
 
     let self_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
-    let other_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
+    let other_contract_id =
+        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
+    let trait_contract_id =
+        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
     let mut marf_kv = MarfedKV::temporary();
-    marf_kv.begin(&StacksBlockId::sentinel(),
-                  &StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH));
+    marf_kv.begin(
+        &StacksBlockId::sentinel(),
+        &StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        ),
+    );
 
     {
-        marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB).initialize();
+        marf_kv
+            .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+            .initialize();
     }
 
     marf_kv.test_commit();
-    marf_kv.begin(&StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-                  &StacksBlockId([1 as u8; 32]));
+    marf_kv.begin(
+        &StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        ),
+        &StacksBlockId([1 as u8; 32]),
+    );
 
+    let mut owned_env =
+        OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
 
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
-
-
-    owned_env.initialize_contract(trait_contract_id.clone(), contract_trait).unwrap();
-    owned_env.initialize_contract(other_contract_id.clone(), contract_other).unwrap();
-    owned_env.initialize_contract(self_contract_id.clone(), &contract_self).unwrap();
+    owned_env
+        .initialize_contract(trait_contract_id.clone(), contract_trait)
+        .unwrap();
+    owned_env
+        .initialize_contract(other_contract_id.clone(), contract_other)
+        .unwrap();
+    owned_env
+        .initialize_contract(self_contract_id.clone(), &contract_self)
+        .unwrap();
 
     let target_contract = Value::from(PrincipalData::Contract(other_contract_id));
 
     eprintln!("{}", &contract_self);
-    execute_transaction(&mut owned_env, p2, &self_contract_id, "execute", &symbols_from_values(vec![target_contract])).unwrap();
+    execute_transaction(
+        &mut owned_env,
+        p2,
+        &self_contract_id,
+        "execute",
+        &symbols_from_values(vec![target_contract]),
+    )
+    .unwrap();
 
     let (_db, tracker) = owned_env.destruct().unwrap();
     tracker.get_total()

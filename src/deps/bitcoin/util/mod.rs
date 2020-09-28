@@ -80,7 +80,7 @@ impl error::Error for Error {
             Error::Secp256k1(ref e) => Some(e),
             Error::Serialize(ref e) => Some(e),
             Error::Network(ref e) => Some(e),
-            Error::SpvBadProofOfWork | Error::SpvBadTarget => None
+            Error::SpvBadProofOfWork | Error::SpvBadTarget => None,
         }
     }
 }

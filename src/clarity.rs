@@ -1,38 +1,40 @@
 use rand::Rng;
+use std::convert::TryInto;
+use std::env;
+use std::fs;
 use std::io;
 use std::io::{Read, Write};
-use std::fs;
-use std::env;
-use std::process;
-use std::convert::TryInto;
 use std::path::PathBuf;
+use std::process;
 
 use util::log;
 
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::index::{MarfTrieId, storage::{TrieFileStorage}};
+use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use chainstate::stacks::StacksBlockId;
 
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
 use util::db::FromColumn;
 
 use util::hash::Sha512Trunc256Sum;
 
-use vm::ast::{build_ast};
-use vm::contexts::OwnedEnvironment;
-use vm::database::{ClarityDatabase, SqliteConnection, HeadersDB,
-                   MarfedKV, MemoryBackingStore, NULL_HEADER_DB, NULL_BURN_STATE_DB, STXBalance};
-use vm::errors::{InterpreterResult, RuntimeErrorType, Error};
-use vm::{SymbolicExpression, SymbolicExpressionType, Value, execute as vm_execute};
 use vm::analysis;
-use vm::analysis::{errors::CheckResult, AnalysisDatabase, ContractAnalysis};
 use vm::analysis::contract_interface_builder::build_contract_interface;
-use vm::types::{QualifiedContractIdentifier, PrincipalData};
+use vm::analysis::{errors::CheckResult, AnalysisDatabase, ContractAnalysis};
+use vm::ast::build_ast;
+use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
+use vm::database::{
+    ClarityDatabase, HeadersDB, MarfedKV, MemoryBackingStore, STXBalance, SqliteConnection,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
+use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
+use vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
 use address::c32::c32_address;
 
@@ -44,16 +46,21 @@ use serde::Serialize;
 
 #[cfg(test)]
 macro_rules! panic_test {
-    () => { panic!() }
+    () => {
+        panic!()
+    };
 }
 #[cfg(not(test))]
 macro_rules! panic_test {
-    () => { process::exit(1) }
+    () => {
+        process::exit(1)
+    };
 }
 
 #[cfg_attr(tarpaulin, skip)]
 fn print_usage(invoked_by: &str) {
-    eprintln!("Usage: {} [command]
+    eprintln!(
+        "Usage: {} [command]
 where command is one of:
 
   initialize         to initialize a local VM state database.
@@ -67,12 +74,14 @@ where command is one of:
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
   generate_address   to generate a random Stacks public address for testing purposes.
-", invoked_by);
+",
+        invoked_by
+    );
     panic_test!()
 }
 
 #[cfg_attr(tarpaulin, skip)]
-fn friendly_expect<A,B: std::fmt::Display>(input: Result<A,B>, msg: &str) -> A {
+fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{}\nCaused by: {}", msg, e);
         panic_test!();
@@ -93,53 +102,71 @@ struct EvalInput {
     content: String,
 }
 
-fn parse(contract_identifier: &QualifiedContractIdentifier, source_code: &str) -> Result<Vec<SymbolicExpression>, Error> {
+fn parse(
+    contract_identifier: &QualifiedContractIdentifier,
+    source_code: &str,
+) -> Result<Vec<SymbolicExpression>, Error> {
     let ast = build_ast(contract_identifier, source_code, &mut ())
         .map_err(|e| RuntimeErrorType::ASTError(e))?;
     Ok(ast.expressions)
 }
 
-fn run_analysis(contract_identifier: &QualifiedContractIdentifier, 
-                expressions: &mut [SymbolicExpression],
-                analysis_db: &mut AnalysisDatabase, 
-                save_contract: bool) -> CheckResult<ContractAnalysis> {
-    analysis::run_analysis(contract_identifier, expressions, analysis_db, save_contract, LimitedCostTracker::new_max_limit())
-        .map_err(|(e, _)| e)
+fn run_analysis(
+    contract_identifier: &QualifiedContractIdentifier,
+    expressions: &mut [SymbolicExpression],
+    analysis_db: &mut AnalysisDatabase,
+    save_contract: bool,
+) -> CheckResult<ContractAnalysis> {
+    analysis::run_analysis(
+        contract_identifier,
+        expressions,
+        analysis_db,
+        save_contract,
+        LimitedCostTracker::new_max_limit(),
+    )
+    .map_err(|(e, _)| e)
 }
-
 
 fn create_or_open_db(path: &String) -> Connection {
     let open_flags = match fs::metadata(path) {
         Err(e) => {
             if e.kind() == io::ErrorKind::NotFound {
-                // need to create 
+                // need to create
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
-            }
-            else {
+            } else {
                 panic!("FATAL: could not stat {}", path);
             }
-        },
+        }
         Ok(_md) => {
-            // can just open 
+            // can just open
             OpenFlags::SQLITE_OPEN_READ_WRITE
         }
     };
 
-    let conn = friendly_expect(Connection::open_with_flags(path, open_flags), &format!("FATAL: failed to open '{}'", path));
+    let conn = friendly_expect(
+        Connection::open_with_flags(path, open_flags),
+        &format!("FATAL: failed to open '{}'", path),
+    );
     conn
 }
 
 fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
-    let mut stmt = friendly_expect(conn.prepare("SELECT block_hash FROM cli_chain_tips ORDER BY id DESC LIMIT 1"), "FATAL: could not prepare query");
+    let mut stmt = friendly_expect(
+        conn.prepare("SELECT block_hash FROM cli_chain_tips ORDER BY id DESC LIMIT 1"),
+        "FATAL: could not prepare query",
+    );
     let mut rows = friendly_expect(stmt.query(NO_PARAMS), "FATAL: could not fetch rows");
     let mut hash_opt = None;
     while let Some(row_res) = rows.next() {
         match row_res {
             Ok(row) => {
-                let bhh = friendly_expect(StacksBlockId::from_column(&row, "block_hash"), "FATAL: could not parse block hash");
+                let bhh = friendly_expect(
+                    StacksBlockId::from_column(&row, "block_hash"),
+                    "FATAL: could not parse block hash",
+                );
                 hash_opt = Some(bhh);
                 break;
-            },
+            }
             Err(e) => {
                 panic!("FATAL: could not read block hash: {:?}", e);
             }
@@ -147,21 +174,27 @@ fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
     }
     match hash_opt {
         Some(bhh) => bhh,
-        None => StacksBlockId::sentinel()
+        None => StacksBlockId::sentinel(),
     }
 }
 
 fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u64> {
-    let mut stmt = friendly_expect(conn.prepare("SELECT id FROM cli_chain_tips WHERE block_hash = ?1"), "FATAL: could not prepare query");
+    let mut stmt = friendly_expect(
+        conn.prepare("SELECT id FROM cli_chain_tips WHERE block_hash = ?1"),
+        "FATAL: could not prepare query",
+    );
     let mut rows = friendly_expect(stmt.query(&[block_id]), "FATAL: could not fetch rows");
     let mut row_opt = None;
     while let Some(row_res) = rows.next() {
         match row_res {
             Ok(row) => {
-                let rowid = friendly_expect(u64::from_column(&row, "id"), "FATAL: could not parse row ID");
+                let rowid = friendly_expect(
+                    u64::from_column(&row, "id"),
+                    "FATAL: could not parse row ID",
+                );
                 row_opt = Some(rowid);
                 break;
-            },
+            }
             Err(e) => {
                 panic!("FATAL: could not read block hash: {:?}", e);
             }
@@ -172,7 +205,10 @@ fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u
 
 fn advance_cli_chain_tip(path: &String) -> (StacksBlockId, StacksBlockId) {
     let mut conn = create_or_open_db(path);
-    let tx = friendly_expect(conn.transaction(), &format!("FATAL: failed to begin transaction on '{}'", path));
+    let tx = friendly_expect(
+        conn.transaction(),
+        &format!("FATAL: failed to begin transaction on '{}'", path),
+    );
 
     friendly_expect(tx.execute("CREATE TABLE IF NOT EXISTS cli_chain_tips(id INTEGER PRIMARY KEY AUTOINCREMENT, block_hash TEXT UNIQUE NOT NULL);", NO_PARAMS),
                     &format!("FATAL: failed to create 'cli_chain_tips' table"));
@@ -180,31 +216,45 @@ fn advance_cli_chain_tip(path: &String) -> (StacksBlockId, StacksBlockId) {
     let parent_block_hash = get_cli_chain_tip(&tx);
 
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    let next_block_hash  = friendly_expect_opt(StacksBlockId::from_bytes(&random_bytes),
-                                              "Failed to generate random block header.");
+    let next_block_hash = friendly_expect_opt(
+        StacksBlockId::from_bytes(&random_bytes),
+        "Failed to generate random block header.",
+    );
 
-    friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash]), 
-                    &format!("FATAL: failed to store next block hash in '{}'", path));
+    friendly_expect(
+        tx.execute(
+            "INSERT INTO cli_chain_tips (block_hash) VALUES (?1)",
+            &[&next_block_hash],
+        ),
+        &format!("FATAL: failed to store next block hash in '{}'", path),
+    );
 
-    friendly_expect(tx.commit(), &format!("FATAL: failed to commit new chain tip to '{}'", path));
+    friendly_expect(
+        tx.commit(),
+        &format!("FATAL: failed to commit new chain tip to '{}'", path),
+    );
 
     (parent_block_hash, next_block_hash)
 }
 
 // This function is pretty weird! But it helps cut down on
 //   repeating a lot of block initialization for the simulation commands.
-fn in_block<F,R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
-where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
-
+fn in_block<F, R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
+where
+    F: FnOnce(MarfedKV) -> (MarfedKV, R),
+{
     // store CLI data alongside the MARF database state
     let mut cli_db_path_buf = PathBuf::from(db_path);
     cli_db_path_buf.push("cli.sqlite");
     let cli_db_path = cli_db_path_buf
         .to_str()
-        .expect(&format!("FATAL: failed to convert '{}' to a string", db_path))
+        .expect(&format!(
+            "FATAL: failed to convert '{}' to a string",
+            db_path
+        ))
         .to_string();
 
-    // need to load the last block 
+    // need to load the last block
     let (from, to) = advance_cli_chain_tip(&cli_db_path);
     marf_kv.begin(&from, &to);
     let (mut marf_return, result) = f(marf_kv);
@@ -214,20 +264,24 @@ where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
 
 // like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
 // chain tip itself.
-fn at_chaintip<F,R>(db_path: &String, mut marf_kv: MarfedKV, f: F) -> R
-where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
-
+fn at_chaintip<F, R>(db_path: &String, mut marf_kv: MarfedKV, f: F) -> R
+where
+    F: FnOnce(MarfedKV) -> (MarfedKV, R),
+{
     // store CLI data alongside the MARF database state
     let mut cli_db_path_buf = PathBuf::from(db_path);
     cli_db_path_buf.push("cli.sqlite");
     let cli_db_path = cli_db_path_buf
         .to_str()
-        .expect(&format!("FATAL: failed to convert '{}' to a string", db_path))
+        .expect(&format!(
+            "FATAL: failed to convert '{}' to a string",
+            db_path
+        ))
         .to_string();
 
     let cli_db_conn = create_or_open_db(&cli_db_path);
     let from = get_cli_chain_tip(&cli_db_conn);
-    let to = StacksBlockId([2u8; 32]);        // 0x0202020202 ... (pattern not used anywhere else) 
+    let to = StacksBlockId([2u8; 32]); // 0x0202020202 ... (pattern not used anywhere else)
 
     marf_kv.begin(&from, &to);
     let (mut marf_return, result) = f(marf_kv);
@@ -235,13 +289,14 @@ where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
     result
 }
 
-fn at_block<F,R>(blockhash: &str, mut marf_kv: MarfedKV, f: F) -> R
-where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
-
+fn at_block<F, R>(blockhash: &str, mut marf_kv: MarfedKV, f: F) -> R
+where
+    F: FnOnce(MarfedKV) -> (MarfedKV, R),
+{
     // store CLI data alongside the MARF database state
     let from = StacksBlockId::from_hex(blockhash)
         .expect(&format!("FATAL: failed to parse inputted blockhash"));
-    let to = StacksBlockId([2u8; 32]);        // 0x0202020202 ... (pattern not used anywhere else)
+    let to = StacksBlockId([2u8; 32]); // 0x0202020202 ... (pattern not used anywhere else)
 
     marf_kv.begin(&from, &to);
     let (mut marf_return, result) = f(marf_kv);
@@ -250,13 +305,13 @@ where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
 }
 
 struct CLIHeadersDB {
-    db_path: String
+    db_path: String,
 }
 
 impl CLIHeadersDB {
     pub fn new(db_path: &str) -> CLIHeadersDB {
         CLIHeadersDB {
-            db_path: db_path.to_string()
+            db_path: db_path.to_string(),
         }
     }
 
@@ -265,7 +320,10 @@ impl CLIHeadersDB {
         cli_db_path_buf.push("cli.sqlite");
         let cli_db_path = cli_db_path_buf
             .to_str()
-            .expect(&format!("FATAL: failed to convert '{}' to a string", &self.db_path))
+            .expect(&format!(
+                "FATAL: failed to convert '{}' to a string",
+                &self.db_path
+            ))
             .to_string();
 
         let cli_db_conn = create_or_open_db(&cli_db_path);
@@ -274,14 +332,16 @@ impl CLIHeadersDB {
 }
 
 impl HeadersDB for CLIHeadersDB {
-    fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
+    fn get_burn_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BurnchainHeaderHash> {
         // mock it
         let conn = self.open();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
             let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
             Some(BurnchainHeaderHash(hash_bytes.0))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -293,13 +353,15 @@ impl HeadersDB for CLIHeadersDB {
             let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
             let hash_bytes_2 = Sha512Trunc256Sum::from_data(&hash_bytes.0);
             Some(VRFSeed(hash_bytes_2.0))
-        }
-        else {
+        } else {
             None
         }
     }
 
-    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<BlockHeaderHash> {
+    fn get_stacks_block_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BlockHeaderHash> {
         let conn = self.open();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
             // mock it, but make it unique
@@ -307,8 +369,7 @@ impl HeadersDB for CLIHeadersDB {
             let hash_bytes_2 = Sha512Trunc256Sum::from_data(&hash_bytes.0);
             let hash_bytes_3 = Sha512Trunc256Sum::from_data(&hash_bytes_2.0);
             Some(BlockHeaderHash(hash_bytes_3.0))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -316,8 +377,7 @@ impl HeadersDB for CLIHeadersDB {
         let conn = self.open();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
             Some((height * 600 + 1231006505) as u64)
-        }
-        else {
+        } else {
             None
         }
     }
@@ -325,12 +385,11 @@ impl HeadersDB for CLIHeadersDB {
         let conn = self.open();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
             Some(height as u32)
-        }
-        else {
+        } else {
             None
         }
     }
-    fn get_miner_address(&self, _id_bhh: &StacksBlockId)  -> Option<StacksAddress> {
+    fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
     fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
@@ -340,46 +399,52 @@ impl HeadersDB for CLIHeadersDB {
 
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
-        eprintln!("Usage: {} {} [contract-identifier] (program.clar) [vm-state.db]", invoked_by, args[0]);
+        eprintln!(
+            "Usage: {} {} [contract-identifier] (program.clar) [vm-state.db]",
+            invoked_by, args[0]
+        );
         panic_test!();
     }
 
-    let vm_filename = 
-        if args.len() == 3 {
-            &args[2]
-        } else {
-            &args[3]
-        };
-
-
+    let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
 
     let content: String = {
         if args.len() == 3 {
             let mut buffer = String::new();
-            friendly_expect(io::stdin().read_to_string(&mut buffer),
-                            "Error reading from stdin.");
+            friendly_expect(
+                io::stdin().read_to_string(&mut buffer),
+                "Error reading from stdin.",
+            );
             buffer
         } else {
-            friendly_expect(fs::read_to_string(&args[2]),
-                            &format!("Error reading file: {}", args[2]))
+            friendly_expect(
+                fs::read_to_string(&args[2]),
+                &format!("Error reading file: {}", args[2]),
+            )
         }
     };
 
-    let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
+    let contract_identifier = friendly_expect(
+        QualifiedContractIdentifier::parse(&args[1]),
+        "Failed to parse contract identifier.",
+    );
 
-    let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+    let marf_kv = friendly_expect(
+        MarfedKV::open(vm_filename, None),
+        "Failed to open VM database.",
+    );
     // return (marf_kv, contract_identifier, vm_filename, content);
     return EvalInput {
         marf_kv,
         contract_identifier,
         content,
-    }
+    };
 }
 
 #[derive(Serialize, Deserialize)]
 struct InitialAllocation {
     principal: String,
-    amount: u64
+    amount: u64,
 }
 
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
@@ -389,35 +454,52 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
     match args[0].as_ref() {
         "initialize" => {
-            let (db_name, allocations) = 
-                if args.len() == 3 {
-                    let filename = &args[1];
-                    let json_in = if filename == "-" {
-                        let mut buffer = String::new();
-                        friendly_expect(io::stdin().read_to_string(&mut buffer), "Error reading from stdin.");
-                        buffer
-                    } else {
-                        friendly_expect(fs::read_to_string(filename),
-                                        &format!("Error reading file: {}", filename))
-                    };
-                    let allocations: Vec<InitialAllocation> = friendly_expect(serde_json::from_str(&json_in),
-                                                                              "Failure parsing JSON");
-
-                    let allocations: Vec<_> = allocations.into_iter().map(|a| {
-                        (friendly_expect(PrincipalData::parse(&a.principal), "Failed to parse principal in JSON"), a.amount)
-                    }).collect();
-
-                    (&args[2], allocations)
-                } else if args.len() == 2 {
-                    (&args[1], Vec::new())
+            let (db_name, allocations) = if args.len() == 3 {
+                let filename = &args[1];
+                let json_in = if filename == "-" {
+                    let mut buffer = String::new();
+                    friendly_expect(
+                        io::stdin().read_to_string(&mut buffer),
+                        "Error reading from stdin.",
+                    );
+                    buffer
                 } else {
-                    eprintln!("Usage: {} {} (initial-allocations.json) [vm-state.db]", invoked_by, args[0]);
-                    eprintln!("   initial-allocations.json is a JSON array of {{ principal: \"ST...\", amount: 100 }} like objects.");
-                    eprintln!("   if the provided filename is `-`, the JSON is read from stdin."); 
-                    panic_test!();
+                    friendly_expect(
+                        fs::read_to_string(filename),
+                        &format!("Error reading file: {}", filename),
+                    )
                 };
+                let allocations: Vec<InitialAllocation> =
+                    friendly_expect(serde_json::from_str(&json_in), "Failure parsing JSON");
 
-            let marf_kv = friendly_expect(MarfedKV::open(db_name, None), "Failed to open VM database.");
+                let allocations: Vec<_> = allocations
+                    .into_iter()
+                    .map(|a| {
+                        (
+                            friendly_expect(
+                                PrincipalData::parse(&a.principal),
+                                "Failed to parse principal in JSON",
+                            ),
+                            a.amount,
+                        )
+                    })
+                    .collect();
+
+                (&args[2], allocations)
+            } else if args.len() == 2 {
+                (&args[1], Vec::new())
+            } else {
+                eprintln!(
+                    "Usage: {} {} (initial-allocations.json) [vm-state.db]",
+                    invoked_by, args[0]
+                );
+                eprintln!("   initial-allocations.json is a JSON array of {{ principal: \"ST...\", amount: 100 }} like objects.");
+                eprintln!("   if the provided filename is `-`, the JSON is read from stdin.");
+                panic_test!();
+            };
+
+            let marf_kv =
+                friendly_expect(MarfedKV::open(db_name, None), "Failed to open VM database.");
             let header_db = CLIHeadersDB::new(&db_name);
             in_block(db_name, marf_kv, |mut kv| {
                 {
@@ -427,69 +509,88 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     for (principal, amount) in allocations.iter() {
                         let balance = STXBalance::initial(*amount as u128);
                         db.set_account_stx_balance(principal, &balance);
-                        println!("{} credited: {} uSTX", principal, balance.get_total_balance());
+                        println!(
+                            "{} credited: {} uSTX",
+                            principal,
+                            balance.get_total_balance()
+                        );
                     }
                     db.commit();
                 };
                 (kv, ())
             });
             println!("Database created.");
-        },
+        }
         "generate_address" => {
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
             // version = 22
-            let addr = friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
+            let addr =
+                friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
             println!("{}", addr);
-        },
+        }
         "check" => {
             if args.len() < 2 {
-                eprintln!("Usage: {} {} [program-file.clar] (vm-state.db)", invoked_by, args[0]);
+                eprintln!(
+                    "Usage: {} {} [program-file.clar] (vm-state.db)",
+                    invoked_by, args[0]
+                );
                 panic_test!();
             }
 
             let contract_id = QualifiedContractIdentifier::transient();
 
-            let content: String = friendly_expect(fs::read_to_string(&args[1]),
-                                                  &format!("Error reading file: {}", args[1]));
+            let content: String = friendly_expect(
+                fs::read_to_string(&args[1]),
+                &format!("Error reading file: {}", args[1]),
+            );
 
             let mut ast = friendly_expect(parse(&contract_id, &content), "Failed to parse program");
 
             let contract_analysis = {
                 if args.len() >= 3 {
                     // use a persisted marf
-                    let marf_kv = friendly_expect(MarfedKV::open(&args[2], None), "Failed to open VM database.");
-                    let result = at_chaintip(
-                        &args[2],
-                        marf_kv,
-                        |mut marf| {
-                            let result = { let mut db = AnalysisDatabase::new(&mut marf);
-                                           run_analysis(&contract_id, &mut ast, &mut db, false) };
-                            (marf, result)
-                        });
+                    let marf_kv = friendly_expect(
+                        MarfedKV::open(&args[2], None),
+                        "Failed to open VM database.",
+                    );
+                    let result = at_chaintip(&args[2], marf_kv, |mut marf| {
+                        let result = {
+                            let mut db = AnalysisDatabase::new(&mut marf);
+                            run_analysis(&contract_id, &mut ast, &mut db, false)
+                        };
+                        (marf, result)
+                    });
                     result
                 } else {
                     let mut analysis_marf = MemoryBackingStore::new();
                     let mut db = analysis_marf.as_analysis_db();
                     run_analysis(&contract_id, &mut ast, &mut db, false)
                 }
-            }.unwrap_or_else(|e| {
+            }
+            .unwrap_or_else(|e| {
                 println!("{}", &e.diagnostic);
                 panic_test!();
             });
 
             match args.last() {
                 Some(s) if s == "--output_analysis" => {
-                    println!("{}", build_contract_interface(&contract_analysis).serialize());
-                },
+                    println!(
+                        "{}",
+                        build_contract_interface(&contract_analysis).serialize()
+                    );
+                }
                 _ => {
                     println!("Checks passed.");
                 }
             }
-        },
+        }
         "repl" => {
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env = OwnedEnvironment::new_cost_limited(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
+            let mut vm_env = OwnedEnvironment::new_cost_limited(
+                marf.as_clarity_db(),
+                LimitedCostTracker::new_max_limit(),
+            );
             let mut exec_env = vm_env.get_exec_environment(None);
 
             let mut analysis_marf = MemoryBackingStore::new();
@@ -530,7 +631,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     Err(error) => {
                         println!("Type check error:\n{}", error);
                         continue;
-                    } 
+                    }
                 }
 
                 let eval_result = match exec_env.eval_raw(&content) {
@@ -540,14 +641,17 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         continue;
                     }
                 };
-                
+
                 println!("{}", eval_result);
             }
-        },
+        }
         "eval_raw" => {
             let content: String = {
                 let mut buffer = String::new();
-                friendly_expect(io::stdin().read_to_string(&mut buffer), "Error reading from stdin.");
+                friendly_expect(
+                    io::stdin().read_to_string(&mut buffer),
+                    "Error reading from stdin.",
+                );
                 buffer
             };
 
@@ -555,115 +659,129 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut analysis_db = analysis_marf.as_analysis_db();
 
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env = OwnedEnvironment::new_cost_limited(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
- 
-            
-            let contract_id = QualifiedContractIdentifier::transient(); 
-            
-            let mut ast = friendly_expect(parse(&contract_id, &content), "Failed to parse program.");
+            let mut vm_env = OwnedEnvironment::new_cost_limited(
+                marf.as_clarity_db(),
+                LimitedCostTracker::new_max_limit(),
+            );
+
+            let contract_id = QualifiedContractIdentifier::transient();
+
+            let mut ast =
+                friendly_expect(parse(&contract_id, &content), "Failed to parse program.");
             match run_analysis(&contract_id, &mut ast, &mut analysis_db, true) {
                 Ok(_) => {
                     let result = vm_env.get_exec_environment(None).eval_raw(&content);
                     match result {
                         Ok(x) => {
                             println!("Program executed successfully! Output: \n{}", x);
-                        },
+                        }
                         Err(error) => {
                             eprintln!("Program execution error: \n{}", error);
                             panic_test!();
                         }
                     }
-                },
+                }
                 Err(error) => {
                     eprintln!("Type check error.\n{}", error);
                     panic_test!();
                 }
             }
-        },
+        }
         "eval" => {
             let evalInput = get_eval_input(invoked_by, args);
-            let vm_filename = 
-                if args.len() == 3 {
-                    &args[2]
-                } else {
-                    &args[3]
-                };
-            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
+            let marf_kv = friendly_expect(
+                MarfedKV::open(vm_filename, None),
+                "Failed to open VM database.",
+            );
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
-                    vm_env.get_exec_environment(None)
+                    let mut vm_env =
+                        OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
+                    vm_env
+                        .get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 };
                 (marf, result)
             });
-        
+
             match result {
                 Ok(x) => {
                     println!("Program executed successfully! Output: \n{}", x);
-                },
-                Err(error) => { 
+                }
+                Err(error) => {
                     eprintln!("Program execution error: \n{}", error);
                     panic_test!();
                 }
             }
-        },
+        }
         "eval_at_chaintip" => {
             let evalInput = get_eval_input(invoked_by, args);
-            let vm_filename = 
-                if args.len() == 3 {
-                    &args[2]
-                } else {
-                    &args[3]
-                };
-            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
+            let marf_kv = friendly_expect(
+                MarfedKV::open(vm_filename, None),
+                "Failed to open VM database.",
+            );
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
-                    vm_env.get_exec_environment(None)
+                    let mut vm_env =
+                        OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
+                    vm_env
+                        .get_exec_environment(None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 };
                 (marf, result)
             });
-        
+
             match result {
                 Ok(x) => {
                     println!("Program executed successfully! Output: \n{}", x);
-                },
-                Err(error) => { 
+                }
+                Err(error) => {
                     eprintln!("Program execution error: \n{}", error);
                     panic_test!();
                 }
             }
-        },
+        }
         "eval_at_block" => {
             if args.len() != 4 {
-                eprintln!("Usage: {} {} [index-block-hash] [contract-identifier] [vm/clarity dir]",
-                          invoked_by, &args[0]);
+                eprintln!(
+                    "Usage: {} {} [index-block-hash] [contract-identifier] [vm/clarity dir]",
+                    invoked_by, &args[0]
+                );
                 panic_test!();
             }
             let chain_tip = &args[1];
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[2]),
-                                                      "Failed to parse contract identifier.");
+            let contract_identifier = friendly_expect(
+                QualifiedContractIdentifier::parse(&args[2]),
+                "Failed to parse contract identifier.",
+            );
             let content: String = {
                 let mut buffer = String::new();
-                friendly_expect(io::stdin().read_to_string(&mut buffer),
-                                "Error reading from stdin.");
+                friendly_expect(
+                    io::stdin().read_to_string(&mut buffer),
+                    "Error reading from stdin.",
+                );
                 buffer
             };
 
             let vm_filename = &args[3];
-            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(
+                MarfedKV::open(vm_filename, None),
+                "Failed to open VM database.",
+            );
             let header_db = CLIHeadersDB::new(&vm_filename);
             let result = at_block(chain_tip, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
-                    vm_env.get_exec_environment(None)
+                    let mut vm_env =
+                        OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
+                    vm_env
+                        .get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
                 };
                 (marf, result)
@@ -672,84 +790,105 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             match result {
                 Ok(x) => {
                     println!("Program executed successfully! Output: \n{}", x);
-                },
+                }
                 Err(error) => {
                     eprintln!("Program execution error: \n{}", error);
                     panic_test!();
                 }
             }
-        },
+        }
         "launch" => {
             if args.len() < 4 {
-                eprintln!("Usage: {} {} [contract-identifier] [contract-definition.clar] [vm-state.db]", invoked_by, args[0]);
+                eprintln!(
+                    "Usage: {} {} [contract-identifier] [contract-definition.clar] [vm-state.db]",
+                    invoked_by, args[0]
+                );
                 panic_test!();
             }
             let vm_filename = &args[3];
 
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
+            let contract_identifier = friendly_expect(
+                QualifiedContractIdentifier::parse(&args[1]),
+                "Failed to parse contract identifier.",
+            );
 
-            let contract_content: String = friendly_expect(fs::read_to_string(&args[2]),
-                                                           &format!("Error reading file: {}", args[2]));
+            let contract_content: String = friendly_expect(
+                fs::read_to_string(&args[2]),
+                &format!("Error reading file: {}", args[2]),
+            );
 
-            let mut ast = friendly_expect(parse(&contract_identifier, &contract_content), "Failed to parse program.");
-            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let mut ast = friendly_expect(
+                parse(&contract_identifier, &contract_content),
+                "Failed to parse program.",
+            );
+            let marf_kv = friendly_expect(
+                MarfedKV::open(vm_filename, None),
+                "Failed to open VM database.",
+            );
             let header_db = CLIHeadersDB::new(&vm_filename);
-            let result = in_block(
-                vm_filename,
-                marf_kv,
-                |mut marf| {
-                    let analysis_result = { 
-                        let mut db = AnalysisDatabase::new(&mut marf);
-                        
-                        run_analysis(&contract_identifier, &mut ast, &mut db, true)
-                    };
+            let result = in_block(vm_filename, marf_kv, |mut marf| {
+                let analysis_result = {
+                    let mut db = AnalysisDatabase::new(&mut marf);
 
-                    match analysis_result {
-                        Err(e) => (marf, Err(e)),
-                        Ok(analysis) => {
-                            let result = {
-                                let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                                let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
-                                vm_env.initialize_contract(contract_identifier, &contract_content)
-                            };
-                            (marf, Ok((analysis, result)))
-                        }
+                    run_analysis(&contract_identifier, &mut ast, &mut db, true)
+                };
+
+                match analysis_result {
+                    Err(e) => (marf, Err(e)),
+                    Ok(analysis) => {
+                        let result = {
+                            let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
+                            let mut vm_env = OwnedEnvironment::new_cost_limited(
+                                db,
+                                LimitedCostTracker::new_max_limit(),
+                            );
+                            vm_env.initialize_contract(contract_identifier, &contract_content)
+                        };
+                        (marf, Ok((analysis, result)))
                     }
-                });
+                }
+            });
 
             match result {
-                Ok((contract_analysis, Ok(_x))) => {
-                    match args.last() {
-                        Some(s) if s == "--output_analysis" => {
-                            println!("{}", build_contract_interface(&contract_analysis).serialize());
-                        },
-                        _ => {
-                            println!("Contract initialized!");
-                        }
+                Ok((contract_analysis, Ok(_x))) => match args.last() {
+                    Some(s) if s == "--output_analysis" => {
+                        println!(
+                            "{}",
+                            build_contract_interface(&contract_analysis).serialize()
+                        );
+                    }
+                    _ => {
+                        println!("Contract initialized!");
                     }
                 },
                 Err(error) => {
                     eprintln!("Contract initialization error: \n{}", error);
                     panic_test!();
-                },
+                }
                 Ok((_, Err(error))) => {
                     eprintln!("Contract initialization error: \n{}", error);
                     panic_test!();
                 }
             }
-        },
+        }
         "execute" => {
             if args.len() < 5 {
                 eprintln!("Usage: {} {} [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, args[0]);
                 panic_test!();
             }
             let vm_filename = &args[1];
-            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(
+                MarfedKV::open(vm_filename, None),
+                "Failed to open VM database.",
+            );
             let header_db = CLIHeadersDB::new(&vm_filename);
 
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[2]), "Failed to parse contract identifier.");
+            let contract_identifier = friendly_expect(
+                QualifiedContractIdentifier::parse(&args[2]),
+                "Failed to parse contract identifier.",
+            );
 
-            let tx_name = &args[3];            
+            let tx_name = &args[3];
             let sender_in = &args[4];
 
             let sender = {
@@ -766,10 +905,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 .map(|argument| {
                     let argument_parsed = friendly_expect(
                         vm_execute(argument),
-                        &format!("Error parsing argument \"{}\"", argument));
+                        &format!("Error parsing argument \"{}\"", argument),
+                    );
                     let argument_value = friendly_expect_opt(
                         argument_parsed,
-                        &format!("Failed to parse a value from the argument: {}", argument));
+                        &format!("Failed to parse a value from the argument: {}", argument),
+                    );
                     SymbolicExpression::atom_value(argument_value.clone())
                 })
                 .collect();
@@ -777,8 +918,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&header_db, &NULL_BURN_STATE_DB);
-                    let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
-                    vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
+                    let mut vm_env =
+                        OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
+                    vm_env.execute_transaction(
+                        Value::Principal(sender),
+                        contract_identifier,
+                        &tx_name,
+                        &arguments,
+                    )
+                };
                 (marf, result)
             });
 
@@ -786,23 +934,27 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 Ok((x, _, events)) => {
                     if let Value::Response(data) = x {
                         if data.committed {
-                            println!("Transaction executed and committed. Returned: {}\n{:?}", data.data, events);
+                            println!(
+                                "Transaction executed and committed. Returned: {}\n{:?}",
+                                data.data, events
+                            );
                         } else {
                             println!("Aborted: {}", data.data);
                         }
                     } else {
-                        panic!(format!("Expected a ResponseType result from transaction. Found: {}", x));
+                        panic!(format!(
+                            "Expected a ResponseType result from transaction. Found: {}",
+                            x
+                        ));
                     }
-                },
+                }
                 Err(error) => {
                     eprintln!("Transaction execution error: \n{}", error);
                     panic_test!();
                 }
             }
-        },
-        _ => {
-            print_usage(invoked_by)
         }
+        _ => print_usage(invoked_by),
     }
 }
 
@@ -815,63 +967,129 @@ mod test {
         let json_name = format!("/tmp/test-alloc_{}.json", rand::thread_rng().gen::<i32>());
         let clar_name = format!("/tmp/test-alloc_{}.clar", rand::thread_rng().gen::<i32>());
 
-        fs::write(&json_name, r#"
+        fs::write(
+            &json_name,
+            r#"
 [ { "principal": "S1G2081040G2081040G2081040G208105NK8PE5",
     "amount": 1000 },
   { "principal": "S1G2081040G2081040G2081040G208105NK8PE5.names",
     "amount": 2000 } ]
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         fs::write(&clar_name, r#"
 (unwrap-panic (if (is-eq (stx-get-balance 'S1G2081040G2081040G2081040G208105NK8PE5) u1000) (ok 1) (err 2)))
 (unwrap-panic (if (is-eq (stx-get-balance 'S1G2081040G2081040G2081040G208105NK8PE5.names) u2000) (ok 1) (err 2)))
 "#).unwrap();
 
-        invoke_command("test", &["initialize".to_string(), json_name.clone(), db_name.clone()]);
+        invoke_command(
+            "test",
+            &["initialize".to_string(), json_name.clone(), db_name.clone()],
+        );
 
-        invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                                 clar_name, db_name]);
+        invoke_command(
+            "test",
+            &[
+                "launch".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                clar_name,
+                db_name,
+            ],
+        );
     }
 
     #[test]
     fn test_samples() {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
-        
+
         eprintln!("initialize");
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
 
         eprintln!("check tokens");
-        invoke_command("test", &["check".to_string(), "sample-contracts/tokens.clar".to_string()]);
-        
+        invoke_command(
+            "test",
+            &[
+                "check".to_string(),
+                "sample-contracts/tokens.clar".to_string(),
+            ],
+        );
+
         eprintln!("check tokens");
-        invoke_command("test", &["check".to_string(), "sample-contracts/tokens.clar".to_string(), db_name.clone()]);
-        
+        invoke_command(
+            "test",
+            &[
+                "check".to_string(),
+                "sample-contracts/tokens.clar".to_string(),
+                db_name.clone(),
+            ],
+        );
+
         eprintln!("launch tokens");
-        invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                                 "sample-contracts/tokens.clar".to_string(), db_name.clone()]);
+        invoke_command(
+            "test",
+            &[
+                "launch".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                "sample-contracts/tokens.clar".to_string(),
+                db_name.clone(),
+            ],
+        );
 
         eprintln!("check names");
-        invoke_command("test", &["check".to_string(), "sample-contracts/names.clar".to_string(), db_name.clone()]);
+        invoke_command(
+            "test",
+            &[
+                "check".to_string(),
+                "sample-contracts/names.clar".to_string(),
+                db_name.clone(),
+            ],
+        );
 
         eprintln!("launch names");
-        invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.names".to_string(),
-                                 "sample-contracts/names.clar".to_string(), db_name.clone()]);
+        invoke_command(
+            "test",
+            &[
+                "launch".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.names".to_string(),
+                "sample-contracts/names.clar".to_string(),
+                db_name.clone(),
+            ],
+        );
 
         eprintln!("execute tokens");
-        invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                                 "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
-                                 "(+ u900 u100)".to_string()]);
+        invoke_command(
+            "test",
+            &[
+                "execute".to_string(),
+                db_name.clone(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                "mint!".to_string(),
+                "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
+                "(+ u900 u100)".to_string(),
+            ],
+        );
 
         eprintln!("eval tokens");
-        invoke_command("test", &["eval".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(), 
-                                 "sample-contracts/tokens-mint.clar".to_string(),
-                                 db_name.clone()
-                                 ]);
+        invoke_command(
+            "test",
+            &[
+                "eval".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                "sample-contracts/tokens-mint.clar".to_string(),
+                db_name.clone(),
+            ],
+        );
 
         eprintln!("eval_at_chaintip tokens");
-        invoke_command("test", &["eval_at_chaintip".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(), 
-                                 "sample-contracts/tokens-mint.clar".to_string(),
-                                 db_name.clone()
-                                 ]);
+        invoke_command(
+            "test",
+            &[
+                "eval_at_chaintip".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
+                "sample-contracts/tokens-mint.clar".to_string(),
+                db_name.clone(),
+            ],
+        );
     }
 }

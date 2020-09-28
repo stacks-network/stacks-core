@@ -24,34 +24,38 @@
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
-extern crate rand;
-extern crate rand_chacha;
-extern crate tini;
-extern crate secp256k1;
-extern crate serde;
-extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
-#[macro_use] extern crate lazy_static;
+extern crate rand;
+extern crate rand_chacha;
+extern crate rusqlite;
+extern crate secp256k1;
+extern crate serde;
+extern crate tini;
+#[macro_use]
+extern crate lazy_static;
+extern crate integer_sqrt;
+extern crate mio;
+extern crate percent_encoding;
+extern crate regex;
+extern crate ripemd160;
 extern crate sha2;
 extern crate sha3;
-extern crate ripemd160;
-extern crate regex;
 extern crate time;
-extern crate mio;
 extern crate url;
-extern crate percent_encoding;
-extern crate integer_sqrt;
 
-#[macro_use] extern crate serde_derive;
-#[macro_use] extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
+#[macro_use]
+extern crate serde_json;
 
 #[cfg(test)]
 #[macro_use]
 extern crate assert_json_diff;
 
 #[cfg(feature = "monitoring_prom")]
-#[macro_use] pub extern crate prometheus;
+#[macro_use]
+pub extern crate prometheus;
 
 #[macro_use]
 pub mod util;
@@ -83,16 +87,22 @@ const BUILD_TYPE: &'static str = "debug";
 const BUILD_TYPE: &'static str = "release";
 
 pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
-    let git_branch = GIT_BRANCH.map(|x| format!("{}:", x)).unwrap_or("".to_string());
+    let git_branch = GIT_BRANCH
+        .map(|x| format!("{}:", x))
+        .unwrap_or("".to_string());
     let git_commit = GIT_COMMIT.unwrap_or("");
     let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
 
-    format!("{} {} => {} ({}{}{}, {} build, {} [{}])",
-            pkg_name,
-            pkg_version,
-            core::CHAINSTATE_VERSION,
-            &git_branch, git_commit, git_tree_clean,
-            BUILD_TYPE,
-            std::env::consts::OS,
-            std::env::consts::ARCH)
+    format!(
+        "{} {} => {} ({}{}{}, {} build, {} [{}])",
+        pkg_name,
+        pkg_version,
+        core::CHAINSTATE_VERSION,
+        &git_branch,
+        git_commit,
+        git_tree_clean,
+        BUILD_TYPE,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )
 }

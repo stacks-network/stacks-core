@@ -17,33 +17,33 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use rand::{thread_rng, Rng};
 use std::fs;
-use std::path;
 use std::net;
+use std::net::Shutdown;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use rand::{Rng, thread_rng};
-use std::path::{PathBuf};
+use std::path;
+use std::path::PathBuf;
 use std::time;
-use std::net::Shutdown;
 
 use tini::Ini;
 
-use burnchains::Burnchain;
-use burnchains::indexer::*;
+use burnchains::bitcoin::blocks::BitcoinHeaderIPC;
+use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::spv::*;
 use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::blocks::BitcoinHeaderIPC;
 use burnchains::indexer::BurnchainIndexer;
+use burnchains::indexer::*;
+use burnchains::Burnchain;
 
-use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
+use burnchains::bitcoin::BitcoinNetworkType;
 
-use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use burnchains::BurnchainHeaderHash;
 use burnchains::Error as burnchain_error;
 use burnchains::MagicBytes;
+use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
 use deps::bitcoin::blockdata::block::LoneBlockHeader;
 use deps::bitcoin::network::message::NetworkMessage;
@@ -66,10 +66,12 @@ pub const FIRST_BLOCK_MAINNET: u64 = 373601;
 pub const FIRST_BLOCK_TESTNET: u64 = 0;
 pub const FIRST_BLOCK_REGTEST: u64 = 0;
 
-// batch size for searching for a reorg 
+// batch size for searching for a reorg
 // kept small since sometimes bitcoin will just send us one header at a time
-#[cfg(not(test))] const REORG_BATCH_SIZE: u64 = 16;
-#[cfg(test)] const REORG_BATCH_SIZE: u64 = 2;
+#[cfg(not(test))]
+const REORG_BATCH_SIZE: u64 = 16;
+#[cfg(test)]
+const REORG_BATCH_SIZE: u64 = 2;
 
 pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
     match network_id {
@@ -91,7 +93,7 @@ pub struct BitcoinIndexerConfig {
     pub timeout: u32,
     pub spv_headers_path: String,
     pub first_block: u64,
-    pub magic_bytes: MagicBytes
+    pub magic_bytes: MagicBytes,
 }
 
 #[derive(Debug)]
@@ -104,12 +106,12 @@ pub struct BitcoinIndexerRuntime {
     pub block_height: u64,
     pub last_getdata_send_time: u64,
     pub last_getheaders_send_time: u64,
-    pub timeout: u64
+    pub timeout: u64,
 }
 
 pub struct BitcoinIndexer {
     pub config: BitcoinIndexerConfig,
-    pub runtime: BitcoinIndexerRuntime
+    pub runtime: BitcoinIndexerRuntime,
 }
 
 impl BitcoinIndexerConfig {
@@ -144,121 +146,162 @@ impl BitcoinIndexerConfig {
     }
 
     pub fn to_file(&self, path: &String) -> Result<(), btc_error> {
-       let username = self.username.clone().unwrap_or("".to_string());
-       let password = self.password.clone().unwrap_or("".to_string());
+        let username = self.username.clone().unwrap_or("".to_string());
+        let password = self.password.clone().unwrap_or("".to_string());
 
-       let conf = Ini::new()
-           .section("bitcoin")
-           .item("server", self.peer_host.as_str())
-           .item("p2p_port", format!("{}", self.peer_port).as_str())
-           .item("rpc_port", format!("{}", self.rpc_port).as_str())
-           .item("rpc_ssl", format!("{}", self.rpc_ssl).as_str())
-           .item("username", username.as_str())
-           .item("password", password.as_str())
-           .item("timeout", format!("{}", self.timeout).as_str())
-           .item("spv_path", self.spv_headers_path.as_str())
-           .item("first_block", format!("{}", self.first_block).as_str())
-           .section("blockstack")
-           .item("network_id", format!("{}{}", self.magic_bytes.as_bytes()[0] as char, self.magic_bytes.as_bytes()[1] as char).as_str());
+        let conf = Ini::new()
+            .section("bitcoin")
+            .item("server", self.peer_host.as_str())
+            .item("p2p_port", format!("{}", self.peer_port).as_str())
+            .item("rpc_port", format!("{}", self.rpc_port).as_str())
+            .item("rpc_ssl", format!("{}", self.rpc_ssl).as_str())
+            .item("username", username.as_str())
+            .item("password", password.as_str())
+            .item("timeout", format!("{}", self.timeout).as_str())
+            .item("spv_path", self.spv_headers_path.as_str())
+            .item("first_block", format!("{}", self.first_block).as_str())
+            .section("blockstack")
+            .item(
+                "network_id",
+                format!(
+                    "{}{}",
+                    self.magic_bytes.as_bytes()[0] as char,
+                    self.magic_bytes.as_bytes()[1] as char
+                )
+                .as_str(),
+            );
 
-       conf.to_file(&path)
-           .map_err(|e| btc_error::Io(e))
+        conf.to_file(&path).map_err(|e| btc_error::Io(e))
     }
 
     pub fn from_file(path: &String) -> Result<BitcoinIndexerConfig, btc_error> {
-       let conf_path = PathBuf::from(path);
-       if !conf_path.is_file() {
-           return Err(btc_error::ConfigError("Failed to load BitcoinIndexerConfig file: No such file or directory".to_string()));
-       }
+        let conf_path = PathBuf::from(path);
+        if !conf_path.is_file() {
+            return Err(btc_error::ConfigError(
+                "Failed to load BitcoinIndexerConfig file: No such file or directory".to_string(),
+            ));
+        }
 
-       let default_config = BitcoinIndexerConfig::default();
+        let default_config = BitcoinIndexerConfig::default();
 
-       match Ini::from_file(path) {
-           Ok(ini_file) => {
-               // [bitcoin]
-               let peer_host = ini_file.get("bitcoin", "server")
-                   .unwrap_or(default_config.peer_host);
+        match Ini::from_file(path) {
+            Ok(ini_file) => {
+                // [bitcoin]
+                let peer_host = ini_file
+                    .get("bitcoin", "server")
+                    .unwrap_or(default_config.peer_host);
 
-               let peer_port = ini_file.get("bitcoin", "p2p_port")
+                let peer_port = ini_file
+                    .get("bitcoin", "p2p_port")
                     .unwrap_or(format!("{}", default_config.peer_port))
-                    .trim().parse().map_err(|_e| btc_error::ConfigError("Invalid bitcoin:p2p_port value".to_string()))?;
+                    .trim()
+                    .parse()
+                    .map_err(|_e| {
+                        btc_error::ConfigError("Invalid bitcoin:p2p_port value".to_string())
+                    })?;
 
-               if peer_port <= 1024 || peer_port >= 65535 {
-                   return Err(btc_error::ConfigError("Invalid p2p_port".to_string()));
-               }
+                if peer_port <= 1024 || peer_port >= 65535 {
+                    return Err(btc_error::ConfigError("Invalid p2p_port".to_string()));
+                }
 
-               let rpc_port = ini_file.get("bitcoin", "rpc_port")
+                let rpc_port = ini_file
+                    .get("bitcoin", "rpc_port")
                     .unwrap_or(format!("{}", default_config.rpc_port))
-                    .trim().parse().map_err(|_e| btc_error::ConfigError("Invalid bitcoin:port value".to_string()))?;
+                    .trim()
+                    .parse()
+                    .map_err(|_e| {
+                        btc_error::ConfigError("Invalid bitcoin:port value".to_string())
+                    })?;
 
-               if rpc_port <= 1024 || rpc_port >= 65535 {
-                   return Err(btc_error::ConfigError("Invalid rpc_port".to_string()));
-               }
+                if rpc_port <= 1024 || rpc_port >= 65535 {
+                    return Err(btc_error::ConfigError("Invalid rpc_port".to_string()));
+                }
 
-               let username : Option<String> = ini_file.get("bitcoin", "username")
-                   .and_then(|s| Some(s));
-               let password : Option<String> = ini_file.get("bitcoin", "password")
-                   .and_then(|s| Some(s));
+                let username: Option<String> =
+                    ini_file.get("bitcoin", "username").and_then(|s| Some(s));
+                let password: Option<String> =
+                    ini_file.get("bitcoin", "password").and_then(|s| Some(s));
 
-               let timeout = ini_file.get("bitcoin", "timeout")
+                let timeout = ini_file
+                    .get("bitcoin", "timeout")
                     .unwrap_or(format!("{}", default_config.timeout))
-                    .trim().parse().map_err(|_e| btc_error::ConfigError("Invalid bitcoin:timeout value".to_string()))?;
+                    .trim()
+                    .parse()
+                    .map_err(|_e| {
+                        btc_error::ConfigError("Invalid bitcoin:timeout value".to_string())
+                    })?;
 
-               let spv_headers_path_cfg = ini_file.get("bitcoin", "spv_path")
+                let spv_headers_path_cfg = ini_file
+                    .get("bitcoin", "spv_path")
                     .unwrap_or(default_config.spv_headers_path);
 
-               let spv_headers_path = 
-                   if path::is_separator(spv_headers_path_cfg.chars().next().ok_or(btc_error::ConfigError("Invalid bitcoin:spv_path value".to_string()))?) {
-                       // absolute
-                       spv_headers_path_cfg
-                   }
-                   else {
-                       // relative to config file 
-                       let mut p = PathBuf::from(path);
-                       p.pop();
-                       let s = p.join(&spv_headers_path_cfg);
-                       s.to_str().unwrap().to_string()
-                   };
-                   
+                let spv_headers_path =
+                    if path::is_separator(spv_headers_path_cfg.chars().next().ok_or(
+                        btc_error::ConfigError("Invalid bitcoin:spv_path value".to_string()),
+                    )?) {
+                        // absolute
+                        spv_headers_path_cfg
+                    } else {
+                        // relative to config file
+                        let mut p = PathBuf::from(path);
+                        p.pop();
+                        let s = p.join(&spv_headers_path_cfg);
+                        s.to_str().unwrap().to_string()
+                    };
 
-               let first_block = ini_file.get("bitcoin", "first_block")
+                let first_block = ini_file
+                    .get("bitcoin", "first_block")
                     .unwrap_or(format!("{}", FIRST_BLOCK_MAINNET))
-                    .trim().parse().map_err(|_e| btc_error::ConfigError("Invalid bitcoin:first_block value".to_string()))?;
+                    .trim()
+                    .parse()
+                    .map_err(|_e| {
+                        btc_error::ConfigError("Invalid bitcoin:first_block value".to_string())
+                    })?;
 
-               let rpc_ssl_str = ini_file.get("bitcoin", "ssl")
+                let rpc_ssl_str = ini_file
+                    .get("bitcoin", "ssl")
                     .unwrap_or(format!("{}", default_config.rpc_ssl));
-               
-               let rpc_ssl = rpc_ssl_str == "1" || rpc_ssl_str == "true";
 
-               // [blockstack]
-               let blockstack_magic_str = ini_file.get("blockstack", "network_id")
-                   .unwrap_or(format!("{}{}", BLOCKSTACK_MAGIC_MAINNET.as_bytes()[0] as char, BLOCKSTACK_MAGIC_MAINNET.as_bytes()[1] as char));
+                let rpc_ssl = rpc_ssl_str == "1" || rpc_ssl_str == "true";
 
-               if blockstack_magic_str.len() != 2 {
-                   return Err(btc_error::ConfigError("Invalid blockstack:network_id value: must be two bytes".to_string()));
-               }
+                // [blockstack]
+                let blockstack_magic_str =
+                    ini_file.get("blockstack", "network_id").unwrap_or(format!(
+                        "{}{}",
+                        BLOCKSTACK_MAGIC_MAINNET.as_bytes()[0] as char,
+                        BLOCKSTACK_MAGIC_MAINNET.as_bytes()[1] as char
+                    ));
 
-               let blockstack_magic = MagicBytes([blockstack_magic_str.as_bytes()[0] as u8, blockstack_magic_str.as_bytes()[1] as u8]);
+                if blockstack_magic_str.len() != 2 {
+                    return Err(btc_error::ConfigError(
+                        "Invalid blockstack:network_id value: must be two bytes".to_string(),
+                    ));
+                }
 
-               let cfg = BitcoinIndexerConfig {
-                   peer_host: peer_host.to_string(),
-                   peer_port: peer_port,
-                   rpc_port: rpc_port,
-                   rpc_ssl: rpc_ssl,
-                   username: username,
-                   password: password,
-                   timeout: timeout,
-                   spv_headers_path: spv_headers_path.to_string(),
-                   first_block: first_block,
-                   magic_bytes: blockstack_magic
-               };
-               
-               Ok(cfg)
-           },
-           Err(_) => {
-               Err(btc_error::ConfigError("Failed to parse BitcoinConfigIndexer config file".to_string()))
-           }
-       }
+                let blockstack_magic = MagicBytes([
+                    blockstack_magic_str.as_bytes()[0] as u8,
+                    blockstack_magic_str.as_bytes()[1] as u8,
+                ]);
+
+                let cfg = BitcoinIndexerConfig {
+                    peer_host: peer_host.to_string(),
+                    peer_port: peer_port,
+                    rpc_port: rpc_port,
+                    rpc_ssl: rpc_ssl,
+                    username: username,
+                    password: password,
+                    timeout: timeout,
+                    spv_headers_path: spv_headers_path.to_string(),
+                    first_block: first_block,
+                    magic_bytes: blockstack_magic,
+                };
+
+                Ok(cfg)
+            }
+            Err(_) => Err(btc_error::ConfigError(
+                "Failed to parse BitcoinConfigIndexer config file".to_string(),
+            )),
+        }
     }
 }
 
@@ -283,23 +326,26 @@ impl BitcoinIndexer {
     pub fn new(config: BitcoinIndexerConfig, runtime: BitcoinIndexerRuntime) -> BitcoinIndexer {
         BitcoinIndexer {
             config: config,
-            runtime: runtime
+            runtime: runtime,
         }
     }
 
-    pub fn from_file(network_id: BitcoinNetworkType, config_file: &String) -> Result<BitcoinIndexer, btc_error> {
+    pub fn from_file(
+        network_id: BitcoinNetworkType,
+        config_file: &String,
+    ) -> Result<BitcoinIndexer, btc_error> {
         let config = BitcoinIndexerConfig::from_file(config_file)?;
         let runtime = BitcoinIndexerRuntime::new(network_id);
         Ok(BitcoinIndexer {
             config: config,
-            runtime: runtime
+            runtime: runtime,
         })
     }
 
     pub fn dup(&self) -> BitcoinIndexer {
         BitcoinIndexer {
             config: self.config.clone(),
-            runtime: BitcoinIndexerRuntime::new(self.runtime.network_id)
+            runtime: BitcoinIndexerRuntime::new(self.runtime.network_id),
         }
     }
 
@@ -311,22 +357,21 @@ impl BitcoinIndexer {
         match net::TcpStream::connect((self.config.peer_host.as_str(), self.config.peer_port)) {
             Ok(s) => {
                 // Disable Nagle algorithm
-                s.set_nodelay(true)
-                    .map_err(|_e| {
-                        test_debug!("Failed to set TCP_NODELAY: {:?}", &_e);
-                        btc_error::ConnectionError
-                    })?;
+                s.set_nodelay(true).map_err(|_e| {
+                    test_debug!("Failed to set TCP_NODELAY: {:?}", &_e);
+                    btc_error::ConnectionError
+                })?;
 
                 match self.runtime.sock.take() {
                     Some(s) => {
                         let _ = s.shutdown(Shutdown::Both);
-                    },
+                    }
                     None => {}
                 }
 
                 self.runtime.sock = Some(s);
                 Ok(())
-            },
+            }
             Err(_e) => {
                 let s = self.runtime.sock.take();
                 match s {
@@ -343,12 +388,12 @@ impl BitcoinIndexer {
     /// Run code with the socket
     pub fn with_socket<F, R>(&mut self, closure: F) -> Result<R, btc_error>
     where
-        F: FnOnce(&mut net::TcpStream) -> Result<R, btc_error>
+        F: FnOnce(&mut net::TcpStream) -> Result<R, btc_error>,
     {
         let mut sock = self.runtime.sock.take();
         let res = match sock {
             Some(ref mut s) => closure(s),
-            None => Err(btc_error::SocketNotConnectedToPeer)
+            None => Err(btc_error::SocketNotConnectedToPeer),
         };
         self.runtime.sock = sock;
         res
@@ -363,7 +408,11 @@ impl BitcoinIndexer {
     /// Handle version, verack, ping, and pong messages automatically.
     /// Reconnect to the peer automatically if the peer closes the connection.
     /// Pass any other messages to a given message handler.
-    pub fn peer_communicate<T: BitcoinMessageHandler>(&mut self, message_handler: &mut T, initial_handshake: bool) -> Result<(), btc_error> {
+    pub fn peer_communicate<T: BitcoinMessageHandler>(
+        &mut self,
+        message_handler: &mut T,
+        initial_handshake: bool,
+    ) -> Result<(), btc_error> {
         let mut do_handshake = initial_handshake || !self.is_connected();
         let mut keep_going = true;
         let mut initiated = false;
@@ -380,14 +429,14 @@ impl BitcoinIndexer {
                         do_handshake = false;
                     }
                     Err(_) => {
-                        // need to try again 
+                        // need to try again
                         continue;
                     }
                 }
             }
-        
+
             if !initiated {
-                // initiate the conversation 
+                // initiate the conversation
                 match message_handler.begin_session(self) {
                     Ok(status) => {
                         if !status {
@@ -422,7 +471,7 @@ impl BitcoinIndexer {
                             match m {
                                 // some Bitcoin nodes send this to tell us to upgrade, so just
                                 // consume it
-                                NetworkMessage::Alert(..) => {},
+                                NetworkMessage::Alert(..) => {}
                                 _ => {
                                     // TODO: handle inv block-push
                                     debug!("Unhandled message {:?}", m);
@@ -454,28 +503,53 @@ impl BitcoinIndexer {
     /// Synchronize a range of headers from bitcoin to a specific file.
     /// If last_block is None, then sync as many headers as the remote peer has to offer.
     /// Returns the height of the last block fetched
-    pub fn sync_last_headers(&mut self, start_block: u64, last_block: Option<u64>) -> Result<u64, btc_error> {
+    pub fn sync_last_headers(
+        &mut self,
+        start_block: u64,
+        last_block: Option<u64>,
+    ) -> Result<u64, btc_error> {
         debug!("Sync all headers starting at block {}", start_block);
-        let mut spv_client = SpvClient::new(&self.config.spv_headers_path, start_block, last_block, self.runtime.network_id, true, false)?;
-        spv_client.run(self)
+        let mut spv_client = SpvClient::new(
+            &self.config.spv_headers_path,
+            start_block,
+            last_block,
+            self.runtime.network_id,
+            true,
+            false,
+        )?;
+        spv_client
+            .run(self)
             .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))
     }
 
     /// Create a SPV client for starting reorg processing
-    fn setup_reorg_headers(&mut self, canonical_spv_client: &SpvClient, reorg_headers_path: &str, start_block: u64) -> Result<SpvClient, btc_error> {
+    fn setup_reorg_headers(
+        &mut self,
+        canonical_spv_client: &SpvClient,
+        reorg_headers_path: &str,
+        start_block: u64,
+    ) -> Result<SpvClient, btc_error> {
         if PathBuf::from(&reorg_headers_path).exists() {
-            fs::remove_file(&reorg_headers_path)
-                .map_err(|e| {
-                    error!("Failed to remove {}", reorg_headers_path);
-                    btc_error::Io(e)
-                })?;
+            fs::remove_file(&reorg_headers_path).map_err(|e| {
+                error!("Failed to remove {}", reorg_headers_path);
+                btc_error::Io(e)
+            })?;
         }
 
         // bootstrap reorg client
-        let mut reorg_spv_client = SpvClient::new(&reorg_headers_path, start_block, Some(start_block + REORG_BATCH_SIZE), self.runtime.network_id, true, true)?;
+        let mut reorg_spv_client = SpvClient::new(
+            &reorg_headers_path,
+            start_block,
+            Some(start_block + REORG_BATCH_SIZE),
+            self.runtime.network_id,
+            true,
+            true,
+        )?;
         if start_block > 0 {
-            let start_header = canonical_spv_client.read_block_header(start_block)?.expect(&format!("BUG: missing block header for {}", start_block));
-            reorg_spv_client.insert_block_headers_before(start_block-1, vec![start_header])?;
+            let start_header = canonical_spv_client
+                .read_block_header(start_block)?
+                .expect(&format!("BUG: missing block header for {}", start_block));
+            reorg_spv_client.insert_block_headers_before(start_block - 1, vec![start_header])?;
         }
 
         Ok(reorg_spv_client)
@@ -484,63 +558,110 @@ impl BitcoinIndexer {
     /// Search for a bitcoin reorg.  Return the offset into the canonical bitcoin headers where
     /// the reorg starts.  Returns the hight of the highest common ancestor, and its block hash.
     /// Note that under certain testnet settings, the bitcoin chain itself can shrink.
-    pub fn find_bitcoin_reorg<F>(&mut self, canonical_headers_path: &str, reorg_headers_path: &str, mut load_reorg_headers: F) -> Result<u64, btc_error>
+    pub fn find_bitcoin_reorg<F>(
+        &mut self,
+        canonical_headers_path: &str,
+        reorg_headers_path: &str,
+        mut load_reorg_headers: F,
+    ) -> Result<u64, btc_error>
     where
-        F: FnMut(&mut BitcoinIndexer, &mut SpvClient, u64, Option<u64>) -> Result<(), btc_error>
+        F: FnMut(&mut BitcoinIndexer, &mut SpvClient, u64, Option<u64>) -> Result<(), btc_error>,
     {
         let mut new_tip = 0;
         let mut found_common_ancestor = false;
-        
-        let orig_spv_client = SpvClient::new(canonical_headers_path, 0, None, self.runtime.network_id, false, false)?;
+
+        let orig_spv_client = SpvClient::new(
+            canonical_headers_path,
+            0,
+            None,
+            self.runtime.network_id,
+            false,
+            false,
+        )?;
 
         // what's the last header we have from the canonical history?
-        let canonical_end_block = orig_spv_client.get_headers_height()
-            .map_err(|e| {
-                error!("Failed to get the last block from {}", canonical_headers_path);
-                e
-            })?;
+        let canonical_end_block = orig_spv_client.get_headers_height().map_err(|e| {
+            error!(
+                "Failed to get the last block from {}",
+                canonical_headers_path
+            );
+            e
+        })?;
 
         // bootstrap reorg client
         let mut start_block = canonical_end_block.saturating_sub(REORG_BATCH_SIZE);
-        let mut reorg_spv_client = self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
+        let mut reorg_spv_client =
+            self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
         let mut discontiguous_header_error_count = 0;
 
         while !found_common_ancestor {
-            debug!("Search for reorg'ed Bitcoin headers from {} - {}", start_block, start_block + REORG_BATCH_SIZE);
- 
+            debug!(
+                "Search for reorg'ed Bitcoin headers from {} - {}",
+                start_block,
+                start_block + REORG_BATCH_SIZE
+            );
+
             // get new headers, starting off of start_block.  Feed them into the given
             // reorg_spv_client.
-            match load_reorg_headers(self, &mut reorg_spv_client, start_block, Some(start_block + REORG_BATCH_SIZE)) {
-                Ok(_) => {},
+            match load_reorg_headers(
+                self,
+                &mut reorg_spv_client,
+                start_block,
+                Some(start_block + REORG_BATCH_SIZE),
+            ) {
+                Ok(_) => {}
                 Err(btc_error::NoncontiguousHeader) | Err(btc_error::InvalidPoW) => {
-                    warn!("Received invalid headers from {} - {} -- possible reorg in progress", start_block, start_block + REORG_BATCH_SIZE);
+                    warn!(
+                        "Received invalid headers from {} - {} -- possible reorg in progress",
+                        start_block,
+                        start_block + REORG_BATCH_SIZE
+                    );
                     if start_block == 0 {
                         // reorg all the way back to genesis
                         new_tip = 0;
                         break;
                     }
 
-                    // try again 
+                    // try again
                     discontiguous_header_error_count += 1;
-                    start_block = start_block.saturating_sub(REORG_BATCH_SIZE * discontiguous_header_error_count);
-                    reorg_spv_client = self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
+                    start_block = start_block
+                        .saturating_sub(REORG_BATCH_SIZE * discontiguous_header_error_count);
+                    reorg_spv_client = self.setup_reorg_headers(
+                        &orig_spv_client,
+                        reorg_headers_path,
+                        start_block,
+                    )?;
                     continue;
                 }
                 Err(e) => {
-                    error!("Failed to fetch Bitcoin headers from {} - {}: {:?}", start_block, start_block + REORG_BATCH_SIZE, &e);
+                    error!(
+                        "Failed to fetch Bitcoin headers from {} - {}: {:?}",
+                        start_block,
+                        start_block + REORG_BATCH_SIZE,
+                        &e
+                    );
                     return Err(e);
                 }
             }
-            
-            let reorg_headers = reorg_spv_client.read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
+
+            let reorg_headers = reorg_spv_client
+                .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
                 .map_err(|e| {
-                    error!("Failed to read reorg Bitcoin headers from {} to {}", start_block, start_block + REORG_BATCH_SIZE);
+                    error!(
+                        "Failed to read reorg Bitcoin headers from {} to {}",
+                        start_block,
+                        start_block + REORG_BATCH_SIZE
+                    );
                     e
                 })?;
 
             if reorg_headers.len() == 0 {
                 // chain shrank considerably
-                info!("Missing Bitcoin headers in block range {}-{} -- did the Bitcoin chain shrink?", start_block, start_block + REORG_BATCH_SIZE);
+                info!(
+                    "Missing Bitcoin headers in block range {}-{} -- did the Bitcoin chain shrink?",
+                    start_block,
+                    start_block + REORG_BATCH_SIZE
+                );
                 if start_block == 0 {
                     // reorg chain is empty
                     new_tip = 0;
@@ -553,48 +674,74 @@ impl BitcoinIndexer {
             }
 
             // got reorg headers.  Find the equivalent headers in our canonical history
-            let canonical_headers = orig_spv_client.read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
+            let canonical_headers = orig_spv_client
+                .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
                 .map_err(|e| {
-                    error!("Failed to read canonical headers from {} to {}", start_block, start_block + REORG_BATCH_SIZE);
+                    error!(
+                        "Failed to read canonical headers from {} to {}",
+                        start_block,
+                        start_block + REORG_BATCH_SIZE
+                    );
                     e
                 })?;
 
-            assert!(canonical_headers.len() > 0, "BUG: uninitialized canonical SPV headers DB");
+            assert!(
+                canonical_headers.len() > 0,
+                "BUG: uninitialized canonical SPV headers DB"
+            );
 
-            let max_headers_len = if canonical_headers.len() < reorg_headers.len() { canonical_headers.len() } else { reorg_headers.len() };
+            let max_headers_len = if canonical_headers.len() < reorg_headers.len() {
+                canonical_headers.len()
+            } else {
+                reorg_headers.len()
+            };
             let max_height = start_block + (max_headers_len as u64);
 
             // scan for common ancestor, but excluding the block we wrote to bootstrap the
             // reorg_spv_client.
-            for i in (start_block+1..max_height).rev() {
-                if canonical_headers[(i - start_block) as usize].header == reorg_headers[(i - start_block) as usize].header {
+            for i in (start_block + 1..max_height).rev() {
+                if canonical_headers[(i - start_block) as usize].header
+                    == reorg_headers[(i - start_block) as usize].header
+                {
                     // found common ancestor
-                    debug!("Found common Bitcoin block ancestor at height {}: {:?}", i, &canonical_headers[(i - start_block) as usize].header);
+                    debug!(
+                        "Found common Bitcoin block ancestor at height {}: {:?}",
+                        i,
+                        &canonical_headers[(i - start_block) as usize].header
+                    );
                     new_tip = i;
                     found_common_ancestor = true;
                     break;
-                }
-                else {
-                    debug!("Diverged headers at {}: {:?} != {:?}", i, &canonical_headers[(i - start_block) as usize].header, &reorg_headers[(i - start_block) as usize].header);
+                } else {
+                    debug!(
+                        "Diverged headers at {}: {:?} != {:?}",
+                        i,
+                        &canonical_headers[(i - start_block) as usize].header,
+                        &reorg_headers[(i - start_block) as usize].header
+                    );
                 }
             }
             if found_common_ancestor {
                 break;
             }
 
-            debug!("No common ancestor found between Bitcoin headers {}-{}", start_block, max_height);
+            debug!(
+                "No common ancestor found between Bitcoin headers {}-{}",
+                start_block, max_height
+            );
 
             if start_block == 0 {
                 break;
             }
 
-            // try again 
+            // try again
             start_block = start_block.saturating_sub(REORG_BATCH_SIZE);
-            reorg_spv_client = self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
+            reorg_spv_client =
+                self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
         }
 
         debug!("Bitcoin headers history is consistent up to {}", new_tip);
-        
+
         let hdr_reorg = reorg_spv_client.read_block_header(new_tip)?;
         let hdr_canonical = orig_spv_client.read_block_header(new_tip)?;
         assert_eq!(hdr_reorg, hdr_canonical);
@@ -608,7 +755,7 @@ impl Drop for BitcoinIndexer {
         match self.runtime.sock {
             Some(ref mut s) => {
                 let _ = s.shutdown(Shutdown::Both);
-            },
+            }
             None => {}
         }
     }
@@ -616,37 +763,54 @@ impl Drop for BitcoinIndexer {
 
 impl BurnchainIndexer for BitcoinIndexer {
     type P = BitcoinBlockParser;
-    
+
     /// Instantiate the Bitcoin indexer, and connect to the peer network.
     /// Instead, load our configuration state and sanity-check it.
-    /// 
+    ///
     /// Pass a directory (working_dir) that contains a "bitcoin.ini" file.
-    fn init(working_dir: &String, network_name: &String) -> Result<BitcoinIndexer, burnchain_error> {
-        let conf_path_str = Burnchain::get_chainstate_config_path(working_dir, &"bitcoin".to_string(), network_name);
+    fn init(
+        working_dir: &String,
+        network_name: &String,
+    ) -> Result<BitcoinIndexer, burnchain_error> {
+        let conf_path_str = Burnchain::get_chainstate_config_path(
+            working_dir,
+            &"bitcoin".to_string(),
+            network_name,
+        );
 
         let network_id_opt = match network_name.as_ref() {
             BITCOIN_MAINNET_NAME => Some(BitcoinNetworkType::Mainnet),
             BITCOIN_TESTNET_NAME => Some(BitcoinNetworkType::Testnet),
             BITCOIN_REGTEST_NAME => Some(BitcoinNetworkType::Regtest),
-            _ => None
+            _ => None,
         };
 
         if network_id_opt.is_none() {
-            return Err(burnchain_error::Bitcoin(btc_error::ConfigError(format!("Unrecognized network name '{}'", network_name).to_string())));
+            return Err(burnchain_error::Bitcoin(btc_error::ConfigError(
+                format!("Unrecognized network name '{}'", network_name).to_string(),
+            )));
         }
         let bitcoin_network_id = network_id_opt.unwrap();
-        
+
         if !PathBuf::from(&conf_path_str).exists() {
             let default_config = BitcoinIndexerConfig::default();
-            default_config.to_file(&conf_path_str)
+            default_config
+                .to_file(&conf_path_str)
                 .map_err(burnchain_error::Bitcoin)?;
         }
 
         let mut indexer = BitcoinIndexer::from_file(bitcoin_network_id, &conf_path_str)
             .map_err(burnchain_error::Bitcoin)?;
 
-        SpvClient::new(&indexer.config.spv_headers_path, 0, None, indexer.runtime.network_id, true, false)
-            .map_err(burnchain_error::Bitcoin)?;
+        SpvClient::new(
+            &indexer.config.spv_headers_path,
+            0,
+            None,
+            indexer.runtime.network_id,
+            true,
+            false,
+        )
+        .map_err(burnchain_error::Bitcoin)?;
 
         indexer.connect()?;
         Ok(indexer)
@@ -656,71 +820,100 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// Use the peer host and peer port given in the config file,
     /// and loaded in on setup.  Don't call this before init().
     fn connect(&mut self) -> Result<(), burnchain_error> {
-        self.reconnect_peer()
-            .map_err(burnchain_error::Bitcoin)
+        self.reconnect_peer().map_err(burnchain_error::Bitcoin)
     }
 
     /// Get the location on disk where we keep headers
     fn get_headers_path(&self) -> String {
         self.config.spv_headers_path.clone()
     }
-    
-    /// Get the number of headers we have 
+
+    /// Get the number of headers we have
     fn get_headers_height(&self) -> Result<u64, burnchain_error> {
-        let spv_client = SpvClient::new(&self.config.spv_headers_path, 0, None, self.runtime.network_id, false, false)
-            .map_err(burnchain_error::Bitcoin)?;
-        spv_client.get_headers_height()
+        let spv_client = SpvClient::new(
+            &self.config.spv_headers_path,
+            0,
+            None,
+            self.runtime.network_id,
+            false,
+            false,
+        )
+        .map_err(burnchain_error::Bitcoin)?;
+        spv_client
+            .get_headers_height()
             .map_err(burnchain_error::Bitcoin)
     }
 
     /// Get the first block height
     fn get_first_block_height(&self) -> u64 {
         match self.runtime.network_id {
-            BitcoinNetworkType::Mainnet => {
-                FIRST_BLOCK_MAINNET
-            },
-            BitcoinNetworkType::Testnet => {
-                FIRST_BLOCK_TESTNET
-            },
-            BitcoinNetworkType::Regtest => {
-                FIRST_BLOCK_REGTEST
-            }
+            BitcoinNetworkType::Mainnet => FIRST_BLOCK_MAINNET,
+            BitcoinNetworkType::Testnet => FIRST_BLOCK_TESTNET,
+            BitcoinNetworkType::Regtest => FIRST_BLOCK_REGTEST,
         }
     }
 
-    /// Get the first block header hash 
+    /// Get the first block header hash
     fn get_first_block_header_hash(&self) -> Result<BurnchainHeaderHash, burnchain_error> {
-        let spv_client = SpvClient::new(&self.config.spv_headers_path, 0, None, self.runtime.network_id, false, false)?;
+        let spv_client = SpvClient::new(
+            &self.config.spv_headers_path,
+            0,
+            None,
+            self.runtime.network_id,
+            false,
+            false,
+        )?;
         let first_block_height = self.get_first_block_height();
-        let first_header = spv_client.read_block_header(first_block_height)?
+        let first_header = spv_client
+            .read_block_header(first_block_height)?
             .expect("BUG: no first block header hash");
 
-        let first_block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(&first_header.header.bitcoin_hash());
+        let first_block_header_hash =
+            BurnchainHeaderHash::from_bitcoin_hash(&first_header.header.bitcoin_hash());
         Ok(first_block_header_hash)
     }
 
     /// Get the first block header timestamp
     fn get_first_block_header_timestamp(&self) -> Result<u64, burnchain_error> {
-        let spv_client = SpvClient::new(&self.config.spv_headers_path, 0, None, self.runtime.network_id, false, false)?;
+        let spv_client = SpvClient::new(
+            &self.config.spv_headers_path,
+            0,
+            None,
+            self.runtime.network_id,
+            false,
+            false,
+        )?;
         let first_block_height = self.get_first_block_height();
-        let first_header = spv_client.read_block_header(first_block_height)?
+        let first_header = spv_client
+            .read_block_header(first_block_height)?
             .expect("BUG: no first block header timestamp");
 
         let first_block_header_timestamp = first_header.header.time as u64;
         Ok(first_block_header_timestamp)
     }
 
-    /// Read downloaded headers within a range 
-    fn read_headers(&self, start_block: u64, end_block: u64) -> Result<Vec<BitcoinHeaderIPC>, burnchain_error> {
-        let spv_client = SpvClient::new(&self.config.spv_headers_path, 0, None, self.runtime.network_id, false, false)?;
+    /// Read downloaded headers within a range
+    fn read_headers(
+        &self,
+        start_block: u64,
+        end_block: u64,
+    ) -> Result<Vec<BitcoinHeaderIPC>, burnchain_error> {
+        let spv_client = SpvClient::new(
+            &self.config.spv_headers_path,
+            0,
+            None,
+            self.runtime.network_id,
+            false,
+            false,
+        )?;
 
         let headers = spv_client.read_block_headers(start_block, end_block)?;
-        let mut ret_headers : Vec<BitcoinHeaderIPC> = vec![];
+        let mut ret_headers: Vec<BitcoinHeaderIPC> = vec![];
         for i in 0..headers.len() {
             ret_headers.push({
                 BitcoinHeaderIPC {
                     block_header: headers[i].clone(),
-                    block_height: (i as u64) + start_block
+                    block_height: (i as u64) + start_block,
                 }
             });
         }
@@ -732,41 +925,52 @@ impl BurnchainIndexer for BitcoinIndexer {
     fn find_chain_reorg(&mut self) -> Result<u64, burnchain_error> {
         let headers_path = self.config.spv_headers_path.clone();
         let reorg_path = format!("{}.reorg", &self.config.spv_headers_path);
-        self.find_bitcoin_reorg(&headers_path, &reorg_path,
+        self.find_bitcoin_reorg(
+            &headers_path,
+            &reorg_path,
             |ref mut indexer, ref mut spv_client, start_block, end_block_opt| {
                 spv_client.set_scan_range(start_block, end_block_opt);
                 spv_client.run(indexer)
-            })
-            .map_err(|e| {
-                match e {
-                    btc_error::TimedOut => burnchain_error::TrySyncAgain,
-                    x => burnchain_error::Bitcoin(x)
-                }
-            })
+            },
+        )
+        .map_err(|e| match e {
+            btc_error::TimedOut => burnchain_error::TrySyncAgain,
+            x => burnchain_error::Bitcoin(x),
+        })
     }
 
-    /// Download and store all headers between two block heights 
+    /// Download and store all headers between two block heights
     /// end_heights, if given, is inclusive.
     /// Returns the height of the last header fetched
-    fn sync_headers(&mut self, start_height: u64, end_height: Option<u64>) -> Result<u64, burnchain_error> {
+    fn sync_headers(
+        &mut self,
+        start_height: u64,
+        end_height: Option<u64>,
+    ) -> Result<u64, burnchain_error> {
         if end_height.is_some() && end_height <= Some(start_height) {
             return Ok(end_height.unwrap());
         }
 
         self.sync_last_headers(start_height, end_height)
-            .map_err(|e| {
-                match e {
-                    btc_error::TimedOut => burnchain_error::TrySyncAgain,
-                    x => burnchain_error::Bitcoin(x)
-                }
+            .map_err(|e| match e {
+                btc_error::TimedOut => burnchain_error::TrySyncAgain,
+                x => burnchain_error::Bitcoin(x),
             })
     }
 
     /// Drop headers after a given height -- i.e. to accomodate a reorg
     fn drop_headers(&mut self, new_height: u64) -> Result<(), burnchain_error> {
-        let mut spv_client = SpvClient::new(&self.config.spv_headers_path, 0, None, self.runtime.network_id, true, false)
-            .map_err(burnchain_error::Bitcoin)?;
-        spv_client.drop_headers(new_height)
+        let mut spv_client = SpvClient::new(
+            &self.config.spv_headers_path,
+            0,
+            None,
+            self.runtime.network_id,
+            true,
+            false,
+        )
+        .map_err(burnchain_error::Bitcoin)?;
+        spv_client
+            .drop_headers(new_height)
             .map_err(burnchain_error::Bitcoin)
     }
 
@@ -775,7 +979,7 @@ impl BurnchainIndexer for BitcoinIndexer {
     }
 
     fn parser(&self) -> BitcoinBlockParser {
-        BitcoinBlockParser::new(self.runtime.network_id, self.config.magic_bytes) 
+        BitcoinBlockParser::new(self.runtime.network_id, self.config.magic_bytes)
     }
 }
 
@@ -786,11 +990,11 @@ mod test {
     use burnchains::bitcoin::*;
     use burnchains::Error as burnchain_error;
     use burnchains::*;
-    
-    use deps::bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
-    use deps::bitcoin::network::serialize::{serialize, deserialize, BitcoinHash};
-    use deps::bitcoin::util::hash::Sha256dHash;
+
+    use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
     use deps::bitcoin::network::encodable::VarInt;
+    use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
+    use deps::bitcoin::util::hash::Sha256dHash;
 
     use std::env;
 
@@ -811,105 +1015,161 @@ mod test {
         let headers_1 = vec![
             LoneBlockHeader {
                 header: BlockHeader {
-                    bits: 545259519, 
-                    merkle_root: Sha256dHash::from_hex("20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c").unwrap(),
-                    nonce: 2, 
-                    prev_blockhash: Sha256dHash::from_hex("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206").unwrap(),
-                    time: 1587626881, 
-                    version: 0x20000000
+                    bits: 545259519,
+                    merkle_root: Sha256dHash::from_hex(
+                        "20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c",
+                    )
+                    .unwrap(),
+                    nonce: 2,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+                    )
+                    .unwrap(),
+                    time: 1587626881,
+                    version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac",
+                    )
+                    .unwrap(),
                     nonce: 1,
-                    prev_blockhash: Sha256dHash::from_hex("606d31daaaa5919f3720d8440dd99d31f2a4e4189c65879f19ae43268425e74b").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "606d31daaaa5919f3720d8440dd99d31f2a4e4189c65879f19ae43268425e74b",
+                    )
+                    .unwrap(),
                     time: 1587626882,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47",
+                    )
+                    .unwrap(),
                     nonce: 4,
-                    prev_blockhash: Sha256dHash::from_hex("2fa2f451ac27f0e5cd3760ba6cdf34ef46adb76a44d96bc0f3bf3e713dd955f0").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "2fa2f451ac27f0e5cd3760ba6cdf34ef46adb76a44d96bc0f3bf3e713dd955f0",
+                    )
+                    .unwrap(),
                     time: 1587626882,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
-            }
+                tx_count: VarInt(0),
+            },
         ];
 
         let headers_2 = vec![
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("677351ef5cd586c8d0ee7c242e0c5794d0bb4564107e567fd24e508aa66c8b79").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "677351ef5cd586c8d0ee7c242e0c5794d0bb4564107e567fd24e508aa66c8b79",
+                    )
+                    .unwrap(),
                     nonce: 0,
-                    prev_blockhash: Sha256dHash::from_hex("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+                    )
+                    .unwrap(),
                     time: 1587612061,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("a92e6612c0cde9b029081d90b1dcef97f95508b92dd982223c8fcbe9e953fc79").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "a92e6612c0cde9b029081d90b1dcef97f95508b92dd982223c8fcbe9e953fc79",
+                    )
+                    .unwrap(),
                     nonce: 0,
-                    prev_blockhash: Sha256dHash::from_hex("0f4865e8169da0cb265ab0ea9eef440e6b7cc9bc1d5e74e4627c0f1e83e67e95").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f4865e8169da0cb265ab0ea9eef440e6b7cc9bc1d5e74e4627c0f1e83e67e95",
+                    )
+                    .unwrap(),
                     time: 1587612062,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("5bd6f6f0863582bb6910d772829b7cf36be262b74ac5775ef9d78180c90a9fef").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "5bd6f6f0863582bb6910d772829b7cf36be262b74ac5775ef9d78180c90a9fef",
+                    )
+                    .unwrap(),
                     nonce: 0,
-                    prev_blockhash: Sha256dHash::from_hex("2dbbe38703af1918ef4091dfea226db8868843a55a4673e3d2d7259083b07063").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "2dbbe38703af1918ef4091dfea226db8868843a55a4673e3d2d7259083b07063",
+                    )
+                    .unwrap(),
                     time: 1587612062,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
-            }
+                tx_count: VarInt(0),
+            },
         ];
 
-        let mut spv_client = SpvClient::new(path_1, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
-        let mut spv_client_reorg = SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
-        
-        spv_client.insert_block_headers_after(0, headers_1.clone()).unwrap();
-        spv_client_reorg.insert_block_headers_after(0, headers_2.clone()).unwrap();
+        let mut spv_client =
+            SpvClient::new(path_1, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
+        let mut spv_client_reorg =
+            SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
+
+        spv_client
+            .insert_block_headers_after(0, headers_1.clone())
+            .unwrap();
+        spv_client_reorg
+            .insert_block_headers_after(0, headers_2.clone())
+            .unwrap();
 
         assert_eq!(spv_client.read_block_headers(0, 10).unwrap().len(), 4);
         assert_eq!(spv_client_reorg.read_block_headers(0, 10).unwrap().len(), 4);
-        
+
         assert_eq!(spv_client_reorg.read_block_headers(2, 10).unwrap().len(), 2);
 
-        let mut indexer = BitcoinIndexer::new(BitcoinIndexerConfig::default_regtest(path_1.to_string()), BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest));
-        let common_ancestor_height = indexer.find_bitcoin_reorg(path_1, path_reorg, |ref mut indexer, ref mut spv_client, start_block, end_block_opt| {
-            // mock the bitcoind by just copying over the relevant headers from our backup reorg db
-            let end_block = end_block_opt.unwrap_or(10000000);
-            let hdrs = spv_client_reorg.read_block_headers(start_block, end_block).unwrap();
-            if start_block > 0 {
-                spv_client.insert_block_headers_before(start_block-1, hdrs).unwrap();
-            }
-            else if hdrs.len() > 0 {
-                spv_client.insert_block_headers_before(0, hdrs[1..].to_vec()).unwrap();
-            }
+        let mut indexer = BitcoinIndexer::new(
+            BitcoinIndexerConfig::default_regtest(path_1.to_string()),
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+        );
+        let common_ancestor_height = indexer
+            .find_bitcoin_reorg(
+                path_1,
+                path_reorg,
+                |ref mut indexer, ref mut spv_client, start_block, end_block_opt| {
+                    // mock the bitcoind by just copying over the relevant headers from our backup reorg db
+                    let end_block = end_block_opt.unwrap_or(10000000);
+                    let hdrs = spv_client_reorg
+                        .read_block_headers(start_block, end_block)
+                        .unwrap();
+                    if start_block > 0 {
+                        spv_client
+                            .insert_block_headers_before(start_block - 1, hdrs)
+                            .unwrap();
+                    } else if hdrs.len() > 0 {
+                        spv_client
+                            .insert_block_headers_before(0, hdrs[1..].to_vec())
+                            .unwrap();
+                    }
 
-            Ok(())
-        }).unwrap();
+                    Ok(())
+                },
+            )
+            .unwrap();
 
         // lowest common ancestor is the genesis block
         assert_eq!(common_ancestor_height, 0);
     }
-    
+
     #[test]
     fn test_indexer_find_bitcoin_reorg_midpoint() {
         let path_1 = "/tmp/test-indexer-find_bitcoin_reorg_midpoint.dat";
@@ -928,99 +1188,155 @@ mod test {
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("677351ef5cd586c8d0ee7c242e0c5794d0bb4564107e567fd24e508aa66c8b79").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "677351ef5cd586c8d0ee7c242e0c5794d0bb4564107e567fd24e508aa66c8b79",
+                    )
+                    .unwrap(),
                     nonce: 0,
-                    prev_blockhash: Sha256dHash::from_hex("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+                    )
+                    .unwrap(),
                     time: 1587612061,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac",
+                    )
+                    .unwrap(),
                     nonce: 1,
-                    prev_blockhash: Sha256dHash::from_hex("0f4865e8169da0cb265ab0ea9eef440e6b7cc9bc1d5e74e4627c0f1e83e67e95").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f4865e8169da0cb265ab0ea9eef440e6b7cc9bc1d5e74e4627c0f1e83e67e95",
+                    )
+                    .unwrap(),
                     time: 1587626882,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47",
+                    )
+                    .unwrap(),
                     nonce: 4,
-                    prev_blockhash: Sha256dHash::from_hex("7a06268e099dafa4549d9e2511c251497779cf16ab3b5363e5b25d3dd6f552e7").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "7a06268e099dafa4549d9e2511c251497779cf16ab3b5363e5b25d3dd6f552e7",
+                    )
+                    .unwrap(),
                     time: 1587626882,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
-            }
+                tx_count: VarInt(0),
+            },
         ];
 
         let headers_2 = vec![
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("677351ef5cd586c8d0ee7c242e0c5794d0bb4564107e567fd24e508aa66c8b79").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "677351ef5cd586c8d0ee7c242e0c5794d0bb4564107e567fd24e508aa66c8b79",
+                    )
+                    .unwrap(),
                     nonce: 0,
-                    prev_blockhash: Sha256dHash::from_hex("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+                    )
+                    .unwrap(),
                     time: 1587612061,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("a92e6612c0cde9b029081d90b1dcef97f95508b92dd982223c8fcbe9e953fc79").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "a92e6612c0cde9b029081d90b1dcef97f95508b92dd982223c8fcbe9e953fc79",
+                    )
+                    .unwrap(),
                     nonce: 0,
-                    prev_blockhash: Sha256dHash::from_hex("0f4865e8169da0cb265ab0ea9eef440e6b7cc9bc1d5e74e4627c0f1e83e67e95").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f4865e8169da0cb265ab0ea9eef440e6b7cc9bc1d5e74e4627c0f1e83e67e95",
+                    )
+                    .unwrap(),
                     time: 1587612062,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
+                tx_count: VarInt(0),
             },
             LoneBlockHeader {
                 header: BlockHeader {
                     bits: 545259519,
-                    merkle_root: Sha256dHash::from_hex("5bd6f6f0863582bb6910d772829b7cf36be262b74ac5775ef9d78180c90a9fef").unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "5bd6f6f0863582bb6910d772829b7cf36be262b74ac5775ef9d78180c90a9fef",
+                    )
+                    .unwrap(),
                     nonce: 0,
-                    prev_blockhash: Sha256dHash::from_hex("2dbbe38703af1918ef4091dfea226db8868843a55a4673e3d2d7259083b07063").unwrap(),
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "2dbbe38703af1918ef4091dfea226db8868843a55a4673e3d2d7259083b07063",
+                    )
+                    .unwrap(),
                     time: 1587612062,
                     version: 0x20000000,
                 },
-                tx_count: VarInt(0)
-            }
+                tx_count: VarInt(0),
+            },
         ];
 
-        let mut spv_client = SpvClient::new(path_1, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
-        let mut spv_client_reorg = SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
-        
-        spv_client.insert_block_headers_after(0, headers_1.clone()).unwrap();
-        spv_client_reorg.insert_block_headers_after(0, headers_2.clone()).unwrap();
+        let mut spv_client =
+            SpvClient::new(path_1, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
+        let mut spv_client_reorg =
+            SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
+
+        spv_client
+            .insert_block_headers_after(0, headers_1.clone())
+            .unwrap();
+        spv_client_reorg
+            .insert_block_headers_after(0, headers_2.clone())
+            .unwrap();
 
         assert_eq!(spv_client.read_block_headers(0, 10).unwrap().len(), 4);
         assert_eq!(spv_client_reorg.read_block_headers(0, 10).unwrap().len(), 4);
-        
+
         assert_eq!(spv_client_reorg.read_block_headers(2, 10).unwrap().len(), 2);
 
-        let mut indexer = BitcoinIndexer::new(BitcoinIndexerConfig::default_regtest(path_1.to_string()), BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest));
-        let common_ancestor_height = indexer.find_bitcoin_reorg(path_1, path_reorg, |ref mut indexer, ref mut spv_client, start_block, end_block_opt| {
-            // mock the bitcoind by just copying over the relevant headers from our backup reorg db
-            let end_block = end_block_opt.unwrap_or(10000000);
-            let hdrs = spv_client_reorg.read_block_headers(start_block, end_block).unwrap();
-            if start_block > 0 {
-                spv_client.insert_block_headers_before(start_block-1, hdrs).unwrap();
-            }
-            else if hdrs.len() > 0 {
-                spv_client.insert_block_headers_before(0, hdrs[1..].to_vec()).unwrap();
-            }
+        let mut indexer = BitcoinIndexer::new(
+            BitcoinIndexerConfig::default_regtest(path_1.to_string()),
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+        );
+        let common_ancestor_height = indexer
+            .find_bitcoin_reorg(
+                path_1,
+                path_reorg,
+                |ref mut indexer, ref mut spv_client, start_block, end_block_opt| {
+                    // mock the bitcoind by just copying over the relevant headers from our backup reorg db
+                    let end_block = end_block_opt.unwrap_or(10000000);
+                    let hdrs = spv_client_reorg
+                        .read_block_headers(start_block, end_block)
+                        .unwrap();
+                    if start_block > 0 {
+                        spv_client
+                            .insert_block_headers_before(start_block - 1, hdrs)
+                            .unwrap();
+                    } else if hdrs.len() > 0 {
+                        spv_client
+                            .insert_block_headers_before(0, hdrs[1..].to_vec())
+                            .unwrap();
+                    }
 
-            Ok(())
-        }).unwrap();
+                    Ok(())
+                },
+            )
+            .unwrap();
 
         // lowest common ancestor is the first block
         assert_eq!(common_ancestor_height, 1);
@@ -1029,20 +1345,29 @@ mod test {
     #[test]
     fn test_indexer_sync_headers() {
         if !env::var("BLOCKSTACK_SPV_BITCOIN_HOST").is_ok() {
-            eprintln!("Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_HOST envar set");
+            eprintln!(
+                "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_HOST envar set"
+            );
             return;
         }
         if !env::var("BLOCKSTACK_SPV_BITCOIN_PORT").is_ok() {
-            eprintln!("Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_PORT envar set");
+            eprintln!(
+                "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_PORT envar set"
+            );
             return;
         }
         if !env::var("BLOCKSTACK_SPV_BITCOIN_MODE").is_ok() {
-            eprintln!("Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_MODE envar set");
+            eprintln!(
+                "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_MODE envar set"
+            );
             return;
         }
 
         let host = env::var("BLOCKSTACK_SPV_BITCOIN_HOST").unwrap();
-        let port = env::var("BLOCKSTACK_SPV_BITCOIN_PORT").unwrap().parse::<u16>().unwrap();
+        let port = env::var("BLOCKSTACK_SPV_BITCOIN_PORT")
+            .unwrap()
+            .parse::<u16>()
+            .unwrap();
         let mode = match env::var("BLOCKSTACK_SPV_BITCOIN_MODE").unwrap().as_str() {
             "mainnet" => BitcoinNetworkType::Mainnet,
             "testnet" => BitcoinNetworkType::Testnet,
@@ -1055,14 +1380,14 @@ mod test {
         let indexer_conf = BitcoinIndexerConfig {
             peer_host: host,
             peer_port: port,
-            rpc_port: port+1,       // ignored
+            rpc_port: port + 1, // ignored
             rpc_ssl: false,
             username: None,
             password: None,
             timeout: 30,
             spv_headers_path: "/tmp/test_indexer_sync_headers.db".to_string(),
             first_block: 0,
-            magic_bytes: MagicBytes([105, 100])
+            magic_bytes: MagicBytes([105, 100]),
         };
 
         if fs::metadata(&indexer_conf.spv_headers_path).is_ok() {
@@ -1074,4 +1399,3 @@ mod test {
         eprintln!("sync'ed to block {}", last_block);
     }
 }
-

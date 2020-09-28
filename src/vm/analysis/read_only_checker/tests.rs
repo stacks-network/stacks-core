@@ -1,14 +1,20 @@
+use vm::analysis::{mem_type_check, type_check, AnalysisDatabase, CheckError, CheckErrors};
 use vm::ast::parse;
-use vm::database::{MemoryBackingStore};
-use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, AnalysisDatabase};
+use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 
 #[test]
 fn test_argument_count_violations() {
     let examples = [
-        ("(define-private (foo-bar)
-           (at-block))", CheckErrors::IncorrectArgumentCount(2, 0)),
-        ("(define-private (foo-bar) (map-get?))", CheckErrors::IncorrectArgumentCount(2, 0)),
+        (
+            "(define-private (foo-bar)
+           (at-block))",
+            CheckErrors::IncorrectArgumentCount(2, 0),
+        ),
+        (
+            "(define-private (foo-bar) (map-get?))",
+            CheckErrors::IncorrectArgumentCount(2, 0),
+        ),
     ];
 
     for (contract, expected) in examples.iter() {
@@ -16,7 +22,6 @@ fn test_argument_count_violations() {
         assert_eq!(&err.err, expected)
     }
 }
-
 
 #[test]
 fn test_at_block_violations() {
@@ -44,14 +49,13 @@ fn test_at_block_violations() {
         eprintln!("{}", err);
         assert_eq!(err.err, CheckErrors::AtBlockClosureMustBeReadOnly)
     }
-
 }
 
 #[test]
 fn test_simple_read_only_violations() {
     // note -- these examples have _type errors_ in addition to read-only errors,
     //    but the read only error should end up taking precedence
-    let bad_contracts = [ 
+    let bad_contracts = [
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
             (let ((balance (map-set tokens (tuple (account tx-sender))
@@ -74,21 +78,21 @@ fn test_simple_read_only_violations() {
             (map + (list 1 (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) 3)))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
-            (begin              
+            (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
             (map-get? tokens ((account (update-balance-and-get-tx-sender)))))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
-            (begin              
+            (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               (tuple (account tx-sender))))
          (define-read-only (get-token-balance)
             (map-get? tokens (update-balance-and-get-tx-sender)))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
-            (begin              
+            (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
@@ -136,8 +140,7 @@ fn test_simple_read_only_violations() {
 
 #[test]
 fn test_contract_call_read_only_violations() {
-    let contract1 = 
-        "(define-map tokens ((account principal)) ((balance int)))
+    let contract1 = "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (get-token-balance)
             (get balance (map-get? tokens (tuple (account tx-sender))) ))
          (define-public (mint)
@@ -145,11 +148,9 @@ fn test_contract_call_read_only_violations() {
               (map-set tokens (tuple (account tx-sender))
                                               (tuple (balance 10)))
               (ok 1)))";
-    let bad_caller =
-        "(define-read-only (not-reading-only)
+    let bad_caller = "(define-read-only (not-reading-only)
             (contract-call? .contract1 mint))";
-    let ok_caller =
-        "(define-read-only (is-reading-only)
+    let ok_caller = "(define-read-only (is-reading-only)
             (is-eq 0 (unwrap! (contract-call? .contract1 get-token-balance) false)))";
 
     let contract_1_id = QualifiedContractIdentifier::local("contract1").unwrap();
@@ -166,11 +167,14 @@ fn test_contract_call_read_only_violations() {
     db.execute(|db| {
         db.test_insert_contract_hash(&contract_1_id);
         type_check(&contract_1_id, &mut contract1, db, true)
-    }).unwrap();
+    })
+    .unwrap();
 
-    let err = db.execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true)).unwrap_err();
+    let err = db
+        .execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true))
+        .unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, false)).unwrap();
-
+    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, false))
+        .unwrap();
 }
