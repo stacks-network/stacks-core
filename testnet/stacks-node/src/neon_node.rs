@@ -239,7 +239,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     let sortdb = SortitionDB::open(&burn_db_path, false)
         .map_err(NetError::DBError)?;
 
-    let mut chainstate = StacksChainState::open_with_block_limit(
+    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path, block_limit)
         .map_err(|e| NetError::ChainstateError(e.to_string()))?;
     
@@ -336,7 +336,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     let mut sortdb = SortitionDB::open(&burn_db_path, true)
         .map_err(NetError::DBError)?;
 
-    let mut chainstate = StacksChainState::open_with_block_limit(
+    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path, config.block_limit.clone())
         .map_err(|e| NetError::ChainstateError(e.to_string()))?;
     
@@ -736,9 +736,9 @@ impl InitializedNeonNode {
                         }
                     };
 
-                debug!("Mining tenure's last consensus hash: {}, stacks tip consensus hash: {}",
-                       &burn_block.consensus_hash,
-                       &stacks_tip.consensus_hash);
+                debug!("Mining tenure's last consensus hash: {} (height {}), stacks tip consensus hash: {} (height {})",
+                       &burn_block.consensus_hash, burn_block.block_height,
+                       &stacks_tip.consensus_hash, parent_snapshot.block_height);
 
                 let coinbase_nonce = {
                     let principal = keychain.origin_address().unwrap().into();
@@ -865,14 +865,14 @@ impl InitializedNeonNode {
 impl NeonGenesisNode {
 
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, event_dispatcher: EventDispatcher, boot_block_exec: F) -> Self
+    pub fn new<F>(config: Config, mut event_dispatcher: EventDispatcher, boot_block_exec: F) -> Self
     where F: FnOnce(&mut ClarityTx) -> () {
 
         let keychain = Keychain::default(config.node.seed.clone());
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
         // do the initial open!
-        let _chain_state = match StacksChainState::open_and_exec(
+        let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             false, 
             TESTNET_CHAIN_ID, 
             &config.get_chainstate_path(), 
@@ -882,6 +882,8 @@ impl NeonGenesisNode {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
+
+        event_dispatcher.process_boot_receipts(receipts);
 
         Self {
             keychain,

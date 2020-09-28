@@ -620,8 +620,6 @@ pub const HTTP_PREAMBLE_MAX_ENCODED_SIZE : u32 = 4096;
 pub const HTTP_PREAMBLE_MAX_NUM_HEADERS : usize = 64;
 
 /// P2P message preamble -- included in all p2p network messages
-// TODO(PoX): include burnchain header hashes alongside consensus hashes, so peers can at least ask
-// each other if they have PoX anchor blocks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preamble {
     pub peer_version: u32,                          // software version
@@ -1989,7 +1987,7 @@ pub mod test {
                                              &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
 
             let init_code = config.setup_code.clone();
-            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), 
+            let (chainstate, _) = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), 
                 |ref mut clarity_tx| {
                     if init_code.len() > 0 {
                         clarity_tx.connection().as_transaction(|clarity| {
@@ -2529,7 +2527,7 @@ pub mod test {
             let burn_block_height = burn_block.block_height;
 
             let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut sortdb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner, ref sortdb| {
-                let mut miner_chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+                let (mut miner_chainstate, _) = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
                 let sort_iconn = sortdb.index_conn();
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate, &sort_iconn).unwrap();
 

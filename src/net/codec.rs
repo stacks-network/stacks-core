@@ -60,6 +60,8 @@ use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::log;
 use util::retry::BoundReader;
 
+use util::hash::to_hex;
+
 use rand;
 use rand::Rng;
 
@@ -870,6 +872,30 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => "Pong",
             StacksMessageType::NatPunchRequest(ref _m) => "NatPunchRequest",
             StacksMessageType::NatPunchReply(ref _m) => "NatPunchReply",
+        }
+    }
+
+    pub fn get_message_description(&self) -> String {
+        match *self {
+            StacksMessageType::Handshake(ref m) => format!("Handshake({})", &to_hex(&m.node_public_key.to_bytes())),
+            StacksMessageType::HandshakeAccept(ref m) => format!("HandshakeAccept({},{})", &to_hex(&m.handshake.node_public_key.to_bytes()), m.heartbeat_interval),
+            StacksMessageType::HandshakeReject => "HandshakeReject".to_string(),
+            StacksMessageType::GetNeighbors => "GetNeighbors".to_string(),
+            StacksMessageType::Neighbors(ref m) => format!("Neighbors({:?})", m.neighbors),
+            StacksMessageType::GetPoxInv(ref m) => format!("GetPoxInv({},{}))", &m.consensus_hash, m.num_cycles),
+            StacksMessageType::PoxInv(ref m) => format!("PoxInv({},{:?})", &m.bitlen, &m.pox_bitvec),
+            StacksMessageType::GetBlocksInv(ref m) => format!("GetBlocksInv({},{})", &m.consensus_hash, m.num_blocks),
+            StacksMessageType::BlocksInv(ref m) => format!("BlocksInv({},{:?},{:?})", m.bitlen, &m.block_bitvec, &m.microblocks_bitvec),
+            StacksMessageType::BlocksAvailable(ref m) => format!("BlocksAvailable({:?})", &m.available),
+            StacksMessageType::MicroblocksAvailable(ref m) => format!("MicroblocksAvailable({:?})", &m.available),
+            StacksMessageType::Blocks(ref m) => format!("Blocks({:?})", m.blocks.iter().map(|(ch, blk)| (ch.clone(), blk.block_hash())).collect::<Vec<(ConsensusHash, BlockHeaderHash)>>()),
+            StacksMessageType::Microblocks(ref m) => format!("Microblocks({},{:?})", &m.index_anchor_block, m.microblocks.iter().map(|mblk| mblk.block_hash()).collect::<Vec<BlockHeaderHash>>()),
+            StacksMessageType::Transaction(ref m) => format!("Transaction({})", m.txid()),
+            StacksMessageType::Nack(ref m) => format!("Nack({})", m.error_code),
+            StacksMessageType::Ping(ref m) => format!("Ping({})", m.nonce),
+            StacksMessageType::Pong(ref m) => format!("Pong({})", m.nonce),
+            StacksMessageType::NatPunchRequest(ref m) => format!("NatPunchRequest({})", m),
+            StacksMessageType::NatPunchReply(ref m) => format!("NatPunchReply({},{}:{})", m.nonce, &m.addrbytes, m.port)
         }
     }
 }

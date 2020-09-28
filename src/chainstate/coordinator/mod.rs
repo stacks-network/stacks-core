@@ -96,6 +96,8 @@ impl RewardCycleInfo {
 pub trait BlockEventDispatcher {
     fn announce_block(&self, block: StacksBlock, metadata: StacksHeaderInfo,
                       receipts: Vec<StacksTransactionReceipt>, parent: &StacksBlockId);
+
+    fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
 }
 
 pub struct ChainsCoordinator <'a, T: BlockEventDispatcher, N: CoordinatorNotices, R: RewardSetProvider> {
@@ -160,7 +162,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider> {
     pub fn run<F>(chain_state_path: &str, burnchain: Burnchain, stacks_mainnet: bool, stacks_chain_id: u32,
                   initial_balances: Option<Vec<(PrincipalData, u64)>>,
-                  block_limit: ExecutionCost, dispatcher: &T, comms: CoordinatorReceivers,
+                  block_limit: ExecutionCost, dispatcher: &mut T, comms: CoordinatorReceivers,
                   boot_block_exec: F)
         where F: FnOnce(&mut ClarityTx), T: BlockEventDispatcher {
 
@@ -169,10 +171,11 @@ impl <'a, T: BlockEventDispatcher> ChainsCoordinator <'a, T, ArcCounterCoordinat
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let chain_state_db = StacksChainState::open_and_exec(
+        let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             stacks_mainnet, stacks_chain_id, chain_state_path,
             initial_balances, boot_block_exec, block_limit).unwrap();
-
+        dispatcher.dispatch_boot_receipts(receipts);
+        
         let canonical_sortition_tip = SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
         let arc_notices = ArcCounterCoordinatorNotices { stacks_blocks_processed, sortitions_processed };
@@ -223,7 +226,7 @@ impl <'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator <'a, 
 
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let chain_state_db = StacksChainState::open(false, 0x80000000, &format!("{}/chainstate/", path)).unwrap();
+        let (chain_state_db, _) = StacksChainState::open(false, 0x80000000, &format!("{}/chainstate/", path)).unwrap();
 
         let canonical_sortition_tip = SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 

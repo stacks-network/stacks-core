@@ -280,7 +280,7 @@ impl RunLoop {
             event_dispatcher.register_observer(observer);
         }
 
-        let coordinator_dispatcher = event_dispatcher.clone();
+        let mut coordinator_dispatcher = event_dispatcher.clone();
         let burnchain_config = match Burnchain::new(&self.config.get_burn_db_path(), &self.config.burnchain.chain, "regtest") {
             Ok(burnchain) => burnchain,
             Err(e) => {
@@ -293,7 +293,7 @@ impl RunLoop {
         thread::spawn(move || {
             ChainsCoordinator::run(&chainstate_path, burnchain_config, mainnet, chainid,
                                    Some(initial_balances),
-                                   block_limit, &coordinator_dispatcher,
+                                   block_limit, &mut coordinator_dispatcher,
                                    coordinator_receivers, |_| {});
         });        
         

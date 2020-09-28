@@ -320,7 +320,7 @@ impl MemPoolDB {
             }
         }
 
-        let chainstate = StacksChainState::open(mainnet, chain_id, chainstate_path)
+        let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path)
             .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
         
         let mut path = PathBuf::from(chainstate.root_path.clone());
