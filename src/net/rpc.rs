@@ -577,9 +577,13 @@ impl ConversationHttp {
                 } else {
                     None
                 };
+                let unlocked = balance.get_available_balance_at_block(block_height);
+                let (locked, unlock_height) = balance.get_locked_balance_at_block(block_height);
 
-                let balance = format!("0x{}", to_hex(&balance.get_available_balance_at_block(block_height).to_be_bytes()));
-                AccountEntryResponse { balance, nonce, balance_proof, nonce_proof }
+                let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
+                let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
+
+                AccountEntryResponse { balance, locked, unlock_height, nonce, balance_proof, nonce_proof }
             })
         });
 
