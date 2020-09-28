@@ -187,6 +187,12 @@
     ))
 )
 
+;; How many rejection votes have we been accumulating for the next block
+(define-private (next-cycle-rejection-votes)
+    (default-to
+        u0
+        (get amount (map-get? stacking-rejection { reward-cycle: (+ u1 (current-pox-reward-cycle)) }))))
+
 ;; Add a single PoX address to a single reward cycle.
 ;; Used to build up a set of per-reward-cycle PoX addresses.
 ;; No checking will be done -- don't call if this PoX address is already registered in this reward cycle!
@@ -389,12 +395,7 @@
         (balance (stx-get-balance tx-sender))
         (vote-reward-cycle (+ u1 (current-pox-reward-cycle)))
     )
-    (let (
-        (cur-rejected
-            (default-to
-                u0
-                (get amount (map-get? stacking-rejection { reward-cycle: (+ u1 (current-pox-reward-cycle)) }))))
-    )
+
     ;; tx-sender principal must not have rejected in this upcoming reward cycle
     (asserts! (is-none (get-pox-rejection tx-sender vote-reward-cycle))
         (err ERR_STACKING_ALREADY_REJECTED))
@@ -406,7 +407,7 @@
     ;; vote for rejection
     (map-set stacking-rejection
         { reward-cycle: vote-reward-cycle }
-        { amount: (+ cur-rejected balance) }
+        { amount: (+ (next-cycle-rejection-votes) balance) }
     )
 
     ;; mark voted
@@ -415,7 +416,7 @@
         { amount: balance }
     )
 
-    (ok true)))
+    (ok true))
 )
 
 ;; Used for PoX parameters discovery
@@ -426,6 +427,8 @@
         prepare-cycle-length: (var-get pox-prepare-cycle-length),
         first-burnchain-block-height: (var-get first-burnchain-block-height),
         reward-cycle-length: (var-get pox-reward-cycle-length),
-        rejection-fraction: (var-get pox-rejection-fraction)
+        rejection-fraction: (var-get pox-rejection-fraction),
+        current-rejection-votes: (next-cycle-rejection-votes),
+        total-liquid-supply-ustx: stx-liquid-supply,
     })
 )

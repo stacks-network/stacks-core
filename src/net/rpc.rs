@@ -253,7 +253,27 @@ impl RPCPoxInfoData {
             .get("reward-cycle-length")
             .expect(&format!("FATAL: no 'reward-cycle-length'"))
             .to_owned()
-            .expect_u128();        
+            .expect_u128();
+
+        let current_rejection_votes = res
+            .get("current-rejection-votes")
+            .expect(&format!("FATAL: no 'current-rejection-votes'"))
+            .to_owned()
+            .expect_u128();
+
+        let total_liquid_supply_ustx = res
+            .get("total-liquid-supply-ustx")
+            .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
+            .to_owned()
+            .expect_u128();
+    
+            println!("=> {}", current_rejection_votes);
+            println!("=> {}", total_liquid_supply_ustx);
+            
+        let total_required = total_liquid_supply_ustx
+            .checked_div(rejection_fraction)
+            .expect("FATAL: unable to compute total_liquid_supply_ustx/current_rejection_votes");
+        let rejection_votes_left_required = total_required.saturating_sub(current_rejection_votes);
 
         Ok(RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox").to_string(),
@@ -263,6 +283,8 @@ impl RPCPoxInfoData {
             rejection_fraction,
             reward_cycle_id,
             reward_cycle_length,
+            rejection_votes_left_required,
+            total_liquid_supply_ustx,
         })
     }
 }
