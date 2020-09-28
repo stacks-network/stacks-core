@@ -46,7 +46,7 @@ jobs:
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
 
   # rustfmt checking
-  test:
+  rustfmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
