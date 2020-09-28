@@ -2904,6 +2904,8 @@ impl StacksChainState {
                                                     &block_execution_cost)
             .expect("FATAL: failed to advance chain tip");
 
+        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &txs_receipts);
+
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip, 
             tx_receipts: txs_receipts,

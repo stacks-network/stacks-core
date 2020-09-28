@@ -372,6 +372,25 @@ impl<'a> ChainstateTx<'a> {
         self.headers_tx.commit()?;
         self.blocks_tx.commit()
     }
+
+    #[cfg(feature="tx_log")]
+    pub fn log_transactions_processed(&self, block_id: &StacksBlockId, events: &[StacksTransactionReceipt]) {
+        let insert = "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
+        for tx_event in events.iter() {
+            let txid = tx_event.transaction.txid();
+            let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
+            let result = tx_event.result.to_string();
+            let params: &[&dyn ToSql]  = &[&txid, block_id, &tx_hex, &result];
+            if let Err(e) = self.headers_tx.tx().execute(insert, params) {
+                warn!("Failed to log TX: {}", e);
+            }
+        }
+    }
+
+    #[cfg(not(feature="tx_log"))]
+    pub fn log_transactions_processed(&self, _block_id: &StacksBlockId, _events: &[StacksTransactionReceipt]) {
+    }
+
 }
 
 /// Opaque structure for streaming block and microblock data from disk
@@ -425,6 +444,19 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
 
         PRIMARY KEY(consensus_hash,block_hash)
     );
+    "#,
+    #[cfg(feature = "tx_log")]
+    r#"
+    CREATE TABLE transactions(
+        id INTEGER PRIMARY KEY,
+        txid TEXT NOT NULL,
+        index_block_hash TEXT NOT NULL,
+        tx_hex TEXT NOT NULL,
+        result TEXT NOT NULL,
+        UNIQUE (txid,index_block_hash)
+    );
+    CREATE INDEX txid_tx_index ON transactions(txid);
+    CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);
     "#,
     r#"
     CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);
