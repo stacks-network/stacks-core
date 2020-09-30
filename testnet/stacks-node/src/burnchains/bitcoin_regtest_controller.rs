@@ -16,6 +16,7 @@ use super::super::Config;
 
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Burnchain;
+use stacks::burnchains::PoxConstants;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
@@ -86,7 +87,7 @@ impl BitcoinRegtestController {
                 magic_bytes: burnchain_config.magic_bytes
             }
         };
-                
+    
         Self {
             use_coordinator: coordinator_channel,
             config: config,
@@ -138,15 +139,24 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
-        let (burnchain, network_type) = self.setup_burnchain();
+    pub fn get_pox_constants(&self) -> PoxConstants {
+        let (burnchain, _) = self.setup_burnchain();
+        burnchain.pox_constants.clone()
+    }
 
+    pub fn get_burnchain(&self) -> Burnchain {
+        let (burnchain, _) = self.setup_burnchain();
+        burnchain
+    }
+
+    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
+        let (_, network_type) = self.config.burnchain.get_bitcoin_network();
         let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
             config: self.indexer_config.clone(),
             runtime: indexer_runtime
         };
-        (burnchain, burnchain_indexer)
+        (self.get_burnchain(), burnchain_indexer)
     }
 
     fn receive_blocks_helium(&mut self) -> BurnchainTip {
@@ -208,10 +218,11 @@ impl BitcoinRegtestController {
         rest
     }
 
-    fn receive_blocks(&mut self, num_burn_blocks_opt: Option<u64>) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+    fn receive_blocks(&mut self, block_for_sortitions: bool, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let coordinator_comms = match self.use_coordinator.as_ref() {
             Some(x) => x.clone(),
             None => {
+                // pre-PoX helium node
                 let tip = self.receive_blocks_helium();
                 let height = tip.block_snapshot.block_height;
                 return Ok((tip, height));
@@ -220,19 +231,21 @@ impl BitcoinRegtestController {
 
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
         let (block_snapshot, burnchain_height, state_transition) = loop {
-            match burnchain.sync_with_indexer(&mut burnchain_indexer, coordinator_comms.clone(), num_burn_blocks_opt) {
+            match burnchain.sync_with_indexer(&mut burnchain_indexer, coordinator_comms.clone(), target_block_height_opt, Some(burnchain.pox_constants.reward_cycle_length as u64)) {
                 Ok(x) => {
                     increment_btc_blocks_received_counter();
 
                     // initialize the dbs...
                     self.sortdb_mut();
-
-                    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
-                        .expect("Sortition DB error.");
-
-                    if sort_tip.block_height > 0 {
+                    
+                    // wait for the chains coordinator to catch up with us
+                    if block_for_sortitions {
                         self.wait_for_sortitions(Some(x.block_height));
                     }
+
+                    // NOTE: This is the latest _sortition_ on the canonical sortition history, not the latest burnchain block!
+                    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
+                        .expect("Sortition DB error.");
 
                     let (snapshot, state_transition) = self.sortdb_ref().get_sortition_result(&sort_tip.sortition_id)
                         .expect("Sortition DB error.")
@@ -682,21 +695,19 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn start(&mut self) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
-        // self.receive_blocks(false, None)
-        let (burnchain, _) = self.setup_burnchain();
-        self.receive_blocks(Some(burnchain.pox_constants.reward_cycle_length as u64))
+    fn start(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+        // if no target block height is given, just fetch the first burnchain block.
+        self.receive_blocks(false, target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)))
     }
 
-    fn sync(&mut self) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+    fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let (burnchain_tip, burnchain_height) = if self.config.burnchain.mode == "helium" {
             // Helium: this node is responsible for mining new burnchain blocks
             self.build_next_block(1);
-            self.receive_blocks(None)?
+            self.receive_blocks(true, None)?
         } else {
             // Neon: this node is waiting on a block to be produced
-            let (burnchain, _) = self.setup_burnchain();
-            self.receive_blocks(Some(burnchain.pox_constants.reward_cycle_length as u64))?
+            self.receive_blocks(true, target_block_height_opt)?
         };
 
         // Evaluate process_exit_at_block_height setting
