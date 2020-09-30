@@ -1184,7 +1184,7 @@ impl PeerNetwork {
                 GETPOXINV_MAX_BITLEN
             }
             else {
-                max_reward_cycle - target_pox_reward_cycle + 1
+                cmp::max(1, max_reward_cycle - target_pox_reward_cycle)
             };
 
         if num_reward_cycles == 0 {
@@ -1664,6 +1664,7 @@ impl PeerNetwork {
 
                     if stats.learned_data {
                         // update hints
+                        debug!("{:?}: learned something new from {:?}", &network.local_peer, &nk);
                         inv_state.hint_learned_data = inv_state.hint_learned_data || stats.learned_data;
                         inv_state.last_change_at = get_epoch_time_secs();
                     }
