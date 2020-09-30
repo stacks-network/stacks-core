@@ -790,7 +790,7 @@ impl NeighborWalk {
             let rh_naddr = naddr.clone();       // used below
             let new_rh = match res {
                 Ok(message) => {
-                    // if the neighbor is still bootstrapping, we're doone
+                    // if the neighbor is still bootstrapping, we're done
                     if message.preamble.burn_stable_block_height + MAX_NEIGHBOR_BLOCK_DELAY < stable_block_height {
                         debug!("{:?}: Remote neighbor {:?} is still bootstrapping (at block {})", &self.local_peer, &rh_naddr, message.preamble.burn_stable_block_height);
                     }
