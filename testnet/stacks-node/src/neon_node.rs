@@ -127,7 +127,8 @@ fn inner_process_tenure(
             &ic,
             consensus_hash,
             &anchored_block,
-            &parent_consensus_hash)?;
+            &parent_consensus_hash,
+            0)?;
     }
 
     if !coord_comms.announce_new_stacks_block() {
@@ -682,9 +683,15 @@ impl InitializedNeonNode {
                           burn_fee_cap: u64,
                           bitcoin_controller: &mut BitcoinRegtestController) -> Option<AssembledAnchorBlock> {
         // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = keychain.generate_proof(
+        let vrf_proof = match keychain.generate_proof(
             &registered_key.vrf_public_key, 
-            burn_block.sortition_hash.as_bytes()).unwrap();
+            burn_block.sortition_hash.as_bytes()) {
+            Some(vrfp) => vrfp,
+            None => {
+                error!("Failed to generate proof with {:?}", &registered_key.vrf_public_key);
+                return None;
+            }
+        };
 
         debug!("Generated VRF Proof: {} over {} with key {}",
                vrf_proof.to_hex(),
@@ -806,7 +813,7 @@ impl InitializedNeonNode {
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
     /// and inspecting if a sortition was won.
-    pub fn process_burnchain_state(&mut self, sortdb: &SortitionDB, sort_id: &SortitionId) -> (Option<BlockSnapshot>, bool) {
+    pub fn process_burnchain_state(&mut self, sortdb: &SortitionDB, sort_id: &SortitionId, ibd: bool) -> (Option<BlockSnapshot>, bool) {
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
 
@@ -824,7 +831,7 @@ impl InitializedNeonNode {
 
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
-                info!("Received burnchain block #{} including block_commit_op (winning) - {}", block_height, op.input.to_testnet_address());
+                info!("Received burnchain block #{} including block_commit_op (winning) - {} ({})", block_height, op.input.to_testnet_address(), &op.block_header_hash);
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
                 // Release current registered key if leader won the sortition
                 // This will trigger a new registration
@@ -833,25 +840,29 @@ impl InitializedNeonNode {
                 }    
             } else {
                 if self.is_miner {
-                    info!("Received burnchain block #{} including block_commit_op - {}", block_height, op.input.to_testnet_address());
+                    info!("Received burnchain block #{} including block_commit_op - {} ({})", block_height, op.input.to_testnet_address(), &op.block_header_hash);
                 }
             }
         }
 
         let key_registers = SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
             .expect("Unexpected SortitionDB error fetching key registers");
+
         for op in key_registers.into_iter() {
             if self.is_miner {
                 info!("Received burnchain block #{} including key_register_op - {}", block_height, op.address);
             }
             if op.address == Keychain::address_from_burnchain_signer(&self.burnchain_signer) {
-                // Registered key has been mined
-                self.active_keys.push(
-                    RegisteredKey {
-                        vrf_public_key: op.public_key,
-                        block_height: op.block_height as u64,
-                        op_vtxindex: op.vtxindex as u32,
-                    });
+                if !ibd {
+                    // not in initial block download, so we're not just replaying an old key.
+                    // Registered key has been mined
+                    self.active_keys.push(
+                        RegisteredKey {
+                            vrf_public_key: op.public_key,
+                            block_height: op.block_height as u64,
+                            op_vtxindex: op.vtxindex as u32,
+                        });
+                }
             }
         }
 
