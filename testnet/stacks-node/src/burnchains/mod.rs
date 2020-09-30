@@ -31,9 +31,9 @@ impl fmt::Display for Error {
 }
 
 pub trait BurnchainController {
-    fn start(&mut self) -> Result<(BurnchainTip, u64), Error>;
+    fn start(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) -> bool;
-    fn sync(&mut self) -> Result<(BurnchainTip, u64), Error>;
+    fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
     fn get_chain_tip(&mut self) -> BurnchainTip;
