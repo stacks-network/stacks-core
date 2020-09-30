@@ -431,7 +431,9 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
                                 commit_burn INT NOT NULL,
                                 sortition_burn INT NOT NULL,
                                 index_block_hash TEXT NOT NULL,        -- used internally; hash of burn header and block header
-                                arrival_time INT NOT NULL,              -- when this block was stored
+                                download_time INT NOT NULL,               -- how long the block was in-flight
+                                arrival_time INT NOT NULL,                -- when this block was stored
+                                processed_time INT NOT NULL,              -- when this block was processed
                                 PRIMARY KEY(anchored_block_hash,consensus_hash)
     );
     CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_blcok_hash,consensus_hash);
@@ -1149,7 +1151,7 @@ impl StacksChainState {
     /// Store a preprocessed block, queuing it up for subsequent processing.
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
-    fn store_staging_block<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
+    fn store_staging_block<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash, commit_burn: u64, sortition_burn: u64, download_time: u64) -> Result<(), Error> {
         debug!("Store anchored block {}/{}, parent in {}", consensus_hash, block.block_hash(), parent_consensus_hash);
         assert!(commit_burn < i64::max_value() as u64);
         assert!(sortition_burn < i64::max_value() as u64);
@@ -1188,9 +1190,11 @@ impl StacksChainState {
                    orphaned, \
                    commit_burn, \
                    sortition_burn, \
-                   index_block_hash,
-                   arrival_time) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
+                   index_block_hash, \
+                   arrival_time, \
+                   processed_time, \
+                   download_time) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)";
         let args: &[&dyn ToSql] = &[
             &block_hash,
             &block.header.parent_block,
@@ -1205,8 +1209,11 @@ impl StacksChainState {
             &0,
             &u64_to_sql(commit_burn)?,
             &u64_to_sql(sortition_burn)?,
+            &index_block_hash,
             &u64_to_sql(get_epoch_time_secs())?,
-            &index_block_hash];
+            &0,
+            &u64_to_sql(download_time)?
+        ];
 
         tx.execute(&sql, args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1513,31 +1520,31 @@ impl StacksChainState {
     /// The blocks database will eventually delete all orphaned data.
     fn delete_orphaned_epoch_data<'a>(tx: &mut BlocksDBTx<'a>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         // This block is orphaned
-        let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE anchored_block_hash = ?1".to_string();
-        let update_block_args = [&anchored_block_hash];
+        let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let update_block_args : &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
         // All descendents of this processed block are never attachable.
         // Indicate this by marking all children as orphaned (but not procesed), across all burnchain forks.
-        let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_anchored_block_hash = ?1".to_string();
-        let update_children_args = [&anchored_block_hash];
+        let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2".to_string();
+        let update_children_args : &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
         
         // find all orphaned microblocks, and delete the block data
-        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE anchored_block_hash = ?1".to_string();
-        let find_orphaned_microblocks_args = [&anchored_block_hash];
-        let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(tx, &find_orphaned_microblocks_sql, &find_orphaned_microblocks_args, "microblock_hash")
+        let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let find_orphaned_microblocks_args : &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
+        let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(tx, &find_orphaned_microblocks_sql, find_orphaned_microblocks_args, "microblock_hash")
             .map_err(Error::DBError)?;
         
         // drop microblocks (this processes them)
-        let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE anchored_block_hash = ?1".to_string();
-        let update_microblock_children_args = [&anchored_block_hash];
+        let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
+        let update_microblock_children_args : &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
-        tx.execute(&update_block_sql, &update_block_args)
+        tx.execute(&update_block_sql, update_block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        tx.execute(&update_children_sql, &update_children_args)
+        tx.execute(&update_children_sql, update_children_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         
-        tx.execute(&update_microblock_children_sql, &update_microblock_children_args)
+        tx.execute(&update_microblock_children_sql, update_microblock_children_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         for mblock_hash in orphaned_microblock_hashes {
@@ -1561,6 +1568,7 @@ impl StacksChainState {
     /// Clear out a staging block -- mark it as processed.
     /// Mark its children as attachable.
     /// Idempotent.
+    /// sort_tx_opt is required if accept is true
     fn set_block_processed<'a, 'b>(tx: &mut BlocksDBTx<'a>, mut sort_tx_opt: Option<&mut SortitionHandleTx<'b>>, consensus_hash: &ConsensusHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
         let sql = "SELECT * FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 0".to_string();
         let args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash];
@@ -1609,8 +1617,8 @@ impl StacksChainState {
             debug!("Already processed block {}/{} ({})", consensus_hash, anchored_block_hash, StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash));
         }
 
-        let update_sql = "UPDATE staging_blocks SET processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
-        let update_args: &[&dyn ToSql] = &[&consensus_hash, &anchored_block_hash];
+        let update_sql = "UPDATE staging_blocks SET processed = 1, processed_time = ?1 WHERE consensus_hash = ?2 AND anchored_block_hash = ?3".to_string();
+        let update_args: &[&dyn ToSql] = &[&u64_to_sql(get_epoch_time_secs())?, &consensus_hash, &anchored_block_hash];
 
         tx.execute(&update_sql, update_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -2276,7 +2284,7 @@ impl StacksChainState {
     ///
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
-    pub fn preprocess_anchored_block(&mut self, sort_ic: &SortitionDBConn, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash) -> Result<bool, Error> {
+    pub fn preprocess_anchored_block(&mut self, sort_ic: &SortitionDBConn, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash, download_time: u64) -> Result<bool, Error> {
         debug!("preprocess anchored block {}/{}", consensus_hash, block.block_hash());
 
         let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
@@ -2322,7 +2330,7 @@ impl StacksChainState {
         debug!("Storing staging block");
 
         // queue block up for processing
-        StacksChainState::store_staging_block(&mut block_tx, consensus_hash, &block, parent_consensus_hash, commit_burn, sortition_burn)?;
+        StacksChainState::store_staging_block(&mut block_tx, consensus_hash, &block, parent_consensus_hash, commit_burn, sortition_burn, download_time)?;
 
         // store users who burned for this block so they'll get rewarded if we process it
         StacksChainState::store_staging_block_user_burn_supports(&mut block_tx, consensus_hash, &block.block_hash(), &user_burns)?;
@@ -2416,7 +2424,7 @@ impl StacksChainState {
             sn
         };
 
-        self.preprocess_anchored_block(sort_ic, &snapshot.consensus_hash, block, &parent_sn.consensus_hash)?;
+        self.preprocess_anchored_block(sort_ic, &snapshot.consensus_hash, block, &parent_sn.consensus_hash, 5)?;
         let block_hash = block.block_hash();
         for mblock in microblocks.iter() {
             self.preprocess_streamed_microblock(&snapshot.consensus_hash, &block_hash, mblock)?;
@@ -2547,11 +2555,38 @@ impl StacksChainState {
         Ok(true)
     }
 
-    /// How many attachable staging blocks do we have, up to a limit?
+    /// How many attachable staging blocks do we have, up to a limit, at or after the given
+    /// timestamp?
     pub fn count_attachable_staging_blocks(blocks_conn: &DBConn, limit: u64, min_arrival_time: u64) -> Result<u64, Error> {
         let sql = "SELECT COUNT(*) FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 AND arrival_time >= ?1 LIMIT ?2".to_string();
         let cnt = query_count(blocks_conn, &sql, &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?]).map_err(Error::DBError)?;
         Ok(cnt as u64)
+    }
+
+    /// How many processed staging blocks do we have, up to a limit, at or after the given
+    /// timestamp?
+    pub fn count_processed_staging_blocks(blocks_conn: &DBConn, limit: u64, min_arrival_time: u64) -> Result<u64, Error> {
+        let sql = "SELECT COUNT(*) FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND processed_time > 0 AND processed_time >= ?1 LIMIT ?2".to_string();
+        let cnt = query_count(blocks_conn, &sql, &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?]).map_err(Error::DBError)?;
+        Ok(cnt as u64)
+    }
+
+    /// Measure how long a block waited in-between when it arrived and when it got processed.
+    /// Includes both orphaned and accepted blocks.
+    pub fn measure_block_wait_time(blocks_conn: &DBConn, start_height: u64, end_height: u64) -> Result<Vec<i64>, Error> {
+        let sql = "SELECT processed_time - arrival_time FROM staging_blocks WHERE processed = 1 AND height >= ?1 AND height < ?2";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(start_height)?, &u64_to_sql(end_height)?];
+        let list = query_rows::<i64, _>(blocks_conn, &sql, args)?;
+        Ok(list)
+    }
+    
+    /// Measure how long a block took to be downloaded (for blocks that we downloaded).
+    /// Includes _all_ blocks.
+    pub fn measure_block_download_time(blocks_conn: &DBConn, start_height: u64, end_height: u64) -> Result<Vec<i64>, Error> {
+        let sql = "SELECT download_time FROM staging_blocks WHERE height >= ?1 AND height < ?2";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(start_height)?, &u64_to_sql(end_height)?];
+        let list = query_rows::<i64, _>(blocks_conn, &sql, args)?;
+        Ok(list)
     }
 
     /// Given access to the chain state (headers) and the staging blocks, find a staging block we
@@ -2561,104 +2596,116 @@ impl StacksChainState {
     fn find_next_staging_block<'a>(blocks_tx: &mut BlocksDBTx<'a>, blocks_path: &String, headers_conn: &DBConn, sort_conn: &DBConn) -> Result<Option<(Vec<StacksMicroblock>, StagingBlock)>, Error> {
         test_debug!("Find next staging block");
 
-        // go through staging blocks and see if any of them match headers, are attachable, and are
-        // recent (i.e. less than 10 minutes old)
-        // pick randomly -- don't allow the network sender to choose the processing order!
-        let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 AND arrival_time >= ?1 ORDER BY RANDOM()".to_string();
-        
-        let mut stmt = blocks_tx.prepare(&sql)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let mut to_delete = vec![];
+     
+        // put this in a block so stmt goes out of scope before we start to delete PoX-orphaned
+        // blocks
+        {
+            // go through staging blocks and see if any of them match headers, are attachable, and are
+            // recent (i.e. less than 10 minutes old)
+            // pick randomly -- don't allow the network sender to choose the processing order!
+            let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 ORDER BY RANDOM()".to_string();
+            let mut stmt = blocks_tx.prepare(&sql)
+                .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        let mut rows = stmt.query(&[&u64_to_sql(get_epoch_time_secs().saturating_sub(600))?])
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+            let mut rows = stmt.query(NO_PARAMS)
+                .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
-                    
-                    debug!("Consider block {}/{} whose parent is {}/{}", 
-                           &candidate.consensus_hash, &candidate.anchored_block_hash,
-                           &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
-        
-                    let can_attach = {
-                        if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
-                            // this block's parent is the boot code -- it's the first-ever block,
-                            // so it can be processed immediately 
-                            true
-                        }
-                        else {
-                            // not the first-ever block.  Does this connect to a previously-accepted
-                            // block in the headers database?
-                            let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2".to_string();
-                            let hdr_args: &[&dyn ToSql] = &[&candidate.parent_anchored_block_hash, &candidate.parent_consensus_hash];
-                            let hdr_rows = query_rows::<StacksHeaderInfo, _>(headers_conn, &hdr_sql, hdr_args)
-                                .map_err(Error::DBError)?;
-
-                            match hdr_rows.len() {
-                                0 => {
-                                    // no parent processed for this block
-                                    debug!("No such parent {}/{} for block, cannot process", &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
-                                    false
-                                }
-                                1 => {
-                                    // can process this block 
-                                    debug!("Have parent {}/{} for this block, will process", &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
-                                    true
-                                },
-                                _ => {
-                                    // should be impossible -- stored the same block twice
-                                    unreachable!("Stored the same block twice: {}/{}", &candidate.parent_anchored_block_hash, &candidate.parent_consensus_hash);
-                                }
+            while let Some(row_res) = rows.next() {
+                match row_res {
+                    Ok(row) => {
+                        let candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
+                        
+                        debug!("Consider block {}/{} whose parent is {}/{}", 
+                               &candidate.consensus_hash, &candidate.anchored_block_hash,
+                               &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
+            
+                        let can_attach = {
+                            if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
+                                // this block's parent is the boot code -- it's the first-ever block,
+                                // so it can be processed immediately 
+                                true
                             }
-                        }
-                    };
+                            else {
+                                // not the first-ever block.  Does this connect to a previously-accepted
+                                // block in the headers database?
+                                let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2".to_string();
+                                let hdr_args: &[&dyn ToSql] = &[&candidate.parent_anchored_block_hash, &candidate.parent_consensus_hash];
+                                let hdr_rows = query_rows::<StacksHeaderInfo, _>(headers_conn, &hdr_sql, hdr_args)
+                                    .map_err(Error::DBError)?;
 
-                    if can_attach {
-                        // try and load up this staging block and its microblocks
-                        match StacksChainState::load_staging_block(blocks_tx, blocks_path, &candidate.consensus_hash, &candidate.anchored_block_hash)? {
-                            Some(staging_block) => {
-                                // must be unprocessed -- must have a block
-                                if staging_block.block_data.len() == 0 {
-                                    return Err(Error::NetError(net_error::DeserializeError(format!("No block data for staging block {}", candidate.anchored_block_hash))));
-                                }
-
-                                // find its microblock parent stream
-                                match StacksChainState::find_parent_staging_microblock_stream(blocks_tx, blocks_path, &staging_block)? {
-                                    Some(parent_staging_microblocks) => {
-                                        return Ok(Some((parent_staging_microblocks, staging_block)));
+                                match hdr_rows.len() {
+                                    0 => {
+                                        // no parent processed for this block
+                                        debug!("No such parent {}/{} for block, cannot process", &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
+                                        false
+                                    }
+                                    1 => {
+                                        // can process this block 
+                                        debug!("Have parent {}/{} for this block, will process", &candidate.parent_consensus_hash, &candidate.parent_anchored_block_hash);
+                                        true
                                     },
-                                    None => {
-                                        // no microblock data yet
+                                    _ => {
+                                        // should be impossible -- stored the same block twice
+                                        unreachable!("Stored the same block twice: {}/{}", &candidate.parent_anchored_block_hash, &candidate.parent_consensus_hash);
                                     }
                                 }
-                            },
-                            None => {
-                                // should be impossible -- selected unprocessed blocks
-                                unreachable!("Failed to load staging block when an earlier query indicated that it was present");
+                            }
+                        };
+
+                        if can_attach {
+                            // try and load up this staging block and its microblocks
+                            match StacksChainState::load_staging_block(blocks_tx, blocks_path, &candidate.consensus_hash, &candidate.anchored_block_hash)? {
+                                Some(staging_block) => {
+                                    // must be unprocessed -- must have a block
+                                    if staging_block.block_data.len() == 0 {
+                                        return Err(Error::NetError(net_error::DeserializeError(format!("No block data for staging block {}", candidate.anchored_block_hash))));
+                                    }
+
+                                    // find its microblock parent stream
+                                    match StacksChainState::find_parent_staging_microblock_stream(blocks_tx, blocks_path, &staging_block)? {
+                                        Some(parent_staging_microblocks) => {
+                                            return Ok(Some((parent_staging_microblocks, staging_block)));
+                                        },
+                                        None => {
+                                            // no microblock data yet
+                                        }
+                                    }
+                                },
+                                None => {
+                                    // should be impossible -- selected unprocessed blocks
+                                    unreachable!("Failed to load staging block when an earlier query indicated that it was present");
+                                }
                             }
                         }
-                    }
-                    else {
-                        // this can happen if a PoX reorg happens
-                        // if this candidate is no longer on the main PoX fork, then delete it
-                        let sn_opt = SortitionDB::get_block_snapshot_consensus(sort_conn, &candidate.consensus_hash)?;
-                        if sn_opt.is_none() {
-                            debug!("Could not attach {}/{}: does not connect to a previously-accepted block, because its consensus hash does not match an existing snapshot", &candidate.consensus_hash, &candidate.anchored_block_hash);
-                            let _ = StacksChainState::delete_orphaned_epoch_data(blocks_tx, &candidate.consensus_hash, &candidate.anchored_block_hash);
-                        }
-                        else if let Some(sn) = sn_opt {
-                            if !sn.pox_valid {
-                                debug!("Could not attach {}/{}: does not connect to a previously-accepted block, because its consensus hash is no longer on the valid PoX fork", &candidate.consensus_hash, &candidate.anchored_block_hash);
-                                let _ = StacksChainState::delete_orphaned_epoch_data(blocks_tx, &candidate.consensus_hash, &candidate.anchored_block_hash);
+                        else {
+                            // this can happen if a PoX reorg happens
+                            // if this candidate is no longer on the main PoX fork, then delete it
+                            let sn_opt = SortitionDB::get_block_snapshot_consensus(sort_conn, &candidate.consensus_hash)?;
+                            if sn_opt.is_none() {
+                                to_delete.push((candidate.consensus_hash.clone(), candidate.anchored_block_hash.clone()));
+                            }
+                            else if let Some(sn) = sn_opt {
+                                if !sn.pox_valid {
+                                    to_delete.push((candidate.consensus_hash.clone(), candidate.anchored_block_hash.clone()));
+                                }
                             }
                         }
+                    },
+                    Err(e) => {
+                        return Err(Error::DBError(db_error::SqliteError(e)));
                     }
-                },
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
                 }
             }
+        }
+        
+        for (consensus_hash, anchored_block_hash) in to_delete.into_iter() {
+            debug!("Orphan {}/{}: it does not connect to a previously-accepted block, because its consensus hash does not match an existing snapshot on the valid PoX fork.", &consensus_hash, &anchored_block_hash);
+            let _ = StacksChainState::set_block_processed(blocks_tx, None, &consensus_hash, &anchored_block_hash, false)
+                .map_err(|e| {
+                    warn!("Failed to orphan {}/{}: {:?}", &consensus_hash, &anchored_block_hash, &e);
+                    e
+                });
         }
 
         // no blocks available
@@ -3666,7 +3713,7 @@ pub mod test {
 
     pub fn store_staging_block(chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock, parent_consensus_hash: &ConsensusHash, commit_burn: u64, sortition_burn: u64) {
         let mut tx = chainstate.blocks_tx_begin().unwrap();
-        StacksChainState::store_staging_block(&mut tx, consensus_hash, block, parent_consensus_hash, commit_burn, sortition_burn).unwrap();
+        StacksChainState::store_staging_block(&mut tx, consensus_hash, block, parent_consensus_hash, commit_burn, sortition_burn, 5).unwrap();
         tx.commit().unwrap();
         
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
