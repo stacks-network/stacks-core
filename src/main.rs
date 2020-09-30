@@ -617,6 +617,7 @@ fn main() {
                                     &mut new_chainstate,
                                     &new_snapshot.consensus_hash,
                                     &stacks_block,
+                                    0,
                                 )
                                 .unwrap();
                             } else {

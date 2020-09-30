@@ -1376,7 +1376,7 @@ impl StacksChainState {
         parent_consensus_hash: &ConsensusHash,
         commit_burn: u64,
         sortition_burn: u64,
-        download_time: u64
+        download_time: u64,
     ) -> Result<(), Error> {
         debug!(
             "Store anchored block {}/{}, parent in {}",
@@ -1454,7 +1454,7 @@ impl StacksChainState {
             &index_block_hash,
             &u64_to_sql(get_epoch_time_secs())?,
             &0,
-            &u64_to_sql(download_time)?
+            &u64_to_sql(download_time)?,
         ];
 
         tx.execute(&sql, args)
@@ -2985,7 +2985,7 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         parent_consensus_hash: &ConsensusHash,
-        download_time: u64
+        download_time: u64,
     ) -> Result<bool, Error> {
         debug!(
             "preprocess anchored block {}/{}",
@@ -3081,7 +3081,7 @@ impl StacksChainState {
             parent_consensus_hash,
             commit_burn,
             sortition_burn,
-            download_time
+            download_time,
         )?;
 
         // store users who burned for this block so they'll get rewarded if we process it
@@ -3237,7 +3237,7 @@ impl StacksChainState {
             &snapshot.consensus_hash,
             block,
             &parent_sn.consensus_hash,
-            5
+            5,
         )?;
         let block_hash = block.block_hash();
         for mblock in microblocks.iter() {
@@ -4059,7 +4059,7 @@ impl StacksChainState {
                 &mut chainstate_tx.blocks_tx,
                 &blocks_path,
                 &chainstate_tx.headers_tx,
-                sort_tx
+                sort_tx,
             )? {
                 Some((next_microblocks, next_staging_block)) => {
                     (next_microblocks, next_staging_block)
@@ -5187,7 +5187,7 @@ pub mod test {
             parent_consensus_hash,
             commit_burn,
             sortition_burn,
-            5
+            5,
         )
         .unwrap();
         tx.commit().unwrap();

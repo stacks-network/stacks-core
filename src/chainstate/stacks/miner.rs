@@ -1788,7 +1788,7 @@ pub mod test {
                 &commit_snapshot.consensus_hash,
                 &stacks_block,
                 &parent_block_consensus_hash,
-                5
+                5,
             )
             .unwrap();
 

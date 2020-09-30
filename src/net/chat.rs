@@ -3911,8 +3911,8 @@ mod test {
             &vec![],
         )
         .unwrap();
+
         let mut sortdb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
-        let mut sortdb_2 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
 

@@ -122,7 +122,7 @@ fn inner_process_tenure(
             consensus_hash,
             &anchored_block,
             &parent_consensus_hash,
-            0
+            0,
         )?;
     }
 

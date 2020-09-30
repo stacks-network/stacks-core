@@ -708,7 +708,7 @@ impl Relayer {
                         chainstate,
                         &consensus_hash,
                         block,
-                        0
+                        0,
                     ) {
                         Ok(accepted) => {
                             if accepted {
