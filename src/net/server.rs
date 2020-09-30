@@ -225,24 +225,19 @@ impl HttpPeer {
     
     /// Deregister a socket/event pair
     pub fn deregister_http(&mut self, network_state: &mut NetworkState, event_id: usize) -> () {
-        if self.peers.contains_key(&event_id) {
-            // kill the conversation
-            self.peers.remove(&event_id);
-        }
+        self.peers.remove(&event_id);
 
-        let mut to_remove : Vec<usize> = vec![];
-        match self.sockets.get_mut(&event_id) {
+        match self.sockets.remove(&event_id) {
             None => {},
-            Some(ref sock) => {
-                let _ = network_state.deregister(event_id, sock);
-                to_remove.push(event_id);   // force it to close anyway
+            Some(sock) => {
+                let _ = network_state.deregister(event_id, &sock);
             }
         }
-        
-        for event_id in to_remove {
-            // remove socket
-            self.sockets.remove(&event_id);
-            self.connecting.remove(&event_id);
+        match self.connecting.remove(&event_id) {
+            None => {},
+            Some((sock, ..)) => {
+                let _ = network_state.deregister(event_id, &sock);
+            }
         }
     }
     
