@@ -515,9 +515,9 @@ impl ConversationP2P {
             data_url: UrlString::try_from("".to_string()).unwrap(),
 
             burnchain_tip_height: 0,
-            burnchain_tip_burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burnchain_tip_burn_header_hash: BurnchainHeaderHash::zero(),
             burnchain_stable_tip_height: 0,
-            burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash::zero(),
 
             stats: NeighborStats::new(outbound),
             reply_handles: VecDeque::new(),

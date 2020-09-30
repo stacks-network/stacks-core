@@ -661,7 +661,7 @@ impl Node {
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         })
     }
 
@@ -705,7 +705,7 @@ impl Node {
             txid: Txid([0u8; 32]),
             commit_outs: vec![],
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         })
     }
 

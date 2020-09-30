@@ -91,7 +91,7 @@ impl LeaderBlockCommitOp {
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         }
     }
 
@@ -122,7 +122,7 @@ impl LeaderBlockCommitOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
         }
     }
 
@@ -768,8 +768,8 @@ mod tests {
                 },
                 None => BurnchainBlockHeader {
                     block_height: 0,
-                    block_hash: BurnchainHeaderHash([0u8; 32]),
-                    parent_block_hash: BurnchainHeaderHash([0u8; 32]),
+                    block_hash: BurnchainHeaderHash::zero(),
+                    parent_block_hash: BurnchainHeaderHash::zero(),
                     num_txs: 0,
                     timestamp: get_epoch_time_secs(),
                 },

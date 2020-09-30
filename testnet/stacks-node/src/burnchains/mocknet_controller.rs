@@ -92,7 +92,7 @@ impl BurnchainController for MocknetController {
         let db = match SortitionDB::connect(
             &self.config.get_burn_db_file_path(),
             0,
-            &BurnchainHeaderHash([0u8; 32]),
+            &BurnchainHeaderHash::zero(),
             get_epoch_time_secs(),
             true,
         ) {

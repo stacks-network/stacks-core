@@ -173,7 +173,7 @@ fn inner_generate_leader_key_register_op(
         vtxindex: 0,
         txid: Txid([0u8; 32]),
         block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_hash: BurnchainHeaderHash::zero(),
     })
 }
 
@@ -227,7 +227,7 @@ fn inner_generate_block_commit_op(
         vtxindex: 0,
         txid: Txid([0u8; 32]),
         block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_hash: BurnchainHeaderHash::zero(),
         commit_outs,
     })
 }
