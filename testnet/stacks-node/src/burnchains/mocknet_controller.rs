@@ -89,7 +89,7 @@ impl BurnchainController for MocknetController {
         }
     }
    
-    fn start(&mut self) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+    fn start(&mut self, _ignored_target_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let db = match SortitionDB::connect(&self.config.get_burn_db_file_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
@@ -114,7 +114,7 @@ impl BurnchainController for MocknetController {
         true
     }
 
-    fn sync(&mut self) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+    fn sync(&mut self, _ignored_target_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let chain_tip = self.get_chain_tip();
 
         // Simulating mining
