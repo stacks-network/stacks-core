@@ -1313,7 +1313,7 @@ pub mod test {
 
         // "discover" this stacks block
         test_debug!("\n\nPreprocess Stacks block {}/{} ({})", &commit_snapshot.consensus_hash, &block_hash, StacksBlockHeader::make_index_block_hash(&commit_snapshot.consensus_hash, &block_hash));
-        let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.consensus_hash, &stacks_block, &parent_block_consensus_hash).unwrap();
+        let block_res = node.chainstate.preprocess_anchored_block(&ic, &commit_snapshot.consensus_hash, &stacks_block, &parent_block_consensus_hash, 5).unwrap();
 
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
