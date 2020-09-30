@@ -76,9 +76,9 @@
      (pox-addr (optional { version: (buff 1),
                            hashbytes: (buff 20) }))))
 
-;; Delegator's allowed contract-callers
-(define-map delegator-contract-callers
-    ((delegator principal) (contract-caller principal))
+;; allowed contract-callers
+(define-map allowance-contract-callers
+    ((sender principal) (contract-caller principal))
     ((until-burn-ht (optional uint))))
 
 ;; How many uSTX are stacked in a given reward cycle.
@@ -171,17 +171,17 @@
         none
     ))
 
-(define-private (check-delegation-caller-allowed)
+(define-private (check-caller-allowed)
     (or (is-eq tx-sender contract-caller)
-        (let ((delegation-caller-allowed 
-                 ;; if not in the delegation/caller map, return false
-                 (unwrap! (map-get? delegator-contract-callers
-                                    { delegator: tx-sender, contract-caller: contract-caller })
+        (let ((caller-allowed 
+                 ;; if not in the caller map, return false
+                 (unwrap! (map-get? allowance-contract-callers
+                                    { sender: tx-sender, contract-caller: contract-caller })
                           false)))
           ;; is the caller allowance expired?
-          (if (< burn-block-height (unwrap! (get until-burn-ht delegation-caller-allowed) true))
-              (begin (map-delete delegator-contract-callers
-                                 { delegator: tx-sender, contract-caller: contract-caller })
+          (if (< burn-block-height (unwrap! (get until-burn-ht caller-allowed) true))
+              (begin (map-delete allowance-contract-callers
+                                 { sender: tx-sender, contract-caller: contract-caller })
                      false)
               true))))
 
@@ -397,6 +397,20 @@
     (ok true)))
 
 
+(define-public (disallow-contract-caller (caller principal))
+  (begin 
+    (asserts! (is-eq tx-sender contract-caller)
+              (err ERR_STACKING_PERMISSION_DENIED))
+    (ok (map-delete allowance-contract-callers { sender: tx-sender, contract-caller: caller }))))
+
+(define-public (allow-contract-caller (caller principal) (until-burn-ht (optional uint)))
+  (begin
+    (asserts! (is-eq tx-sender contract-caller)
+              (err ERR_STACKING_PERMISSION_DENIED))
+    (ok (map-set allowance-contract-callers
+               { sender: tx-sender, contract-caller: caller }
+               { until-burn-ht: until-burn-ht }))))
+
 ;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
 ;; The STX will be locked for the given number of reward cycles (lock-period).
 ;; This is the self-service interface.  tx-sender will be the Stacker.
@@ -414,9 +428,9 @@
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle))))
 
-      ;; must be called directly by the tx-sender
-      (asserts! (is-eq tx-sender contract-caller)
-        (err ERR_STACKING_PERMISSION_DENIED))
+      ;; must be called directly by the tx-sender or by an allowed contract-caller
+      (asserts! (check-caller-allowed)
+                (err ERR_STACKING_PERMISSION_DENIED))
 
       ;; tx-sender principal must not be stacking
       (asserts! (is-none (get-stacker-info tx-sender))
@@ -435,8 +449,7 @@
       ;; add stacker record
       (map-set stacking-state
         { stacker: tx-sender }
-        {
-          amount-ustx: amount-ustx,
+        { amount-ustx: amount-ustx,
           pox-addr: pox-addr,
           first-reward-cycle: first-reward-cycle,
           lock-period: lock-period })
@@ -457,7 +470,7 @@
          (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
                   (err ERR_STACKING_NO_SUCH_PRINCIPAL))))
     ;; must be called directly by the tx-sender or by an allowed contract-caller
-    (asserts! (check-delegation-caller-allowed)
+    (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
     (let ((amount-ustx (get stacked-amount partial-stacked)))
       (try! (can-stack-stx pox-addr amount-ustx reward-cycle u1))
@@ -468,8 +481,7 @@
          first-reward-cycle: reward-cycle,
          num-cycles: u1,
          amount-ustx: amount-ustx,
-         i: u0
-       })
+         i: u0 })
       ;; don't update the stacking-state map,
       ;;  because it _already has_ this stacker's state
       ;; don't lock the STX, because the STX is already locked
@@ -489,7 +501,7 @@
           (unlock-burn-height (reward-cycle-to-burn-height (+ (current-pox-reward-cycle) u1 lock-period))))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
-      (asserts! (check-delegation-caller-allowed)
+      (asserts! (check-caller-allowed)
         (err ERR_STACKING_PERMISSION_DENIED))
 
       ;; stacker must have delegated to the caller

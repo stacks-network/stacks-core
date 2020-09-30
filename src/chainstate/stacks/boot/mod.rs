@@ -513,32 +513,48 @@ pub mod test {
         // (define-public (stack-stx (amount-ustx uint)
         //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
         //                           (lock-period uint))
+        make_pox_contract_call(
+            key,
+            nonce,
+            "stack-stx",
+            vec![
+                Value::UInt(amount),
+                make_pox_addr(addr_version, addr_bytes),
+                Value::UInt(lock_period),
+            ],
+        )
+    }
 
+    fn make_tx(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        fee_rate: u64,
+        payload: TransactionPayload,
+    ) -> StacksTransaction {
         let auth = TransactionAuth::from_p2pkh(key).unwrap();
         let addr = auth.origin().address_testnet();
-        let mut pox_lockup = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth,
-            TransactionPayload::new_contract_call(
-                boot_code_addr(),
-                "pox",
-                "stack-stx",
-                vec![
-                    Value::UInt(amount),
-                    make_pox_addr(addr_version, addr_bytes),
-                    Value::UInt(lock_period),
-                ],
-            )
-            .unwrap(),
-        );
-        pox_lockup.chain_id = 0x80000000;
-        pox_lockup.auth.set_origin_nonce(nonce);
-        pox_lockup.set_post_condition_mode(TransactionPostConditionMode::Allow);
-        pox_lockup.set_fee_rate(0);
+        let mut tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+        tx.chain_id = 0x80000000;
+        tx.auth.set_origin_nonce(nonce);
+        tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        tx.set_fee_rate(fee_rate);
 
-        let mut tx_signer = StacksTransactionSigner::new(&pox_lockup);
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
         tx_signer.sign_origin(key).unwrap();
         tx_signer.get_tx().unwrap()
+    }
+
+    fn make_pox_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload =
+            TransactionPayload::new_contract_call(boot_code_addr(), "pox", function_name, args)
+                .unwrap();
+
+        make_tx(key, nonce, 0, payload)
     }
 
     // make a stream of invalid pox-lockup transactions
@@ -566,27 +582,12 @@ pub mod test {
         );
 
         let generator = |amount, pox_addr, lock_period, nonce| {
-            let auth = TransactionAuth::from_p2pkh(key).unwrap();
-            let addr = auth.origin().address_testnet();
-            let mut pox_lockup = StacksTransaction::new(
-                TransactionVersion::Testnet,
-                auth,
-                TransactionPayload::new_contract_call(
-                    boot_code_addr(),
-                    "pox",
-                    "stack-stx",
-                    vec![Value::UInt(amount), pox_addr, Value::UInt(lock_period)],
-                )
-                .unwrap(),
-            );
-            pox_lockup.chain_id = 0x80000000;
-            pox_lockup.auth.set_origin_nonce(nonce);
-            pox_lockup.set_post_condition_mode(TransactionPostConditionMode::Allow);
-            pox_lockup.set_fee_rate(0);
-
-            let mut tx_signer = StacksTransactionSigner::new(&pox_lockup);
-            tx_signer.sign_origin(key).unwrap();
-            tx_signer.get_tx().unwrap()
+            make_pox_contract_call(
+                key,
+                nonce,
+                "stack-stx",
+                vec![Value::UInt(amount), pox_addr, Value::UInt(lock_period)],
+            )
         };
 
         let bad_pox_addr_tx = generator(amount, bad_pox_addr_version, lock_period, nonce);
@@ -629,21 +630,8 @@ pub mod test {
         name: &str,
         code: &str,
     ) -> StacksTransaction {
-        let auth = TransactionAuth::from_p2pkh(key).unwrap();
-        let addr = auth.origin().address_testnet();
-        let mut bare_code = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth,
-            TransactionPayload::new_smart_contract(&name.to_string(), &code.to_string()).unwrap(),
-        );
-        bare_code.chain_id = 0x80000000;
-        bare_code.auth.set_origin_nonce(nonce);
-        bare_code.set_post_condition_mode(TransactionPostConditionMode::Allow);
-        bare_code.set_fee_rate(fee_rate);
-
-        let mut tx_signer = StacksTransactionSigner::new(&bare_code);
-        tx_signer.sign_origin(key).unwrap();
-        tx_signer.get_tx().unwrap()
+        let payload = TransactionPayload::new_smart_contract(name, code).unwrap();
+        make_tx(key, nonce, fee_rate, payload)
     }
 
     fn make_token_transfer(
@@ -653,23 +641,8 @@ pub mod test {
         dest: PrincipalData,
         amount: u64,
     ) -> StacksTransaction {
-        let auth = TransactionAuth::from_p2pkh(key).unwrap();
-        let addr = auth.origin().address_testnet();
-
-        let mut txn = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth,
-            TransactionPayload::TokenTransfer(dest, amount, TokenTransferMemo([0u8; 34])),
-        );
-
-        txn.chain_id = 0x80000000;
-        txn.auth.set_origin_nonce(nonce);
-        txn.set_post_condition_mode(TransactionPostConditionMode::Allow);
-        txn.set_fee_rate(fee_rate);
-
-        let mut tx_signer = StacksTransactionSigner::new(&txn);
-        tx_signer.sign_origin(key).unwrap();
-        tx_signer.get_tx().unwrap()
+        let payload = TransactionPayload::TokenTransfer(dest, amount, TokenTransferMemo([0u8; 34]));
+        make_tx(key, nonce, fee_rate, payload)
     }
 
     fn make_pox_lockup_contract(
@@ -719,31 +692,18 @@ pub mod test {
         addr_bytes: Hash160,
         lock_period: u128,
     ) -> StacksTransaction {
-        let auth = TransactionAuth::from_p2pkh(key).unwrap();
-        let addr = auth.origin().address_testnet();
-        let mut pox_lockup = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth,
-            TransactionPayload::new_contract_call(
-                contract_addr.clone(),
-                name,
-                "do-contract-lockup",
-                vec![
-                    Value::UInt(amount),
-                    make_pox_addr(addr_version, addr_bytes),
-                    Value::UInt(lock_period),
-                ],
-            )
-            .unwrap(),
-        );
-        pox_lockup.chain_id = 0x80000000;
-        pox_lockup.auth.set_origin_nonce(nonce);
-        pox_lockup.set_post_condition_mode(TransactionPostConditionMode::Allow);
-        pox_lockup.set_fee_rate(0);
-
-        let mut tx_signer = StacksTransactionSigner::new(&pox_lockup);
-        tx_signer.sign_origin(key).unwrap();
-        tx_signer.get_tx().unwrap()
+        let payload = TransactionPayload::new_contract_call(
+            contract_addr.clone(),
+            name,
+            "do-contract-lockup",
+            vec![
+                Value::UInt(amount),
+                make_pox_addr(addr_version, addr_bytes),
+                Value::UInt(lock_period),
+            ],
+        )
+        .unwrap();
+        make_tx(key, nonce, 0, payload)
     }
 
     // call after make_pox_lockup_contract gets mined
@@ -754,49 +714,19 @@ pub mod test {
         name: &str,
         amount: u128,
     ) -> StacksTransaction {
-        let auth = TransactionAuth::from_p2pkh(key).unwrap();
-        let addr = auth.origin().address_testnet();
-        let mut pox_lockup = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth,
-            TransactionPayload::new_contract_call(
-                contract_addr.clone(),
-                name,
-                "withdraw-stx",
-                vec![Value::UInt(amount)],
-            )
-            .unwrap(),
-        );
-        pox_lockup.chain_id = 0x80000000;
-        pox_lockup.auth.set_origin_nonce(nonce);
-        pox_lockup.set_post_condition_mode(TransactionPostConditionMode::Allow);
-        pox_lockup.set_fee_rate(0);
-
-        let mut tx_signer = StacksTransactionSigner::new(&pox_lockup);
-        tx_signer.sign_origin(key).unwrap();
-        tx_signer.get_tx().unwrap()
+        let payload = TransactionPayload::new_contract_call(
+            contract_addr.clone(),
+            name,
+            "withdraw-stx",
+            vec![Value::UInt(amount)],
+        )
+        .unwrap();
+        make_tx(key, nonce, 0, payload)
     }
 
     fn make_pox_reject(key: &StacksPrivateKey, nonce: u64) -> StacksTransaction {
         // (define-public (reject-pox))
-        let auth = TransactionAuth::from_p2pkh(key).unwrap();
-        let addr = auth.origin().address_testnet();
-
-        let mut tx = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth,
-            TransactionPayload::new_contract_call(boot_code_addr(), "pox", "reject-pox", vec![])
-                .unwrap(),
-        );
-
-        tx.chain_id = 0x80000000;
-        tx.auth.set_origin_nonce(nonce);
-        tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
-        tx.set_fee_rate(0);
-
-        let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(key).unwrap();
-        tx_signer.get_tx().unwrap()
+        make_pox_contract_call(key, nonce, "reject-pox", vec![])
     }
 
     fn get_reward_addresses_with_par_tip(
@@ -943,23 +873,31 @@ pub mod test {
                 }
                 if tenure_id == 8 {
                     // alice locks 512_000_000 STX through her contract
-                    let auth = TransactionAuth::from_p2pkh(&alice).unwrap();
-                    let addr = auth.origin().address_testnet();
-                    let mut contract_call = StacksTransaction::new(TransactionVersion::Testnet, auth,
-                                                                TransactionPayload::new_contract_call(key_to_stacks_addr(&alice),
-                                                                                                     "nested-stacker",
-                                                                                                     "nested-stack-stx",
-                                                                                                     vec![]).unwrap());
-                    contract_call.chain_id = 0x80000000;
-                    contract_call.auth.set_origin_nonce(2);
-                    contract_call.set_post_condition_mode(TransactionPostConditionMode::Allow);
-                    contract_call.set_fee_rate(0);
-
-                    let mut tx_signer = StacksTransactionSigner::new(&contract_call);
-                    tx_signer.sign_origin(&alice).unwrap();
-                    let tx = tx_signer.get_tx().unwrap();
+                    let cc_payload = TransactionPayload::new_contract_call(key_to_stacks_addr(&alice),
+                                                                           "nested-stacker",
+                                                                           "nested-stack-stx",
+                                                                           vec![]).unwrap();
+                    let tx = make_tx(&alice, 2, 0, cc_payload.clone());
 
                     block_txs.push(tx);
+
+                    // the above tx _should_ error, because alice hasn't authorized that contract to stack
+                    //   try again with auth -> deauth -> auth
+                    let alice_contract: Value = contract_id(&key_to_stacks_addr(&alice), "nested-stacker").into();
+
+                    let alice_allowance = make_pox_contract_call(&alice, 3, "allow-contract-caller", vec![alice_contract.clone(), Value::none()]);
+                    let alice_disallowance = make_pox_contract_call(&alice, 4, "disallow-contract-caller", vec![alice_contract.clone()]);
+                    block_txs.push(alice_allowance);
+                    block_txs.push(alice_disallowance);
+
+                    let tx = make_tx(&alice, 5, 0, cc_payload.clone());
+                    block_txs.push(tx);
+
+                    let alice_allowance = make_pox_contract_call(&alice, 6, "allow-contract-caller", vec![alice_contract.clone(), Value::none()]);
+                    let tx = make_tx(&alice, 7, 0, cc_payload.clone()); // should be allowed!
+                    block_txs.push(alice_allowance);
+                    block_txs.push(tx);
+
                 }
 
                 let block_builder = StacksBlockBuilder::make_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
@@ -1794,55 +1732,60 @@ pub mod test {
                     // will be rejected
                     let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
                     block_txs.push(alice_lockup_2);
+
+                    // let's make some allowances for contract-calls through smart contracts
+                    //   so that the tests in tenure_id == 3 don't just fail on permission checks
+                    let alice_test = contract_id(&key_to_stacks_addr(&alice), "alice-test").into();
+                    let alice_allowance = make_pox_contract_call(&alice, 2, "allow-contract-caller", vec![alice_test, Value::none()]);
+
+                    let bob_test = contract_id(&key_to_stacks_addr(&bob), "bob-test").into();
+                    let bob_allowance = make_pox_contract_call(&bob, 0, "allow-contract-caller", vec![bob_test, Value::none()]);
+
+                    let charlie_test = contract_id(&key_to_stacks_addr(&charlie), "charlie-test").into();
+                    let charlie_allowance = make_pox_contract_call(&charlie, 0, "allow-contract-caller", vec![charlie_test, Value::none()]);
+
+                    block_txs.push(alice_allowance);
+                    block_txs.push(bob_allowance);
+                    block_txs.push(charlie_allowance);
                 }
                 if tenure_id == 2 {
-                    // should fail -- Alice's PoX address is already in use, so Bob can't use it.
-                    let bob_test_tx = make_bare_contract(&bob, 0, 0, "bob-test", &format!(
-                        "(define-data-var bob-test-run bool false)
-                        (let (
-                            (res
-                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12))
-                        )
-                        (begin
-                            (asserts! (is-eq (err 12) res)
-                                (err res))
-
-                            (var-set bob-test-run true)
-                        ))
+                    // should pass -- there's no problem with Bob adding more stacking power to Alice's PoX address
+                    let bob_test_tx = make_bare_contract(&bob, 1, 0, "bob-test", &format!(
+                        "(define-data-var test-run bool false)
+                         (define-data-var test-result int -1)
+                         (let ((result
+                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12)))
+                              (var-set test-result
+                                       (match result ok_value -1 err_value err_value))
+                              (var-set test-run true))
                         ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(bob_test_tx);
 
                     // should fail -- Alice has already stacked.
-                    let alice_test_tx = make_bare_contract(&alice, 2, 0, "alice-test", &format!(
-                        "(define-data-var alice-test-run bool false)
-                        (let (
-                            (res
-                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12))
-                        )
-                        (begin
-                            (asserts! (is-eq (err 3) res)
-                                (err res))
-
-                            (var-set alice-test-run true)
-                        ))
+                    //    expect err 3
+                    let alice_test_tx = make_bare_contract(&alice, 3, 0, "alice-test", &format!(
+                        "(define-data-var test-run bool false)
+                         (define-data-var test-result int -1)
+                         (let ((result
+                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12)))
+                              (var-set test-result
+                                       (match result ok_value -1 err_value err_value))
+                              (var-set test-run true))
                         ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(alice_test_tx);
 
                     // should fail -- Charlie doesn't have enough uSTX
-                    let charlie_test_tx = make_bare_contract(&charlie, 0, 0, "charlie-test", &format!(
-                        "(define-data-var charlie-test-run bool false)
-                        (let (
-                            (res
-                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version 0x00) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12))
-                        )
-                        (begin
-                            (asserts! (is-eq (err 1) res)
-                                (err res))
-
-                            (var-set charlie-test-run true)
-                        ))
+                    //     expect err 1
+                    let charlie_test_tx = make_bare_contract(&charlie, 1, 0, "charlie-test", &format!(
+                        "(define-data-var test-run bool false)
+                         (define-data-var test-result int -1)
+                         (let ((result
+                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version 0x00) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12)))
+                              (var-set test-result
+                                       (match result ok_value -1 err_value err_value))
+                              (var-set test-run true))
                         ", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(charlie_test_tx);
@@ -1909,19 +1852,42 @@ pub mod test {
                     &mut peer,
                     &key_to_stacks_addr(&alice),
                     "alice-test",
-                    "(var-get alice-test-run)",
+                    "(var-get test-run)",
                 );
                 let bob_test_result = eval_contract_at_tip(
                     &mut peer,
                     &key_to_stacks_addr(&bob),
                     "bob-test",
-                    "(var-get bob-test-run)",
+                    "(var-get test-run)",
                 );
                 let charlie_test_result = eval_contract_at_tip(
                     &mut peer,
                     &key_to_stacks_addr(&charlie),
                     "charlie-test",
-                    "(var-get charlie-test-run)",
+                    "(var-get test-run)",
+                );
+
+                assert!(alice_test_result.expect_bool());
+                assert!(bob_test_result.expect_bool());
+                assert!(charlie_test_result.expect_bool());
+
+                let alice_test_result = eval_contract_at_tip(
+                    &mut peer,
+                    &key_to_stacks_addr(&alice),
+                    "alice-test",
+                    "(var-get test-result)",
+                );
+                let bob_test_result = eval_contract_at_tip(
+                    &mut peer,
+                    &key_to_stacks_addr(&bob),
+                    "bob-test",
+                    "(var-get test-result)",
+                );
+                let charlie_test_result = eval_contract_at_tip(
+                    &mut peer,
+                    &key_to_stacks_addr(&charlie),
+                    "charlie-test",
+                    "(var-get test-result)",
                 );
 
                 eprintln!(
@@ -1929,9 +1895,9 @@ pub mod test {
                     &alice_test_result, &bob_test_result, &charlie_test_result
                 );
 
-                assert!(alice_test_result.expect_bool());
-                assert!(bob_test_result.expect_bool());
-                assert!(charlie_test_result.expect_bool());
+                assert_eq!(bob_test_result, Value::Int(-1));
+                assert_eq!(alice_test_result, Value::Int(3));
+                assert_eq!(charlie_test_result, Value::Int(1));
             }
         }
     }
@@ -3121,18 +3087,26 @@ pub mod test {
                     // anything).
                     let bob_reject = make_pox_reject(&bob, 0);
                     block_txs.push(bob_reject);
-                }
-                else if tenure_id == 2 {
+                } else if tenure_id == 2 {
                     // Charlie rejects
+                    // this _should_ be included in the block
                     let charlie_reject = make_pox_reject(&charlie, 0);
                     block_txs.push(charlie_reject);
+
+                    // allowance for the contract-caller
+                    // this _should_ be included in the block
+                    let charlie_contract: Value = contract_id(&key_to_stacks_addr(&charlie), "charlie-try-stack").into();
+                    let charlie_allowance = make_pox_contract_call(&charlie, 1, "allow-contract-caller",
+                                                                   vec![charlie_contract, Value::none()]);
+                    block_txs.push(charlie_allowance);
 
                     // Charlie tries to stack, but it should fail.
                     // Specifically, (stack-stx) should fail with (err 17).
                     // If it's the case, then this tx will NOT be mined.
-                    let charlie_stack = make_bare_contract(&charlie, 1, 0, "charlie-try-stack",
+                    //      Note: this behavior is a bug in the miner and block processor: see issue #?
+                    let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
                         &format!(
-                            "(asserts! (not (is-eq (contract-call? '{}.pox stack-stx u1 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} u1) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u1 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} u1)) (err 17))) (err 1))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_stack);
@@ -3143,7 +3117,7 @@ pub mod test {
                     // If it's the case, then this tx will NOT be mined
                     let alice_reject = make_bare_contract(&alice, 1, 0, "alice-try-reject",
                         &format!(
-                            "(asserts! (not (is-eq (contract-call? '{}.pox reject-pox) (err 3))) (err 1))",
+                            "(asserts! (not (is-eq (print (contract-call? '{}.pox reject-pox)) (err 3))) (err 1))",
                             boot_code_addr()));
 
                     block_txs.push(alice_reject);
@@ -3151,9 +3125,9 @@ pub mod test {
                     // Charlie tries to reject again, but it should fail.
                     // Specifically, (reject-pox) should fail with (err 17).
                     // If it's the case, then this tx will NOT be mined.
-                    let charlie_reject = make_bare_contract(&charlie, 1, 0, "charlie-try-reject",
+                    let charlie_reject = make_bare_contract(&charlie, 3, 0, "charlie-try-reject",
                         &format!(
-                            "(asserts! (not (is-eq (contract-call? '{}.pox reject-pox) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (print (contract-call? '{}.pox reject-pox)) (err 17))) (err 1))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_reject);
@@ -3163,7 +3137,8 @@ pub mod test {
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
 
                 if tenure_id == 2 {
-                    assert_eq!(anchored_block.txs.len(), 2);
+                    // block should be coinbase tx + 2 allowed txs
+                    assert_eq!(anchored_block.txs.len(), 3);
                 }
 
                 (anchored_block, vec![])
