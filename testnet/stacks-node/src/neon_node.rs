@@ -16,7 +16,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState, ChainStateBootData};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksBlockId;
 use stacks::chainstate::stacks::StacksPublicKey;
@@ -600,11 +600,13 @@ impl InitializedNeonNode {
         //   make_genesis_block
         let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
             .expect("Error while instantiating sortition db");
-
+        let (network_name, _) = config.burnchain.get_bitcoin_network();
         let burnchain = Burnchain::new(
             &config.get_burn_db_path(),
             &config.burnchain.chain,
-            "regtest",
+            &network_name,
+            &config.burnchain.first_block_hash,
+            config.burnchain.first_block_height
         )
         .expect("Error while instantiating burnchain");
 
@@ -943,7 +945,11 @@ impl InitializedNeonNode {
             )
         } else {
             warn!("No Stacks chain tip known, attempting to mine a genesis block");
-            let chain_tip = ChainTip::genesis(config.get_initial_liquid_ustx());
+            let chain_tip = ChainTip::genesis(
+                config.get_initial_liquid_ustx(),
+                &config.burnchain.first_block_hash,
+                config.burnchain.first_block_height.into(),
+                config.burnchain.first_block_timestamp);
 
             (
                 chain_tip.metadata,
@@ -1102,9 +1108,9 @@ impl InitializedNeonNode {
 
 impl NeonGenesisNode {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, mut event_dispatcher: EventDispatcher, boot_block_exec: F) -> Self
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
+    pub fn new(config: Config, 
+               mut event_dispatcher: EventDispatcher, 
+               boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self
     {
         let keychain = Keychain::default(config.node.seed.clone());
         let initial_balances = config
@@ -1113,13 +1119,20 @@ impl NeonGenesisNode {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let boot_data = ChainStateBootData {
+            initial_balances,
+            first_burnchain_block_hash: config.burnchain.first_block_hash,
+            first_burnchain_block_height: config.burnchain.first_block_height,
+            first_burnchain_block_timestamp: config.burnchain.first_block_timestamp,
+            post_flight_callback: Box::new(boot_block_exec)
+        };
+        
         // do the initial open!
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
-            Some(initial_balances),
-            boot_block_exec,
+            Some(&boot_data),
             config.block_limit.clone(),
         ) {
             Ok(res) => res,

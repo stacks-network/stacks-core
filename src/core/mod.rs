@@ -47,12 +47,6 @@ pub const FIRST_BURNCHAIN_BLOCK_HASH: BurnchainHeaderHash = BurnchainHeaderHash(
 pub const FIRST_BURNCHAIN_BLOCK_HEIGHT: u32 = 0;
 pub const FIRST_BURNCHAIN_BLOCK_TIMESTAMP: u64 = 0;
 
-pub const FIRST_BURNCHAIN_BLOCK_HASH_TESTNET: BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
-pub const FIRST_BURNCHAIN_BLOCK_HASH_REGTEST: BurnchainHeaderHash = BurnchainHeaderHash([2u8; 32]);
-
-pub const FIRST_BURNCHAIN_CONSENSUS_HASH_TESTNET: ConsensusHash = ConsensusHash([1u8; 20]);
-pub const FIRST_BURNCHAIN_CONSENSUS_HASH_REGTEST: ConsensusHash = ConsensusHash([2u8; 20]);
-
 pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 
@@ -68,12 +62,14 @@ pub const POX_REWARD_CYCLE_LENGTH: u32 = 1000;
 pub fn sync_burnchain_bitcoin(
     working_dir: &String,
     network_name: &String,
+    first_block_hash: &BurnchainHeaderHash,
+    first_block_height: u64,
 ) -> Result<u64, burnchain_error> {
     use burnchains::bitcoin::indexer::BitcoinIndexer;
     let channels = CoordinatorCommunication::instantiate();
 
     let mut burnchain =
-        Burnchain::new(working_dir, &"bitcoin".to_string(), network_name).map_err(|e| {
+        Burnchain::new(working_dir, &"bitcoin".to_string(), network_name, first_block_hash, first_block_height as u32).map_err(|e| {
             error!(
                 "Failed to instantiate burn chain driver for {}: {:?}",
                 network_name, e

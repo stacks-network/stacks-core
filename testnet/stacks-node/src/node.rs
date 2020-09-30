@@ -12,7 +12,7 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo, ChainStateBootData};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksAddress, StacksBlock, StacksBlockHeader, StacksMicroblock,
@@ -41,12 +41,21 @@ pub struct ChainTip {
     pub receipts: Vec<StacksTransactionReceipt>,
 }
 
+
+
 impl ChainTip {
-    pub fn genesis(initial_liquid_ustx: u128) -> ChainTip {
+    pub fn genesis(initial_liquid_ustx: u128, 
+        first_burnchain_block_hash: &BurnchainHeaderHash,
+        first_burnchain_block_height: u64,
+        first_burnchain_block_timestamp: u64) -> ChainTip 
+    {
         ChainTip {
-            metadata: StacksHeaderInfo::genesis_block_header_info(
+            metadata: StacksHeaderInfo::genesis(
                 TrieHash([0u8; 32]),
                 initial_liquid_ustx,
+                first_burnchain_block_hash,
+                first_burnchain_block_height as u32,
+                first_burnchain_block_timestamp        
             ),
             block: StacksBlock::genesis_block(),
             receipts: vec![],
@@ -135,10 +144,8 @@ fn spawn_peer(
 
 impl Node {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, boot_block_exec: F) -> Self
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
-    {
+    pub fn new(config: Config, 
+               boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
         let keychain = Keychain::default(config.node.seed.clone());
 
         let initial_balances = config
@@ -147,12 +154,19 @@ impl Node {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        let boot_data = ChainStateBootData {
+            initial_balances,
+            first_burnchain_block_hash: config.burnchain.first_block_hash,
+            first_burnchain_block_height: config.burnchain.first_block_height,
+            first_burnchain_block_timestamp: config.burnchain.first_block_timestamp,
+            post_flight_callback: Box::new(boot_block_exec)
+        };
+    
         let chain_state_result = StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
-            Some(initial_balances),
-            boot_block_exec,
+            Some(&boot_data),
             config.block_limit.clone(),
         );
 
@@ -251,12 +265,7 @@ impl Node {
         let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
-        let burnchain = Burnchain::new(
-            &self.config.get_burn_db_path(),
-            &self.config.burnchain.chain,
-            "regtest",
-        )
-        .expect("Error while instantiating burnchain");
+        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
 
         let view = {
             let ic = sortdb.index_conn();
@@ -462,7 +471,11 @@ impl Node {
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
-            true => ChainTip::genesis(self.config.get_initial_liquid_ustx()),
+            true => ChainTip::genesis(
+                self.config.get_initial_liquid_ustx(),
+                &self.config.burnchain.first_block_hash,
+                self.config.burnchain.first_block_height.into(),
+                self.config.burnchain.first_block_timestamp),
             false => match &self.chain_tip {
                 Some(chain_tip) => chain_tip.clone(),
                 None => unreachable!(),

@@ -251,7 +251,7 @@ fn make_reward_set_coordinator<'a>(
 }
 
 pub fn get_burnchain(path: &str) -> Burnchain {
-    let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
+    let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path)).unwrap();
     b.pox_constants = PoxConstants::new(5, 3, 3, 25);
     b
 }
@@ -330,7 +330,7 @@ fn make_genesis_block_with_recipients(
 
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
 
-    let parent_stacks_header = StacksHeaderInfo::genesis_block_header_info(TrieHash([0u8; 32]), 0);
+    let parent_stacks_header = StacksHeaderInfo::regtest_genesis(0);
 
     let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
 

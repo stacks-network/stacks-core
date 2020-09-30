@@ -12,7 +12,7 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    db::{ClarityTx, StacksChainState, StacksHeaderInfo},
+    db::{ClarityTx, StacksChainState, StacksHeaderInfo, ChainStateBootData},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
@@ -171,18 +171,16 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 impl<'a, T: BlockEventDispatcher>
     ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider>
 {
-    pub fn run<F>(
+    pub fn run(
         chain_state_path: &str,
         burnchain: Burnchain,
         stacks_mainnet: bool,
         stacks_chain_id: u32,
-        initial_balances: Option<Vec<(PrincipalData, u64)>>,
         block_limit: ExecutionCost,
         dispatcher: &mut T,
         comms: CoordinatorReceivers,
-        boot_block_exec: F,
+        boot_data: Option<&ChainStateBootData>
     ) where
-        F: FnOnce(&mut ClarityTx),
         T: BlockEventDispatcher,
     {
         let stacks_blocks_processed = comms.stacks_blocks_processed.clone();
@@ -195,8 +193,7 @@ impl<'a, T: BlockEventDispatcher>
             stacks_mainnet,
             stacks_chain_id,
             chain_state_path,
-            initial_balances,
-            boot_block_exec,
+            boot_data,
             block_limit,
         )
         .unwrap();

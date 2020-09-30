@@ -84,7 +84,7 @@ impl BitcoinRegtestController {
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
                 spv_headers_path: burnchain_config.spv_headers_path,
-                first_block: burnchain_config.first_block,
+                first_block: burnchain_config.first_block_height.into(),
                 magic_bytes: burnchain_config.magic_bytes,
             }
         };
@@ -113,7 +113,7 @@ impl BitcoinRegtestController {
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
                 spv_headers_path: burnchain_config.spv_headers_path,
-                first_block: burnchain_config.first_block,
+                first_block: burnchain_config.first_block_height.into(),
                 magic_bytes: burnchain_config.magic_bytes,
             }
         };
@@ -131,7 +131,13 @@ impl BitcoinRegtestController {
     fn setup_burnchain(&self) -> (Burnchain, BitcoinNetworkType) {
         let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
         let working_dir = self.config.get_burn_db_path();
-        match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
+        match Burnchain::new(
+            &working_dir, 
+            &self.config.burnchain.chain, 
+            &network_name,
+            &self.config.burnchain.first_block_hash,
+            self.config.burnchain.first_block_height)
+        {
             Ok(burnchain) => (burnchain, network_type),
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);
@@ -674,9 +680,15 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn sortdb_mut(&mut self) -> &mut SortitionDB {
-        let network = "regtest".to_string();
         let working_dir = self.config.get_burn_db_path();
-        let burnchain = match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network) {
+        let (network, _) = self.config.burnchain.get_bitcoin_network();
+        let burnchain = match Burnchain::new(
+            &working_dir, 
+            &self.config.burnchain.chain, 
+            &network,
+            &self.config.burnchain.first_block_hash,
+            self.config.burnchain.first_block_height) 
+        {
             Ok(burnchain) => burnchain,
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);

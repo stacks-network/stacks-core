@@ -2554,7 +2554,7 @@ mod test {
 
     #[test]
     fn test_inv_merge_pox_inv() {
-        let mut burnchain = Burnchain::new("unused", "bitcoin", "regtest").unwrap();
+        let mut burnchain = Burnchain::regtest("unused");
         burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25);
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
@@ -2572,7 +2572,7 @@ mod test {
 
     #[test]
     fn test_inv_truncate_pox_inv() {
-        let mut burnchain = Burnchain::new("unused", "bitcoin", "regtest").unwrap();
+        let mut burnchain = Burnchain::regtest("unused");
         burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25);
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);

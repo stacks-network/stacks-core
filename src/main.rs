@@ -438,8 +438,7 @@ fn main() {
             read_count: 5_0_000,
             runtime: 1_00_000_000,
         };
-
-        let burnchain = Burnchain::new(&burnchain_db_path, "bitcoin", "regtest").unwrap();
+        let burnchain = Burnchain::regtest(&burnchain_db_path);
         let indexer: BitcoinIndexer = burnchain.make_indexer().unwrap();
         let (mut new_sortition_db, _) = burnchain.connect_db(&indexer, true).unwrap();
 

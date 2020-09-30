@@ -41,9 +41,6 @@ use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
-    FIRST_BLOCK_MAINNET as BITCOIN_FIRST_BLOCK_MAINNET,
-    FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST,
-    FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TESTNET,
 };
 
 use core::*;
@@ -77,7 +74,7 @@ impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 pub const TXID_ENCODED_SIZE: u32 = 32;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
@@ -102,8 +99,6 @@ pub struct BurnchainParameters {
     chain_name: String,
     network_name: String,
     network_id: u32,
-    first_block_height: u64,
-    first_block_hash: BurnchainHeaderHash,
     stable_confirmations: u32,
     consensus_hash_lifetime: u32,
 }
@@ -114,8 +109,6 @@ impl BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_MAINNET_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_MAINNET,
-            first_block_height: BITCOIN_FIRST_BLOCK_MAINNET,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
         }
@@ -126,8 +119,6 @@ impl BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_TESTNET_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_TESTNET,
-            first_block_height: BITCOIN_FIRST_BLOCK_TESTNET,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH_TESTNET.clone(),
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
         }
@@ -138,8 +129,6 @@ impl BurnchainParameters {
             chain_name: "bitcoin".to_string(),
             network_name: BITCOIN_REGTEST_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_REGTEST,
-            first_block_height: BITCOIN_FIRST_BLOCK_REGTEST,
-            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH_REGTEST.clone(),
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
         }

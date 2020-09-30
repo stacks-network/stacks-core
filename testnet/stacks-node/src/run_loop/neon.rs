@@ -8,6 +8,7 @@ use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::stacks::db::ChainStateBootData;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
 
@@ -140,10 +141,15 @@ impl RunLoop {
         }
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
+
+        let (network, _) = self.config.burnchain.get_bitcoin_network();
+
         let burnchain_config = match Burnchain::new(
             &self.config.get_burn_db_path(),
             &self.config.burnchain.chain,
-            "regtest",
+            &network,
+            &self.config.burnchain.first_block_hash,
+            self.config.burnchain.first_block_height,
         ) {
             Ok(burnchain) => burnchain,
             Err(e) => {
@@ -152,18 +158,28 @@ impl RunLoop {
             }
         };
         let chainstate_path = self.config.get_chainstate_path();
+        let first_burnchain_block_hash = self.config.burnchain.first_block_hash.clone();
+        let first_burnchain_block_height = self.config.burnchain.first_block_height;
+        let first_burnchain_block_timestamp = self.config.burnchain.first_block_timestamp;
 
         thread::spawn(move || {
+            let boot_data = ChainStateBootData {
+                initial_balances,
+                post_flight_callback: Box::new(|_| {}),
+                first_burnchain_block_hash,
+                first_burnchain_block_height,
+                first_burnchain_block_timestamp,
+            };
+
             ChainsCoordinator::run(
                 &chainstate_path,
                 burnchain_config,
                 mainnet,
                 chainid,
-                Some(initial_balances),
                 block_limit,
                 &mut coordinator_dispatcher,
                 coordinator_receivers,
-                |_| {},
+                Some(&boot_data),
             );
         });
 
@@ -172,7 +188,7 @@ impl RunLoop {
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
         // setup genesis
-        let node = NeonGenesisNode::new(self.config.clone(), event_dispatcher, |_| {});
+        let node = NeonGenesisNode::new(self.config.clone(), event_dispatcher, Box::new(|_| {}));
         let mut node = if is_miner {
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),

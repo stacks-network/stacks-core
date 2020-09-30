@@ -163,25 +163,46 @@ pub struct DBConfig {
 }
 
 impl StacksHeaderInfo {
+    
     pub fn index_block_hash(&self) -> StacksBlockId {
         self.anchored_header.index_block_hash(&self.consensus_hash)
     }
-    pub fn genesis_block_header_info(
+    
+    #[test]
+    pub fn regtest_genesis(initial_liquid_ustx: u128) -> StacksHeaderInfo {
+        StacksHeaderInfo {
+            anchored_header: StacksBlockHeader::genesis_block_header(),
+            microblock_tail: None,
+            block_height: 0,
+            index_root: TrieHash([0u8; 32]),
+            burn_header_hash: &BurnchainHeaderHash::zero(),
+            burn_header_height: 0,
+            consensus_hash: &ConsensusHash.empty(),
+            burn_header_timestamp: 0,
+            total_liquid_ustx: 0,
+        }
+    }    
+
+    pub fn genesis(
         root_hash: TrieHash,
         initial_liquid_ustx: u128,
+        first_burnchain_block_hash: &BurnchainHeaderHash,
+        first_burnchain_block_height: u32,
+        first_burnchain_block_timestamp: u64
     ) -> StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
             block_height: 0,
             index_root: root_hash,
-            burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
-            burn_header_height: FIRST_BURNCHAIN_BLOCK_HEIGHT,
+            burn_header_hash: first_burnchain_block_hash.clone(),
+            burn_header_height: first_burnchain_block_height,
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
+            burn_header_timestamp: first_burnchain_block_timestamp,
             total_liquid_ustx: initial_liquid_ustx,
         }
     }
+
     pub fn is_first_mined(&self) -> bool {
         self.anchored_header.is_first_mined()
     }
@@ -512,6 +533,14 @@ pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first
 
 pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
 
+pub struct ChainStateBootData {
+    pub first_burnchain_block_hash: BurnchainHeaderHash,
+    pub first_burnchain_block_height: u32,
+    pub first_burnchain_block_timestamp: u64,
+    pub initial_balances: Vec<(PrincipalData, u64)>,
+    pub post_flight_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+}
+
 impl StacksChainState {
     fn instantiate_headers_db(
         mainnet: bool,
@@ -624,14 +653,10 @@ impl StacksChainState {
 
     /// Install the boot code into the chain history.
     /// TODO: instantiate all account balances as well.
-    fn install_boot_code<F>(
+    fn install_boot_code(
         chainstate: &mut StacksChainState,
         mainnet: bool,
-        initial_balances: Option<Vec<(PrincipalData, u64)>>,
-        f: F,
-    ) -> Result<Vec<StacksTransactionReceipt>, Error>
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
+        boot_data: &ChainStateBootData) -> Result<Vec<StacksTransactionReceipt>, Error>    
     {
         debug!("Begin install boot code");
 
@@ -711,18 +736,14 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
-            if let Some(ref initial_balances) = &initial_balances {
-                for (address, amount) in initial_balances {
-                    clarity_tx.connection().as_transaction(|clarity| {
-                        StacksChainState::account_genesis_credit(clarity, address, *amount)
-                    });
-                    initial_liquid_ustx = initial_liquid_ustx
-                        .checked_add((*amount) as u128)
-                        .expect("FATAL: liquid STX overflow");
-                }
+            for (address, amount) in boot_data.initial_balances.iter() {
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::account_genesis_credit(clarity, address, *amount)
+                });
+                initial_liquid_ustx = initial_liquid_ustx
+                    .checked_add(*amount as u128)
+                    .expect("FATAL: liquid STX overflow");
             }
-
-            f(&mut clarity_tx);
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
@@ -752,7 +773,12 @@ impl StacksChainState {
             );
 
             let first_tip_info =
-                StacksHeaderInfo::genesis_block_header_info(first_root_hash, initial_liquid_ustx);
+                StacksHeaderInfo::genesis(
+                    first_root_hash, 
+                    initial_liquid_ustx, 
+                    &boot_data.first_burnchain_block_hash, 
+                    boot_data.first_burnchain_block_height, 
+                    boot_data.first_burnchain_block_timestamp);
 
             StacksChainState::insert_stacks_block_header(
                 &mut headers_tx,
@@ -777,7 +803,6 @@ impl StacksChainState {
             chain_id,
             path_str,
             None,
-            |_| {},
             ExecutionCost::max_value(),
         )
     }
@@ -799,7 +824,6 @@ impl StacksChainState {
             self.chain_id,
             &self.root_path,
             None,
-            |_| {},
             budget,
         )
     }
@@ -807,19 +831,14 @@ impl StacksChainState {
     pub fn open_testnet<F>(
         chain_id: u32,
         path_str: &str,
-        initial_balances: Option<Vec<(PrincipalData, u64)>>,
-        in_boot_block: F,
-        block_limit: ExecutionCost,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error>
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
+        boot_data: Option<&ChainStateBootData>,
+        block_limit: ExecutionCost) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error>
     {
         StacksChainState::open_and_exec(
             false,
             chain_id,
             path_str,
-            initial_balances,
-            in_boot_block,
+            boot_data,
             block_limit,
         )
     }
@@ -830,19 +849,15 @@ impl StacksChainState {
         path_str: &str,
         block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {}, block_limit)
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, block_limit)
     }
 
-    pub fn open_and_exec<F>(
+    pub fn open_and_exec(
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
-        initial_balances: Option<Vec<(PrincipalData, u64)>>,
-        in_boot_block: F,
-        block_limit: ExecutionCost,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error>
-    where
-        F: FnOnce(&mut ClarityTx) -> (),
+        boot_data: Option<&ChainStateBootData>,
+        block_limit: ExecutionCost) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error>
     {
         let mut path = PathBuf::from(path_str);
 
@@ -897,9 +912,9 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let index_exists = match fs::metadata(&clarity_state_index_marf) {
-            Ok(_) => true,
-            Err(_) => false,
+        let init_required = match fs::metadata(&clarity_state_index_marf) {
+            Ok(_) => false,
+            Err(_) => true,
         };
 
         let headers_state_index =
@@ -933,14 +948,18 @@ impl StacksChainState {
         };
 
         let mut receipts = vec![];
-        if !index_exists {
-            let mut res = StacksChainState::install_boot_code(
-                &mut chainstate,
-                mainnet,
-                initial_balances,
-                in_boot_block,
-            )?;
-            receipts.append(&mut res);
+        match (init_required, boot_data) {
+            (true, Some(boot_data)) => {
+                let mut res = StacksChainState::install_boot_code(
+                    &mut chainstate,
+                    mainnet,
+                    boot_data)?;
+                receipts.append(&mut res);
+            },
+            (true, None) => {
+                // todo(ludo): panic?
+            },
+            (false, _) => {}
         }
 
         Ok((chainstate, receipts))

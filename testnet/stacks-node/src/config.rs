@@ -5,9 +5,8 @@ use std::net::{SocketAddr, ToSocketAddrs};
 
 use rand::RngCore;
 
-use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{BurnchainHeaderHash, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::hash::{hex_bytes, to_hex};
@@ -403,15 +402,21 @@ impl Config {
                     spv_headers_path: burnchain
                         .spv_headers_path
                         .unwrap_or(node.get_default_spv_headers_path()),
-                    first_block: burnchain
-                        .first_block
-                        .unwrap_or(default_burnchain_config.first_block),
                     magic_bytes: default_burnchain_config.magic_bytes,
                     local_mining_public_key: burnchain.local_mining_public_key,
                     burnchain_op_tx_fee: burnchain
                         .burnchain_op_tx_fee
                         .unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
                     process_exit_at_block_height: burnchain.process_exit_at_block_height,
+                    first_block_hash: burnchain
+                        .first_block_hash
+                        .unwrap_or(default_burnchain_config.first_block_hash),
+                    first_block_height: burnchain
+                        .first_block_height
+                        .unwrap_or(default_burnchain_config.first_block_height),
+                    first_block_timestamp: burnchain
+                        .first_block_timestamp
+                        .unwrap_or(default_burnchain_config.first_block_timestamp),                    
                 }
             }
             None => default_burnchain_config,
@@ -640,9 +645,10 @@ impl Config {
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
+        let (network, _) = self.burnchain.get_bitcoin_network();
         format!(
             "{}/burnchain/db/{}/{}/sortition.db/",
-            self.node.working_dir, self.burnchain.chain, "regtest"
+            self.node.working_dir, self.burnchain.chain, network
         )
     }
 
@@ -714,11 +720,13 @@ pub struct BurnchainConfig {
     pub password: Option<String>,
     pub timeout: u32,
     pub spv_headers_path: String,
-    pub first_block: u64,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: u64,
     pub process_exit_at_block_height: Option<u64>,
+    pub first_block_hash: BurnchainHeaderHash,
+    pub first_block_height: u32,
+    pub first_block_timestamp: u64
 }
 
 impl BurnchainConfig {
@@ -736,11 +744,13 @@ impl BurnchainConfig {
             password: None,
             timeout: 300,
             spv_headers_path: "./spv-headers.dat".to_string(),
-            first_block: FIRST_BLOCK_MAINNET,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
+            first_block_hash: BurnchainHeaderHash::zero(),
+            first_block_height: 0,
+            first_block_timestamp: 0        
         }
     }
 
@@ -786,11 +796,13 @@ pub struct BurnchainConfigFile {
     pub password: Option<String>,
     pub timeout: Option<u32>,
     pub spv_headers_path: Option<String>,
-    pub first_block: Option<u64>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
+    pub first_block_hash: Option<BurnchainHeaderHash>,
+    pub first_block_height: Option<u32>,
+    pub first_block_timestamp: Option<u64>
 }
 
 #[derive(Clone, Debug, Default)]

@@ -16,14 +16,12 @@ pub struct RunLoop {
 
 impl RunLoop {
     pub fn new(config: Config) -> Self {
-        RunLoop::new_with_boot_exec(config, |_| {})
+        RunLoop::new_with_boot_exec(config, Box::new(|_| {}))
     }
 
     /// Sets up a runloop and node, given a config.
-    pub fn new_with_boot_exec<F>(config: Config, boot_exec: F) -> Self
-    where
-        F: Fn(&mut ClarityTx) -> (),
-    {
+    pub fn new_with_boot_exec(config: Config,
+                              boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
         // Build node based on config
         let node = Node::new(config.clone(), boot_exec);
 
@@ -65,7 +63,12 @@ impl RunLoop {
         // Sync and update node with this new block.
         let burnchain_tip = burnchain.sync()?;
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
-        let mut chain_tip = ChainTip::genesis(self.config.get_initial_liquid_ustx());
+        let mut chain_tip = ChainTip::genesis(
+            self.config.get_initial_liquid_ustx(),
+            &self.config.burnchain.first_block_hash,
+            self.config.burnchain.first_block_height.into(),
+            self.config.burnchain.first_block_timestamp);
+
 
         self.node.spawn_peer_server();
 
