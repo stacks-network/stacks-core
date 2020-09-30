@@ -4,11 +4,11 @@ extern crate blockstack_lib;
 extern crate rand;
 
 use blockstack_lib::{
-    chainstate::stacks::index::storage::{TrieFileStorage},
     chainstate::burn::BlockHeaderHash,
-    vm::types::{QualifiedContractIdentifier},
-    vm::database::{MarfedKV, NULL_HEADER_DB}, 
-    vm::clarity::ClarityInstance, 
+    chainstate::stacks::index::storage::TrieFileStorage,
+    vm::clarity::ClarityInstance,
+    vm::database::{MarfedKV, NULL_HEADER_DB},
+    vm::types::QualifiedContractIdentifier,
 };
 
 use criterion::Criterion;
@@ -21,9 +21,11 @@ pub fn rollback_log_memory_test() {
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
     {
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                                                    &NULL_HEADER_DB);
+        let mut conn = clarity_instance.begin_block(
+            &TrieFileStorage::block_sentinel(),
+            &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            &NULL_HEADER_DB,
+        );
 
         let define_data_var = "(define-data-var XZ (buff 1048576) \"a\")";
 
@@ -31,10 +33,11 @@ pub fn rollback_log_memory_test() {
         for i in 0..20 {
             let cur_size = format!("{}", 2u32.pow(i));
             contract.push_str("\n");
-            contract.push_str(
-                &format!("(var-set XZ (concat (unwrap-panic (as-max-len? (var-get XZ) u{}))
+            contract.push_str(&format!(
+                "(var-set XZ (concat (unwrap-panic (as-max-len? (var-get XZ) u{}))
                                              (unwrap-panic (as-max-len? (var-get XZ) u{}))))",
-                        cur_size, cur_size));
+                cur_size, cur_size
+            ));
         }
         for i in 0..EXPLODE_N {
             let exploder = format!("(define-data-var var-{} (buff 1048576) (var-get XZ))", i);
@@ -42,11 +45,15 @@ pub fn rollback_log_memory_test() {
             contract.push_str(&exploder);
         }
 
-        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-        assert!(format!("{:?}",
-                        conn.initialize_smart_contract(
-                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
-                .contains("MemoryBalanceExceeded"));
+        let (ct_ast, _ct_analysis) = conn
+            .analyze_smart_contract(&contract_identifier, &contract)
+            .unwrap();
+        assert!(format!(
+            "{:?}",
+            conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| false)
+                .unwrap_err()
+        )
+        .contains("MemoryBalanceExceeded"));
     }
 }
 
@@ -57,22 +64,26 @@ pub fn ccall_memory_test() {
     let CONTRACTS = 5;
 
     {
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                                                    &NULL_HEADER_DB);
+        let mut conn = clarity_instance.begin_block(
+            &TrieFileStorage::block_sentinel(),
+            &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            &NULL_HEADER_DB,
+        );
 
         let define_data_var = "(define-constant buff-0 \"a\")\n";
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
-            contract.push_str(
-                &format!("(define-constant buff-{} (concat buff-{} buff-{}))\n",
-                         i+1, i, i));
+            contract.push_str(&format!(
+                "(define-constant buff-{} (concat buff-{} buff-{}))\n",
+                i + 1,
+                i,
+                i
+            ));
         }
 
         for i in 0..COUNT_PER_CONTRACT {
-            contract.push_str(
-                &format!("(define-constant var-{} buff-20)\n", i));
+            contract.push_str(&format!("(define-constant var-{} buff-20)\n", i));
         }
 
         contract.push_str("(define-public (call)\n");
@@ -94,24 +105,40 @@ pub fn ccall_memory_test() {
             let contract_name = format!("contract-{}", i);
             let contract_identifier = QualifiedContractIdentifier::local(&contract_name).unwrap();
 
-            if i < (CONTRACTS-1) {
-                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-                conn.initialize_smart_contract(
-                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            if i < (CONTRACTS - 1) {
+                let (ct_ast, ct_analysis) = conn
+                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .unwrap();
+                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
+                    false
+                })
+                .unwrap();
+                conn.save_analysis(&contract_identifier, &ct_analysis)
+                    .unwrap();
             } else {
-                let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-                assert!(format!("{:?}",
-                                conn.initialize_smart_contract(
-                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
-                        .contains("MemoryBalanceExceeded"));
+                let (ct_ast, _ct_analysis) = conn
+                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .unwrap();
+                assert!(format!(
+                    "{:?}",
+                    conn.initialize_smart_contract(
+                        &contract_identifier,
+                        &ct_ast,
+                        &contract,
+                        |_, _| false
+                    )
+                    .unwrap_err()
+                )
+                .contains("MemoryBalanceExceeded"));
             }
         }
     }
 }
 
 pub fn basic_usage_benchmark(c: &mut Criterion) {
-    c.bench_function("rollback_log_memory_test", |b| b.iter(|| rollback_log_memory_test()));
+    c.bench_function("rollback_log_memory_test", |b| {
+        b.iter(|| rollback_log_memory_test())
+    });
     c.bench_function("ccall_memory_test", |b| b.iter(|| ccall_memory_test()));
 }
 

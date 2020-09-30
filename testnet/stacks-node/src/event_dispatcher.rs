@@ -1,29 +1,31 @@
 use stacks::chainstate::coordinator::BlockEventDispatcher;
-use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
+use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::StacksBlock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
 use std::thread::sleep;
+use std::time::Duration;
 
-use async_h1::{client};
-use async_std::net::{TcpStream};
+use async_h1::client;
+use async_std::net::TcpStream;
 use http_types::{Method, Request, Url};
 
 use serde_json::json;
 
 use stacks::burnchains::Txid;
-use stacks::chainstate::stacks::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
+use stacks::chainstate::stacks::events::{
+    FTEventType, NFTEventType, STXEventType, StacksTransactionEvent,
+};
+use stacks::chainstate::stacks::StacksBlockId;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::net::StacksMessageCodec;
-use stacks::vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
-use stacks::vm::analysis::{contract_interface_builder::build_contract_interface};
-use stacks::util::hash::{bytes_to_hex};
-use stacks::chainstate::stacks::StacksBlockId;
+use stacks::util::hash::bytes_to_hex;
+use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
+use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
-use super::config::{EventObserverConfig, EventKeyType};
-use super::node::{ChainTip};
+use super::config::{EventKeyType, EventObserverConfig};
+use super::node::ChainTip;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -32,30 +34,31 @@ struct EventObserver {
 
 const STATUS_RESP_TRUE: &str = "success";
 const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
-const STATUS_RESP_POST_CONDITION: &str  = "abort_by_post_condition";
+const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 
 impl EventObserver {
-
     fn send_payload(&self, payload: &serde_json::Value, path: &str) {
-
         let body = match serde_json::to_vec(&payload) {
             Ok(body) => body,
             Err(err) => {
                 error!("Event dispatcher: serialization failed  - {:?}", err);
-                return
+                return;
             }
         };
 
         let url = {
             let joined_components = match path.starts_with("/") {
                 true => format!("{}{}", &self.endpoint, path),
-                false => format!("{}/{}", &self.endpoint, path)
+                false => format!("{}/{}", &self.endpoint, path),
             };
             let url = format!("http://{}", joined_components);
-            Url::parse(&url).expect(&format!("Event dispatcher: unable to parse {} as a URL", url))
+            Url::parse(&url).expect(&format!(
+                "Event dispatcher: unable to parse {} as a URL",
+                url
+            ))
         };
 
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
@@ -63,7 +66,8 @@ impl EventObserver {
         loop {
             let body = body.clone();
             let mut req = Request::new(Method::Post, url.clone());
-            req.append_header("Content-Type", "application/json").expect("Unable to set header");
+            req.append_header("Content-Type", "application/json")
+                .expect("Unable to set header");
             req.set_body(body);
 
             let response = async_std::task::block_on(async {
@@ -73,8 +77,8 @@ impl EventObserver {
                         println!("Event dispatcher: connection failed  - {:?}", err);
                         return None;
                     }
-                };    
-    
+                };
+
                 match client::connect(stream, req).await {
                     Ok(response) => Some(response),
                     Err(err) => {
@@ -88,23 +92,31 @@ impl EventObserver {
                 if response.status().is_success() {
                     break;
                 } else {
-                    error!("Event dispatcher: POST {} failed with error {:?}", self.endpoint, response);
+                    error!(
+                        "Event dispatcher: POST {} failed with error {:?}",
+                        self.endpoint, response
+                    );
                 }
             }
             sleep(backoff);
-        };
+        }
     }
 
     fn make_new_mempool_txs_payload(transactions: Vec<StacksTransaction>) -> serde_json::Value {
-        let raw_txs = transactions.into_iter().map(|tx| {
-            serde_json::Value::String(
-                format!("0x{}", &bytes_to_hex(&tx.serialize_to_vec())))
-        }).collect();
+        let raw_txs = transactions
+            .into_iter()
+            .map(|tx| {
+                serde_json::Value::String(format!("0x{}", &bytes_to_hex(&tx.serialize_to_vec())))
+            })
+            .collect();
 
         serde_json::Value::Array(raw_txs)
     }
 
-    fn make_new_block_txs_payload(receipt: &StacksTransactionReceipt, tx_index: u32) -> serde_json::Value {
+    fn make_new_block_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+    ) -> serde_json::Value {
         let tx = &receipt.transaction;
 
         let (success, result) = match (receipt.post_condition_aborted, &receipt.result) {
@@ -115,10 +127,10 @@ impl EventObserver {
                     STATUS_RESP_NOT_COMMITTED
                 };
                 (status, response_data.data.clone())
-            },
+            }
             (true, Value::Response(response_data)) => {
                 (STATUS_RESP_POST_CONDITION, response_data.data.clone())
-            },
+            }
             _ => unreachable!(), // Transaction results should always be a Value::Response type
         };
 
@@ -128,7 +140,7 @@ impl EventObserver {
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };
-        
+
         let raw_result = {
             let mut bytes = vec![];
             result.consensus_serialize(&mut bytes).unwrap();
@@ -138,7 +150,7 @@ impl EventObserver {
         let contract_interface_json = {
             match &receipt.contract_analysis {
                 Some(analysis) => json!(build_contract_interface(analysis)),
-                None => json!(null)
+                None => json!(null),
             }
         };
         json!({
@@ -155,12 +167,18 @@ impl EventObserver {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
-    fn send(&self, filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>, chain_tip: &ChainTip,
-            parent_index_hash: &StacksBlockId, boot_receipts: Option<&Vec<StacksTransactionReceipt>>) {
+    fn send(
+        &self,
+        filtered_events: Vec<&(bool, Txid, &StacksTransactionEvent)>,
+        chain_tip: &ChainTip,
+        parent_index_hash: &StacksBlockId,
+        boot_receipts: Option<&Vec<StacksTransactionReceipt>>,
+    ) {
         // Serialize events to JSON
-        let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(committed, txid, event)|
-            event.json_serialize(txid, *committed)
-        ).collect();
+        let serialized_events: Vec<serde_json::Value> = filtered_events
+            .iter()
+            .map(|(committed, txid, event)| event.json_serialize(txid, *committed))
+            .collect();
 
         let mut tx_index: u32 = 0;
         let mut serialized_txs = vec![];
@@ -176,7 +194,7 @@ impl EventObserver {
                 let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
                 serialized_txs.push(payload);
                 tx_index += 1;
-            }    
+            }
         }
 
         // Wrap events
@@ -209,9 +227,18 @@ pub struct EventDispatcher {
 }
 
 impl BlockEventDispatcher for EventDispatcher {
-    fn announce_block(&self, block: StacksBlock, metadata: StacksHeaderInfo,
-                      receipts: Vec<StacksTransactionReceipt>, parent: &StacksBlockId) {
-        let chain_tip = ChainTip { metadata, block, receipts };
+    fn announce_block(
+        &self,
+        block: StacksBlock,
+        metadata: StacksHeaderInfo,
+        receipts: Vec<StacksTransactionReceipt>,
+        parent: &StacksBlockId,
+    ) {
+        let chain_tip = ChainTip {
+            metadata,
+            block,
+            receipts,
+        };
         self.process_chain_tip(&chain_tip, parent)
     }
 
@@ -221,7 +248,6 @@ impl BlockEventDispatcher for EventDispatcher {
 }
 
 impl EventDispatcher {
-
     pub fn new() -> EventDispatcher {
         EventDispatcher {
             registered_observers: vec![],
@@ -235,8 +261,11 @@ impl EventDispatcher {
     }
 
     pub fn process_chain_tip(&self, chain_tip: &ChainTip, parent_index_hash: &StacksBlockId) {
-
-        let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
+        let mut dispatch_matrix: Vec<HashSet<usize>> = self
+            .registered_observers
+            .iter()
+            .map(|_| HashSet::new())
+            .collect();
         let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
 
@@ -251,32 +280,52 @@ impl EventDispatcher {
             for event in receipt.events.iter() {
                 match event {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
-                        if let Some(observer_indexes) = self.contract_events_observers_lookup.get(&event_data.key) {
+                        if let Some(observer_indexes) =
+                            self.contract_events_observers_lookup.get(&event_data.key)
+                        {
                             for o_i in observer_indexes {
                                 dispatch_matrix[*o_i as usize].insert(i);
                             }
                         }
-                    },
-                    StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_)) |
-                    StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_)) |
-                    StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_)) |
-                    StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_)) => {
+                    }
+                    StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_))
+                    | StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_))
+                    | StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_))
+                    | StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_)) => {
                         for o_i in &self.stx_observers_lookup {
                             dispatch_matrix[*o_i as usize].insert(i);
                         }
-                    },
-                    StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => {
-                        self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
-                    },
+                    }
+                    StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(
+                        event_data,
+                    )) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(
+                            &event_data.asset_identifier,
+                            i,
+                            &mut dispatch_matrix,
+                        );
+                    }
                     StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => {
-                        self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
-                    },
+                        self.update_dispatch_matrix_if_observer_subscribed(
+                            &event_data.asset_identifier,
+                            i,
+                            &mut dispatch_matrix,
+                        );
+                    }
                     StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {
-                        self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
-                    },
+                        self.update_dispatch_matrix_if_observer_subscribed(
+                            &event_data.asset_identifier,
+                            i,
+                            &mut dispatch_matrix,
+                        );
+                    }
                     StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {
-                        self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
-                    },
+                        self.update_dispatch_matrix_if_observer_subscribed(
+                            &event_data.asset_identifier,
+                            i,
+                            &mut dispatch_matrix,
+                        );
+                    }
                 }
                 events.push((!receipt.post_condition_aborted, tx_hash, event));
                 for o_i in &self.any_event_observers_lookup {
@@ -286,22 +335,32 @@ impl EventDispatcher {
             }
         }
 
-
         for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
-            let filtered_events: Vec<_> = filtered_events_ids.iter()
-                .map(|event_id| &events[*event_id]).collect();
+            let filtered_events: Vec<_> = filtered_events_ids
+                .iter()
+                .map(|event_id| &events[*event_id])
+                .collect();
 
-            self.registered_observers[observer_id].send(filtered_events, chain_tip, parent_index_hash, boot_receipts);
+            self.registered_observers[observer_id].send(
+                filtered_events,
+                chain_tip,
+                parent_index_hash,
+                boot_receipts,
+            );
         }
     }
 
     pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
         // lazily assemble payload only if we have observers
-        let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().filter(
-            |(obs_id, _observer)| {
-                self.mempool_observers_lookup.contains(&(*obs_id as u16)) ||
-                    self.any_event_observers_lookup.contains(&(*obs_id as u16))
-            }).collect();
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.mempool_observers_lookup.contains(&(*obs_id as u16))
+                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+            })
+            .collect();
         if interested_observers.len() < 1 {
             return;
         }
@@ -317,7 +376,12 @@ impl EventDispatcher {
         self.boot_receipts = receipts;
     }
 
-    fn update_dispatch_matrix_if_observer_subscribed(&self, asset_identifier: &AssetIdentifier, event_index: usize, dispatch_matrix: &mut Vec<HashSet<usize>>) {
+    fn update_dispatch_matrix_if_observer_subscribed(
+        &self,
+        asset_identifier: &AssetIdentifier,
+        event_index: usize,
+        dispatch_matrix: &mut Vec<HashSet<usize>>,
+    ) {
         if let Some(observer_indexes) = self.assets_observers_lookup.get(asset_identifier) {
             for o_i in observer_indexes {
                 dispatch_matrix[*o_i as usize].insert(event_index);
@@ -328,7 +392,7 @@ impl EventDispatcher {
     pub fn register_observer(&mut self, conf: &EventObserverConfig) {
         // let event_observer = EventObserver::new(&conf.address, conf.port);
         info!("Registering event observer at: {}", conf.endpoint);
-        let event_observer = EventObserver { 
+        let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
         };
 
@@ -337,40 +401,42 @@ impl EventDispatcher {
         for event_key_type in conf.events_keys.iter() {
             match event_key_type {
                 EventKeyType::SmartContractEvent(event_key) => {
-                    match self.contract_events_observers_lookup.entry(event_key.clone()) {
+                    match self
+                        .contract_events_observers_lookup
+                        .entry(event_key.clone())
+                    {
                         Entry::Occupied(observer_indexes) => {
                             observer_indexes.into_mut().insert(observer_index);
-                        },
+                        }
                         Entry::Vacant(v) => {
                             let mut observer_indexes = HashSet::new();
                             observer_indexes.insert(observer_index);
                             v.insert(observer_indexes);
                         }
                     };
-                },
+                }
                 EventKeyType::MemPoolTransactions => {
                     self.mempool_observers_lookup.insert(observer_index);
-                },
+                }
                 EventKeyType::STXEvent => {
                     self.stx_observers_lookup.insert(observer_index);
-                },
+                }
                 EventKeyType::AssetEvent(event_key) => {
                     match self.assets_observers_lookup.entry(event_key.clone()) {
                         Entry::Occupied(observer_indexes) => {
                             observer_indexes.into_mut().insert(observer_index);
-                        },
+                        }
                         Entry::Vacant(v) => {
                             let mut observer_indexes = HashSet::new();
                             observer_indexes.insert(observer_index);
                             v.insert(observer_indexes);
                         }
                     };
-                },
+                }
                 EventKeyType::AnyEvent => {
                     self.any_event_observers_lookup.insert(observer_index);
-                },
+                }
             }
-
         }
 
         self.registered_observers.push(event_observer);

@@ -1,17 +1,19 @@
-use vm::representations::{SymbolicExpressionCommon};
+use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use vm::ast::types::{BuildASTPass, ContractAST};
 use vm::representations::PreSymbolicExpressionType::List;
-use vm::ast::types::{ContractAST, BuildASTPass};
-use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
+use vm::representations::SymbolicExpressionCommon;
 
 fn inner_relabel<T: SymbolicExpressionCommon>(args: &mut [T], index: u64) -> ParseResult<u64> {
-    let mut current = index.checked_add(1)
+    let mut current = index
+        .checked_add(1)
         .ok_or(ParseError::new(ParseErrors::TooManyExpressions))?;
     for expression in &mut args[..] {
         expression.set_id(current);
         current = if let Some(exprs) = expression.match_list_mut() {
             inner_relabel(exprs, current)
         } else {
-            current.checked_add(1)
+            current
+                .checked_add(1)
                 .ok_or(ParseError::new(ParseErrors::TooManyExpressions))
         }?;
     }

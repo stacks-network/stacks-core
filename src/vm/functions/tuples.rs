@@ -1,11 +1,17 @@
-use vm::errors::{CheckErrors, check_arguments_at_least, InterpreterResult as Result, check_argument_count};
-use vm::types::{Value, TupleData, TypeSignature};
-use vm::representations::{SymbolicExpression,SymbolicExpressionType};
-use vm::representations::SymbolicExpressionType::{List};
-use vm::{LocalContext, Environment, eval};
 use vm::costs::cost_functions;
+use vm::errors::{
+    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+};
+use vm::representations::SymbolicExpressionType::List;
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::types::{TupleData, TypeSignature, Value};
+use vm::{eval, Environment, LocalContext};
 
-pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn tuple_cons(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
     //    (tuple (arg-name value)
     //           (arg-name value))
     use super::parse_eval_bindings;
@@ -18,13 +24,16 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     TupleData::from_data(bindings).map(Value::from)
 }
 
-pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn tuple_get(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
     // (get arg-name (tuple ...))
     //    if the tuple argument is an option type, then return option(field-name).
     check_argument_count(2, args)?;
-    
-    let arg_name = args[0].match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
+
+    let arg_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let value = eval(&args[1], env, context)?;
 
@@ -35,19 +44,19 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
                     if let Value::Tuple(tuple_data) = *data {
                         runtime_cost!(cost_functions::TUPLE_GET, env, tuple_data.len())?;
                         Ok(Value::some(tuple_data.get_owned(arg_name)?)
-                           .expect("Tuple contents should *always* fit in a some wrapper"))
+                            .expect("Tuple contents should *always* fit in a some wrapper"))
                     } else {
                         Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&data)).into())
                     }
-                },
-                None => Ok(Value::none()) // just pass through none-types.
+                }
+                None => Ok(Value::none()), // just pass through none-types.
             }
-        },
+        }
         Value::Tuple(tuple_data) => {
             runtime_cost!(cost_functions::TUPLE_GET, env, tuple_data.len())?;
             tuple_data.get_owned(arg_name)
-        },
-        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into())
+        }
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into()),
     }
 }
 
@@ -56,8 +65,8 @@ pub enum TupleDefinitionType {
     Explicit,
 }
 
-/// Identify whether a symbolic expression is an implicit tuple structure ((key2 k1) (key2 k2)), 
-/// or other - (tuple (key2 k1) (key2 k2)) / bound variable / function call. 
+/// Identify whether a symbolic expression is an implicit tuple structure ((key2 k1) (key2 k2)),
+/// or other - (tuple (key2 k1) (key2 k2)) / bound variable / function call.
 /// The caller is responsible for any eventual type checks or actual execution.
 /// Used in:
 /// - the type checker: doesn't eval the resulting structure, it only type checks it,
@@ -70,4 +79,3 @@ pub fn get_definition_type_of_tuple_argument(args: &SymbolicExpression) -> Tuple
     }
     TupleDefinitionType::Explicit
 }
-

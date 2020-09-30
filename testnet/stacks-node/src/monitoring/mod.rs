@@ -1,9 +1,6 @@
 #![allow(unused_variables)]
 
-pub use stacks::monitoring::{
-    increment_warning_emitted_counter, 
-    increment_errors_emitted_counter
-};
+pub use stacks::monitoring::{increment_errors_emitted_counter, increment_warning_emitted_counter};
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;

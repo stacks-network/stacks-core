@@ -21,10 +21,10 @@ use std::io;
 use std::io::{Read, Write};
 
 use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::Receiver;
-use std::sync::mpsc::TrySendError;
+use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
+use std::sync::mpsc::TrySendError;
 
 use util::log;
 
@@ -39,7 +39,7 @@ pub struct PipeRead {
     input: Receiver<Vec<u8>>,
     buf: Vec<u8>,
     i: usize,
-    block: bool
+    block: bool,
 }
 
 #[derive(Debug)]
@@ -63,7 +63,7 @@ impl PipeRead {
             input: input,
             buf: vec![],
             i: 0,
-            block: true
+            block: true,
         }
     }
 
@@ -75,16 +75,18 @@ impl PipeRead {
         if self.i < self.buf.len() {
             // have bufferred data from the last read
             let buf_available = &self.buf[self.i..];
-            let to_copy = 
-                if buf_available.len() < buf.len() {
-                    buf_available.len()
-                }
-                else {
-                    buf.len()
-                };
+            let to_copy = if buf_available.len() < buf.len() {
+                buf_available.len()
+            } else {
+                buf.len()
+            };
 
             if to_copy > 0 {
-                trace!("Pipe read {} bytes from buffer [{}...]", to_copy, buf_available[0]);
+                trace!(
+                    "Pipe read {} bytes from buffer [{}...]",
+                    to_copy,
+                    buf_available[0]
+                );
             }
             buf[..to_copy].copy_from_slice(&buf_available[..to_copy]);
             self.i += to_copy;
@@ -98,8 +100,7 @@ impl PipeRead {
             }
 
             to_copy
-        }
-        else {
+        } else {
             0
         }
     }
@@ -116,7 +117,7 @@ impl PipeRead {
                 Ok(bytes) => {
                     trace!("Pipe received {} bytes", bytes.len());
                     bytes
-                },
+                }
                 Err(tre) => match tre {
                     TryRecvError::Empty => {
                         // no data yet
@@ -130,38 +131,43 @@ impl PipeRead {
                                     vec![]
                                 }
                             }
-                        }
-                        else {
+                        } else {
                             trace!("Pipe read {} bytes before blocking", copied);
                             blocked = true;
                             vec![]
                         }
-                    },
+                    }
                     TryRecvError::Disconnected => {
                         // dead
                         trace!("Pipe read disconnect");
                         disconnected = true;
                         vec![]
                     }
-                }
+                },
             };
 
             let remaining = buf[copied..].len();
-            let to_copy = 
-                if next_bytes.len() < remaining {
-                    next_bytes.len()
-                }
-                else {
-                    remaining
-                };
+            let to_copy = if next_bytes.len() < remaining {
+                next_bytes.len()
+            } else {
+                remaining
+            };
 
-            trace!("Pipe read copied {} bytes from channel ({} total)", to_copy, copied);
+            trace!(
+                "Pipe read copied {} bytes from channel ({} total)",
+                to_copy,
+                copied
+            );
             buf[copied..(copied + to_copy)].copy_from_slice(&next_bytes[0..to_copy]);
             copied += to_copy;
 
             // buffer remainder
             if copied == buf.len() && to_copy < next_bytes.len() {
-                trace!("Pipe read bufferred {} bytes [{}...]", &next_bytes[to_copy..].len(), next_bytes[to_copy]);
+                trace!(
+                    "Pipe read bufferred {} bytes [{}...]",
+                    &next_bytes[to_copy..].len(),
+                    next_bytes[to_copy]
+                );
                 self.buf.extend_from_slice(&next_bytes[to_copy..]);
             }
         }
@@ -170,7 +176,7 @@ impl PipeRead {
             // out of data, and will never get more
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
         }
-        
+
         if blocked && copied == 0 && self.buf.len() == 0 {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
@@ -192,13 +198,12 @@ impl PipeWrite {
         if self.buf.is_none() {
             let data = buf.to_vec();
             self.buf = Some(data);
-        }
-        else {
-            let mut tmp = self.buf.take().unwrap();     // safe due to check above
+        } else {
+            let mut tmp = self.buf.take().unwrap(); // safe due to check above
             tmp.extend_from_slice(buf);
             self.buf = Some(tmp);
         }
-        
+
         // will be Some() either way
         let data = self.buf.take().unwrap();
         let _len = data.len();
@@ -232,20 +237,20 @@ impl PipeWrite {
                     Ok(_) => {
                         // sent!
                         Ok(true)
-                    },
+                    }
                     Err(send_err) => match send_err {
                         TrySendError::Full(ret_bytes) => {
                             // try again
                             self.buf = Some(ret_bytes);
                             Ok(false)
-                        },
+                        }
                         TrySendError::Disconnected(_) => {
                             // broken
                             Err(io::Error::from(io::ErrorKind::BrokenPipe))
                         }
-                    }
+                    },
                 }
-            },
+            }
             None => {
                 // done!
                 Ok(true)
@@ -258,7 +263,10 @@ impl Read for PipeRead {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let copied = self.drain_buf(buf);
         if copied == buf.len() {
-            trace!("Read {} bytes total from buffer (pipe channel not used)", copied);
+            trace!(
+                "Read {} bytes total from buffer (pipe channel not used)",
+                copied
+            );
             return Ok(copied);
         }
 
@@ -270,20 +278,22 @@ impl Read for PipeRead {
                         // if we get EPIPE or EWOULDBLOCK when getting data from the writer, but we hit the
                         // buffer, then this isn't a failure.
                         0
-                    }
-                    else {
+                    } else {
                         trace!("Error reading from pipe: {:?}", &e);
                         return Err(e);
                     }
-                },
+                }
                 _ => {
                     trace!("Error reading from pipe: {:?}", &e);
                     return Err(e);
                 }
-            }
+            },
         };
 
-        trace!("Read {} bytes total from pipe channel and buffer", copied + filled);
+        trace!(
+            "Read {} bytes total from pipe channel and buffer",
+            copied + filled
+        );
         Ok(copied + filled)
     }
 }
@@ -298,11 +308,12 @@ impl Write for PipeWrite {
         match data {
             Some(bytes) => {
                 let _len = bytes.len();
-                self.output.send(bytes)
+                self.output
+                    .send(bytes)
                     .map_err(|_e| io::Error::from(io::ErrorKind::BrokenPipe))?;
 
                 trace!("Pipe wrote {} bytes on flush", _len);
-            },
+            }
             None => {}
         }
         Ok(())
@@ -312,13 +323,13 @@ impl Write for PipeWrite {
 #[cfg(test)]
 mod test {
     use super::*;
-    use util::*;
+    use rand;
+    use rand::RngCore;
+    use std::io;
     use std::io::prelude::*;
     use std::io::{Read, Write};
-    use std::io;
     use std::thread;
-    use rand::RngCore;
-    use rand;
+    use util::*;
 
     #[test]
     fn test_connection_pipe_oneshot() {
@@ -326,23 +337,32 @@ mod test {
             // .0: the list of vecs to send to the writer
             // .1: the number of bytes to read each time
             // .2: the expected Result<num-bytes-total, error-encountered>
-            (vec![0,1,2],     vec![3],                    vec![Ok(3)]),
-            (vec![0,1,2],     vec![1, 2],                 vec![Ok(1), Ok(2)]),
-            (vec![0,1,2],     vec![1, 1, 1],              vec![Ok(1), Ok(1), Ok(1)]),
-            (vec![0,1,2],     vec![0, 3],                 vec![Ok(0), Ok(3)]),
-            (vec![0,1,2],     vec![4],                    vec![Ok(3)]),
-            (vec![0,1,2],     vec![4, 1],                 vec![Ok(3), Err(io::Error::from(io::ErrorKind::WouldBlock))]),
+            (vec![0, 1, 2], vec![3], vec![Ok(3)]),
+            (vec![0, 1, 2], vec![1, 2], vec![Ok(1), Ok(2)]),
+            (vec![0, 1, 2], vec![1, 1, 1], vec![Ok(1), Ok(1), Ok(1)]),
+            (vec![0, 1, 2], vec![0, 3], vec![Ok(0), Ok(3)]),
+            (vec![0, 1, 2], vec![4], vec![Ok(3)]),
+            (
+                vec![0, 1, 2],
+                vec![4, 1],
+                vec![Ok(3), Err(io::Error::from(io::ErrorKind::WouldBlock))],
+            ),
         ];
 
         for (send_bytes, recv_list, outputs) in tests.iter() {
-            test_debug!("send {:?}, recv {:?}, expect {:?}", send_bytes, recv_list, outputs);
+            test_debug!(
+                "send {:?}, recv {:?}, expect {:?}",
+                send_bytes,
+                recv_list,
+                outputs
+            );
 
             assert_eq!(recv_list.len(), outputs.len());
-        
+
             let (mut pipe_read, mut pipe_write) = Pipe::new();
             let mut recv_buf = vec![];
             let expected_recv_buf = send_bytes.clone();
-            
+
             pipe_read.set_nonblocking(true);
             pipe_write.write(&send_bytes[..]).unwrap();
 
@@ -350,18 +370,38 @@ mod test {
                 let mut buf = vec![0u8; recv_list[i]];
                 match pipe_read.read(&mut buf) {
                     Ok(num_bytes) => {
-                        assert!(outputs[i].is_ok(), "Expected {:?}, got Ok({})", &outputs[i], num_bytes);
+                        assert!(
+                            outputs[i].is_ok(),
+                            "Expected {:?}, got Ok({})",
+                            &outputs[i],
+                            num_bytes
+                        );
 
                         let num_bytes_expected = outputs[i].as_ref().ok().clone().unwrap();
-                        assert_eq!(num_bytes, *num_bytes_expected, "Expected {}, got {}", num_bytes, num_bytes_expected);
+                        assert_eq!(
+                            num_bytes, *num_bytes_expected,
+                            "Expected {}, got {}",
+                            num_bytes, num_bytes_expected
+                        );
 
                         recv_buf.extend_from_slice(&buf[0..num_bytes]);
-                    },
+                    }
                     Err(e) => {
-                        assert!(outputs[i].is_err(), "Expected {:?}, got Err({:?})", &outputs[i], &e);
+                        assert!(
+                            outputs[i].is_err(),
+                            "Expected {:?}, got Err({:?})",
+                            &outputs[i],
+                            &e
+                        );
 
                         let expected_output_err = outputs[i].as_ref().err().unwrap();
-                        assert_eq!(expected_output_err.kind(), e.kind(), "I/O error mismatch: expected {:?}, got {:?}", e.kind(), expected_output_err.kind());
+                        assert_eq!(
+                            expected_output_err.kind(),
+                            e.kind(),
+                            "I/O error mismatch: expected {:?}, got {:?}",
+                            e.kind(),
+                            expected_output_err.kind()
+                        );
                     }
                 }
             }
@@ -372,11 +412,11 @@ mod test {
 
     #[test]
     fn test_connection_pipe_producer_consumer() {
-        let mut buf = Box::new([0u8; 1048576]);       // 1 MB
+        let mut buf = Box::new([0u8; 1048576]); // 1 MB
         let mut rng = rand::thread_rng();
         rng.fill_bytes(&mut *buf);
 
-        let buf_compare = buf.clone();      // for use in the consumer
+        let buf_compare = buf.clone(); // for use in the consumer
 
         let (mut pipe_read, mut pipe_write) = Pipe::new();
         pipe_read.set_nonblocking(false);
@@ -397,12 +437,12 @@ mod test {
                         io::ErrorKind::BrokenPipe => {
                             broken_pipe = true;
                             0
-                        },
+                        }
                         _ => {
                             assert!(false, "unwrapped err: {:?}", &e);
                             unreachable!();
                         }
-                    }
+                    },
                 };
 
                 i += span;
@@ -431,18 +471,25 @@ mod test {
                             test_debug!("Read pipe broke");
                             broken_pipe = true;
                             0
-                        },
+                        }
                         _ => {
                             assert!(false, "unwrapped err: {:?}", &e);
                             unreachable!();
                         }
-                    }
+                    },
                 };
 
                 input.extend_from_slice(&next_bytes[0..nr]);
 
                 test_debug!("Read buffer added {} bytes (now {})", nr, input.len());
-                assert!(nr == span || input.len() == buf_compare.len(), "nr = {}, span = {}, input.len() = {}, buf_compare.len() = {}", nr, span, input.len(), buf_compare.len());
+                assert!(
+                    nr == span || input.len() == buf_compare.len(),
+                    "nr = {}, span = {}, input.len() = {}, buf_compare.len() = {}",
+                    nr,
+                    span,
+                    input.len(),
+                    buf_compare.len()
+                );
             }
             test_debug!("consumer exit; read {} bytes", input.len());
 
@@ -490,12 +537,12 @@ mod test {
             assert_eq!(nr, segment.len());
             assert_eq!(*segment, bytes);
 
-            // flush should have succeeded 
+            // flush should have succeeded
             let res = pipe_write.try_flush().unwrap();
             assert!(res);
         }
     }
-    
+
     #[test]
     fn test_pipe_nonblocking_try_flush_multiple_write() {
         let mut rng = rand::thread_rng();
@@ -511,7 +558,7 @@ mod test {
         pipe_read.set_nonblocking(true);
 
         // test write/read over and over, but issue multiple writes.
-        // The first write should be flushed, but until a read happens, 
+        // The first write should be flushed, but until a read happens,
         // the subsequent writes should not flush.
         for segment in input.iter() {
             let mut bytes = vec![0u8; segment.len()];
@@ -528,12 +575,11 @@ mod test {
                 // first write flushes; subsequent ones don't
                 if i == 0 {
                     assert!(res);
-                }
-                else {
+                } else {
                     assert!(!res);
                 }
             }
-            
+
             // first read gets back 1 byte
             let nr = pipe_read.read(&mut bytes).unwrap();
             assert_eq!(nr, 1);
@@ -549,9 +595,9 @@ mod test {
             assert_eq!(nr, segment.len() - 1);
             assert_eq!(*segment, bytes);
 
-            // flush should have succeeded 
+            // flush should have succeeded
             let res = pipe_write.try_flush().unwrap();
             assert!(res);
         }
     }
-} 
+}

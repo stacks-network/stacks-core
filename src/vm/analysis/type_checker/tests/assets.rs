@@ -1,12 +1,15 @@
-use vm::database::MemoryBackingStore;
-use vm::types::{TypeSignature, SequenceSubtype, StringSubtype, QualifiedContractIdentifier};
-use vm::ast::parse;
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::{AnalysisDatabase, mem_type_check};
 use std::convert::TryInto;
+use vm::analysis::errors::CheckErrors;
+use vm::analysis::{mem_type_check, AnalysisDatabase};
+use vm::ast::parse;
+use vm::database::MemoryBackingStore;
+use vm::types::{QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature};
 
 fn string_ascii_type(size: u32) -> TypeSignature {
-    TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(size.try_into().unwrap()))).into()
+    TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        size.try_into().unwrap(),
+    )))
+    .into()
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
@@ -27,8 +30,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
                 (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
                 (ft-mint? stackaroos u4 .tokens))";
 
-const ASSET_NAMES: &str =
-        "(define-constant burn-address 'SP000000000000000000002Q6VF78)
+const ASSET_NAMES: &str = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
            (if (< name u100000) u1000 u100))
 
@@ -90,99 +92,82 @@ fn test_names_tokens_contracts() {
     db.execute(|db| {
         type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
         type_check(&names_contract_id, &mut names_contract, db, true)
-    }).unwrap();
+    })
+    .unwrap();
 }
-
 
 #[test]
 fn test_bad_asset_usage() {
     use vm::analysis::type_check;
 
-    let bad_scripts = ["(ft-get-balance stackoos tx-sender)",
-                       "(ft-get-balance u1234 tx-sender)",
-                       "(ft-get-balance 1234 tx-sender)",
-                       "(ft-get-balance stackaroos u100)",
-                       "(ft-get-balance stackaroos 100)",
-                       "(nft-get-owner? u1234 \"abc\")",
-                       "(nft-get-owner? stackoos \"abc\")",
-                       "(nft-get-owner? stacka-nfts u1234 )",
-                       "(nft-get-owner? stacka-nfts \"123456789012345\" )",
-                       "(nft-mint? u1234 \"abc\" tx-sender)",
-                       "(nft-mint? stackoos \"abc\" tx-sender)",
-                       "(nft-mint? stacka-nfts u1234 tx-sender)",
-                       "(nft-mint? stacka-nfts \"123456789012345\" tx-sender)",
-                       "(nft-mint? stacka-nfts \"abc\" u2)",
-                       "(ft-mint? stackoos u1 tx-sender)",
-                       "(ft-mint? u1234 u1 tx-sender)",
-                       "(ft-mint? stackaroos u2 u100)",
-                       "(ft-mint? stackaroos true tx-sender)",
-                       "(nft-transfer? u1234 \"a\" tx-sender tx-sender)",
-                       "(nft-transfer? stackoos    \"a\" tx-sender tx-sender)",
-                       "(nft-transfer? stacka-nfts \"a\" u2 tx-sender)",
-                       "(nft-transfer? stacka-nfts \"a\" tx-sender u2)",
-                       "(nft-transfer? stacka-nfts u2 tx-sender tx-sender)",
-                       "(ft-transfer? stackoos u1 tx-sender tx-sender)",
-                       "(ft-transfer? u1234 u1 tx-sender tx-sender)",
-                       "(ft-transfer? stackaroos u2 u100 tx-sender)",
-                       "(ft-transfer? stackaroos true tx-sender tx-sender)",
-                       "(ft-transfer? stackaroos u2 tx-sender u100)",
-                       "(define-fungible-token stackaroos true)",
-                       "(define-non-fungible-token stackaroos integer)",
-                       "(ft-mint? stackaroos 100 tx-sender)",
-                       "(ft-transfer? stackaroos 1 tx-sender tx-sender)",
+    let bad_scripts = [
+        "(ft-get-balance stackoos tx-sender)",
+        "(ft-get-balance u1234 tx-sender)",
+        "(ft-get-balance 1234 tx-sender)",
+        "(ft-get-balance stackaroos u100)",
+        "(ft-get-balance stackaroos 100)",
+        "(nft-get-owner? u1234 \"abc\")",
+        "(nft-get-owner? stackoos \"abc\")",
+        "(nft-get-owner? stacka-nfts u1234 )",
+        "(nft-get-owner? stacka-nfts \"123456789012345\" )",
+        "(nft-mint? u1234 \"abc\" tx-sender)",
+        "(nft-mint? stackoos \"abc\" tx-sender)",
+        "(nft-mint? stacka-nfts u1234 tx-sender)",
+        "(nft-mint? stacka-nfts \"123456789012345\" tx-sender)",
+        "(nft-mint? stacka-nfts \"abc\" u2)",
+        "(ft-mint? stackoos u1 tx-sender)",
+        "(ft-mint? u1234 u1 tx-sender)",
+        "(ft-mint? stackaroos u2 u100)",
+        "(ft-mint? stackaroos true tx-sender)",
+        "(nft-transfer? u1234 \"a\" tx-sender tx-sender)",
+        "(nft-transfer? stackoos    \"a\" tx-sender tx-sender)",
+        "(nft-transfer? stacka-nfts \"a\" u2 tx-sender)",
+        "(nft-transfer? stacka-nfts \"a\" tx-sender u2)",
+        "(nft-transfer? stacka-nfts u2 tx-sender tx-sender)",
+        "(ft-transfer? stackoos u1 tx-sender tx-sender)",
+        "(ft-transfer? u1234 u1 tx-sender tx-sender)",
+        "(ft-transfer? stackaroos u2 u100 tx-sender)",
+        "(ft-transfer? stackaroos true tx-sender tx-sender)",
+        "(ft-transfer? stackaroos u2 tx-sender u100)",
+        "(define-fungible-token stackaroos true)",
+        "(define-non-fungible-token stackaroos integer)",
+        "(ft-mint? stackaroos 100 tx-sender)",
+        "(ft-transfer? stackaroos 1 tx-sender tx-sender)",
     ];
 
     let expected = [
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
         CheckErrors::BadTokenName,
-        CheckErrors::TypeError(TypeSignature::PrincipalType,
-                               TypeSignature::UIntType),
-        CheckErrors::TypeError(TypeSignature::PrincipalType,
-                               TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::IntType),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(string_ascii_type(10),
-                               TypeSignature::UIntType),
-        CheckErrors::TypeError(string_ascii_type(10),
-                               string_ascii_type(15)),
+        CheckErrors::TypeError(string_ascii_type(10), TypeSignature::UIntType),
+        CheckErrors::TypeError(string_ascii_type(10), string_ascii_type(15)),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(string_ascii_type(10),
-                               TypeSignature::UIntType),
-        CheckErrors::TypeError(string_ascii_type(10),
-                               string_ascii_type(15)),
-        CheckErrors::TypeError(TypeSignature::PrincipalType,
-                               TypeSignature::UIntType),
+        CheckErrors::TypeError(string_ascii_type(10), TypeSignature::UIntType),
+        CheckErrors::TypeError(string_ascii_type(10), string_ascii_type(15)),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
-        CheckErrors::TypeError(TypeSignature::PrincipalType,
-                               TypeSignature::UIntType),
-        CheckErrors::TypeError(TypeSignature::UIntType,
-                               TypeSignature::BoolType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
+        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(TypeSignature::PrincipalType,
-                               TypeSignature::UIntType),
-        CheckErrors::TypeError(TypeSignature::PrincipalType,
-                               TypeSignature::UIntType),
-        CheckErrors::TypeError(string_ascii_type(10),
-                               TypeSignature::UIntType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
+        CheckErrors::TypeError(string_ascii_type(10), TypeSignature::UIntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
-        CheckErrors::TypeError(TypeSignature::PrincipalType,
-                               TypeSignature::UIntType),
-        CheckErrors::TypeError(TypeSignature::UIntType,
-                               TypeSignature::BoolType),
-        CheckErrors::TypeError(TypeSignature::PrincipalType,
-                               TypeSignature::UIntType),
-        CheckErrors::TypeError(TypeSignature::UIntType,
-                               TypeSignature::BoolType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
+        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
+        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
         CheckErrors::DefineNFTBadSignature.into(),
-        CheckErrors::TypeError(TypeSignature::UIntType,
-                               TypeSignature::IntType),
-        CheckErrors::TypeError(TypeSignature::UIntType,
-                               TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
     ];
 
     for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {

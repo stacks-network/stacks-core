@@ -15,23 +15,22 @@
 //!
 //! Utility functions related to hashing data, including merkleization
 
+#[cfg(feature = "serde")]
+use serde;
 use std::char::from_digit;
 use std::cmp::min;
 use std::default::Default;
 use std::error;
 use std::fmt;
-use std::io::{
-    Cursor, Write
-};
+use std::io::{Cursor, Write};
 use std::mem;
-#[cfg(feature = "serde")] use serde;
 
 use ripemd160::Ripemd160;
-use sha2::Sha256;
 use sha2::Digest;
+use sha2::Sha256;
 
 use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps::bitcoin::network::serialize::{self, SimpleEncoder, RawEncoder, BitcoinHash};
+use deps::bitcoin::network::serialize::{self, BitcoinHash, RawEncoder, SimpleEncoder};
 use util::uint::Uint256;
 use util::HexError;
 
@@ -121,7 +120,7 @@ impl SimpleEncoder for Sha256dEncoder {
     }
 
     fn emit_bool(&mut self, v: bool) -> Result<(), serialize::Error> {
-        self.0.input(&[if v {1} else {0}]);
+        self.0.input(&[if v { 1 } else { 0 }]);
         Ok(())
     }
 }
@@ -156,7 +155,9 @@ impl Hash160 {
 // in the C++ reference client, so we need it for consensus.
 impl Default for Sha256dHash {
     #[inline]
-    fn default() -> Sha256dHash { Sha256dHash([0u8; 32]) }
+    fn default() -> Sha256dHash {
+        Sha256dHash([0u8; 32])
+    }
 }
 
 impl Sha256dHash {
@@ -179,7 +180,9 @@ impl Sha256dHash {
     pub fn into_le(self) -> Uint256 {
         let Sha256dHash(data) = self;
         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() { *x = x.to_le(); }
+        for x in (&mut ret).iter_mut() {
+            *x = x.to_le();
+        }
         Uint256(ret)
     }
 
@@ -189,7 +192,9 @@ impl Sha256dHash {
         let Sha256dHash(mut data) = self;
         data.reverse();
         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() { *x = x.to_be(); }
+        for x in (&mut ret).iter_mut() {
+            *x = x.to_be();
+        }
         Uint256(ret)
     }
 
@@ -205,19 +210,19 @@ impl Sha256dHash {
         let bytes = s.as_bytes();
         let mut ret = [0; 32];
         for i in 0..32 {
-           let hi = match bytes[2*i] {
-               b @ b'0'..=b'9' => (b - b'0') as u8,
-               b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
-               b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
-               b => return Err(HexError::BadCharacter(b as char))
-           };
-           let lo = match bytes[2*i + 1] {
-               b @ b'0'..=b'9' => (b - b'0') as u8,
-               b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
-               b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
-               b => return Err(HexError::BadCharacter(b as char))
-           };
-           ret[31 - i] = hi * 0x10 + lo;
+            let hi = match bytes[2 * i] {
+                b @ b'0'..=b'9' => (b - b'0') as u8,
+                b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
+                b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
+                b => return Err(HexError::BadCharacter(b as char)),
+            };
+            let lo = match bytes[2 * i + 1] {
+                b @ b'0'..=b'9' => (b - b'0') as u8,
+                b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
+                b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
+                b => return Err(HexError::BadCharacter(b as char)),
+            };
+            ret[31 - i] = hi * 0x10 + lo;
         }
         Ok(Sha256dHash(ret))
     }
@@ -275,7 +280,7 @@ impl<'de> serde::Deserialize<'de> for Sha256dHash {
             {
                 self.visit_str(v)
             }
-            
+
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
@@ -344,7 +349,9 @@ impl_newtype_consensus_encoding!(Sha256dHash);
 // User RPC/display encoding (reversed)
 impl fmt::Display for Sha256dHash {
     /// Output the sha256d hash in reverse, copying Bitcoin Core's behaviour
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::LowerHex::fmt(self, f) }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::LowerHex::fmt(self, f)
+    }
 }
 
 impl fmt::LowerHex for Sha256dHash {
@@ -368,7 +375,6 @@ impl fmt::UpperHex for Sha256dHash {
         Ok(())
     }
 }
-
 
 /// Any collection of objects for which a merkle root makes sense to calculate
 pub trait MerkleRoot {
@@ -405,39 +411,50 @@ impl<'a, T: BitcoinHash> MerkleRoot for &'a [T] {
     }
 }
 
-impl <T: BitcoinHash> MerkleRoot for Vec<T> {
+impl<T: BitcoinHash> MerkleRoot for Vec<T> {
     fn merkle_root(&self) -> Sha256dHash {
         (&self[..]).merkle_root()
     }
 }
 
-
 #[cfg(test)]
 mod tests {
 
-    use deps::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
-    use deps::bitcoin::network::serialize::{serialize, deserialize};
-    use util::uint::Uint256;
     use super::*;
+    use deps::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
+    use deps::bitcoin::network::serialize::{deserialize, serialize};
+    use util::uint::Uint256;
 
     #[test]
     fn test_sha256d() {
         // nb the 5df6... output is the one you get from sha256sum. this is the
         // "little-endian" hex string since it matches the in-memory representation
         // of a Uint256 (which is little-endian) after transmutation
-        assert_eq!(Sha256dHash::from_data(&[]).le_hex_string(),
-                   "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456");
-        assert_eq!(Sha256dHash::from_data(&[]).be_hex_string(),
-                   "56944c5d3f98413ef45cf54545538103cc9f298e0575820ad3591376e2e0f65d");
+        assert_eq!(
+            Sha256dHash::from_data(&[]).le_hex_string(),
+            "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456"
+        );
+        assert_eq!(
+            Sha256dHash::from_data(&[]).be_hex_string(),
+            "56944c5d3f98413ef45cf54545538103cc9f298e0575820ad3591376e2e0f65d"
+        );
 
-        assert_eq!(format!("{}", Sha256dHash::from_data(&[])),
-                   "56944c5d3f98413ef45cf54545538103cc9f298e0575820ad3591376e2e0f65d");
-        assert_eq!(format!("{:?}", Sha256dHash::from_data(&[])),
-                   "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456");
-        assert_eq!(format!("{:x}", Sha256dHash::from_data(&[])),
-                   "56944c5d3f98413ef45cf54545538103cc9f298e0575820ad3591376e2e0f65d");
-        assert_eq!(format!("{:X}", Sha256dHash::from_data(&[])),
-                   "56944C5D3F98413EF45CF54545538103CC9F298E0575820AD3591376E2E0F65D");
+        assert_eq!(
+            format!("{}", Sha256dHash::from_data(&[])),
+            "56944c5d3f98413ef45cf54545538103cc9f298e0575820ad3591376e2e0f65d"
+        );
+        assert_eq!(
+            format!("{:?}", Sha256dHash::from_data(&[])),
+            "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456"
+        );
+        assert_eq!(
+            format!("{:x}", Sha256dHash::from_data(&[])),
+            "56944c5d3f98413ef45cf54545538103cc9f298e0575820ad3591376e2e0f65d"
+        );
+        assert_eq!(
+            format!("{:X}", Sha256dHash::from_data(&[])),
+            "56944C5D3F98413EF45CF54545538103CC9F298E0575820AD3591376E2E0F65D"
+        );
     }
 
     #[test]
@@ -457,7 +474,10 @@ mod tests {
         let test = vec![true, false, true, true, false];
         let mut enc = Sha256dEncoder::new();
         assert!(test.consensus_encode(&mut enc).is_ok());
-        assert_eq!(enc.into_hash(), Sha256dHash::from_data(&serialize(&test).unwrap()));
+        assert_eq!(
+            enc.into_hash(),
+            Sha256dHash::from_data(&serialize(&test).unwrap())
+        );
 
         macro_rules! array_encode_test (
             ($ty:ty) => ({
@@ -497,11 +517,10 @@ mod tests {
 
     #[test]
     fn test_sighash_single_vec() {
-        let one = Sha256dHash([1, 0, 0, 0, 0, 0, 0, 0,
-                               0, 0, 0, 0, 0, 0, 0, 0,
-                               0, 0, 0, 0, 0, 0, 0, 0,
-                               0, 0, 0, 0, 0, 0, 0, 0]);
+        let one = Sha256dHash([
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
+        ]);
         assert_eq!(one.into_le(), Uint256::from_u64(1));
     }
 }
-

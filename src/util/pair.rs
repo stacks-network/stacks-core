@@ -20,10 +20,11 @@
 // Borrowed from Andrew Poelstra's rust-bitcoin library
 /// An iterator that returns pairs of elements
 pub struct Pair<I>
-    where I: Iterator
+where
+    I: Iterator,
 {
     iter: I,
-    last_elem: Option<I::Item>
+    last_elem: Option<I::Item>,
 }
 
 impl<I: Iterator> Iterator for Pair<I> {
@@ -48,8 +49,8 @@ impl<I: Iterator> Iterator for Pair<I> {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self.iter.size_hint() {
-            (n, None) => (n/2, None),
-            (n, Some(m)) => (n/2, Some(m/2))
+            (n, None) => (n / 2, None),
+            (n, Some(m)) => (n / 2, Some(m / 2)),
         }
     }
 }
@@ -64,7 +65,7 @@ impl<I: Iterator> Pair<I> {
 }
 
 /// Returns an iterator that returns elements of the original iterator 2 at a time
-pub trait Pairable : Sized + Iterator {
+pub trait Pairable: Sized + Iterator {
     /// Returns an iterator that returns elements of the original iterator 2 at a time
     fn pair(self) -> Pair<Self>;
 }
@@ -75,7 +76,9 @@ impl<I: Iterator> Pairable for I {
     /// return.
     #[inline]
     fn pair(self) -> Pair<I> {
-        Pair {iter: self, last_elem: None }
+        Pair {
+            iter: self,
+            last_elem: None,
+        }
     }
 }
-

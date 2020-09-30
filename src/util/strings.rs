@@ -18,35 +18,32 @@
 */
 
 use std::fmt;
-use std::io::prelude::*;
 use std::io;
+use std::io::prelude::*;
 use std::io::{Read, Write};
 
+use std::borrow::Borrow;
+use std::convert::TryFrom;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::convert::TryFrom;
-use std::borrow::Borrow;
 
-use net::StacksMessageCodec;
-use net::MAX_MESSAGE_LEN;
 use net::codec::{read_next, read_next_at_most, write_next};
 use net::Error as net_error;
+use net::StacksMessageCodec;
+use net::MAX_MESSAGE_LEN;
 
 use regex::Regex;
 
-use vm::representations::{ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH};
-use vm::ast::parser::{lex, LexItem, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH};
+use vm::ast::parser::{lex, LexItem, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
+use vm::representations::{
+    ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
+};
 
 pub use vm::representations::UrlString;
 
 use url;
 
-use vm::types::{
-    Value,
-    PrincipalData,
-    StandardPrincipalData,
-    QualifiedContractIdentifier
-};
+use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
 use util::retry::BoundReader;
 
@@ -86,22 +83,25 @@ impl StacksMessageCodec for StacksString {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksString, net_error> {
-        let bytes : Vec<u8> = {
+        let bytes: Vec<u8> = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
             read_next(&mut bound_read)
         }?;
 
         // must encode a valid string
-        let s = String::from_utf8(bytes.clone())
-            .map_err(|_e| {
-                warn!("Invalid StacksString -- could not build from utf8");
-                net_error::DeserializeError("Invalid Stacks string: could not build from utf8".to_string())
-            })?;
-        
+        let s = String::from_utf8(bytes.clone()).map_err(|_e| {
+            warn!("Invalid StacksString -- could not build from utf8");
+            net_error::DeserializeError(
+                "Invalid Stacks string: could not build from utf8".to_string(),
+            )
+        })?;
+
         if !StacksString::is_valid_string(&s) {
             // non-printable ASCII or not ASCII
             warn!("Invalid StacksString -- non-printable ASCII or non-ASCII");
-            return Err(net_error::DeserializeError("Invalid Stacks string: non-printable or non-ASCII string".to_string()));
+            return Err(net_error::DeserializeError(
+                "Invalid Stacks string: non-printable or non-ASCII string".to_string(),
+            ));
         }
 
         Ok(StacksString(bytes))
@@ -113,54 +113,80 @@ impl StacksMessageCodec for ClarityName {
         // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
         if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
-            return Err(net_error::SerializeError("Failed to serialize clarity name: too long".to_string()));
+            return Err(net_error::SerializeError(
+                "Failed to serialize clarity name: too long".to_string(),
+            ));
         }
         write_next(fd, &(self.as_bytes().len() as u8))?;
-        fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(self.as_bytes())
+            .map_err(net_error::WriteError)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ClarityName, net_error> {
-        let len_byte : u8 = read_next(fd)?;
+        let len_byte: u8 = read_next(fd)?;
         if len_byte > CLARITY_MAX_STRING_LENGTH {
-            return Err(net_error::DeserializeError("Failed to deserialize clarity name: too long".to_string()));
+            return Err(net_error::DeserializeError(
+                "Failed to deserialize clarity name: too long".to_string(),
+            ));
         }
         let mut bytes = vec![0u8; len_byte as usize];
         fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
 
         // must encode a valid string
-        let s = String::from_utf8(bytes)
-            .map_err(|_e| net_error::DeserializeError("Failed to parse Clarity name: could not contruct from utf8".to_string()))?;
+        let s = String::from_utf8(bytes).map_err(|_e| {
+            net_error::DeserializeError(
+                "Failed to parse Clarity name: could not contruct from utf8".to_string(),
+            )
+        })?;
 
         // must decode to a clarity name
-        let name = ClarityName::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse Clarity name: {:?}", e)))?;
+        let name = ClarityName::try_from(s).map_err(|e| {
+            net_error::DeserializeError(format!("Failed to parse Clarity name: {:?}", e))
+        })?;
         Ok(name)
     }
 }
 
 impl StacksMessageCodec for ContractName {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH as usize || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH as usize {
-            return Err(net_error::SerializeError(format!("Failed to serialize contract name: too short or too long: {}", self.as_bytes().len())));
+        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH as usize
+            || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH as usize
+        {
+            return Err(net_error::SerializeError(format!(
+                "Failed to serialize contract name: too short or too long: {}",
+                self.as_bytes().len()
+            )));
         }
         write_next(fd, &(self.as_bytes().len() as u8))?;
-        fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(self.as_bytes())
+            .map_err(net_error::WriteError)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ContractName, net_error> {
-        let len_byte : u8 = read_next(fd)?;
-        if (len_byte as usize) < CONTRACT_MIN_NAME_LENGTH || (len_byte as usize) > CONTRACT_MAX_NAME_LENGTH {
-            return Err(net_error::DeserializeError(format!("Failed to deserialize contract name: too short or too long: {}", len_byte)));
+        let len_byte: u8 = read_next(fd)?;
+        if (len_byte as usize) < CONTRACT_MIN_NAME_LENGTH
+            || (len_byte as usize) > CONTRACT_MAX_NAME_LENGTH
+        {
+            return Err(net_error::DeserializeError(format!(
+                "Failed to deserialize contract name: too short or too long: {}",
+                len_byte
+            )));
         }
         let mut bytes = vec![0u8; len_byte as usize];
         fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
-        
-        // must encode a valid string
-        let s = String::from_utf8(bytes)
-            .map_err(|_e| net_error::DeserializeError("Failed to parse Contract name: could not construct from utf8".to_string()))?;
 
-        let name = ContractName::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse Contract name: {:?}", e)))?;
+        // must encode a valid string
+        let s = String::from_utf8(bytes).map_err(|_e| {
+            net_error::DeserializeError(
+                "Failed to parse Contract name: could not construct from utf8".to_string(),
+            )
+        })?;
+
+        let name = ContractName::try_from(s).map_err(|e| {
+            net_error::DeserializeError(format!("Failed to parse Contract name: {:?}", e))
+        })?;
         Ok(name)
     }
 }
@@ -170,34 +196,44 @@ impl StacksMessageCodec for UrlString {
         // UrlString can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
         if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
-            return Err(net_error::SerializeError("Failed to serialize URL string: too long".to_string()));
+            return Err(net_error::SerializeError(
+                "Failed to serialize URL string: too long".to_string(),
+            ));
         }
-        
+
         // must be a valid block URL, or empty string
         if self.as_bytes().len() > 0 {
             let _ = self.parse_to_block_url()?;
         }
 
         write_next(fd, &(self.as_bytes().len() as u8))?;
-        fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(self.as_bytes())
+            .map_err(net_error::WriteError)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<UrlString, net_error> {
-        let len_byte : u8 = read_next(fd)?;
+        let len_byte: u8 = read_next(fd)?;
         if len_byte > CLARITY_MAX_STRING_LENGTH {
-            return Err(net_error::DeserializeError("Failed to deserialize URL string: too long".to_string()));
+            return Err(net_error::DeserializeError(
+                "Failed to deserialize URL string: too long".to_string(),
+            ));
         }
         let mut bytes = vec![0u8; len_byte as usize];
         fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
 
         // must encode a valid string
-        let s = String::from_utf8(bytes)
-            .map_err(|_e| net_error::DeserializeError("Failed to parse URL string: could not contruct from utf8".to_string()))?;
+        let s = String::from_utf8(bytes).map_err(|_e| {
+            net_error::DeserializeError(
+                "Failed to parse URL string: could not contruct from utf8".to_string(),
+            )
+        })?;
 
         // must decode to a URL
-        let url = UrlString::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse URL string: {:?}", e)))?;
-        
+        let url = UrlString::try_from(s).map_err(|e| {
+            net_error::DeserializeError(format!("Failed to parse URL string: {:?}", e))
+        })?;
+
         // must be a valid block URL, or empty string
         if url.len() > 0 {
             let _ = url.parse_to_block_url()?;
@@ -249,20 +285,14 @@ impl StacksString {
                     return false;
                 }
                 match lexed[0].0 {
-                    LexItem::Variable(_) => {
-                        true
-                    },
-                    _ => {
-                        false
-                    }
+                    LexItem::Variable(_) => true,
+                    _ => false,
                 }
-            },
-            Err(_) => {
-                false
             }
+            Err(_) => false,
         }
     }
-    
+
     pub fn from_string(s: &String) -> Option<StacksString> {
         if !StacksString::is_valid_string(s) {
             return None;
@@ -284,7 +314,7 @@ impl StacksString {
 }
 
 impl UrlString {
-    /// Determine that the UrlString parses to something that can be used to fetch blocks via HTTP(S). 
+    /// Determine that the UrlString parses to something that can be used to fetch blocks via HTTP(S).
     /// A block URL must be an HTTP(S) URL without a query or fragment, and without a login.
     pub fn parse_to_block_url(&self) -> Result<url::Url, net_error> {
         // even though this code uses from_utf8_unchecked() internally, we've already verified that
@@ -293,23 +323,34 @@ impl UrlString {
             .map_err(|e| net_error::DeserializeError(format!("Invalid URL: {:?}", &e)))?;
 
         if url.scheme() != "http" && url.scheme() != "https" {
-            return Err(net_error::DeserializeError(format!("Invalid URL: invalid scheme '{}'", url.scheme())));
+            return Err(net_error::DeserializeError(format!(
+                "Invalid URL: invalid scheme '{}'",
+                url.scheme()
+            )));
         }
 
         if url.username().len() > 0 || url.password().is_some() {
-            return Err(net_error::DeserializeError("Invalid URL: must not contain a username/password".to_string()));
+            return Err(net_error::DeserializeError(
+                "Invalid URL: must not contain a username/password".to_string(),
+            ));
         }
 
         if url.host_str().is_none() {
-            return Err(net_error::DeserializeError("Invalid URL: no host string".to_string()));
+            return Err(net_error::DeserializeError(
+                "Invalid URL: no host string".to_string(),
+            ));
         }
 
         if url.query().is_some() {
-            return Err(net_error::DeserializeError("Invalid URL: query strings not supported for block URLs".to_string()));
+            return Err(net_error::DeserializeError(
+                "Invalid URL: query strings not supported for block URLs".to_string(),
+            ));
         }
 
         if url.fragment().is_some() {
-            return Err(net_error::DeserializeError("Invalid URL: fragments are not supported for block URLs".to_string()));
+            return Err(net_error::DeserializeError(
+                "Invalid URL: fragments are not supported for block URLs".to_string(),
+            ));
         }
 
         Ok(url)
@@ -329,11 +370,10 @@ impl UrlString {
             Some(host_str) => {
                 if host_str == "0.0.0.0" || host_str == "[::]" || host_str == "::" {
                     return false;
-                }
-                else {
+                } else {
                     return true;
                 }
-            },
+            }
             None => {
                 return false;
             }
@@ -357,9 +397,9 @@ impl UrlString {
 mod test {
     use super::*;
 
-    use net::*;
-    use net::codec::*;
     use net::codec::test::check_codec_and_corruption;
+    use net::codec::*;
+    use net::*;
 
     use std::error::Error;
 
@@ -406,10 +446,10 @@ mod test {
         let s = vec![0u8];
         assert!(ContractName::consensus_deserialize(&mut &s[..]).is_err());
 
-        let s = vec![5u8, 0x66, 0x6f, 0x6f, 0x6f, 0x6f];    // "foooo"
+        let s = vec![5u8, 0x66, 0x6f, 0x6f, 0x6f, 0x6f]; // "foooo"
         assert!(ContractName::consensus_deserialize(&mut &s[..]).is_ok());
 
-        let s_body = [0x6fu8; CONTRACT_MAX_NAME_LENGTH+1];
+        let s_body = [0x6fu8; CONTRACT_MAX_NAME_LENGTH + 1];
         let mut s_payload = vec![s_body.len() as u8];
         s_payload.extend_from_slice(&s_body);
 
@@ -418,20 +458,64 @@ mod test {
 
     #[test]
     fn test_url_parse() {
-        assert!(UrlString::try_from("asdfjkl;").unwrap().parse_to_block_url().unwrap_err().to_string().find("Invalid URL").is_some());
-        assert!(UrlString::try_from("http://").unwrap().parse_to_block_url().unwrap_err().to_string().find("Invalid URL").is_some());
-        assert!(UrlString::try_from("ftp://ftp.google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("invalid scheme").is_some());
-        assert!(UrlString::try_from("http://jude@google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("must not contain a username/password").is_some());
-        assert!(UrlString::try_from("http://jude:pw@google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("must not contain a username/password").is_some());
-        assert!(UrlString::try_from("http://www.google.com/foo/bar?baz=goo").unwrap().parse_to_block_url().unwrap_err().to_string().find("query strings not supported").is_some());
-        assert!(UrlString::try_from("http://www.google.com/foo/bar#baz").unwrap().parse_to_block_url().unwrap_err().to_string().find("fragments are not supported").is_some());
+        assert!(UrlString::try_from("asdfjkl;")
+            .unwrap()
+            .parse_to_block_url()
+            .unwrap_err()
+            .to_string()
+            .find("Invalid URL")
+            .is_some());
+        assert!(UrlString::try_from("http://")
+            .unwrap()
+            .parse_to_block_url()
+            .unwrap_err()
+            .to_string()
+            .find("Invalid URL")
+            .is_some());
+        assert!(UrlString::try_from("ftp://ftp.google.com")
+            .unwrap()
+            .parse_to_block_url()
+            .unwrap_err()
+            .to_string()
+            .find("invalid scheme")
+            .is_some());
+        assert!(UrlString::try_from("http://jude@google.com")
+            .unwrap()
+            .parse_to_block_url()
+            .unwrap_err()
+            .to_string()
+            .find("must not contain a username/password")
+            .is_some());
+        assert!(UrlString::try_from("http://jude:pw@google.com")
+            .unwrap()
+            .parse_to_block_url()
+            .unwrap_err()
+            .to_string()
+            .find("must not contain a username/password")
+            .is_some());
+        assert!(UrlString::try_from("http://www.google.com/foo/bar?baz=goo")
+            .unwrap()
+            .parse_to_block_url()
+            .unwrap_err()
+            .to_string()
+            .find("query strings not supported")
+            .is_some());
+        assert!(UrlString::try_from("http://www.google.com/foo/bar#baz")
+            .unwrap()
+            .parse_to_block_url()
+            .unwrap_err()
+            .to_string()
+            .find("fragments are not supported")
+            .is_some());
 
         // don't need to cover the happy path too much, since the rust-url package already tests it.
-        let url = UrlString::try_from("http://127.0.0.1:1234/v2/info").unwrap().parse_to_block_url().unwrap();
+        let url = UrlString::try_from("http://127.0.0.1:1234/v2/info")
+            .unwrap()
+            .parse_to_block_url()
+            .unwrap();
         assert_eq!(url.host_str(), Some("127.0.0.1"));
         assert_eq!(url.port(), Some(1234));
         assert_eq!(url.path(), "/v2/info");
         assert_eq!(url.scheme(), "http");
     }
 }
-

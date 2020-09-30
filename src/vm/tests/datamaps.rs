@@ -1,9 +1,12 @@
 use std::convert::TryFrom;
-use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType};
-use vm::types::{Value, SequenceData, TupleData, TypeSignature, QualifiedContractIdentifier, StandardPrincipalData, ListData, TupleTypeSignature};
-use vm::contexts::{OwnedEnvironment};
+use vm::contexts::OwnedEnvironment;
 use vm::database::MemoryBackingStore;
+use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::execute;
+use vm::types::{
+    ListData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value,
+};
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
@@ -11,8 +14,7 @@ fn assert_executes(expected: Result<Value, Error>, input: &str) {
 
 #[test]
 fn test_simple_tea_shop() {
-    let test1 =
-        "(define-map proper-tea ((tea-type int)) ((amount int)))
+    let test1 = "(define-map proper-tea ((tea-type int)) ((amount int)))
          (define-private (stock (tea int) (amount int))
            (map-set proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
          (define-private (consume (tea int))
@@ -52,16 +54,15 @@ fn test_simple_tea_shop() {
         Value::Int(1),
         Value::Int(2),
         Value::Int(2),
-        Value::Int(3)],
-    );
+        Value::Int(3),
+    ]);
 
     assert_executes(expected, test1);
 }
 
 #[test]
 fn test_bound_tuple() {
-    let test =
-        "(define-map kv-store ((key int)) ((value int)))
+    let test = "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
@@ -89,8 +90,8 @@ fn test_bound_tuple() {
         Value::Int(1),
         Value::Int(2),
         Value::Int(1),
-        Value::Int(1)],
-    );
+        Value::Int(1),
+    ]);
     assert_executes(expected, &test_add_set_del);
 
     let mut test_get = test.to_string();
@@ -101,8 +102,7 @@ fn test_bound_tuple() {
 
 #[test]
 fn test_explicit_syntax_tuple() {
-    let test =
-        "(define-map kv-store ((key int)) ((value int)))
+    let test = "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
             (begin
                 (map-insert kv-store (tuple (key key))
@@ -127,8 +127,8 @@ fn test_explicit_syntax_tuple() {
         Value::Int(1),
         Value::Int(2),
         Value::Int(1),
-        Value::Int(1)],
-    );
+        Value::Int(1),
+    ]);
     assert_executes(expected, &test_add_set_del);
 
     let mut test_get = test.to_string();
@@ -139,8 +139,7 @@ fn test_explicit_syntax_tuple() {
 
 #[test]
 fn test_implicit_syntax_tuple() {
-    let test =
-        "(define-map kv-store ((key int)) ((value int)))
+    let test = "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
             (begin
                 (map-insert kv-store {key: key}
@@ -165,8 +164,8 @@ fn test_implicit_syntax_tuple() {
         Value::Int(1),
         Value::Int(2),
         Value::Int(1),
-        Value::Int(1)],
-    );
+        Value::Int(1),
+    ]);
     assert_executes(expected, &test_add_set_del);
 
     let mut test_get = test.to_string();
@@ -177,7 +176,7 @@ fn test_implicit_syntax_tuple() {
 
 #[test]
 fn test_set_int_variable() {
-        let contract_src = r#"
+    let contract_src = r#"
         (define-data-var cursor int 0)
         (define-private (get-cursor)
             (var-get cursor))
@@ -221,7 +220,7 @@ fn test_set_bool_variable() {
     let expected = Value::list_from(vec![
         Value::Bool(true),
         Value::Bool(false),
-        Value::Bool(false)
+        Value::Bool(false),
     ]);
     assert_executes(expected, &contract_src);
 }
@@ -240,9 +239,27 @@ fn test_set_tuple_variable() {
     let mut contract_src = contract_src.to_string();
     contract_src.push_str("(list (get-keys) (set-keys (tuple (k1 2) (v1 0))) (get-keys))");
     let expected = Value::list_from(vec![
-        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(1)), ("v1".into(), Value::Int(1))]).unwrap()),
-        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
-        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
+        Value::Tuple(
+            TupleData::from_data(vec![
+                ("k1".into(), Value::Int(1)),
+                ("v1".into(), Value::Int(1)),
+            ])
+            .unwrap(),
+        ),
+        Value::Tuple(
+            TupleData::from_data(vec![
+                ("k1".into(), Value::Int(2)),
+                ("v1".into(), Value::Int(0)),
+            ])
+            .unwrap(),
+        ),
+        Value::Tuple(
+            TupleData::from_data(vec![
+                ("k1".into(), Value::Int(2)),
+                ("v1".into(), Value::Int(0)),
+            ])
+            .unwrap(),
+        ),
     ]);
     assert_executes(expected, &contract_src);
 }
@@ -265,9 +282,10 @@ fn test_set_response_variable() {
         (unwrap! (var-get keys) 5)
     "#;
     let contract_src = contract_src.to_string();
-    assert_eq!(Err(ShortReturnType::ExpectedValue(Value::Int(5)).into()),
-               execute(&contract_src));
-
+    assert_eq!(
+        Err(ShortReturnType::ExpectedValue(Value::Int(5)).into()),
+        execute(&contract_src)
+    );
 }
 
 #[test]
@@ -287,7 +305,7 @@ fn test_set_list_variable() {
     let expected = Value::list_from(vec![
         Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap(),
         Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap(),
-        Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap()
+        Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap(),
     ]);
     assert_executes(expected, &contract_src);
 }
@@ -307,12 +325,17 @@ fn test_get_list_max_len() {
     let actual_value = execute(&contract_src).unwrap().unwrap();
 
     match actual_value {
-        Value::Sequence(SequenceData::List(ListData { data, type_signature })) => {
-            assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)],
-                       data);
-            assert_eq!("(list 10 int)", &format!("{}", TypeSignature::from(type_signature)));
-        },
-        _ => panic!("Expected List")
+        Value::Sequence(SequenceData::List(ListData {
+            data,
+            type_signature,
+        })) => {
+            assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)], data);
+            assert_eq!(
+                "(list 10 int)",
+                &format!("{}", TypeSignature::from(type_signature))
+            );
+        }
+        _ => panic!("Expected List"),
     };
 }
 
@@ -340,8 +363,7 @@ fn test_set_string_variable() {
 
 #[test]
 fn test_factorial_contract() {
-    let test1 =
-        "(define-map factorials ((id int)) ((current int) (index int)))
+    let test1 = "(define-map factorials ((id int)) ((current int) (index int)))
          (define-private (init-factorial (id int) (factorial int))
            (map-insert factorials {id: id} {current: 1, index: factorial}))
          (define-private (compute (id int))
@@ -389,8 +411,7 @@ fn test_factorial_contract() {
 
 #[test]
 fn silly_naming_system() {
-    let test1 =
-        "(define-map silly-names ((name int)) ((owner int)))
+    let test1 = "(define-map silly-names ((name int)) ((owner int)))
          (define-private (register (name int) (owner int))
            (if (map-insert silly-names (tuple (name name)) (tuple (owner owner)))
                1 0))
@@ -438,15 +459,16 @@ fn datamap_errors() {
     ];
 
     for program in tests.iter() {
-        assert_eq!(execute(program).unwrap_err(),
-                   CheckErrors::NoSuchMap("non-existent".to_string()).into());
+        assert_eq!(
+            execute(program).unwrap_err(),
+            CheckErrors::NoSuchMap("non-existent".to_string()).into()
+        );
     }
 }
 
 #[test]
 fn lists_system_2() {
-    let test =
-        "(define-map lists ((name int)) ((contents (list 5 1 int))))
+    let test = "(define-map lists ((name int)) ((contents (list 5 1 int))))
          (define-private (add-list (name int) (content (list 5 1 int)))
            (map-insert lists (tuple (name name))
                                 (tuple (contents content))))
@@ -459,15 +481,14 @@ fn lists_system_2() {
         (map-insert lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
 
     match execute(test) {
-        Err(Error::Unchecked(CheckErrors::TypeError(_,_))) => true,
-        _ => false
+        Err(Error::Unchecked(CheckErrors::TypeError(_, _))) => true,
+        _ => false,
     };
 }
 
 #[test]
 fn lists_system() {
-    let test1 =
-        "(define-map lists ((name int)) ((contents (list 5 int))))
+    let test1 = "(define-map lists ((name int)) ((contents (list 5 int))))
          (define-private (add-list (name int) (content (list 5 int)))
            (map-insert lists (tuple (name name))
                                 (tuple (contents content))))
@@ -483,16 +504,21 @@ fn lists_system() {
     test_list_too_big.push_str("(add-list 2 (list 1 2 3 4 5 6))");
 
     let mut test_bad_tuple_1 = test1.to_string();
-    test_bad_tuple_1.push_str("(print (map-insert lists (tuple (name 1)) (print (tuple (contentious (list 1 2 6))))))");
+    test_bad_tuple_1.push_str(
+        "(print (map-insert lists (tuple (name 1)) (print (tuple (contentious (list 1 2 6))))))",
+    );
 
     let mut test_bad_tuple_2 = test1.to_string();
-    test_bad_tuple_2.push_str("(map-insert lists (tuple (name 1)) (tuple (contents (list 1 2 6)) (discontents 1)))");
+    test_bad_tuple_2.push_str(
+        "(map-insert lists (tuple (name 1)) (tuple (contents (list 1 2 6)) (discontents 1)))",
+    );
 
     let mut test_bad_tuple_3 = test1.to_string();
     test_bad_tuple_3.push_str("(map-insert lists {name: 1} {contents: (list false true false)})");
 
     let mut test_bad_tuple_4 = test1.to_string();
-    test_bad_tuple_4.push_str("(map-insert lists (tuple (name (list 1))) (tuple (contents (list 1 2 3))))");
+    test_bad_tuple_4
+        .push_str("(map-insert lists (tuple (name (list 1))) (tuple (contents (list 1 2 3))))");
 
     let expected = || {
         let list1 = Value::list_from(vec![
@@ -500,34 +526,37 @@ fn lists_system() {
             Value::Int(2),
             Value::Int(3),
             Value::Int(4),
-            Value::Int(5)])?;
-        let list2 = Value::list_from(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(3)])?;
+            Value::Int(5),
+        ])?;
+        let list2 = Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)])?;
         Value::list_from(vec![list1, list2])
     };
 
     assert_executes(expected(), test1);
 
-    for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
-                 test_bad_tuple_3, test_bad_tuple_4].iter() {
+    for test in [
+        test_list_too_big,
+        test_bad_tuple_1,
+        test_bad_tuple_2,
+        test_bad_tuple_3,
+        test_bad_tuple_4,
+    ]
+    .iter()
+    {
         let test = execute(test);
         println!("{:#?}", test);
         let expected_type_error = match test {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_,_))) => true,
-            _ => false
+            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
+            _ => false,
         };
 
         assert!(expected_type_error);
     }
-
 }
 
 #[test]
 fn tuples_system() {
-    let test1 =
-        "(define-map tuples ((name int))
+    let test1 = "(define-map tuples ((name int))
                             ((contents (tuple (name (string-ascii 5))
                                               (owner (string-ascii 5))))))
 
@@ -572,12 +601,18 @@ fn tuples_system() {
 
     assert_executes(expected(), test1);
 
-    let type_error_tests = [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2, test_bad_tuple_3,
-                            test_bad_tuple_4, test_bad_tuple_5];
+    let type_error_tests = [
+        test_list_too_big,
+        test_bad_tuple_1,
+        test_bad_tuple_2,
+        test_bad_tuple_3,
+        test_bad_tuple_4,
+        test_bad_tuple_5,
+    ];
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_,_))) => true,
+            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -586,7 +621,6 @@ fn tuples_system() {
 
         assert!(expected_type_error);
     }
-
 }
 
 #[test]
@@ -605,33 +639,35 @@ fn bad_define_maps() {
         CheckErrors::BadSyntaxExpectedListOfPairs.into(),
         CheckErrors::ExpectedName.into(),
         CheckErrors::IncorrectArgumentCount(3, 4).into(),
-        CheckErrors::InvalidTypeDescription.into()
+        CheckErrors::InvalidTypeDescription.into(),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
         let outcome = execute(test).unwrap_err();
         assert_eq!(outcome, expected_err);
     }
-
 }
 
 #[test]
 fn bad_tuples() {
-    let tests = ["(tuple (name 1) (name 3))",
-                 "(tuple name 1)",
-                 "(tuple (name 1) (blame))",
-                 "(get value (tuple (name 1)))",
-                 "(get name five (tuple (name 1)))",
-                 "(get 1234 (tuple (name 1)))"];
+    let tests = [
+        "(tuple (name 1) (name 3))",
+        "(tuple name 1)",
+        "(tuple (name 1) (blame))",
+        "(get value (tuple (name 1)))",
+        "(get name five (tuple (name 1)))",
+        "(get 1234 (tuple (name 1)))",
+    ];
     let mut expected = vec![
         CheckErrors::NameAlreadyUsed("name".into()),
         CheckErrors::BadSyntaxBinding,
         CheckErrors::BadSyntaxBinding,
         CheckErrors::NoSuchTupleField(
             "value".into(),
-            TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap()),
+            TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap(),
+        ),
         CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::ExpectedName
+        CheckErrors::ExpectedName,
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.drain(..)) {

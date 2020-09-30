@@ -1,24 +1,24 @@
-pub mod mocknet_controller;
 pub mod bitcoin_regtest_controller;
+pub mod mocknet_controller;
 
-pub use self::mocknet_controller::{MocknetController};
-pub use self::bitcoin_regtest_controller::{BitcoinRegtestController};
+pub use self::bitcoin_regtest_controller::BitcoinRegtestController;
+pub use self::mocknet_controller::MocknetController;
 
 use super::operations::BurnchainOpSigner;
 
-use std::time::Instant;
 use std::fmt;
+use std::time::Instant;
 
 use stacks::burnchains;
 use stacks::burnchains::BurnchainStateTransitionOps;
-use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::BlockSnapshot;
 
 #[derive(Debug)]
 pub enum Error {
     CoordinatorClosed,
-    IndexerError(burnchains::Error)
+    IndexerError(burnchains::Error),
 }
 
 impl fmt::Display for Error {
@@ -31,8 +31,13 @@ impl fmt::Display for Error {
 }
 
 pub trait BurnchainController {
-    fn start(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
-    fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) -> bool;
+    fn start(&mut self, target_block_height_opt: Option<u64>)
+        -> Result<(BurnchainTip, u64), Error>;
+    fn submit_operation(
+        &mut self,
+        operation: BlockstackOperationType,
+        op_signer: &mut BurnchainOpSigner,
+    ) -> bool;
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
@@ -50,10 +55,7 @@ pub struct BurnchainTip {
 }
 
 impl BurnchainTip {
-
-
     pub fn get_winning_tx_index(&self) -> Option<u32> {
-
         let winning_tx_id = self.block_snapshot.winning_block_txid;
         let mut winning_tx_vtindex = None;
 
@@ -62,9 +64,8 @@ impl BurnchainTip {
                 if op.txid == winning_tx_id {
                     winning_tx_vtindex = Some(op.vtxindex)
                 }
-            } 
+            }
         }
         winning_tx_vtindex
     }
 }
-

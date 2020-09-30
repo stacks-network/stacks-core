@@ -20,36 +20,35 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-/// This codebase is based on routines defined in the IETF draft for verifiable random functions
-/// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
-
-use std::ops::Deref;
-use std::ops::DerefMut;
-use std::fmt::Debug;
-use std::cmp::PartialEq;
+use std::clone::Clone;
+use std::cmp::Eq;
 use std::cmp::Ord;
 use std::cmp::Ordering;
-use std::cmp::Eq;
+use std::cmp::PartialEq;
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
-use std::clone::Clone;
+/// This codebase is based on routines defined in the IETF draft for verifiable random functions
+/// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
+use std::ops::Deref;
+use std::ops::DerefMut;
 use util::hash::to_hex;
 
+use ed25519_dalek::Keypair as VRFKeypair;
 use ed25519_dalek::PublicKey as ed25519_PublicKey;
 use ed25519_dalek::SecretKey as ed25519_PrivateKey;
-use ed25519_dalek::Keypair as VRFKeypair;
 
-use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
+use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
 
 use sha2::Digest;
 use sha2::Sha512;
 
-use std::fmt;
 use std::error;
+use std::fmt;
 
-use util::hash::hex_bytes;
 use rand;
+use util::hash::hex_bytes;
 
 #[derive(Clone)]
 pub struct VRFPublicKey(pub ed25519_PublicKey);
@@ -75,7 +74,8 @@ impl<'de> serde::Deserialize<'de> for VRFPublicKey {
 impl Clone for VRFPrivateKey {
     fn clone(&self) -> VRFPrivateKey {
         let bytes = self.to_bytes();
-        let pk = ed25519_PrivateKey::from_bytes(&bytes).expect("FATAL: could not do VRFPrivateKey round-trip");
+        let pk = ed25519_PrivateKey::from_bytes(&bytes)
+            .expect("FATAL: could not do VRFPrivateKey round-trip");
         VRFPrivateKey(pk)
     }
 }
@@ -161,20 +161,18 @@ impl VRFPrivateKey {
 
     pub fn from_hex(h: &String) -> Option<VRFPrivateKey> {
         match hex_bytes(h) {
-            Ok(b) => {
-                match ed25519_PrivateKey::from_bytes(&b[..]) {
-                    Ok(pk) => Some(VRFPrivateKey(pk)),
-                    Err(_) => None
-                }
+            Ok(b) => match ed25519_PrivateKey::from_bytes(&b[..]) {
+                Ok(pk) => Some(VRFPrivateKey(pk)),
+                Err(_) => None,
             },
-            Err(_) => None
+            Err(_) => None,
         }
     }
 
     pub fn from_bytes(b: &[u8]) -> Option<VRFPrivateKey> {
         match ed25519_PrivateKey::from_bytes(b) {
             Ok(pk) => Some(VRFPrivateKey(pk)),
-            Err(_) => None
+            Err(_) => None,
         }
     }
 
@@ -196,7 +194,7 @@ impl VRFPublicKey {
 
                 let checked_pubkey = CompressedEdwardsY(pubkey_slice);
                 match checked_pubkey.decompress() {
-                    Some(_) => {},
+                    Some(_) => {}
                     None => {
                         // invalid
                         return None;
@@ -205,22 +203,20 @@ impl VRFPublicKey {
 
                 match ed25519_PublicKey::from_bytes(&pubkey_slice) {
                     Ok(key) => Some(VRFPublicKey(key)),
-                    Err(_) => None
+                    Err(_) => None,
                 }
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
 
     pub fn from_hex(h: &String) -> Option<VRFPublicKey> {
         match hex_bytes(h) {
-            Ok(b) => {
-                VRF::check_public_key(&b)
-            },
-            Err(_) => None
+            Ok(b) => VRF::check_public_key(&b),
+            Err(_) => None,
         }
     }
-    
+
     pub fn to_hex(&self) -> String {
         to_hex(self.as_bytes())
     }
@@ -230,7 +226,7 @@ impl VRFPublicKey {
 pub enum Error {
     InvalidPublicKey,
     InvalidDataError,
-    OSRNGError(rand::Error)
+    OSRNGError(rand::Error),
 }
 
 impl fmt::Display for Error {
@@ -238,7 +234,7 @@ impl fmt::Display for Error {
         match *self {
             Error::InvalidPublicKey => write!(f, "Invalid public key"),
             Error::InvalidDataError => write!(f, "No data could be found"),
-            Error::OSRNGError(ref e) => fmt::Display::fmt(e, f)
+            Error::OSRNGError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -248,12 +244,12 @@ impl error::Error for Error {
         match *self {
             Error::InvalidPublicKey => None,
             Error::InvalidDataError => None,
-            Error::OSRNGError(ref e) => Some(e)
+            Error::OSRNGError(ref e) => Some(e),
         }
     }
 }
 
-pub const SUITE : u8 = 0x03;
+pub const SUITE: u8 = 0x03;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct VRFProof {
@@ -262,7 +258,7 @@ pub struct VRFProof {
     // Gamma: RistrettoPoint,
     Gamma: EdwardsPoint,
     c: ed25519_Scalar,
-    s: ed25519_Scalar
+    s: ed25519_Scalar,
 }
 
 impl Debug for VRFProof {
@@ -278,7 +274,7 @@ impl Hash for VRFProof {
     }
 }
 
-pub const VRF_PROOF_ENCODED_SIZE : u32 = 80;
+pub const VRF_PROOF_ENCODED_SIZE: u32 = 80;
 
 impl VRFProof {
     pub fn Gamma(&self) -> &EdwardsPoint {
@@ -295,7 +291,7 @@ impl VRFProof {
 
     pub fn check_c(c: &ed25519_Scalar) -> bool {
         let c_bytes = c.reduce().to_bytes();
-        
+
         // upper 16 bytes of c must be 0's
         for i in 16..32 {
             if c_bytes[i] != 0 {
@@ -310,16 +306,16 @@ impl VRFProof {
         VRFProof::from_slice(&[1u8; 80]).unwrap()
     }
 
-    pub fn new(Gamma: EdwardsPoint, c: ed25519_Scalar, s: ed25519_Scalar) -> Result<VRFProof, Error> {
+    pub fn new(
+        Gamma: EdwardsPoint,
+        c: ed25519_Scalar,
+        s: ed25519_Scalar,
+    ) -> Result<VRFProof, Error> {
         if !VRFProof::check_c(&c) {
             return Err(Error::InvalidDataError);
         }
 
-        Ok(VRFProof {
-            Gamma,
-            c,
-            s
-        })
+        Ok(VRFProof { Gamma, c, s })
     }
 
     pub fn from_slice(bytes: &[u8]) -> Option<VRFProof> {
@@ -344,22 +340,22 @@ impl VRFProof {
                 let mut s_buf = [0u8; 32];
 
                 for i in 0..16 {
-                    c_buf[i] = bytes[32+i];
+                    c_buf[i] = bytes[32 + i];
                 }
                 for i in 0..32 {
-                    s_buf[i] = bytes[48+i];
+                    s_buf[i] = bytes[48 + i];
                 }
 
                 let c = ed25519_Scalar::from_canonical_bytes(c_buf)?;
                 let s = ed25519_Scalar::from_canonical_bytes(s_buf)?;
-                
+
                 Some(VRFProof {
                     Gamma: gamma,
                     c: c,
-                    s: s
+                    s: s,
                 })
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
 
@@ -369,18 +365,17 @@ impl VRFProof {
 
     pub fn from_hex(hex_str: &String) -> Option<VRFProof> {
         match hex_bytes(hex_str) {
-            Ok(b) => {
-                VRFProof::from_slice(&b[..])
-            },
-            Err(_) => {
-                None
-            }
+            Ok(b) => VRFProof::from_slice(&b[..]),
+            Err(_) => None,
         }
     }
 
     pub fn to_bytes(&self) -> [u8; 80] {
         let mut c_bytes_16 = [0u8; 16];
-        assert!(VRFProof::check_c(&self.c), "FATAL ERROR: somehow constructed an invalid ECVRF proof");
+        assert!(
+            VRFProof::check_c(&self.c),
+            "FATAL ERROR: somehow constructed an invalid ECVRF proof"
+        );
 
         let c_bytes = self.c.reduce().to_bytes();
         c_bytes_16[0..16].copy_from_slice(&c_bytes[0..16]);
@@ -388,16 +383,16 @@ impl VRFProof {
         let gamma_bytes = self.Gamma.compress().to_bytes();
         let s_bytes = self.s.to_bytes();
 
-        let mut ret : Vec<u8> = Vec::with_capacity(80);
+        let mut ret: Vec<u8> = Vec::with_capacity(80);
         ret.extend_from_slice(&gamma_bytes);
         ret.extend_from_slice(&c_bytes_16);
         ret.extend_from_slice(&s_bytes);
-        
+
         let mut proof_bytes = [0u8; 80];
         proof_bytes.copy_from_slice(&ret[..]);
         proof_bytes
     }
-    
+
     pub fn to_hex(&self) -> String {
         to_hex(&self.to_bytes())
     }
@@ -406,10 +401,10 @@ impl VRFProof {
 pub struct VRF {}
 
 impl VRF {
-    /// Hash-to-curve, Try-and-increment approach (described in 
+    /// Hash-to-curve, Try-and-increment approach (described in
     /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html)
     fn hash_to_curve(y: &VRFPublicKey, alpha: &[u8]) -> EdwardsPoint {
-        let mut ctr : u64 = 0;
+        let mut ctr: u64 = 0;
 
         let h: EdwardsPoint = loop {
             let mut hasher = Sha512::new();
@@ -419,12 +414,11 @@ impl VRF {
 
             if ctr == 0 {
                 hasher.input(&[0u8]);
-            }
-            else {
+            } else {
                 // 2**64 - 1 is an artificial cap -- the RFC implies that you should count forever
                 let ctr_bytes = ctr.to_le_bytes();
                 for i in 0..8 {
-                    if ctr > 1u64 << (8*i) {
+                    if ctr > 1u64 << (8 * i) {
                         hasher.input(&[ctr_bytes[i]]);
                     }
                 }
@@ -434,8 +428,10 @@ impl VRF {
             if let Some(h) = y.decompress() {
                 break h;
             }
-           
-            ctr = ctr.checked_add(1).expect("Too many attempts at try-and-increment hash-to-curve");
+
+            ctr = ctr
+                .checked_add(1)
+                .expect("Too many attempts at try-and-increment hash-to-curve");
         };
 
         let ed = h.mul_by_cofactor();
@@ -444,7 +440,12 @@ impl VRF {
 
     /// Hash four points to a 16-byte string.
     /// Implementation of https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html#rfc.section.5.4.2
-    fn hash_points(p1: &EdwardsPoint, p2: &EdwardsPoint, p3: &EdwardsPoint, p4: &EdwardsPoint) -> [u8; 16] {
+    fn hash_points(
+        p1: &EdwardsPoint,
+        p2: &EdwardsPoint,
+        p3: &EdwardsPoint,
+        p4: &EdwardsPoint,
+    ) -> [u8; 16] {
         let mut hasher = Sha512::new();
         let mut hash128 = [0u8; 16];
 
@@ -454,7 +455,7 @@ impl VRF {
         hasher.input(&p2.compress().to_bytes());
         hasher.input(&p3.compress().to_bytes());
         hasher.input(&p4.compress().to_bytes());
-        
+
         hash128.copy_from_slice(&hasher.result()[0..16]);
         hash128
     }
@@ -485,7 +486,7 @@ impl VRF {
         h_32.copy_from_slice(&h[0..32]);
 
         let x_scalar_raw = ed25519_Scalar::from_bits(h_32);
-        let x_scalar = x_scalar_raw.reduce();       // use the canonical scalar for the private key
+        let x_scalar = x_scalar_raw.reduce(); // use the canonical scalar for the private key
 
         trunc_hash.copy_from_slice(&h[32..64]);
 
@@ -529,13 +530,14 @@ impl VRF {
 
         let c_hashbuf = VRF::hash_points(&H_point, &Gamma_point, &kB_point, &kH_point);
         let c_scalar = VRF::ed25519_scalar_from_hash128(&c_hashbuf);
-        
+
         let s_full_scalar = &k_scalar + &c_scalar * &x_scalar;
         let s_scalar = s_full_scalar.reduce();
 
-        // NOTE: expect() won't panic because c_scalar is guaranteed to have 
+        // NOTE: expect() won't panic because c_scalar is guaranteed to have
         // its upper 16 bytes as 0
-        VRFProof::new(Gamma_point, c_scalar, s_scalar).expect("FATAL ERROR: upper-16 bytes of proof's C scalar are NOT 0")
+        VRFProof::new(Gamma_point, c_scalar, s_scalar)
+            .expect("FATAL ERROR: upper-16 bytes of proof's C scalar are NOT 0")
     }
 
     /// Given a public key, verify that the private key owner that generate the ECVRF proof did so on the given message.
@@ -543,10 +545,16 @@ impl VRF {
     /// Return Ok(false) if not
     /// Return Err(Error) if the public key is invalid, or we are unable to do one of the
     /// necessary internal data conversions.
-    pub fn verify(Y_point: &VRFPublicKey, proof: &VRFProof, alpha: &Vec<u8>) -> Result<bool, Error> {
+    pub fn verify(
+        Y_point: &VRFPublicKey,
+        proof: &VRFProof,
+        alpha: &Vec<u8>,
+    ) -> Result<bool, Error> {
         let H_point = VRF::hash_to_curve(Y_point, alpha);
         let s_reduced = proof.s().reduce();
-        let Y_point_ed = CompressedEdwardsY(Y_point.to_bytes()).decompress().ok_or(Error::InvalidPublicKey)?;
+        let Y_point_ed = CompressedEdwardsY(Y_point.to_bytes())
+            .decompress()
+            .ok_or(Error::InvalidPublicKey)?;
         if proof.Gamma().is_small_order() {
             return Err(Error::InvalidPublicKey);
         }
@@ -565,10 +573,8 @@ impl VRF {
     /// Edwards point that is valid).
     pub fn check_public_key(pubkey_bytes: &Vec<u8>) -> Option<VRFPublicKey> {
         match pubkey_bytes.len() {
-            32 => {
-                VRFPublicKey::from_bytes(&pubkey_bytes[..])
-            },
-            _ => None
+            32 => VRFPublicKey::from_bytes(&pubkey_bytes[..]),
+            _ => None,
         }
     }
 }
@@ -590,7 +596,7 @@ mod tests {
     struct VRF_Proof_Fixture {
         privkey: Vec<u8>,
         message: &'static str,
-        proof: Vec<u8>
+        proof: Vec<u8>,
     }
 
     #[derive(Debug)]
@@ -598,16 +604,16 @@ mod tests {
         pubkey: Vec<u8>,
         proof: Vec<u8>,
         message: &'static str,
-        result: bool
+        result: bool,
     }
 
     #[derive(Debug)]
     struct VRF_Proof_Codec_Fixture {
         proof: Vec<u8>,
-        result: bool
+        result: bool,
     }
 
-    // from Appendix A.3 in https://tools.ietf.org/id/draft-irtf-cfrg-vrf-04.html 
+    // from Appendix A.3 in https://tools.ietf.org/id/draft-irtf-cfrg-vrf-04.html
     #[test]
     fn test_vrf_rfc() {
         let proof_fixtures = vec![
@@ -701,13 +707,12 @@ mod tests {
         for proof_fixture in proof_fixtures {
             let proof_res = VRFProof::from_bytes(&proof_fixture.proof);
             if proof_fixture.result {
-                // should decode 
+                // should decode
                 assert!(!proof_res.is_none());
-                
+
                 // should re-encode
                 assert!(proof_res.unwrap().to_bytes().to_vec() == proof_fixture.proof.to_vec());
-            }
-            else {
+            } else {
                 assert!(proof_res.is_none());
             }
         }
@@ -715,10 +720,18 @@ mod tests {
 
     #[test]
     fn check_valid_public_key() {
-        let res1 = VRF::check_public_key(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap().to_vec());
+        let res1 = VRF::check_public_key(
+            &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                .unwrap()
+                .to_vec(),
+        );
         assert!(res1.is_some());
 
-        let res2 = VRF::check_public_key(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7b").unwrap().to_vec());
+        let res2 = VRF::check_public_key(
+            &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7b")
+                .unwrap()
+                .to_vec(),
+        );
         assert!(res2.is_none());
     }
 }

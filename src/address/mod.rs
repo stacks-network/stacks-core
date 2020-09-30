@@ -22,13 +22,13 @@ use std::fmt;
 
 use burnchains::PublicKey;
 
-use deps::bitcoin::blockdata::script::{Script, Instruction, Builder};
 use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
+use deps::bitcoin::blockdata::script::{Builder, Instruction, Script};
 
 use util::hash::Hash160;
 
-use sha2::Sha256;
 use sha2::Digest;
+use sha2::Sha256;
 
 use std::convert::TryFrom;
 
@@ -51,7 +51,7 @@ pub enum Error {
     /// Checked data was less than 4 bytes
     TooShort(usize),
     /// Any other error
-    Other(String)
+    Other(String),
 }
 
 impl fmt::Display for Error {
@@ -61,16 +61,22 @@ impl fmt::Display for Error {
             Error::InvalidVersion(ref v) => write!(f, "Invalid version {}", v),
             Error::EmptyData => f.write_str("Empty data"),
             Error::BadByte(b) => write!(f, "invalid base58 character 0x{:x}", b),
-            Error::BadChecksum(exp, actual) => write!(f, "base58ck checksum 0x{:x} does not match expected 0x{:x}", actual, exp),
+            Error::BadChecksum(exp, actual) => write!(
+                f,
+                "base58ck checksum 0x{:x} does not match expected 0x{:x}",
+                actual, exp
+            ),
             Error::InvalidLength(ell) => write!(f, "length {} invalid for this base58 type", ell),
             Error::TooShort(_) => write!(f, "base58ck data not even long enough for a checksum"),
-            Error::Other(ref s) => f.write_str(s)
+            Error::Other(ref s) => f.write_str(s),
         }
     }
 }
 
 impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> { None }
+    fn cause(&self) -> Option<&dyn error::Error> {
+        None
+    }
     fn description(&self) -> &'static str {
         match *self {
             Error::InvalidCrockford32 => "Invalid crockford 32 string",
@@ -80,7 +86,7 @@ impl error::Error for Error {
             Error::BadChecksum(_, _) => "invalid b58ck checksum",
             Error::InvalidLength(_) => "invalid length for b58 type",
             Error::TooShort(_) => "b58ck data less than 4 bytes",
-            Error::Other(_) => "unknown b58 error"
+            Error::Other(_) => "unknown b58 error",
         }
     }
 }
@@ -90,10 +96,10 @@ impl error::Error for Error {
 pub enum AddressHashMode {
     // serialization modes for public keys to addresses.
     // We support four different modes due to legacy compatibility with Stacks v1 addresses:
-    SerializeP2PKH = 0x00,          // hash160(public-key), same as bitcoin's p2pkh
-    SerializeP2SH = 0x01,           // hash160(multisig-redeem-script), same as bitcoin's multisig p2sh
-    SerializeP2WPKH = 0x02,         // hash160(segwit-program-00(p2pkh)), same as bitcoin's p2sh-p2wpkh
-    SerializeP2WSH = 0x03,          // hash160(segwit-program-00(public-keys)), same as bitcoin's p2sh-p2wsh
+    SerializeP2PKH = 0x00,  // hash160(public-key), same as bitcoin's p2pkh
+    SerializeP2SH = 0x01,   // hash160(multisig-redeem-script), same as bitcoin's multisig p2sh
+    SerializeP2WPKH = 0x02, // hash160(segwit-program-00(p2pkh)), same as bitcoin's p2sh-p2wpkh
+    SerializeP2WSH = 0x03,  // hash160(segwit-program-00(public-keys)), same as bitcoin's p2sh-p2wsh
 }
 
 /// Given the u8 of an AddressHashMode, deduce the AddressHashNode
@@ -104,9 +110,11 @@ impl TryFrom<u8> for AddressHashMode {
         match value {
             x if x == AddressHashMode::SerializeP2PKH as u8 => Ok(AddressHashMode::SerializeP2PKH),
             x if x == AddressHashMode::SerializeP2SH as u8 => Ok(AddressHashMode::SerializeP2SH),
-            x if x == AddressHashMode::SerializeP2WPKH as u8 => Ok(AddressHashMode::SerializeP2WPKH),
+            x if x == AddressHashMode::SerializeP2WPKH as u8 => {
+                Ok(AddressHashMode::SerializeP2WPKH)
+            }
             x if x == AddressHashMode::SerializeP2WSH as u8 => Ok(AddressHashMode::SerializeP2WSH),
-            _ => Err(Error::InvalidVersion(value))
+            _ => Err(Error::InvalidVersion(value)),
         }
     }
 }
@@ -129,7 +137,7 @@ fn to_bits_p2sh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash160 {
     }
     bldr = bldr.push_int(pubkeys.len() as i64);
     bldr = bldr.push_opcode(btc_opcodes::OP_CHECKMULTISIG);
-    
+
     let script = bldr.into_script();
     let script_hash = Hash160::from_data(&script.as_bytes());
     script_hash
@@ -140,9 +148,7 @@ fn to_bits_p2sh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash160 {
 fn to_bits_p2sh_p2wpkh<K: PublicKey>(pubk: &K) -> Hash160 {
     let key_hash = Hash160::from_data(&pubk.to_bytes());
 
-    let bldr = Builder::new()
-        .push_int(0)
-        .push_slice(key_hash.as_bytes());
+    let bldr = Builder::new().push_int(0).push_slice(key_hash.as_bytes());
 
     let script = bldr.into_script();
     let script_hash = Hash160::from_data(&script.as_bytes());
@@ -174,12 +180,16 @@ fn to_bits_p2sh_p2wsh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash16
 /// Convert a number of required signatures and a list of public keys into a byte-vec to hash to an
 /// address.  Validity of the hash_flag vis a vis the num_sigs and pubkeys will _NOT_ be checked.
 /// This is a low-level method.  Consider using StacksAdress::from_public_keys() if you can.
-pub fn public_keys_to_address_hash<K: PublicKey>(hash_flag: &AddressHashMode, num_sigs: usize, pubkeys: &Vec<K>) -> Hash160 {
+pub fn public_keys_to_address_hash<K: PublicKey>(
+    hash_flag: &AddressHashMode,
+    num_sigs: usize,
+    pubkeys: &Vec<K>,
+) -> Hash160 {
     match *hash_flag {
         AddressHashMode::SerializeP2PKH => to_bits_p2pkh(&pubkeys[0]),
         AddressHashMode::SerializeP2SH => to_bits_p2sh(num_sigs, pubkeys),
         AddressHashMode::SerializeP2WPKH => to_bits_p2sh_p2wpkh(&pubkeys[0]),
-        AddressHashMode::SerializeP2WSH => to_bits_p2sh_p2wsh(num_sigs, pubkeys)
+        AddressHashMode::SerializeP2WSH => to_bits_p2sh_p2wsh(num_sigs, pubkeys),
     }
 }
 
@@ -187,15 +197,15 @@ pub fn public_keys_to_address_hash<K: PublicKey>(hash_flag: &AddressHashMode, nu
 mod test {
     use super::*;
     use burnchains::PublicKey;
-    use util::log;
     use util::hash::*;
+    use util::log;
     use util::secp256k1::Secp256k1PublicKey as PubKey;
 
     struct PubkeyFixture {
         keys: Vec<PubKey>,
         num_required: usize,
         segwit: bool,
-        result: Vec<u8>
+        result: Vec<u8>,
     }
 
     #[test]
@@ -242,25 +252,25 @@ mod test {
         ];
 
         for pubkey_fixture in pubkey_fixtures {
-            let hash_mode = 
-                if !pubkey_fixture.segwit {
-                    if pubkey_fixture.num_required == 1 {
-                        AddressHashMode::SerializeP2PKH
-                    }
-                    else {
-                        AddressHashMode::SerializeP2SH
-                    }
+            let hash_mode = if !pubkey_fixture.segwit {
+                if pubkey_fixture.num_required == 1 {
+                    AddressHashMode::SerializeP2PKH
+                } else {
+                    AddressHashMode::SerializeP2SH
                 }
-                else {
-                    if pubkey_fixture.num_required == 1 {
-                        AddressHashMode::SerializeP2WPKH
-                    }
-                    else {
-                        AddressHashMode::SerializeP2WSH
-                    }
-                };
+            } else {
+                if pubkey_fixture.num_required == 1 {
+                    AddressHashMode::SerializeP2WPKH
+                } else {
+                    AddressHashMode::SerializeP2WSH
+                }
+            };
 
-            let result_hash = public_keys_to_address_hash(&hash_mode, pubkey_fixture.num_required, &pubkey_fixture.keys);
+            let result_hash = public_keys_to_address_hash(
+                &hash_mode,
+                pubkey_fixture.num_required,
+                &pubkey_fixture.keys,
+            );
             let result = result_hash.as_bytes().to_vec();
 
             assert_eq!(result, pubkey_fixture.result);
