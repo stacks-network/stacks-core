@@ -338,7 +338,12 @@ impl SpvClient {
             "SELECT MAX(height) FROM headers",
             NO_PARAMS,
         )? {
-            Some(x) => Ok(x + 1),
+            Some(max) if max == 0 => {
+                Ok(0)
+            }
+            Some(max) => {
+                Ok(max + 1)
+            },
             None => Ok(0),
         }
     }
