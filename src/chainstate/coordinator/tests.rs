@@ -1340,5 +1340,5 @@ fn preprocess_block(chain_state: &mut StacksChainState, sort_db: &SortitionDB,
     // Preprocess the anchored block
     chain_state.preprocess_anchored_block(
         &ic, &my_sortition.consensus_hash, &block,
-        &parent_consensus_hash).unwrap();
+        &parent_consensus_hash, 5).unwrap();
 }
