@@ -78,21 +78,21 @@ fn test_simple_read_only_violations() {
             (map + (list 1 (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) 3)))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
-            (begin              
+            (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
             (map-get? tokens ((account (update-balance-and-get-tx-sender)))))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
-            (begin              
+            (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               (tuple (account tx-sender))))
          (define-read-only (get-token-balance)
             (map-get? tokens (update-balance-and-get-tx-sender)))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
-            (begin              
+            (begin
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)

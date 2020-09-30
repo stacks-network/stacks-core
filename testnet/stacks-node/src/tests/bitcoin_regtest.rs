@@ -154,7 +154,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 0);
                             assert!(op.parent_vtxindex == 0);
                             assert!(op.burn_fee == 5000);
@@ -180,7 +180,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 203);
                             assert!(op.burn_fee == 5000);
                         }
@@ -207,7 +207,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 204);
                             assert!(op.burn_fee == 5000);
                         }
@@ -234,7 +234,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 205);
                             assert!(op.burn_fee == 5000);
                         }
@@ -261,7 +261,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 206);
                             assert!(op.burn_fee == 5000);
                         }
@@ -288,7 +288,7 @@ fn bitcoind_integration_test() {
                             unreachable!();
                         },
                         LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34"); 
+                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 207);
                             assert!(op.burn_fee == 5000);
                         }
@@ -307,7 +307,7 @@ fn bitcoind_integration_test() {
         match round {
             1 => {
                 // On round 1, publish the KV contract
-                // $ cat /tmp/out.clar 
+                // $ cat /tmp/out.clar
                 // (define-map store ((key (string-ascii 32))) ((value (string-ascii 32))))
                 // (define-public (get-value (key (string-ascii 32)))
                 //     (begin

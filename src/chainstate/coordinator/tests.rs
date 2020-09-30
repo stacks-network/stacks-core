@@ -1782,7 +1782,7 @@ fn preprocess_block(
             &my_sortition.consensus_hash,
             &block,
             &parent_consensus_hash,
-            5,
+            5
         )
         .unwrap();
 }

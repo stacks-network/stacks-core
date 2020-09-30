@@ -33,9 +33,9 @@ use super::{
 use reqwest;
 
 const GET_INFO_CONTRACT: &'static str = "
-        (define-map block-data 
+        (define-map block-data
           ((height uint))
-          ((stacks-hash (buff 32)) 
+          ((stacks-hash (buff 32))
            (id-hash (buff 32))
            (btc-hash (buff 32))
            (vrf-seed (buff 32))
@@ -91,7 +91,7 @@ const GET_INFO_CONTRACT: &'static str = "
                         (print (get stacks-miner block-info))))))
 
         (define-private (inner-update-info (height uint))
-            (let ((value (tuple 
+            (let ((value (tuple
               (stacks-hash (unwrap-panic (get-block-info? header-hash height)))
               (id-hash (unwrap-panic (get-block-info? id-header-hash height)))
               (btc-hash (unwrap-panic (get-block-info? burnchain-header-hash height)))
@@ -1113,7 +1113,7 @@ fn bad_contract_tx_rollback() {
 
 lazy_static! {
     static ref EXPENSIVE_CONTRACT: String = make_expensive_contract(
-        "(define-private (inner-loop (x int)) (begin 
+        "(define-private (inner-loop (x int)) (begin
            (map sha256 list-9)
            0))",
         ""

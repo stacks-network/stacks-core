@@ -673,6 +673,7 @@ impl RunLoop {
 
                 // Have the node process the new block, that can include, or not, a sortition.
                 node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
+
                 // Now, tell the relayer to check if it won a sortition during this block,
                 //   and, if so, to process and advertize the block
                 //

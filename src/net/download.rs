@@ -212,6 +212,7 @@ pub struct BlockDownloader {
     dead_peers: Vec<usize>,
     broken_peers: Vec<usize>,
     broken_neighbors: Vec<NeighborKey>, // disconnect peers who report invalid block inventories too
+    
     blocked_urls: HashMap<UrlString, u64>, // URLs that chronically don't work, and when we can try them again
 
     /// how often to download
@@ -1046,6 +1047,9 @@ impl PeerNetwork {
                 }
             };
 
+            let index_block_hash =
+                StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
+            
             let mut child_block_header = None;
             let index_block_hash =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
@@ -1261,7 +1265,7 @@ impl PeerNetwork {
                 if prev_blocked {
                     continue;
                 }
-
+                
                 test_debug!(
                     "{:?}: Make request for {} at sortition height {} to {:?}: {:?}/{:?}",
                     &self.local_peer,

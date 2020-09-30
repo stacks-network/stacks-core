@@ -262,7 +262,14 @@ impl BitcoinRegtestController {
 
                     let (snapshot, state_transition) = self
                         .sortdb_ref()
-                        .get_sortition_result(&sort_tip.sortition_id)
+                        .get_sortition_result(&sort_tip.sortition_id);
+
+                    let sort_tip =
+                        SortitionDB::get_canonical_sortition_tip(self.sortdb_ref().conn())
+                            .expect("Sortition DB error.");
+                    let x = self
+                        .sortdb_ref()
+                        .get_sortition_result(&sort_tip)
                         .expect("Sortition DB error.")
                         .expect("BUG: no data for the canonical chain tip");
 

@@ -106,6 +106,7 @@ impl RunLoop {
         );
 
         let (mut burnchain_tip, _) = burnchain.sync(None)?;
+        
         self.callbacks
             .invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
 
@@ -176,7 +177,7 @@ impl RunLoop {
 
             let (new_burnchain_tip, _) = burnchain.sync(None)?;
             burnchain_tip = new_burnchain_tip;
-
+            
             self.callbacks
                 .invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
 

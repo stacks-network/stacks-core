@@ -2580,7 +2580,7 @@ pub mod test {
                         &sn.consensus_hash,
                         block,
                         &parent_sn.consensus_hash,
-                        5,
+                        5
                     )
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };

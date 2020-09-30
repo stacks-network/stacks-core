@@ -45,6 +45,16 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
 
+  # rustfmt checking
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run rustfmt check
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.rustfmt .
+
   # Create distributions
   dist:
     runs-on: ubuntu-latest

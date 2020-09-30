@@ -1443,7 +1443,7 @@ impl NeighborWalk {
                                 let neighbor_pubkey_hash =
                                     Hash160::from_data(data.handshake.node_public_key.as_bytes());
                                 if neighbor_pubkey_hash != naddr.public_key_hash {
-                                    debug!("{:?}: Neighbor {:?} had an unexpected pubkey hash: expected {:?} != {:?}", 
+                                    debug!("{:?}: Neighbor {:?} had an unexpected pubkey hash: expected {:?} != {:?}",
                                            &self.local_peer, &message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port), &naddr.public_key_hash, &neighbor_pubkey_hash);
                                     continue;
                                 }
