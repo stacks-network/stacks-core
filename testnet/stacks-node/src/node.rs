@@ -477,7 +477,8 @@ impl Node {
                 &ic,
                 consensus_hash,
                 &anchored_block, 
-                &parent_consensus_hash).unwrap();
+                &parent_consensus_hash,
+                0).unwrap();
 
             // Preprocess the microblocks
             for microblock in microblocks.iter() {
