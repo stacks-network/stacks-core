@@ -474,7 +474,7 @@ impl Relayer {
     }
 
     /// Insert a staging block
-    pub fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock) -> Result<bool, chainstate_error> {
+    pub fn process_new_anchored_block(sort_ic: &SortitionDBConn, chainstate: &mut StacksChainState, consensus_hash: &ConsensusHash, block: &StacksBlock, download_time: u64) -> Result<bool, chainstate_error> {
         // find the snapshot of the parent of this block
         let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
         let parent_block_snapshot = match db_handle.get_block_snapshot_of_parent_stacks_block(consensus_hash, &block.block_hash()) {
@@ -492,7 +492,7 @@ impl Relayer {
             }
         };
         
-        chainstate.preprocess_anchored_block(sort_ic, consensus_hash, block, &parent_block_snapshot.consensus_hash)
+        chainstate.preprocess_anchored_block(sort_ic, consensus_hash, block, &parent_block_snapshot.consensus_hash, download_time)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -574,8 +574,8 @@ impl Relayer {
     fn preprocess_downloaded_blocks(sort_ic: &SortitionDBConn, network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<ConsensusHash> {
         let mut new_blocks = HashSet::new();
 
-        for (consensus_hash, block) in network_result.blocks.iter() {
-            match Relayer::process_new_anchored_block(sort_ic, chainstate, consensus_hash, block) {
+        for (consensus_hash, block, download_time) in network_result.blocks.iter() {
+            match Relayer::process_new_anchored_block(sort_ic, chainstate, consensus_hash, block, *download_time) {
                 Ok(accepted) => {
                     if accepted {
                         new_blocks.insert((*consensus_hash).clone());
@@ -632,7 +632,7 @@ impl Relayer {
                     };
 
                     debug!("Received pushed block {}/{} from {}", &consensus_hash, block.block_hash(), neighbor_key);
-                    match Relayer::process_new_anchored_block(sort_ic, chainstate, &consensus_hash, block) {
+                    match Relayer::process_new_anchored_block(sort_ic, chainstate, &consensus_hash, block, 0) {
                         Ok(accepted) => {
                             if accepted {
                                 new_blocks.insert(consensus_hash.clone());
@@ -658,7 +658,7 @@ impl Relayer {
     /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks that produced these streams.
     fn preprocess_downloaded_microblocks(network_result: &mut NetworkResult, chainstate: &mut StacksChainState) -> HashSet<ConsensusHash> {
         let mut ret = HashSet::new();
-        for (consensus_hash, microblock_stream) in network_result.confirmed_microblocks.iter() {
+        for (consensus_hash, microblock_stream, _download_time) in network_result.confirmed_microblocks.iter() {
             if microblock_stream.len() == 0 {
                 continue;
             }
