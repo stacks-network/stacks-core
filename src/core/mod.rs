@@ -77,7 +77,7 @@ pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Re
             e
         })?;
 
-    let new_height_res = burnchain.sync::<BitcoinIndexer>(&channels.1, None);
+    let new_height_res = burnchain.sync::<BitcoinIndexer>(&channels.1, None, None);
     let new_height = new_height_res
         .map_err(|e| {
             error!("Failed to synchronize Bitcoin chain state for {} in {}", network_name, working_dir);
