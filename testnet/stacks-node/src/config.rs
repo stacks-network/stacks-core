@@ -645,10 +645,15 @@ impl Config {
     }
 
     pub fn get_burn_db_file_path(&self) -> String {
-        let (network, _) = self.burnchain.get_bitcoin_network();
+        let dir_name = if self.burnchain.mode.as_str() == "mocknet" {
+            "mocknet".to_string()
+        } else {
+            let (network, _) = self.burnchain.get_bitcoin_network();
+            network
+        };
         format!(
             "{}/burnchain/db/{}/{}/sortition.db/",
-            self.node.working_dir, self.burnchain.chain, network
+            self.node.working_dir, self.burnchain.chain, dir_name
         )
     }
 
