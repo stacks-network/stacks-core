@@ -20,8 +20,10 @@ impl RunLoop {
     }
 
     /// Sets up a runloop and node, given a config.
-    pub fn new_with_boot_exec(config: Config,
-                              boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
+    pub fn new_with_boot_exec(
+        config: Config,
+        boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) -> Self {
         // Build node based on config
         let node = Node::new(config.clone(), boot_exec);
 
@@ -67,8 +69,8 @@ impl RunLoop {
             self.config.get_initial_liquid_ustx(),
             &self.config.burnchain.first_block_hash,
             self.config.burnchain.first_block_height.into(),
-            self.config.burnchain.first_block_timestamp);
-
+            self.config.burnchain.first_block_timestamp,
+        );
 
         self.node.spawn_peer_server();
 

@@ -132,12 +132,12 @@ impl BitcoinRegtestController {
         let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
         let working_dir = self.config.get_burn_db_path();
         match Burnchain::new(
-            &working_dir, 
-            &self.config.burnchain.chain, 
+            &working_dir,
+            &self.config.burnchain.chain,
             &network_name,
             &self.config.burnchain.first_block_hash,
-            self.config.burnchain.first_block_height)
-        {
+            self.config.burnchain.first_block_height,
+        ) {
             Ok(burnchain) => (burnchain, network_type),
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);
@@ -683,12 +683,12 @@ impl BurnchainController for BitcoinRegtestController {
         let working_dir = self.config.get_burn_db_path();
         let (network, _) = self.config.burnchain.get_bitcoin_network();
         let burnchain = match Burnchain::new(
-            &working_dir, 
-            &self.config.burnchain.chain, 
+            &working_dir,
+            &self.config.burnchain.chain,
             &network,
             &self.config.burnchain.first_block_hash,
-            self.config.burnchain.first_block_height) 
-        {
+            self.config.burnchain.first_block_height,
+        ) {
             Ok(burnchain) => burnchain,
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);

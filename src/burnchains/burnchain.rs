@@ -329,7 +329,7 @@ impl Burnchain {
         chain_name: &str,
         network_name: &str,
         first_block_hash: &BurnchainHeaderHash,
-        first_block_height: u32
+        first_block_height: u32,
     ) -> Result<Burnchain, burnchain_error> {
         let (params, pox_constants) = match (chain_name, network_name) {
             ("bitcoin", "mainnet") => (
@@ -407,12 +407,12 @@ impl Burnchain {
         first_block_height: u64,
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
-        let mut ret = Burnchain::new(
+        let ret = Burnchain::new(
             &"/unit-tests".to_string(),
             &"bitcoin".to_string(),
             &"mainnet".to_string(),
             &first_block_hash,
-            first_block_height,
+            first_block_height as u32,
         )
         .unwrap();
         ret
@@ -460,7 +460,11 @@ impl Burnchain {
     pub fn make_indexer<I: BurnchainIndexer>(&self) -> Result<I, burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir, &self.chain_name, &self.network_name)?;
 
-        let indexer: I = BurnchainIndexer::init(&self.working_dir, &self.network_name, self.first_block_height)?;
+        let indexer: I = BurnchainIndexer::init(
+            &self.working_dir,
+            &self.network_name,
+            self.first_block_height,
+        )?;
         Ok(indexer)
     }
 

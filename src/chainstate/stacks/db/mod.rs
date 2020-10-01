@@ -163,32 +163,30 @@ pub struct DBConfig {
 }
 
 impl StacksHeaderInfo {
-    
     pub fn index_block_hash(&self) -> StacksBlockId {
         self.anchored_header.index_block_hash(&self.consensus_hash)
     }
-    
-    #[test]
-    pub fn regtest_genesis(initial_liquid_ustx: u128) -> StacksHeaderInfo {
+
+    pub fn regtest_genesis(total_liquid_ustx: u128) -> StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
             block_height: 0,
             index_root: TrieHash([0u8; 32]),
-            burn_header_hash: &BurnchainHeaderHash::zero(),
+            burn_header_hash: BurnchainHeaderHash::zero(),
             burn_header_height: 0,
-            consensus_hash: &ConsensusHash.empty(),
+            consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
-            total_liquid_ustx: 0,
+            total_liquid_ustx,
         }
-    }    
+    }
 
     pub fn genesis(
         root_hash: TrieHash,
         initial_liquid_ustx: u128,
         first_burnchain_block_hash: &BurnchainHeaderHash,
         first_burnchain_block_height: u32,
-        first_burnchain_block_timestamp: u64
+        first_burnchain_block_timestamp: u64,
     ) -> StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
@@ -538,7 +536,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u64,
     pub initial_balances: Vec<(PrincipalData, u64)>,
-    pub post_flight_callback: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
 }
 
 impl StacksChainState {
@@ -652,12 +650,11 @@ impl StacksChainState {
     }
 
     /// Install the boot code into the chain history.
-    /// TODO: instantiate all account balances as well.
     fn install_boot_code(
         chainstate: &mut StacksChainState,
         mainnet: bool,
-        boot_data: &ChainStateBootData) -> Result<Vec<StacksTransactionReceipt>, Error>    
-    {
+        boot_data: &mut ChainStateBootData,
+    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
         debug!("Begin install boot code");
 
         let tx_version = if mainnet {
@@ -744,6 +741,9 @@ impl StacksChainState {
                     .checked_add(*amount as u128)
                     .expect("FATAL: liquid STX overflow");
             }
+            if let Some(callback) = boot_data.post_flight_callback.take() {
+                callback(&mut clarity_tx);
+            }
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
@@ -772,13 +772,13 @@ impl StacksChainState {
                 &first_index_hash
             );
 
-            let first_tip_info =
-                StacksHeaderInfo::genesis(
-                    first_root_hash, 
-                    initial_liquid_ustx, 
-                    &boot_data.first_burnchain_block_hash, 
-                    boot_data.first_burnchain_block_height, 
-                    boot_data.first_burnchain_block_timestamp);
+            let first_tip_info = StacksHeaderInfo::genesis(
+                first_root_hash,
+                initial_liquid_ustx,
+                &boot_data.first_burnchain_block_hash,
+                boot_data.first_burnchain_block_height,
+                boot_data.first_burnchain_block_timestamp,
+            );
 
             StacksChainState::insert_stacks_block_header(
                 &mut headers_tx,
@@ -819,28 +819,16 @@ impl StacksChainState {
         &self,
         budget: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(
-            self.mainnet,
-            self.chain_id,
-            &self.root_path,
-            None,
-            budget,
-        )
+        StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None, budget)
     }
 
     pub fn open_testnet<F>(
         chain_id: u32,
         path_str: &str,
-        boot_data: Option<&ChainStateBootData>,
-        block_limit: ExecutionCost) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error>
-    {
-        StacksChainState::open_and_exec(
-            false,
-            chain_id,
-            path_str,
-            boot_data,
-            block_limit,
-        )
+        boot_data: Option<&mut ChainStateBootData>,
+        block_limit: ExecutionCost,
+    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
+        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data, block_limit)
     }
 
     pub fn open_with_block_limit(
@@ -856,9 +844,9 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
-        boot_data: Option<&ChainStateBootData>,
-        block_limit: ExecutionCost) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error>
-    {
+        boot_data: Option<&mut ChainStateBootData>,
+        block_limit: ExecutionCost,
+    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         let mut path = PathBuf::from(path_str);
 
         let chain_id_str = if mainnet {
@@ -950,15 +938,13 @@ impl StacksChainState {
         let mut receipts = vec![];
         match (init_required, boot_data) {
             (true, Some(boot_data)) => {
-                let mut res = StacksChainState::install_boot_code(
-                    &mut chainstate,
-                    mainnet,
-                    boot_data)?;
+                let mut res =
+                    StacksChainState::install_boot_code(&mut chainstate, mainnet, boot_data)?;
                 receipts.append(&mut res);
-            },
+            }
             (true, None) => {
                 // todo(ludo): panic?
-            },
+            }
             (false, _) => {}
         }
 
@@ -1412,15 +1398,7 @@ pub mod test {
         chain_id: u32,
         test_name: &str,
     ) -> StacksChainState {
-        let path = chainstate_path(test_name);
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
-        };
-
-        StacksChainState::open(mainnet, chain_id, &path).unwrap().0
+        instantiate_chainstate_with_balances(mainnet, chain_id, test_name, vec![])
     }
 
     pub fn instantiate_chainstate_with_balances(
@@ -1437,18 +1415,24 @@ pub mod test {
             Err(_) => {}
         };
 
-        let initial_balances = Some(
-            balances
-                .into_iter()
-                .map(|(addr, balance)| (PrincipalData::from(addr), balance))
-                .collect(),
-        );
+        let initial_balances = balances
+            .into_iter()
+            .map(|(addr, balance)| (PrincipalData::from(addr), balance))
+            .collect();
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            post_flight_callback: None,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+        };
+
         StacksChainState::open_and_exec(
             mainnet,
             chain_id,
             &path,
-            initial_balances,
-            |_| {},
+            Some(&mut boot_data),
             ExecutionCost::max_value(),
         )
         .unwrap()

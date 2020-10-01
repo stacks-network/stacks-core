@@ -16,7 +16,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
-use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState, ChainStateBootData};
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksBlockId;
 use stacks::chainstate::stacks::StacksPublicKey;
@@ -606,7 +606,7 @@ impl InitializedNeonNode {
             &config.burnchain.chain,
             &network_name,
             &config.burnchain.first_block_hash,
-            config.burnchain.first_block_height
+            config.burnchain.first_block_height,
         )
         .expect("Error while instantiating burnchain");
 
@@ -949,7 +949,8 @@ impl InitializedNeonNode {
                 config.get_initial_liquid_ustx(),
                 &config.burnchain.first_block_hash,
                 config.burnchain.first_block_height.into(),
-                config.burnchain.first_block_timestamp);
+                config.burnchain.first_block_timestamp,
+            );
 
             (
                 chain_tip.metadata,
@@ -1108,10 +1109,11 @@ impl InitializedNeonNode {
 
 impl NeonGenesisNode {
     /// Instantiate and initialize a new node, given a config
-    pub fn new(config: Config, 
-               mut event_dispatcher: EventDispatcher, 
-               boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self
-    {
+    pub fn new(
+        config: Config,
+        mut event_dispatcher: EventDispatcher,
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+    ) -> Self {
         let keychain = Keychain::default(config.node.seed.clone());
         let initial_balances = config
             .initial_balances
@@ -1119,20 +1121,20 @@ impl NeonGenesisNode {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        let boot_data = ChainStateBootData {
+        let mut boot_data = ChainStateBootData {
             initial_balances,
             first_burnchain_block_hash: config.burnchain.first_block_hash,
             first_burnchain_block_height: config.burnchain.first_block_height,
             first_burnchain_block_timestamp: config.burnchain.first_block_timestamp,
-            post_flight_callback: Box::new(boot_block_exec)
+            post_flight_callback: Some(boot_block_exec),
         };
-        
+
         // do the initial open!
         let (_chain_state, receipts) = match StacksChainState::open_and_exec(
             false,
             TESTNET_CHAIN_ID,
             &config.get_chainstate_path(),
-            Some(&boot_data),
+            Some(&mut boot_data),
             config.block_limit.clone(),
         ) {
             Ok(res) => res,

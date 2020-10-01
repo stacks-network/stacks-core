@@ -8,9 +8,9 @@ use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::db::ChainStateBootData;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
+use stacks::chainstate::stacks::db::ChainStateBootData;
 
 use super::RunLoopCallbacks;
 
@@ -163,9 +163,9 @@ impl RunLoop {
         let first_burnchain_block_timestamp = self.config.burnchain.first_block_timestamp;
 
         thread::spawn(move || {
-            let boot_data = ChainStateBootData {
+            let mut boot_data = ChainStateBootData {
                 initial_balances,
-                post_flight_callback: Box::new(|_| {}),
+                post_flight_callback: None,
                 first_burnchain_block_hash,
                 first_burnchain_block_height,
                 first_burnchain_block_timestamp,
@@ -179,7 +179,7 @@ impl RunLoop {
                 block_limit,
                 &mut coordinator_dispatcher,
                 coordinator_receivers,
-                Some(&boot_data),
+                Some(&mut boot_data),
             );
         });
 

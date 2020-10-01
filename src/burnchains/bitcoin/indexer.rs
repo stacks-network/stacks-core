@@ -766,7 +766,7 @@ impl BurnchainIndexer for BitcoinIndexer {
     fn init(
         working_dir: &String,
         network_name: &String,
-        first_block_height: u64
+        first_block_height: u64,
     ) -> Result<BitcoinIndexer, burnchain_error> {
         let conf_path_str = Burnchain::get_chainstate_config_path(
             working_dir,

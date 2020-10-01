@@ -187,16 +187,22 @@ pub fn setup_states(paths: &[&str], vrf_keys: &[VRFPrivateKey], committers: &[St
         others.iter_mut(),
     );
 
-    let initial_balances = Some(vec![]);
     let block_limit = ExecutionCost::max_value();
+
+    let mut boot_data = ChainStateBootData {
+        initial_balances: vec![],
+        post_flight_callback: None,
+        first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+        first_burnchain_block_height: 0,
+        first_burnchain_block_timestamp: 0,
+    };
 
     for path in paths.iter() {
         let (chain_state_db, _) = StacksChainState::open_and_exec(
             false,
             0x80000000,
             &format!("{}/chainstate/", path),
-            initial_balances.clone(),
-            |_| {},
+            Some(&mut boot_data),
             block_limit.clone(),
         )
         .unwrap();
@@ -251,7 +257,7 @@ fn make_reward_set_coordinator<'a>(
 }
 
 pub fn get_burnchain(path: &str) -> Burnchain {
-    let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path)).unwrap();
+    let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path));
     b.pox_constants = PoxConstants::new(5, 3, 3, 25);
     b
 }

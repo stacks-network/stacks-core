@@ -12,7 +12,7 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    db::{ClarityTx, StacksChainState, StacksHeaderInfo, ChainStateBootData},
+    db::{ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
@@ -179,7 +179,7 @@ impl<'a, T: BlockEventDispatcher>
         block_limit: ExecutionCost,
         dispatcher: &mut T,
         comms: CoordinatorReceivers,
-        boot_data: Option<&ChainStateBootData>
+        boot_data: Option<&mut ChainStateBootData>,
     ) where
         T: BlockEventDispatcher,
     {

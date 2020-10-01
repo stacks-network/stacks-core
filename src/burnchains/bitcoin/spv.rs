@@ -18,10 +18,10 @@
 */
 
 use std::cmp;
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
-use std::collections::VecDeque;
 
 use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use deps::bitcoin::blockdata::constants::genesis_block;
@@ -301,14 +301,15 @@ impl SpvClient {
                     Some(res) => res.header,
                 };
 
-                let (bits, difficulty) = match self.get_target(block_height, &header_i, &headers, i)? {
-                    Some(x) => x,
-                    None => {
-                        // out of headers
-                        return Ok(());
-                    }
-                };
-        
+                let (bits, difficulty) =
+                    match self.get_target(block_height, &header_i, &headers, i)? {
+                        Some(x) => x,
+                        None => {
+                            // out of headers
+                            return Ok(());
+                        }
+                    };
+
                 if header_i.bits != bits {
                     error!("bits mismatch at block {} of {} (offset {} interval {} of {}-{}): {:08x} != {:08x}",
                             block_height, self.headers_path, block_height % BLOCK_DIFFICULTY_CHUNK_SIZE, i, interval_start, interval_end, header_i.bits, bits);
@@ -339,12 +340,7 @@ impl SpvClient {
             "SELECT MAX(height) FROM headers",
             NO_PARAMS,
         )? {
-            Some(max) if max == 0 => {
-                Ok(0)
-            }
-            Some(max) => {
-                Ok(max + 1)
-            },
+            Some(max) => Ok(max + 1),
             None => Ok(0),
         }
     }
@@ -718,7 +714,13 @@ impl SpvClient {
     /// Determine the target difficult over a given difficulty adjustment interval
     /// the `interval` parameter is the difficulty interval -- a 2016-block interval.
     /// Returns (new bits, new target)
-    pub fn get_target(&self, current_header_height: u64, current_header: &BlockHeader, headers_in_range: &VecDeque<BlockHeader>, interval: u64) -> Result<Option<(u32, Uint256)>, btc_error> {
+    pub fn get_target(
+        &self,
+        current_header_height: u64,
+        current_header: &BlockHeader,
+        headers_in_range: &VecDeque<BlockHeader>,
+        interval: u64,
+    ) -> Result<Option<(u32, Uint256)>, btc_error> {
         if interval == 0 {
             panic!(
                 "Invalid argument: interval must be positive (got {})",
@@ -737,7 +739,7 @@ impl SpvClient {
                     0x0000000000000000,
                     0x7fffffff00000000,
                 ]),
-            )))
+            )));
         }
 
         let max_target = Uint256([
@@ -753,39 +755,43 @@ impl SpvClient {
         } else {
             match self.read_block_header(current_header_height - 1)? {
                 Some(res) => res.header,
-                None => return Ok(None)
+                None => return Ok(None),
             }
         };
 
-        if current_header_height % BLOCK_DIFFICULTY_CHUNK_SIZE != 0 && self.network_id == BitcoinNetworkType::Testnet {
+        if current_header_height % BLOCK_DIFFICULTY_CHUNK_SIZE != 0
+            && self.network_id == BitcoinNetworkType::Testnet
+        {
             // In Testnet mode, if the new block's timestamp is more than 2* 10 minutes
             // then allow mining of a min-difficulty block.
             if current_header.time > parent_header.time + 10 * 60 * 2 {
-                return Ok(Some((max_target_bits, max_target)))
+                return Ok(Some((max_target_bits, max_target)));
             }
 
             // Otherwise return the last non-special-min-difficulty-rules-block
             for ancestor in headers_in_range {
                 if ancestor.bits != max_target_bits {
                     let target = ancestor.target();
-                    return Ok(Some((ancestor.bits, target)))
+                    return Ok(Some((ancestor.bits, target)));
                 }
             }
-        } 
+        }
 
         // todo(ludo): revisit this
-        let first_header = match self.read_block_header((interval - 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)? {
-            Some(res) => res.header,
-            None =>  return Ok(None)
-        };
+        let first_header =
+            match self.read_block_header((interval - 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)? {
+                Some(res) => res.header,
+                None => return Ok(None),
+            };
 
-        let last_header = match self.read_block_header(interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1)? {
-            Some(res) => res.header,
-            None => return Ok(None)
-        };
+        let last_header =
+            match self.read_block_header(interval * BLOCK_DIFFICULTY_CHUNK_SIZE - 1)? {
+                Some(res) => res.header,
+                None => return Ok(None),
+            };
 
         // find actual timespan as being clamped between +/- 4x of the target timespan
-        let mut actual_timespan = (last_header.time - first_header.time) as u64; 
+        let mut actual_timespan = (last_header.time - first_header.time) as u64;
         let target_timespan = BLOCK_DIFFICULTY_INTERVAL as u64;
         if actual_timespan < (target_timespan / 4) {
             actual_timespan = target_timespan / 4;
@@ -795,7 +801,8 @@ impl SpvClient {
         }
 
         let last_target = last_header.target();
-        let new_target = last_target * Uint256::from_u64(actual_timespan) / Uint256::from_u64(target_timespan);
+        let new_target =
+            last_target * Uint256::from_u64(actual_timespan) / Uint256::from_u64(target_timespan);
         let target = cmp::min(new_target, max_target);
 
         let bits = BlockHeader::compact_target_from_u256(&target);

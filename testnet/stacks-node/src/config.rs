@@ -416,7 +416,7 @@ impl Config {
                         .unwrap_or(default_burnchain_config.first_block_height),
                     first_block_timestamp: burnchain
                         .first_block_timestamp
-                        .unwrap_or(default_burnchain_config.first_block_timestamp),                    
+                        .unwrap_or(default_burnchain_config.first_block_timestamp),
                 }
             }
             None => default_burnchain_config,
@@ -726,7 +726,7 @@ pub struct BurnchainConfig {
     pub process_exit_at_block_height: Option<u64>,
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_height: u32,
-    pub first_block_timestamp: u64
+    pub first_block_timestamp: u64,
 }
 
 impl BurnchainConfig {
@@ -750,7 +750,7 @@ impl BurnchainConfig {
             process_exit_at_block_height: None,
             first_block_hash: BurnchainHeaderHash::zero(),
             first_block_height: 0,
-            first_block_timestamp: 0        
+            first_block_timestamp: 0,
         }
     }
 
@@ -802,7 +802,7 @@ pub struct BurnchainConfigFile {
     pub process_exit_at_block_height: Option<u64>,
     pub first_block_hash: Option<BurnchainHeaderHash>,
     pub first_block_height: Option<u32>,
-    pub first_block_timestamp: Option<u64>
+    pub first_block_timestamp: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
