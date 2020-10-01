@@ -2294,6 +2294,8 @@ mod test {
 
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use chainstate::stacks::db::ChainStateBootData;
+    use vm::costs::ExecutionCost;
 
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
@@ -2354,7 +2356,26 @@ mod test {
             true,
         )
         .unwrap();
-        let (chainstate, _) = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+
+        let first_burnchain_block_height = burnchain.first_block_height;
+        let first_burnchain_block_hash = burnchain.first_block_hash;
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            post_flight_callback: None,
+            first_burnchain_block_height: burnchain.first_block_height as u32,
+            first_burnchain_block_hash: burnchain.first_block_hash,
+            first_burnchain_block_timestamp: 0,
+        };
+
+        let (chainstate, _) = StacksChainState::open_and_exec(
+            false,
+            network_id,
+            &chainstate_path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap();
 
         let pox_id = {
             let ic = sortdb.index_conn();

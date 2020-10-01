@@ -254,12 +254,25 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
     ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            post_flight_callback: None,
+            first_burnchain_block_height: burnchain.first_block_height as u32,
+            first_burnchain_block_hash: burnchain.first_block_hash,
+            first_burnchain_block_timestamp: 0,
+        };
+
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db =
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
-        let (chain_state_db, _) =
-            StacksChainState::open(false, 0x80000000, &format!("{}/chainstate/", path)).unwrap();
-
+        let (chain_state_db, _) = StacksChainState::open_and_exec(
+            false,
+            0x80000000,
+            &format!("{}/chainstate/", path),
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap();
         let canonical_sortition_tip =
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
