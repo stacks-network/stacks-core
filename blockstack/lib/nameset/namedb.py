@@ -146,6 +146,7 @@ class BlockstackDB(virtualchain.StateEngine):
         self.set_backup_frequency( blockstack_opts['backup_frequency'] )
         self.set_backup_max_age( blockstack_opts['backup_max_age'] )
 
+        self.v2_migration_export = blockstack_opts['v2_migration_export']
 
     @classmethod
     def get_readonly_instance(cls, working_dir, expected_snapshots={}):
@@ -1158,8 +1159,12 @@ class BlockstackDB(virtualchain.StateEngine):
 
     def perform_v2_upgrade_datafile_export( self ):
         """
-        Export a datafile used for the v2 upgrade.
+        Export a datafile used for the v2 upgrade. 
+        Does nothing if the `v2_migration_export` config option is not enabled.
         """
+        if not self.v2_migration_export:
+            return
+
         export_file_path = os.path.join( self.working_dir, 'v2_migration_data.tar.bz2')
 
         if os.path.exists(export_file_path):
@@ -1177,11 +1182,8 @@ class BlockstackDB(virtualchain.StateEngine):
 
         from ..fast_sync import fast_sync_snapshot
         snapshot_success = fast_sync_snapshot(self.working_dir, export_file_path, None, block_id)
-        # note: this fails when the test suite runs `blockstack_verify_database` after the tests pass
         if not snapshot_success:
-            # hack to determine if this function is being called by the test harness verification with an "untrusted_working_dir"
-            if not re.compile(r'work.[0-9]+').search(self.working_dir):
-                raise Exception('failed to export v2 datafile')
+            raise Exception('failed to export v2 datafile')
 
     def get_names_in_namespace( self, namespace_id, offset=None, count=None ):
         """

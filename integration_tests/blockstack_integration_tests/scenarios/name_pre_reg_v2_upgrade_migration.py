@@ -39,6 +39,8 @@ wallets = [
     testlib.Wallet( "5KcNen67ERBuvz2f649t9F2o1ddTjC5pVUEqcMtbxNgHqgxG2gZ", 100000000000 )
 ]
 
+os.environ['V2_MIGRATION_EXPORT'] = '1'
+
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
@@ -74,6 +76,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
 def check( state_engine ):
+    os.environ['V2_MIGRATION_EXPORT'] = '0'
 
     migration_data_file_path = os.path.join( state_engine.working_dir, 'v2_migration_data.tar.bz2')
     if not os.path.exists(migration_data_file_path):
