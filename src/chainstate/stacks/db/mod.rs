@@ -943,7 +943,9 @@ impl StacksChainState {
                 receipts.append(&mut res);
             }
             (true, None) => {
-                // todo(ludo): panic?
+                panic!(
+                    "StacksChainState initialization is required, but boot_data was not passed."
+                );
             }
             (false, _) => {}
         }

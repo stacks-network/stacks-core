@@ -777,7 +777,6 @@ impl SpvClient {
             }
         }
 
-        // todo(ludo): revisit this
         let first_header =
             match self.read_block_header((interval - 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)? {
                 Some(res) => res.header,
