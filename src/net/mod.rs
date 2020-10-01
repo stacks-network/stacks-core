@@ -848,6 +848,31 @@ pub struct NatPunchData {
     pub nonce: u32,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetZonefilesInv {
+    pub nonce: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ZonefilesInvData {
+    pub nonce: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetZonefileData {
+    pub nonce: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ZonefilesAvailableData {
+    pub nonce: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ZonefilesData {
+    pub nonce: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
@@ -878,6 +903,11 @@ pub enum StacksMessageType {
     Pong(PongData),
     NatPunchRequest(u32),
     NatPunchReply(NatPunchData),
+    GetZonefilesInv(GetZonefilesInv),
+    ZonefilesInv(ZonefilesInvData),
+    GetZonefile(GetZonefileData),
+    ZonefilesAvailable(ZonefilesAvailableData),
+    Zonefiles(ZonefilesData)
 }
 
 /// Peer address variants
@@ -1317,6 +1347,11 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
+    GetZonefilesInv = 19,
+    ZonefilesInv = 20,
+    GetZonefile = 21,
+    ZonefilesAvailable = 22,
+    Zonefiles = 23,
     Reserved = 255,
 }
 

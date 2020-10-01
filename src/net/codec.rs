@@ -883,6 +883,66 @@ impl StacksMessageCodec for RelayData {
     }
 }
 
+impl StacksMessageCodec for GetZonefilesInv {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.nonce)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetZonefilesInv, net_error> {
+        let nonce: u32 = read_next(fd)?;
+        Ok(GetZonefilesInv { nonce })
+    }
+}
+
+impl StacksMessageCodec for ZonefilesInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.nonce)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ZonefilesInvData, net_error> {
+        let nonce: u32 = read_next(fd)?;
+        Ok(ZonefilesInvData { nonce })
+    }
+}
+
+impl StacksMessageCodec for GetZonefileData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.nonce)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetZonefileData, net_error> {
+        let nonce: u32 = read_next(fd)?;
+        Ok(GetZonefileData { nonce })
+    }
+}
+
+impl StacksMessageCodec for ZonefilesAvailableData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.nonce)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ZonefilesAvailableData, net_error> {
+        let nonce: u32 = read_next(fd)?;
+        Ok(ZonefilesAvailableData { nonce })
+    }
+}
+
+impl StacksMessageCodec for ZonefilesData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.nonce)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ZonefilesData, net_error> {
+        let nonce: u32 = read_next(fd)?;
+        Ok(ZonefilesData { nonce })
+    }
+}
+
 impl StacksMessageType {
     pub fn get_message_id(&self) -> StacksMessageID {
         match *self {
@@ -907,6 +967,11 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => StacksMessageID::Pong,
             StacksMessageType::NatPunchRequest(ref _m) => StacksMessageID::NatPunchRequest,
             StacksMessageType::NatPunchReply(ref _m) => StacksMessageID::NatPunchReply,
+            StacksMessageType::GetZonefilesInv(ref _m) => StacksMessageID::GetZonefilesInv,
+            StacksMessageType::ZonefilesInv(ref _m) => StacksMessageID::ZonefilesInv,
+            StacksMessageType::GetZonefile(ref _m) => StacksMessageID::GetZonefile,
+            StacksMessageType::ZonefilesAvailable(ref _m) => StacksMessageID::ZonefilesAvailable,
+            StacksMessageType::Zonefiles(ref _m) => StacksMessageID::Zonefiles,
         }
     }
 
@@ -931,6 +996,11 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => "Pong",
             StacksMessageType::NatPunchRequest(ref _m) => "NatPunchRequest",
             StacksMessageType::NatPunchReply(ref _m) => "NatPunchReply",
+            StacksMessageType::GetZonefilesInv(ref _m) => "GetZonefilesInv",
+            StacksMessageType::ZonefilesInv(ref _m) => "ZonefilesInv",
+            StacksMessageType::GetZonefile(ref _m) => "GetZonefile",
+            StacksMessageType::ZonefilesAvailable(ref _m) => "ZonefilesAvailable",
+            StacksMessageType::Zonefiles(ref _m) => "Zonefiles",
         }
     }
 
@@ -988,7 +1058,12 @@ impl StacksMessageType {
             StacksMessageType::NatPunchRequest(ref m) => format!("NatPunchRequest({})", m),
             StacksMessageType::NatPunchReply(ref m) => {
                 format!("NatPunchReply({},{}:{})", m.nonce, &m.addrbytes, m.port)
-            }
+            },
+            StacksMessageType::GetZonefilesInv(ref m) => format!("GetZonefilesInv({})", m.nonce),
+            StacksMessageType::ZonefilesInv(ref m) => format!("ZonefilesInv({})", m.nonce),
+            StacksMessageType::GetZonefile(ref m) => format!("GetZonefile({})", m.nonce),
+            StacksMessageType::ZonefilesAvailable(ref m) => format!("ZonefilesAvailable({})", m.nonce),
+            StacksMessageType::Zonefiles(ref m) => format!("Zonefiles({})", m.nonce),
         }
     }
 }
@@ -1022,6 +1097,11 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::Pong as u8 => StacksMessageID::Pong,
             x if x == StacksMessageID::NatPunchRequest as u8 => StacksMessageID::NatPunchRequest,
             x if x == StacksMessageID::NatPunchReply as u8 => StacksMessageID::NatPunchReply,
+            x if x == StacksMessageID::GetZonefilesInv as u8 => StacksMessageID::GetZonefilesInv,
+            x if x == StacksMessageID::ZonefilesInv as u8 => StacksMessageID::ZonefilesInv,
+            x if x == StacksMessageID::GetZonefile as u8 => StacksMessageID::GetZonefile,
+            x if x == StacksMessageID::ZonefilesAvailable as u8 => StacksMessageID::ZonefilesAvailable,
+            x if x == StacksMessageID::Zonefiles as u8 => StacksMessageID::Zonefiles,
             _ => {
                 return Err(net_error::DeserializeError(
                     "Unknown message ID".to_string(),
@@ -1055,6 +1135,11 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::Pong(ref m) => write_next(fd, m)?,
             StacksMessageType::NatPunchRequest(ref nonce) => write_next(fd, nonce)?,
             StacksMessageType::NatPunchReply(ref m) => write_next(fd, m)?,
+            StacksMessageType::GetZonefilesInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::ZonefilesInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::GetZonefile(ref m) => write_next(fd, m)?,
+            StacksMessageType::ZonefilesAvailable(ref m) => write_next(fd, m)?,
+            StacksMessageType::Zonefiles(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1131,6 +1216,26 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::NatPunchReply => {
                 let m: NatPunchData = read_next(fd)?;
                 StacksMessageType::NatPunchReply(m)
+            }
+            StacksMessageID::GetZonefilesInv => {
+                let m: GetZonefilesInv = read_next(fd)?;
+                StacksMessageType::GetZonefilesInv(m)
+            }
+            StacksMessageID::ZonefilesInv => {
+                let m: ZonefilesInvData = read_next(fd)?;
+                StacksMessageType::ZonefilesInv(m)
+            }
+            StacksMessageID::GetZonefile => {
+                let m: GetZonefileData = read_next(fd)?;
+                StacksMessageType::GetZonefile(m)
+            }
+            StacksMessageID::ZonefilesAvailable => {
+                let m: ZonefilesAvailableData = read_next(fd)?;
+                StacksMessageType::ZonefilesAvailable(m)
+            }
+            StacksMessageID::Zonefiles => {
+                let m: ZonefilesData = read_next(fd)?;
+                StacksMessageType::Zonefiles(m)
             }
             StacksMessageID::Reserved => {
                 return Err(net_error::DeserializeError(
