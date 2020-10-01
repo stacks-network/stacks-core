@@ -335,8 +335,7 @@
 ;; What is the minimum number of uSTX to be stacked in the given reward cycle?
 ;; Used internally by the Stacks node, and visible publicly.
 (define-read-only (get-stacking-minimum)
-    (/ stx-liquid-supply u20000)
-)
+    (/ stx-liquid-supply STACKING_THRESHOLD_25))
 
 ;; Is the address mode valid for a PoX burn address?
 (define-private (check-pox-addr-version (version (buff 1)))
@@ -360,7 +359,7 @@
                                   (num-cycles uint))
   (begin
     ;; minimum uSTX must be met
-    (asserts! (<= (get-stacking-minimum) amount-ustx)
+    (asserts! (<= (print (get-stacking-minimum)) amount-ustx)
               (err ERR_STACKING_THRESHOLD_NOT_MET))
 
     (minimal-can-stack-stx pox-addr amount-ustx first-reward-cycle num-cycles)))
@@ -379,13 +378,9 @@
     (asserts! (> amount-ustx u0)
               (err ERR_STACKING_INVALID_AMOUNT))
 
-    ;; tx-sender principal must not have rejected in this upcoming reward cycle
+    ;; sender principal must not have rejected in this upcoming reward cycle
     (asserts! (is-none (get-pox-rejection tx-sender first-reward-cycle))
               (err ERR_STACKING_ALREADY_REJECTED))
-
-    ;; the Stacker must have sufficient unlocked funds
-    (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
-              (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
     ;; lock period must be in acceptable range.
     (asserts! (check-pox-lock-period num-cycles)
@@ -396,13 +391,17 @@
               (err ERR_STACKING_INVALID_POX_ADDRESS))
     (ok true)))
 
-
+;; Revoke contract-caller authorization to call stacking methods
 (define-public (disallow-contract-caller (caller principal))
   (begin 
     (asserts! (is-eq tx-sender contract-caller)
               (err ERR_STACKING_PERMISSION_DENIED))
     (ok (map-delete allowance-contract-callers { sender: tx-sender, contract-caller: caller }))))
 
+;; Give a contract-caller authorization to call stacking methods
+;;  normally, stacking methods may only be invoked by _direct_ transactions
+;;   (i.e., the tx-sender issues a direct contract-call to the stacking methods)
+;;  by issuing an allowance, the tx-sender may call through the allowed contract
 (define-public (allow-contract-caller (caller principal) (until-burn-ht (optional uint)))
   (begin
     (asserts! (is-eq tx-sender contract-caller)
@@ -440,6 +439,10 @@
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
 
+      ;; the Stacker must have sufficient unlocked funds
+      (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+        (err ERR_STACKING_INSUFFICIENT_FUNDS))
+
       ;; ensure that stacking can be performed
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
@@ -457,6 +460,48 @@
       ;; return the lock-up information, so the node can actually carry out the lock. 
       (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))
 )
+
+(define-public (revoke-delegate-stx (delegator principal))
+  (begin
+    ;; must be called directly by the tx-sender or by an allowed contract-caller
+    (asserts! (check-caller-allowed)
+              (err ERR_STACKING_PERMISSION_DENIED))
+    (ok (map-delete delegation-state { stacker: tx-sender }))))
+
+;; Delegate to `delegator` the ability to stack from a given address.
+;;  This method _does not_ lock the funds, rather, it allows the delegator
+;;  to issue the stacking lock.
+;; The caller specifies:
+;;   * amount-ustx: the total amount of ustx the delegator may be allowed to lock
+;;   * until-burn-ht: an optional burn height at which this delegation expiration
+;;   * pox-addr: an optional address to which any rewards *must* be sent
+(define-public (delegate-stx (amount-ustx uint)
+                             (delegator principal)
+                             (until-burn-ht (optional uint))
+                             (pox-addr (optional { version: (buff 1),
+                                                   hashbytes: (buff 20) })))
+    (begin
+      ;; must be called directly by the tx-sender or by an allowed contract-caller
+      (asserts! (check-caller-allowed)
+                (err ERR_STACKING_PERMISSION_DENIED))
+
+      ;; tx-sender principal must not be stacking
+      (asserts! (is-none (get-stacker-info tx-sender))
+        (err ERR_STACKING_ALREADY_STACKED))
+
+      ;; tx-sender must not be delegating
+      (asserts! (is-none (get-check-delegation tx-sender))
+        (err ERR_STACKING_ALREADY_DELEGATED))
+
+      ;; add delegation record
+      (map-set delegation-state
+        { stacker: tx-sender }
+        { amount-ustx: amount-ustx,
+          delegated-to: delegator,
+          until-burn-ht: until-burn-ht,
+          pox-addr: pox-addr })
+
+      (ok true)))
 
 ;; Commit partially stacked STX.
 ;;   this allows a stacker/delegator to lock fewer STX than the minimal threshold in multiple transactions,
@@ -491,7 +536,7 @@
       (ok true))))
 
 ;; As a delegator, stack the given principal's STX using partial-stacked-by-cycle
-;; Once the delegator has stacked > minimum, the delegator should call the stack-aggregation-commit
+;; Once the delegator has stacked > minimum, the delegator should call stack-aggregation-commit
 (define-public (delegator-stack-stx (stacker principal)
                                     (amount-ustx uint)
                                     (pox-addr { version: (buff 1), hashbytes: (buff 20) })
@@ -517,8 +562,8 @@
                       true)
                ;; delegation must not expire before lock period
                (match (get until-burn-ht delegation-info)
-                      until-burn-ht (>= (+ u1 until-burn-ht)
-                                        (reward-cycle-to-burn-height unlock-burn-height))
+                      until-burn-ht (>= until-burn-ht
+                                        unlock-burn-height)
                       true)))
         (err ERR_STACKING_PERMISSION_DENIED))
 
@@ -526,11 +571,16 @@
       (asserts! (is-none (get-stacker-info stacker))
         (err ERR_STACKING_ALREADY_STACKED))
 
+      ;; the Stacker must have sufficient unlocked funds
+      (asserts! (>= (stx-get-balance stacker) amount-ustx)
+        (err ERR_STACKING_INSUFFICIENT_FUNDS))
+
       ;; ensure that stacking can be performed
       (try! (minimal-can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
-      ;; register the PoX address with the amount stacked
-      (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx))
+      ;; register the PoX address with the amount stacked via partial stacking
+      ;;   before it can be included in the reward set, this must be committed!
+      (try! (add-pox-partial-stacked pox-addr first-reward-cycle lock-period amount-ustx))
 
       ;; add stacker record
       (map-set stacking-state

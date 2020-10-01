@@ -262,6 +262,9 @@ impl StacksChainState {
 }
 
 #[cfg(test)]
+mod contract_tests;
+
+#[cfg(test)]
 pub mod test {
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::db::*;
