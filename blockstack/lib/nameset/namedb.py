@@ -1157,7 +1157,7 @@ class BlockstackDB(virtualchain.StateEngine):
         """
         namedb_set_v2_import_block_reached(self.db, block_id)
 
-    def perform_v2_upgrade_datafile_export( self ):
+    def perform_v2_upgrade_datafile_export( self, consensus_hash ):
         """
         Export a datafile used for the v2 upgrade. 
         Does nothing if the `v2_migration_export` config option is not enabled.
@@ -1166,7 +1166,7 @@ class BlockstackDB(virtualchain.StateEngine):
             return
 
         export_file_path = os.path.join( self.working_dir, 'v2_migration_data.tar.bz2')
-
+        consensus_hash_file_path = os.path.join( self.working_dir, 'v2_migration_data.consensus_hash.txt')
         if os.path.exists(export_file_path):
             log.warning('v2_migration_data already exists')
             return
@@ -1182,7 +1182,10 @@ class BlockstackDB(virtualchain.StateEngine):
 
         from ..fast_sync import fast_sync_snapshot
         snapshot_success = fast_sync_snapshot(self.working_dir, export_file_path, None, block_id)
-        if not snapshot_success:
+        if snapshot_success:
+            with open(consensus_hash_file_path, 'w') as f:
+                f.write(consensus_hash)
+        else:
             raise Exception('failed to export v2 datafile')
 
     def get_names_in_namespace( self, namespace_id, offset=None, count=None ):

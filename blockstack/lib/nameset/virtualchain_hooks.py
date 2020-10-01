@@ -587,7 +587,7 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
                     # emit parsable log entry and export datafile
                     log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_height))
                     db_state.set_v2_import_block_reached(block_height)
-                    db_state.perform_v2_upgrade_datafile_export()
+                    db_state.perform_v2_upgrade_datafile_export(consensus_hash)
                     log.warn('[v2-upgrade] migration datafile export successful')
 
         else:
