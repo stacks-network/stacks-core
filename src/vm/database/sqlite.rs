@@ -21,24 +21,35 @@ pub struct SqliteConnection {
 
 fn sqlite_put(conn: &Connection, key: &str, value: &str) {
     let params: [&dyn ToSql; 2] = [&key, &value];
-    conn.execute(
+    match conn.execute(
         "REPLACE INTO data_table (key, value) VALUES (?, ?)",
         &params,
-    )
-    .expect(SQL_FAIL_MESSAGE);
+    ) {
+        Ok(_) => {},
+        Err(e) => {
+            error!("Failed to insert/replace ({},{}): {:?}", key, value, &e);
+            panic!(SQL_FAIL_MESSAGE);
+        }
+    };
 }
 
 fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
     trace!("sqlite_get {}", key);
     let params: [&dyn ToSql; 1] = [&key];
-    let res = conn
+    let res = match conn
         .query_row(
             "SELECT value FROM data_table WHERE key = ?",
             &params,
             |row| row.get(0),
         )
-        .optional()
-        .expect(SQL_FAIL_MESSAGE);
+        .optional() {
+            Ok(x) => x,
+            Err(e) => {
+                error!("Failed to query '{}': {:?}", key, &e);
+                panic!(SQL_FAIL_MESSAGE);
+            }
+        };
+    
     trace!("sqlite_get {}: {:?}", key, &res);
     res
 }
@@ -65,22 +76,32 @@ impl SqliteConnection {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&bhh, &key, &value.to_string()];
 
-        self.conn
+        match self.conn
             .execute(
                 "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
                 &params,
-            )
-            .expect(SQL_FAIL_MESSAGE);
+            ) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Failed to insert ({},{},{}): {:?}", &bhh, &key, &value.to_string(), &e);
+                    panic!(SQL_FAIL_MESSAGE);
+                }
+            }
     }
 
     pub fn commit_metadata_to(&mut self, from: &StacksBlockId, to: &StacksBlockId) {
         let params = [to, from];
-        self.conn
+        match self.conn
             .execute(
                 "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
                 &params,
-            )
-            .expect(SQL_FAIL_MESSAGE);
+            ) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Failed to update {} to {}: {:?}", &from, &to, &e);
+                    panic!(SQL_FAIL_MESSAGE);
+                }
+            }
     }
 
     pub fn get_metadata(
@@ -92,14 +113,19 @@ impl SqliteConnection {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
 
-        self.conn
+        match self.conn
             .query_row(
                 "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
                 &params,
                 |row| row.get(0),
             )
-            .optional()
-            .expect(SQL_FAIL_MESSAGE)
+            .optional() {
+                Ok(x) => x,
+                Err(e) => {
+                    error!("Failed to query ({},{}): {:?}", &bhh, &key, &e);
+                    panic!(SQL_FAIL_MESSAGE);
+                }
+            }
     }
 
     pub fn has_entry(&mut self, key: &str) -> bool {
@@ -117,9 +143,14 @@ impl SqliteConnection {
 
     pub fn begin(&mut self, key: &StacksBlockId) {
         trace!("SAVEPOINT SP{}", key);
-        self.conn
-            .execute(&format!("SAVEPOINT SP{}", key), NO_PARAMS)
-            .expect(SQL_FAIL_MESSAGE);
+        match self.conn
+            .execute(&format!("SAVEPOINT SP{}", key), NO_PARAMS) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Failed to begin savepoint {}: {:?}", &key, &e);
+                    panic!(SQL_FAIL_MESSAGE);
+                }
+            }
     }
 
     pub fn rollback(&mut self, key: &StacksBlockId) {
@@ -128,19 +159,30 @@ impl SqliteConnection {
             key,
             key
         );
-        self.conn
+        match self.conn
             .execute_batch(&format!(
                 "ROLLBACK TO SAVEPOINT SP{}; RELEASE SAVEPOINT SP{}",
                 key, key
-            ))
-            .expect(SQL_FAIL_MESSAGE);
+            )) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Failed to rollback and release savepoint {}: {:?}", &key, &e);
+                    panic!(SQL_FAIL_MESSAGE);
+                }
+            }
     }
 
     pub fn delete_unconfirmed(&mut self, key: &StacksBlockId) {
         trace!("DELETE FROM metadata_table WHERE block_hash = {}", key);
-        self.conn
-            .execute("DELETE FROM metadata_table WHERE blockhash = ?", &[key])
-            .expect(SQL_FAIL_MESSAGE);
+        match self.conn
+            .execute("DELETE FROM metadata_table WHERE blockhash = ?", &[key]) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Failed to delete from metadata_table {}: {:?}", &key, &e);
+                    panic!(SQL_FAIL_MESSAGE);
+                }
+            }
+
     }
 
     pub fn rollback_unconfirmed(&mut self, key: &StacksBlockId) {
@@ -149,20 +191,31 @@ impl SqliteConnection {
             key,
             key
         );
-        self.conn
+        match self.conn
             .execute_batch(&format!(
                 "ROLLBACK TO SAVEPOINT SP{}; RELEASE SAVEPOINT SP{}",
                 key, key
-            ))
-            .expect(SQL_FAIL_MESSAGE);
+            )) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Failed to rollback and release unconfirmed savepoint {}: {:?}", &key, &e);
+                    panic!(SQL_FAIL_MESSAGE);
+                }
+            }
+
         self.delete_unconfirmed(key);
     }
 
     pub fn commit(&mut self, key: &StacksBlockId) {
         trace!("RELEASE SAVEPOINT SP{}", key);
-        self.conn
-            .execute(&format!("RELEASE SAVEPOINT SP{}", key), NO_PARAMS)
-            .expect("PANIC: Failed to SQL commit in Smart Contract VM.");
+        match self.conn
+            .execute(&format!("RELEASE SAVEPOINT SP{}", key), NO_PARAMS) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Failed to release savepoint {}: {:?}", &key, &e);
+                    panic!("PANIC: Failed to SQL commit in Smart Contract VM.");
+                }
+            }
     }
 }
 
