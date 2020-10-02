@@ -664,7 +664,7 @@ fn delegation_tests() {
             execute(&format!(
                 "(some {{ pox-addr: {}, total-ustx: {} }})",
                 &POX_ADDRS[1],
-                &Value::UInt(*MIN_THRESHOLD)
+                &Value::UInt(2 * (*MIN_THRESHOLD) - 1)
             ))
         );
 
@@ -705,7 +705,7 @@ fn delegation_tests() {
                 "delegator-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[1]).into(),
-                    Value::UInt(*MIN_THRESHOLD - 1),
+                    Value::UInt(*MIN_THRESHOLD),
                     POX_ADDRS[0].clone(),
                     Value::UInt(2)
                 ])
