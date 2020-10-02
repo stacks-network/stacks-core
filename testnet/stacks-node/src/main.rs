@@ -11,6 +11,9 @@ extern crate serde_json;
 #[macro_use]
 extern crate stacks;
 
+#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
+extern crate slog;
+
 pub use stacks::util;
 
 pub mod monitoring;

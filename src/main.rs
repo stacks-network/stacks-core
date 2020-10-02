@@ -27,6 +27,9 @@
 extern crate blockstack_lib;
 extern crate rusqlite;
 
+#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
+extern crate slog;
+
 use blockstack_lib::burnchains::db::BurnchainBlockData;
 use blockstack_lib::*;
 
@@ -57,8 +60,6 @@ use rusqlite::Connection;
 use rusqlite::OpenFlags;
 
 fn main() {
-    log::set_loglevel(log::LOG_INFO).unwrap();
-
     let mut argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
         eprintln!("Usage: {} command [args...]", argv[0]);
