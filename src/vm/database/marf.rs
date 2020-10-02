@@ -335,9 +335,6 @@ impl MarfedKV {
             );
             panic!();
         });
-        self.marf
-            .commit_mined(will_move_to)
-            .expect("ERROR: Failed to commit MARF block");
     }
 
     pub fn commit_to(&mut self, final_bhh: &StacksBlockId) {
