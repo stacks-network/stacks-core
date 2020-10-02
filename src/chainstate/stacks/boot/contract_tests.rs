@@ -664,7 +664,7 @@ fn delegation_tests() {
             execute(&format!(
                 "(some {{ pox-addr: {}, total-ustx: {} }})",
                 &POX_ADDRS[1],
-                &Value::UInt((*MIN_THRESHOLD))
+                &Value::UInt(*MIN_THRESHOLD)
             ))
         );
 

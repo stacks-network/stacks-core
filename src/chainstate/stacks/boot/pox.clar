@@ -330,7 +330,7 @@
   (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11)))
     (fold add-pox-partial-stacked-to-ith-cycle cycle-indexes 
           { pox-addr: pox-addr, reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx })
-    (ok true)))
+    true))
 
 ;; What is the minimum number of uSTX to be stacked in the given reward cycle?
 ;; Used internally by the Stacks node, and visible publicly.
@@ -580,7 +580,7 @@
 
       ;; register the PoX address with the amount stacked via partial stacking
       ;;   before it can be included in the reward set, this must be committed!
-      (try! (add-pox-partial-stacked pox-addr first-reward-cycle lock-period amount-ustx))
+      (add-pox-partial-stacked pox-addr first-reward-cycle lock-period amount-ustx)
 
       ;; add stacker record
       (map-set stacking-state
