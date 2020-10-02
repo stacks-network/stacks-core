@@ -12,7 +12,7 @@ use chainstate::burn::operations::BlockstackOperationType;
 
 use chainstate::stacks::index::MarfTrieId;
 
-use util::db::{query_row, query_rows, u64_to_sql, Error as DBError, FromColumn, FromRow};
+use util::db::{query_row, query_rows, u64_to_sql, Error as DBError, FromColumn, FromRow, tx_busy_handler, tx_begin_immediate};
 
 pub struct BurnchainDB {
     conn: Connection,
@@ -184,10 +184,14 @@ impl BurnchainDB {
                 }
             }
         };
+    
+        let conn = Connection::open_with_flags(path, open_flags)
+            .expect(&format!("FAILED to open: {}", path));
+
+        conn.busy_handler(Some(tx_busy_handler))?;
 
         let mut db = BurnchainDB {
-            conn: Connection::open_with_flags(path, open_flags)
-                .expect(&format!("FAILED to open: {}", path)),
+            conn
         };
 
         if create_flag {
@@ -216,13 +220,15 @@ impl BurnchainDB {
             OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = Connection::open_with_flags(path, open_flags)?;
+        conn.busy_handler(Some(tx_busy_handler))?;
 
         Ok(BurnchainDB { conn })
     }
 
     fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
+        let sql_tx = tx_begin_immediate(&mut self.conn)?;
         Ok(BurnchainDBTransaction {
-            sql_tx: self.conn.transaction()?,
+            sql_tx: sql_tx,
         })
     }
 
