@@ -669,7 +669,6 @@ impl Burnchain {
                         new_block_commit.key_vtxindex as u32,
                     );
                     if let Some(existing_block_commit) = collisions.get_mut(&key_loc) {
-<<<<<<< HEAD
                         if let BlockstackOperationType::LeaderBlockCommit(existing_block_commit) =
                             existing_block_commit
                         {
@@ -678,26 +677,15 @@ impl Burnchain {
                                 &new_block_commit.block_header_hash,
                                 &existing_block_commit.block_header_hash
                             );
-=======
-                        if let BlockstackOperationType::LeaderBlockCommit(existing_block_commit) = existing_block_commit {
-                            warn!("Block commit {} consumes the same VRF key as {}", &new_block_commit.block_header_hash, &existing_block_commit.block_header_hash);
-
                             // TODO(psq): this should use `>=`, if there's a newer commit with same fee, the older one may be stale
                             // TODO(psq): what should we do if there are 2 commits in the same block, try to use one against later block if possible to tell
->>>>>>> improve wait, and fix faulty test logic, not the wait algo itself
                             if new_block_commit.burn_fee > existing_block_commit.burn_fee {
                                 warn!("REJECTED({}) block-commit {} for {}: later ({}) competing commit {} for {} has a higher burn",
                                       existing_block_commit.block_height, &existing_block_commit.txid, &existing_block_commit.block_header_hash,
                                       new_block_commit.block_height, &new_block_commit.txid, &new_block_commit.block_header_hash);
                                 collisions.insert(key_loc, op);
-<<<<<<< HEAD
                             } else {
-                                warn!("REJECTED({}) block-commit {} for {}: keeping earlier commit {} for {} which has a higher burn",
-=======
-                            }
-                            else {
                                 warn!("REJECTED({}) block-commit {} for {}: keeping earlier ({}) commit {} for {} which has a higher burn",
->>>>>>> improve wait, and fix faulty test logic, not the wait algo itself
                                       new_block_commit.block_height, &new_block_commit.txid, &new_block_commit.block_header_hash,
                                       existing_block_commit.block_height, &existing_block_commit.txid, &existing_block_commit.block_header_hash);
                             }

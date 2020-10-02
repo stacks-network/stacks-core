@@ -581,9 +581,9 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     .expect(&format!(
                         "FAIL: could not find data for the canonical sortition {}",
                         canonical_sortition_tip
-                    ))
-                    .get_canonical_stacks_block_id();
-                    self.canonical_chain_tip = Some(new_canonical_stacks_block);
+                    ));
+                    let new_canonical_stacks_block_id = new_canonical_stacks_block.get_canonical_stacks_block_id();
+                    self.canonical_chain_tip = Some(new_canonical_stacks_block_id);
                     debug!(
                         "Bump blocks processed {:?} {:?}/{:?}/{:?}",
                         new_canonical_stacks_block.block_height,

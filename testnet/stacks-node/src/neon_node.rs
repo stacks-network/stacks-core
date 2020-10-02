@@ -39,7 +39,6 @@ use stacks::net::{
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
-use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
