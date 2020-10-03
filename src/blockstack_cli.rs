@@ -453,7 +453,6 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
 }
 
 fn main() {
-    log::set_loglevel(log::LOG_DEBUG).unwrap();
     let mut argv: Vec<String> = env::args().collect();
 
     argv.remove(0);
