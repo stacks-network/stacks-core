@@ -17,8 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::env;
 use slog::{Drain, Logger};
+use std::env;
 use std::sync::Mutex;
 
 lazy_static! {
