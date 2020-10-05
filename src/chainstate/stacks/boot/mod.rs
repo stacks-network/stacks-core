@@ -24,8 +24,13 @@ use chainstate::stacks::StacksBlockHeader;
 
 use address::AddressHashMode;
 use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::Address;
+use burnchains::{
+    Address, PoxConstants
+};
 
+use core::{
+    POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS
+};
 use chainstate::burn::db::sortdb::SortitionDB;
 
 use vm::types::{
@@ -44,6 +49,7 @@ use util::hash::Hash160;
 use std::boxed::Box;
 use std::convert::TryFrom;
 use std::convert::TryInto;
+use std::cmp;
 
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS: &'static str = "ST000000000000000000002AMW42H";
 
@@ -181,6 +187,25 @@ impl StacksChainState {
             &format!("(is-pox-active u{})", reward_cycle),
         )
         .map(|value| value.expect_bool())
+    }
+
+    pub fn get_reward_threshold(pox_settings: &PoxConstants, addresses: &[(StacksAddress, u128)], liquid_ustx: u128) -> u128 {
+        let participation = addresses
+            .iter()
+            .fold(0, |agg, (_, stacked_amt)| agg + stacked_amt);
+
+        assert!(participation <= liquid_ustx, "CORRUPTION: More stacking participation than liquid STX");
+
+        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
+
+        let reward_slots = pox_settings.reward_slots() as u128;
+        let threshold_precise = scale_by / reward_slots;
+        // compute the threshold as nearest 10k > threshold_precise
+        let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS {
+            0 => 0,
+            remainder => POX_THRESHOLD_STEPS - remainder,
+        };
+        threshold_precise + ceil_amount
     }
 
     /// Each address will have at least (get-stacking-minimum) tokens.

@@ -308,6 +308,10 @@ impl PoxConstants {
         PoxConstants::new(10, 5, 3, 25)
     }
 
+    pub fn reward_slots(&self) -> u32 {
+        self.reward_cycle_length
+    }
+
     pub fn mainnet_default() -> PoxConstants {
         PoxConstants::new(1000, 240, 192, 25)
     }

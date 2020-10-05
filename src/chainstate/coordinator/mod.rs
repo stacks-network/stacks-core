@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
-use std::convert::TryInto;
+use std::convert::{
+    TryInto, TryFrom
+};
 use std::time::Duration;
 
 use burnchains::{
@@ -163,7 +165,26 @@ impl RewardSetProvider for OnChainRewardSetProvider {
     ) -> Result<Vec<StacksAddress>, Error> {
         let res =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
-        let addresses = res.iter().map(|a| a.0).collect::<Vec<StacksAddress>>();
+        let liquid_ustx = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+            chainstate.headers_db(),
+            block_id)?
+            .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
+            .total_liquid_ustx;
+
+        let threshold = StacksChainState::get_reward_threshold(
+            &burnchain.pox_constants,
+            &res,
+            liquid_ustx);
+        let mut addresses = vec![];
+
+        for (address, stacked_amt) in res.iter() {
+            let slots_taken = u32::try_from(stacked_amt / threshold)
+                .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
+            for _i in 0..slots_taken {
+                addresses.push(address.clone());
+            }
+        }
+
         Ok(addresses)
     }
 }
