@@ -63,6 +63,8 @@ pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
 pub const POX_PREPARE_WINDOW_LENGTH: u32 = 240;
 pub const POX_REWARD_CYCLE_LENGTH: u32 = 1000;
+pub const POX_MAXIMAL_SCALING: u128 = 4;
+pub const POX_THRESHOLD_STEPS: u128 = 10_000;
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(
