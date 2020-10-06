@@ -1456,6 +1456,14 @@ impl ConversationHttp {
                 }
                 None
             }
+            HttpRequestType::PostZonefile(ref _md) => {
+                // todo(ludo): implement
+                None
+            }
+            HttpRequestType::GetName(ref _md, ref name, ref tip_opt) => {
+                // todo(ludo): implement
+                None
+            }
             HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {
                 if let Some((consensus_hash, block_hash)) =
                     ConversationHttp::handle_load_stacks_chain_tip_hashes(

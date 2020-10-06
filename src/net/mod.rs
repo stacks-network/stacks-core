@@ -1096,6 +1096,14 @@ pub struct AccountEntryResponse {
     pub nonce_proof: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetNameResponse {
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PostZonefileResponse {
+}
+
 /// Request ID to use or expect from non-Stacks HTTP clients.
 /// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
 /// to be this value.  This is needed to support fetching immutables like block and microblock data
@@ -1218,6 +1226,8 @@ pub enum HttpRequestType {
         Option<StacksBlockId>,
     ),
     OptionsPreflight(HttpRequestMetadata, String),
+    GetName(HttpRequestMetadata, String, Option<StacksBlockId>),
+    PostZonefile(HttpRequestMetadata),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1307,6 +1317,8 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
+    GetName(HttpResponseMetadata, GetNameResponse),
+    PostZonefile(HttpResponseMetadata, PostZonefileResponse),
     OptionsPreflight(HttpResponseMetadata),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
