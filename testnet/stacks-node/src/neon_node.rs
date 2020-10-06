@@ -29,6 +29,7 @@ use stacks::chainstate::stacks::{
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
     db::{LocalPeer, PeerDB},
+    atlas::AtlasDB,
     dns::DNSResolver,
     p2p::PeerNetwork,
     relay::Relayer,
@@ -666,6 +667,12 @@ impl InitializedNeonNode {
         )
         .unwrap();
 
+        let atlasdb = AtlasDB::connect(
+            &config.get_atlas_db_path(),
+            true
+        )
+        .unwrap();
+
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
             _ => panic!("Unable to retrieve local peer"),
@@ -674,6 +681,7 @@ impl InitializedNeonNode {
         // now we're ready to instantiate a p2p network object, the relayer, and the event dispatcher
         let mut p2p_net = PeerNetwork::new(
             peerdb,
+            atlasdb,
             local_peer.clone(),
             TESTNET_PEER_VERSION,
             burnchain.clone(),

@@ -654,6 +654,11 @@ impl Config {
         format!("{}/peer_db.sqlite", self.node.working_dir)
     }
 
+    pub fn get_atlas_db_path(&self) -> String {
+        format!("{}/atlas_db.sqlite", self.node.working_dir)
+    }
+
+
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
         let new_balance = InitialBalance {
             address: PrincipalData::parse_standard_principal(&address)

@@ -33,6 +33,7 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
+pub mod atlas;
 
 use std::borrow::Borrow;
 use std::cmp::PartialEq;
@@ -2226,6 +2227,14 @@ pub mod test {
             )
             .unwrap();
 
+            let atlasdb_path = format!("{}/atlas.db", &test_path);
+            let mut atlasdb = AtlasDB::connect(
+                &atlasdb_path,
+                true
+            )
+            .unwrap();
+
+
             let init_code = config.setup_code.clone();
             let (chainstate, _) = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()),
                 |ref mut clarity_tx| {
@@ -2325,6 +2334,7 @@ pub mod test {
             };
             let mut peer_network = PeerNetwork::new(
                 peerdb,
+                atlasdb,
                 local_peer,
                 config.peer_version,
                 config.burnchain.clone(),

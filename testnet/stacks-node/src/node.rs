@@ -21,7 +21,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
+    db::PeerDB, atlas::AtlasDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
 };
 
 use stacks::util::hash::Sha256Sum;
@@ -317,6 +317,12 @@ impl Node {
         )
         .unwrap();
 
+        let atlasdb = AtlasDB::connect(
+            &self.config.get_peer_db_path(),
+            true
+        )
+        .unwrap();
+
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
             _ => panic!("Unable to retrieve local peer"),
@@ -327,6 +333,7 @@ impl Node {
 
         let p2p_net = PeerNetwork::new(
             peerdb,
+            atlasdb,
             local_peer,
             TESTNET_PEER_VERSION,
             burnchain,

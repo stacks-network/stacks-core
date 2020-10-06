@@ -20,6 +20,7 @@ use std::mem;
 
 use net::asn::ASEntry4;
 use net::db::PeerDB;
+use net::atlas::AtlasDB;
 use net::Error as net_error;
 use net::Neighbor;
 use net::NeighborKey;
@@ -212,6 +213,7 @@ pub struct PeerNetwork {
     pub chain_view: BurnchainView,
 
     pub peerdb: PeerDB,
+    pub atlasdb: AtlasDB,
 
     // ongoing p2p conversations (either they reached out to us, or we to them)
     pub peers: PeerMap,
@@ -293,6 +295,7 @@ pub struct PeerNetwork {
 impl PeerNetwork {
     pub fn new(
         peerdb: PeerDB,
+        atlasdb: AtlasDB,
         mut local_peer: LocalPeer,
         peer_version: u32,
         burnchain: Burnchain,
@@ -315,6 +318,7 @@ impl PeerNetwork {
             chain_view: chain_view,
 
             peerdb: peerdb,
+            atlasdb: atlasdb,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -3237,9 +3241,13 @@ mod test {
             initial_neighbors,
         )
         .unwrap();
+
+        let atlasdb = AtlasDB::connect_memory().unwrap();
+
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(
             db,
+            atlasdb,
             local_peer,
             0x12345678,
             burnchain,
