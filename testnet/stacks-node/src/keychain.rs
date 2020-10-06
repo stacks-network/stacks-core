@@ -140,7 +140,10 @@ impl Keychain {
         // Retrieve the corresponding VRF secret key
         let vrf_sk = match self.vrf_map.get(vrf_pk) {
             Some(vrf_pk) => vrf_pk,
-            None => return None,
+            None => {
+                warn!("No VRF secret key on file for {:?}", vrf_pk);
+                return None;
+            }
         };
 
         // Generate the proof

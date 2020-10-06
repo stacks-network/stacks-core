@@ -55,7 +55,7 @@ pub fn get_stx_balance_snapshot(
 ) -> (STXBalance, u64) {
     let stx_balance = db.get_account_stx_balance(principal);
     let cur_burn_height = db.get_current_burnchain_block_height() as u64;
-    test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_locked_tokens_unlockable={})",
+    test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_locked_tokens_unlockable={})", 
         principal,
         stx_balance.amount_unlocked,
         stx_balance.amount_locked,
