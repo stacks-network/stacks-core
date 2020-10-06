@@ -115,7 +115,8 @@ impl PoxSyncWatchdog {
         burnchain_tip: &BurnchainTip,
         burnchain_height: u64,
     ) -> bool {
-        burnchain_tip.block_snapshot.block_height + (burnchain.stable_confirmations as u64) < burnchain_height
+        burnchain_tip.block_snapshot.block_height + (burnchain.stable_confirmations as u64)
+            < burnchain_height
     }
 
     /// Calculate the first derivative of a list of points
@@ -301,14 +302,21 @@ impl PoxSyncWatchdog {
             < burnchain.first_block_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             debug!("PoX watchdog in first reward cycle -- sync immediately");
-            return PoxSyncWatchdog::infer_initial_block_download(burnchain, burnchain_tip, burnchain_height);
+            return PoxSyncWatchdog::infer_initial_block_download(
+                burnchain,
+                burnchain_tip,
+                burnchain_height,
+            );
         }
 
         let mut steady_state = false;
 
         let ibd = loop {
-            let ibd =
-                PoxSyncWatchdog::infer_initial_block_download(burnchain, burnchain_tip, burnchain_height);
+            let ibd = PoxSyncWatchdog::infer_initial_block_download(
+                burnchain,
+                burnchain_tip,
+                burnchain_height,
+            );
 
             let expected_first_block_deadline =
                 self.watch_start_ts + (self.estimated_block_download_time as u64);
@@ -357,7 +365,11 @@ impl PoxSyncWatchdog {
 
                     if self.watch_start_ts > 0
                         && (self.new_attachable_blocks.len() as u64) < self.max_samples
-                        && self.watch_start_ts + self.max_samples + self.steady_state_burnchain_sync_interval * (burnchain.stable_confirmations as u64) < get_epoch_time_secs()
+                        && self.watch_start_ts
+                            + self.max_samples
+                            + self.steady_state_burnchain_sync_interval
+                                * (burnchain.stable_confirmations as u64)
+                            < get_epoch_time_secs()
                     {
                         debug!(
                             "PoX watchdog: could not calculate {} samples in {} seconds.  Assuming suspend/resume, or assuming load is too high.", 
@@ -367,7 +379,8 @@ impl PoxSyncWatchdog {
                         self.reset(burnchain, burnchain_tip.block_snapshot.block_height);
 
                         self.watch_start_ts = get_epoch_time_secs();
-                        self.steady_state_resync_ts = get_epoch_time_secs() + self.steady_state_burnchain_sync_interval;
+                        self.steady_state_resync_ts =
+                            get_epoch_time_secs() + self.steady_state_burnchain_sync_interval;
                         continue;
                     }
 
@@ -434,4 +447,3 @@ impl PoxSyncWatchdog {
         ibd
     }
 }
-

@@ -794,7 +794,7 @@ mod test {
         let mut peer = TestPeer::new(peer_config);
         let view = peer.get_burnchain_view().unwrap();
         let (http_sx, http_rx) = sync_channel(1);
-        
+
         let network_id = peer.config.network_id;
         let chainstate_path = peer.chainstate_path.clone();
 
@@ -823,7 +823,8 @@ mod test {
         let mut client_requests = vec![];
         let mut client_threads = vec![];
         let mut client_handles = vec![];
-        let (mut chainstate, _) = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+        let (mut chainstate, _) =
+            StacksChainState::open(false, network_id, &chainstate_path).unwrap();
         for i in 0..num_clients {
             let request = make_request(i, &mut chainstate);
             client_requests.push(request);
@@ -1291,7 +1292,7 @@ mod test {
             },
         );
     }
-    
+
     #[test]
     fn test_http_no_connecting_event_id_leak() {
         use std::net::TcpListener;
@@ -1323,14 +1324,11 @@ mod test {
                 let request_bytes = StacksHttp::serialize_request(&request).unwrap();
                 request_bytes
             },
-            |client_id, res| {
-                true
-            },
+            |client_id, res| true,
         );
 
         assert_eq!(num_events, 2);
     }
-
 
     #[test]
     fn test_http_noop() {

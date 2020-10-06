@@ -47,8 +47,8 @@ use std::path::{Path, PathBuf};
 
 use util::db::Error as db_error;
 use util::db::{
-    query_count, query_int, query_row, query_row_columns, query_rows, tx_busy_handler, DBConn,
-    FromColumn, FromRow, query_row_panic
+    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
+    tx_busy_handler, DBConn, FromColumn, FromRow,
 };
 
 use util::db::u64_to_sql;
@@ -3511,11 +3511,18 @@ impl StacksChainState {
                                     &candidate.parent_anchored_block_hash,
                                     &candidate.parent_consensus_hash,
                                 ];
-                                let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(headers_conn, &hdr_sql, hdr_args, || format!(
+                                let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(
+                                    headers_conn,
+                                    &hdr_sql,
+                                    hdr_args,
+                                    || {
+                                        format!(
                                             "Stored the same block twice: {}/{}",
                                             &candidate.parent_anchored_block_hash,
                                             &candidate.parent_consensus_hash
-                                        ))?;
+                                        )
+                                    },
+                                )?;
                                 match hdr_row {
                                     Some(_) => {
                                         debug!(
@@ -3540,16 +3547,27 @@ impl StacksChainState {
 
                         if can_attach {
                             // load up the block data
-                            candidate.block_data = match StacksChainState::load_block_bytes(blocks_path, &candidate.consensus_hash, &candidate.anchored_block_hash)? {
+                            candidate.block_data = match StacksChainState::load_block_bytes(
+                                blocks_path,
+                                &candidate.consensus_hash,
+                                &candidate.anchored_block_hash,
+                            )? {
                                 Some(bytes) => {
                                     if bytes.len() == 0 {
-                                        error!("CORRUPTION: No block data for {}/{}", &candidate.consensus_hash, &candidate.anchored_block_hash);
+                                        error!(
+                                            "CORRUPTION: No block data for {}/{}",
+                                            &candidate.consensus_hash,
+                                            &candidate.anchored_block_hash
+                                        );
                                         panic!();
                                     }
                                     bytes
-                                },
+                                }
                                 None => {
-                                    error!("CORRUPTION: No block data for {}/{}", &candidate.consensus_hash, &candidate.anchored_block_hash);
+                                    error!(
+                                        "CORRUPTION: No block data for {}/{}",
+                                        &candidate.consensus_hash, &candidate.anchored_block_hash
+                                    );
                                     panic!();
                                 }
                             };
@@ -3558,13 +3576,10 @@ impl StacksChainState {
                             match StacksChainState::find_parent_staging_microblock_stream(
                                 blocks_tx,
                                 blocks_path,
-                                &candidate
+                                &candidate,
                             )? {
                                 Some(parent_staging_microblocks) => {
-                                    return Ok(Some((
-                                        parent_staging_microblocks,
-                                        candidate,
-                                    )));
+                                    return Ok(Some((parent_staging_microblocks, candidate)));
                                 }
                                 None => {
                                     // no microblock data yet, so we can't process this block

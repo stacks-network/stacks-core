@@ -2258,8 +2258,8 @@ pub mod test {
     use net::test::*;
     use net::*;
     use std::collections::HashMap;
-    use util::test::*;
     use util::sleep_ms;
+    use util::test::*;
 
     fn get_peer_availability(
         peer: &mut TestPeer,
@@ -3113,9 +3113,9 @@ pub mod test {
     #[ignore]
     #[should_panic(expected = "blocked URL")]
     pub fn test_get_blocks_and_microblocks_ban_url() {
+        use std::convert::TryFrom;
         use std::net::TcpListener;
         use std::thread;
-        use std::convert::TryFrom;
 
         let listener_1 = TcpListener::bind("127.0.0.1:3260").unwrap();
         let listener_2 = TcpListener::bind("127.0.0.1:3262").unwrap();
@@ -3125,7 +3125,7 @@ pub mod test {
             test_debug!("Accepted 1 {:?}", &addr);
             sleep_ms(60_000);
         });
-        
+
         let endpoint_thread_2 = thread::spawn(move || {
             let (sock, addr) = listener_2.accept().unwrap();
             test_debug!("Accepted 2 {:?}", &addr);
@@ -3144,8 +3144,10 @@ pub mod test {
                 peer_configs[1].connection_opts.disable_block_advertisement = true;
 
                 // announce URLs to our fake handlers
-                peer_configs[0].data_url = UrlString::try_from("http://127.0.0.1:3260".to_string()).unwrap();
-                peer_configs[1].data_url = UrlString::try_from("http://127.0.0.1:3262".to_string()).unwrap();
+                peer_configs[0].data_url =
+                    UrlString::try_from("http://127.0.0.1:3260".to_string()).unwrap();
+                peer_configs[1].data_url =
+                    UrlString::try_from("http://127.0.0.1:3262".to_string()).unwrap();
 
                 let peer_0 = peer_configs[0].to_neighbor();
                 let peer_1 = peer_configs[1].to_neighbor();
@@ -3156,8 +3158,7 @@ pub mod test {
                 // build up block data to replicate
                 let mut block_data = vec![];
                 for _ in 0..num_blocks {
-                    let (mut burn_ops, stacks_block, microblocks) =
-                        peers[1].make_default_tenure();
+                    let (mut burn_ops, stacks_block, microblocks) = peers[1].make_default_tenure();
 
                     let (_, burn_header_hash, consensus_hash) =
                         peers[1].next_burnchain_block(burn_ops.clone());
@@ -3180,12 +3181,12 @@ pub mod test {
                 block_data
             },
             |_| {},
-            |peer| { 
+            |peer| {
                 let mut blocked = 0;
                 match peer.network.block_downloader {
                     Some(ref dl) => {
                         blocked = dl.blocked_urls.len();
-                    },
+                    }
                     None => {}
                 }
                 if blocked >= 1 {
@@ -3194,7 +3195,7 @@ pub mod test {
                 }
                 true
             },
-            |_| { true },
+            |_| true,
         );
 
         endpoint_thread_1.join().unwrap();
