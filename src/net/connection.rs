@@ -57,8 +57,6 @@ use net::neighbors::{
     NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS, WALK_RETRY_COUNT,
 };
 
-use util::strings::UrlString;
-
 use vm::{costs::ExecutionCost, types::BOUND_VALUE_SERIALIZATION_HEX};
 
 use chainstate::burn::ConsensusHash;
