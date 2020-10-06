@@ -1042,7 +1042,8 @@ impl Relayer {
     ) -> bool {
         let txid = tx.txid();
         if mempool.has_tx(&txid) {
-            return true;
+            debug!("Already have tx {}", txid);
+            return false;
         }
 
         if let Err(e) = mempool.submit(consensus_hash, block_hash, tx) {
