@@ -56,6 +56,7 @@ use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::{GetNameResponse, PostZonefileResponse};
+use net::atlas::BNS_NAME_REGEX;
 use burnchains::{Address, Txid};
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
@@ -86,6 +87,7 @@ use url::{form_urlencoded, Url};
 use deps::httparse;
 use std::time::SystemTime;
 use time;
+
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
@@ -126,7 +128,11 @@ lazy_static! {
     ))
     .unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
-    static ref PATH_GET_NAME: Regex = Regex::new("^/v2/names/(?P<name>{})$").unwrap();
+    static ref PATH_GET_NAME: Regex = Regex::new(&format!(
+        r#"^/v2/names/(?P<name>{})$"#,
+        *BNS_NAME_REGEX
+    ))
+    .unwrap();
     static ref PATH_POST_ZONEFILE: Regex = Regex::new("^/v2/zonefiles$").unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
