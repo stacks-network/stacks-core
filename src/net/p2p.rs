@@ -229,7 +229,7 @@ pub struct PeerNetwork {
     handles: VecDeque<NetworkHandleServer>,
 
     // network I/O
-    network: Option<NetworkState>,
+    pub network: Option<NetworkState>,
     p2p_network_handle: usize,
     http_network_handle: usize,
 
