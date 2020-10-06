@@ -2259,6 +2259,7 @@ pub mod test {
     use net::*;
     use std::collections::HashMap;
     use util::test::*;
+    use util::sleep_ms;
 
     fn get_peer_availability(
         peer: &mut TestPeer,
@@ -2333,16 +2334,6 @@ pub mod test {
                 )
                 .unwrap();
                 block_data.push((sn.consensus_hash.clone(), stacks_block, microblocks));
-
-                /*
-                let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
-                peer_1.next_burnchain_block(burn_ops.clone());
-                peer_2.next_burnchain_block(burn_ops.clone());
-                peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-                let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_2.sortdb.as_ref().unwrap().conn()).unwrap();
-                block_data.push((sn.consensus_hash.clone(), stacks_block, microblocks));
-                */
             }
 
             let num_burn_blocks = {
@@ -3116,5 +3107,97 @@ pub mod test {
                 |_| true,
             );
         })
+    }
+
+    #[test]
+    #[ignore]
+    #[should_panic(expected = "blocked URL")]
+    pub fn test_get_blocks_and_microblocks_ban_url() {
+        use std::net::TcpListener;
+        use std::thread;
+        use std::convert::TryFrom;
+
+        let listener_1 = TcpListener::bind("127.0.0.1:3260").unwrap();
+        let listener_2 = TcpListener::bind("127.0.0.1:3262").unwrap();
+
+        let endpoint_thread_1 = thread::spawn(move || {
+            let (sock, addr) = listener_1.accept().unwrap();
+            test_debug!("Accepted 1 {:?}", &addr);
+            sleep_ms(60_000);
+        });
+        
+        let endpoint_thread_2 = thread::spawn(move || {
+            let (sock, addr) = listener_2.accept().unwrap();
+            test_debug!("Accepted 2 {:?}", &addr);
+            sleep_ms(60_000);
+        });
+
+        run_get_blocks_and_microblocks(
+            "test_get_blocks_and_microblocks_ban_url",
+            3250,
+            2,
+            |ref mut peer_configs| {
+                // build initial network topology
+                assert_eq!(peer_configs.len(), 2);
+
+                peer_configs[0].connection_opts.disable_block_advertisement = true;
+                peer_configs[1].connection_opts.disable_block_advertisement = true;
+
+                // announce URLs to our fake handlers
+                peer_configs[0].data_url = UrlString::try_from("http://127.0.0.1:3260".to_string()).unwrap();
+                peer_configs[1].data_url = UrlString::try_from("http://127.0.0.1:3262".to_string()).unwrap();
+
+                let peer_0 = peer_configs[0].to_neighbor();
+                let peer_1 = peer_configs[1].to_neighbor();
+                peer_configs[0].add_neighbor(&peer_1);
+                peer_configs[1].add_neighbor(&peer_0);
+            },
+            |num_blocks, ref mut peers| {
+                // build up block data to replicate
+                let mut block_data = vec![];
+                for _ in 0..num_blocks {
+                    let (mut burn_ops, stacks_block, microblocks) =
+                        peers[1].make_default_tenure();
+
+                    let (_, burn_header_hash, consensus_hash) =
+                        peers[1].next_burnchain_block(burn_ops.clone());
+                    peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                    peers[0].next_burnchain_block_raw(burn_ops);
+
+                    let sn = SortitionDB::get_canonical_burn_chain_tip(
+                        &peers[1].sortdb.as_ref().unwrap().conn(),
+                    )
+                    .unwrap();
+                    block_data.push((
+                        sn.consensus_hash.clone(),
+                        Some(stacks_block),
+                        Some(microblocks),
+                    ));
+                }
+                block_data
+            },
+            |_| {},
+            |peer| { 
+                let mut blocked = 0;
+                match peer.network.block_downloader {
+                    Some(ref dl) => {
+                        blocked = dl.blocked_urls.len();
+                    },
+                    None => {}
+                }
+                if blocked >= 1 {
+                    // NOTE: this is the success criterion
+                    panic!("blocked URL");
+                }
+                true
+            },
+            |_| { true },
+        );
+
+        endpoint_thread_1.join().unwrap();
+        endpoint_thread_2.join().unwrap();
     }
 }
