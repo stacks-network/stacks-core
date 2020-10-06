@@ -702,6 +702,12 @@ fn pox_integration_test() {
     let spender_sk = StacksPrivateKey::new();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
+    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
+
+    let spender_3_sk = StacksPrivateKey::new();
+    let spender_3_addr: PrincipalData = to_addr(&spender_3_sk).into();
+
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
@@ -712,14 +718,36 @@ fn pox_integration_test() {
             .to_vec(),
     );
 
+    let pox_2_pubkey = Secp256k1PublicKey::from_private(&StacksPrivateKey::new());
+    let pox_2_pubkey_hash = bytes_to_hex(
+        &Hash160::from_data(&pox_2_pubkey.to_bytes())
+            .to_bytes()
+            .to_vec(),
+    );
+
+
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     let total_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let third_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_bal = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
-        amount: total_bal,
+        amount: first_bal,
+    });
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_2_addr.clone(),
+        amount: second_bal,
+    });
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_3_addr.clone(),
+        amount: third_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -784,7 +812,7 @@ fn pox_integration_test() {
         .unwrap();
     assert_eq!(
         u128::from_str_radix(&res.balance[2..], 16).unwrap(),
-        total_bal as u128
+        first_bal as u128
     );
     assert_eq!(res.nonce, 0);
 
@@ -830,6 +858,94 @@ fn pox_integration_test() {
         panic!("");
     }
 
+    // now let's have sender_2 and sender_3 stack to pox addr 2 in
+    //  two different txs, and make sure that they sum together in the reward set.
+
+    let tx = make_contract_call(
+        &spender_2_sk,
+        0,
+        243,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox",
+        "stack-stx",
+        &[
+            Value::UInt(stacked_bal / 2),
+            execute(&format!(
+                "{{ hashbytes: 0x{}, version: 0x00 }}",
+                pox_2_pubkey_hash
+            ))
+            .unwrap()
+            .unwrap(),
+            Value::UInt(3),
+        ],
+    );
+
+    // okay, let's push that stacking transaction!
+    let path = format!("{}/v2/transactions", &http_origin);
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx.clone())
+        .send()
+        .unwrap();
+    eprintln!("{:#?}", res);
+    if res.status().is_success() {
+        let res: String = res.json().unwrap();
+        assert_eq!(
+            res,
+            StacksTransaction::consensus_deserialize(&mut &tx[..])
+                .unwrap()
+                .txid()
+                .to_string()
+        );
+    } else {
+        eprintln!("{}", res.text().unwrap());
+        panic!("");
+    }
+
+    let tx = make_contract_call(
+        &spender_3_sk,
+        0,
+        243,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox",
+        "stack-stx",
+        &[
+            Value::UInt(stacked_bal / 2),
+            execute(&format!(
+                "{{ hashbytes: 0x{}, version: 0x00 }}",
+                pox_2_pubkey_hash
+            ))
+            .unwrap()
+            .unwrap(),
+            Value::UInt(3),
+        ],
+    );
+
+    // okay, let's push that stacking transaction!
+    let path = format!("{}/v2/transactions", &http_origin);
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(tx.clone())
+        .send()
+        .unwrap();
+    eprintln!("{:#?}", res);
+    if res.status().is_success() {
+        let res: String = res.json().unwrap();
+        assert_eq!(
+            res,
+            StacksTransaction::consensus_deserialize(&mut &tx[..])
+                .unwrap()
+                .txid()
+                .to_string()
+        );
+    } else {
+        eprintln!("{}", res.text().unwrap());
+        panic!("");
+    }
+
+
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _one_ transaction from the microblock
     //  only set that got mined (since the block before this one was empty, a microblock can
@@ -870,6 +986,15 @@ fn pox_integration_test() {
     // we should have received _three_ Bitcoin commitments, because our commitment was 3 * threshold
     let utxos = btc_regtest_controller
         .get_all_utxos(&pox_pubkey);
+
+    eprintln!("Got UTXOs: {}", utxos.len());
+    assert_eq!(utxos.len(), 3, "Should have received three outputs during PoX reward cycle");
+
+    // we should have received _three_ Bitcoin commitments to pox_2_pubkey, because our commitment was 3 * threshold
+    //   note: that if the reward set "summing" isn't implemented, this recipient would only have received _2_ slots,
+    //         because each `stack-stx` call only received enough to get 1 slot individually.
+    let utxos = btc_regtest_controller
+        .get_all_utxos(&pox_2_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
     assert_eq!(utxos.len(), 3, "Should have received three outputs during PoX reward cycle");
