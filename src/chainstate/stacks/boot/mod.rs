@@ -51,19 +51,22 @@ const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 
 lazy_static! {
     static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 2] = [
+    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 3] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
-        ("lockup", BOOT_CODE_LOCKUP)
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("bns", &BOOT_CODE_BNS),
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 2] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 3] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
-        ("lockup", BOOT_CODE_LOCKUP)
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("bns", &BOOT_CODE_BNS),
     ];
 }
 
