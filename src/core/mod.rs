@@ -61,10 +61,12 @@ pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20
 
 pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
+pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
+
 pub const POX_PREPARE_WINDOW_LENGTH: u32 = 240;
 pub const POX_REWARD_CYCLE_LENGTH: u32 = 1000;
 pub const POX_MAXIMAL_SCALING: u128 = 4;
-pub const POX_THRESHOLD_STEPS: u128 = 10_000;
+pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u128);
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(
