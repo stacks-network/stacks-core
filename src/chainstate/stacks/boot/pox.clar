@@ -504,9 +504,10 @@
       (ok true)))
 
 ;; Commit partially stacked STX.
-;;   this allows a stacker/delegator to lock fewer STX than the minimal threshold in multiple transactions,
-;;   so long as the pox-addr is the same, and then this "commit" transaction is called _before_ the PoX anchor block
-;;   this ensures that each entry in the reward set returned to the stacks-node is greater than the threshold,
+;;   This allows a stacker/delegator to lock fewer STX than the minimal threshold in multiple transactions,
+;;   so long as: 1. The pox-addr is the same.
+;;               2. This "commit" transaction is called _before_ the PoX anchor block.
+;;   This ensures that each entry in the reward set returned to the stacks-node is greater than the threshold,
 ;;   but does not require it be all locked up within a single transaction
 (define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 20) })
                                          (reward-cycle uint))
