@@ -180,9 +180,7 @@
                           false)))
           ;; is the caller allowance expired?
           (if (< burn-block-height (unwrap! (get until-burn-ht caller-allowed) true))
-              (begin (map-delete allowance-contract-callers
-                                 { sender: tx-sender, contract-caller: contract-caller })
-                     false)
+              false
               true))))
 
 (define-private (get-check-delegation (stacker principal))
@@ -191,9 +189,8 @@
       (if (match (get until-burn-ht delegation-info)
                  until-burn-ht (> burn-block-height until-burn-ht)
                  false)
-          ;; it expired, delete the entry and return none
-          (begin (map-delete delegation-state { stacker: stacker })
-                 none)
+          ;; it expired, return none
+          none
           ;; delegation is active
           (some delegation-info))))
 
