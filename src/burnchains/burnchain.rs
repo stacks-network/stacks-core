@@ -17,6 +17,9 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use deps;
+use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
+
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::sync_channel;
@@ -43,7 +46,7 @@ use burnchains::{
 use burnchains::db::BurnchainDB;
 
 use burnchains::indexer::{
-    BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
+    BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
 
 use burnchains::bitcoin::address::address_type_to_version_byte;
@@ -791,9 +794,16 @@ impl Burnchain {
     pub fn sync<I: BurnchainIndexer + 'static>(
         &mut self,
         comms: &CoordinatorChannels,
+        target_block_height_opt: Option<u64>,
+        max_blocks_opt: Option<u64>,
     ) -> Result<u64, burnchain_error> {
         let mut indexer: I = self.make_indexer()?;
-        let chain_tip = self.sync_with_indexer(&mut indexer, comms.clone())?;
+        let chain_tip = self.sync_with_indexer(
+            &mut indexer,
+            comms.clone(),
+            target_block_height_opt,
+            max_blocks_opt,
+        )?;
         Ok(chain_tip.block_height)
     }
 
@@ -1006,12 +1016,16 @@ impl Burnchain {
     }
 
     /// Top-level burnchain sync.
-    /// Returns the burnchain block header for the new burnchain tip
+    /// Returns the burnchain block header for the new burnchain tip, which will be _at least_ as
+    /// high as target_block_height_opt (if given), or whatever is currently at the tip of the
+    /// burnchain DB.
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
     pub fn sync_with_indexer<I>(
         &mut self,
         indexer: &mut I,
         coord_comm: CoordinatorChannels,
+        target_block_height_opt: Option<u64>,
+        max_blocks_opt: Option<u64>,
     ) -> Result<BurnchainBlockHeader, burnchain_error>
     where
         I: BurnchainIndexer + 'static,
@@ -1040,11 +1054,9 @@ impl Burnchain {
         // get latest headers.
         debug!("Sync headers from {}", sync_height);
 
-        let end_block = indexer.sync_headers(sync_height, None)?;
-        let mut start_block = match sync_height {
-            0 => 0,
-            _ => sync_height,
-        };
+        // fetch all headers, no matter what
+        let mut end_block = indexer.sync_headers(sync_height, None)?;
+        let mut start_block = sync_height;
         if db_height < start_block {
             start_block = db_height;
         }
@@ -1053,6 +1065,41 @@ impl Burnchain {
             "Sync'ed headers from {} to {}. DB at {}",
             start_block, end_block, db_height
         );
+
+        if let Some(target_block_height) = target_block_height_opt {
+            if target_block_height < end_block {
+                debug!(
+                    "Will download up to max burn block height {}",
+                    target_block_height
+                );
+                end_block = target_block_height;
+            }
+        }
+
+        if let Some(max_blocks) = max_blocks_opt {
+            if start_block + max_blocks < end_block {
+                debug!(
+                    "Will download only {} blocks (up to block height {})",
+                    max_blocks,
+                    start_block + max_blocks
+                );
+                end_block = start_block + max_blocks;
+            }
+        }
+
+        if end_block < start_block {
+            // nothing to do -- go get the burnchain block data at that height
+            let mut hdrs = indexer.read_headers(end_block, end_block + 1)?;
+            if let Some(hdr) = hdrs.pop() {
+                debug!("Nothing to do; already have blocks up to {}", end_block);
+                let bhh =
+                    BurnchainHeaderHash::from_bitcoin_hash(&BitcoinSha256dHash(hdr.header_hash()));
+                return burnchain_db
+                    .get_burnchain_block(&bhh)
+                    .map(|block_data| block_data.header);
+            }
+        }
+
         if start_block == db_height && db_height == end_block {
             // all caught up
             return Ok(burn_chain_tip);
