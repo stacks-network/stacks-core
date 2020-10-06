@@ -72,6 +72,10 @@ impl BurnHeaderIPC for BitcoinHeaderIPC {
     fn height(&self) -> u64 {
         self.block_height
     }
+
+    fn header_hash(&self) -> [u8; 32] {
+        self.block_header.header.bitcoin_hash().0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

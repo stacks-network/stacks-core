@@ -494,6 +494,7 @@ impl Relayer {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
+        download_time: u64,
     ) -> Result<bool, chainstate_error> {
         // find the snapshot of the parent of this block
         let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
@@ -527,6 +528,7 @@ impl Relayer {
             consensus_hash,
             block,
             &parent_block_snapshot.consensus_hash,
+            download_time,
         )
     }
 
@@ -617,8 +619,14 @@ impl Relayer {
     ) -> HashSet<ConsensusHash> {
         let mut new_blocks = HashSet::new();
 
-        for (consensus_hash, block) in network_result.blocks.iter() {
-            match Relayer::process_new_anchored_block(sort_ic, chainstate, consensus_hash, block) {
+        for (consensus_hash, block, download_time) in network_result.blocks.iter() {
+            match Relayer::process_new_anchored_block(
+                sort_ic,
+                chainstate,
+                consensus_hash,
+                block,
+                *download_time,
+            ) {
                 Ok(accepted) => {
                     if accepted {
                         new_blocks.insert((*consensus_hash).clone());
@@ -700,6 +708,7 @@ impl Relayer {
                         chainstate,
                         &consensus_hash,
                         block,
+                        0,
                     ) {
                         Ok(accepted) => {
                             if accepted {
@@ -739,7 +748,9 @@ impl Relayer {
         chainstate: &mut StacksChainState,
     ) -> HashSet<ConsensusHash> {
         let mut ret = HashSet::new();
-        for (consensus_hash, microblock_stream) in network_result.confirmed_microblocks.iter() {
+        for (consensus_hash, microblock_stream, _download_time) in
+            network_result.confirmed_microblocks.iter()
+        {
             if microblock_stream.len() == 0 {
                 continue;
             }
@@ -1031,7 +1042,8 @@ impl Relayer {
     ) -> bool {
         let txid = tx.txid();
         if mempool.has_tx(&txid) {
-            return true;
+            debug!("Already have tx {}", txid);
+            return false;
         }
 
         if let Err(e) = mempool.submit(consensus_hash, block_hash, tx) {

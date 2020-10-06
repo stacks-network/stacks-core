@@ -141,7 +141,7 @@ impl From<db_error> for Error {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct LeaderBlockCommitOp {
-    pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (double-sha256)
+    pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (sha512/256)
 
     pub new_seed: VRFSeed,     // new seed for this block
     pub parent_block_ptr: u32, // block height of the block that contains the parent block hash

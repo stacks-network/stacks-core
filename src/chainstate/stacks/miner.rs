@@ -1788,6 +1788,7 @@ pub mod test {
                 &commit_snapshot.consensus_hash,
                 &stacks_block,
                 &parent_block_consensus_hash,
+                5,
             )
             .unwrap();
 
@@ -4949,7 +4950,7 @@ pub mod test {
             microblocks.push(microblock);
         }
 
-        test_debug!("Produce anchored stacks block {} with smart contract and {} microblocks with contract call at burnchain height {} stacks height {}",
+        test_debug!("Produce anchored stacks block {} with smart contract and {} microblocks with contract call at burnchain height {} stacks height {}", 
                     stacks_block.block_hash(), microblocks.len(), burnchain_height, stacks_block.header.total_work.work);
 
         (stacks_block, microblocks)
