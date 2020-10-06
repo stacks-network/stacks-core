@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 use util::db::Error as db_error;
 use util::db::{
     query_count, query_int, query_row, query_row_columns, query_rows, tx_busy_handler, DBConn,
-    FromColumn, FromRow,
+    FromColumn, FromRow, query_row_panic
 };
 
 use util::db::u64_to_sql;
@@ -3488,7 +3488,7 @@ impl StacksChainState {
             while let Some(row_res) = rows.next() {
                 match row_res {
                     Ok(row) => {
-                        let candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
+                        let mut candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
 
                         debug!(
                             "Consider block {}/{} whose parent is {}/{}",
@@ -3511,15 +3511,21 @@ impl StacksChainState {
                                     &candidate.parent_anchored_block_hash,
                                     &candidate.parent_consensus_hash,
                                 ];
-                                let hdr_rows = query_rows::<StacksHeaderInfo, _>(
-                                    headers_conn,
-                                    &hdr_sql,
-                                    hdr_args,
-                                )
-                                .map_err(Error::DBError)?;
-
-                                match hdr_rows.len() {
-                                    0 => {
+                                let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(headers_conn, &hdr_sql, hdr_args, || format!(
+                                            "Stored the same block twice: {}/{}",
+                                            &candidate.parent_anchored_block_hash,
+                                            &candidate.parent_consensus_hash
+                                        ))?;
+                                match hdr_row {
+                                    Some(_) => {
+                                        debug!(
+                                            "Have parent {}/{} for this block, will process",
+                                            &candidate.parent_consensus_hash,
+                                            &candidate.parent_anchored_block_hash
+                                        );
+                                        true
+                                    }
+                                    None => {
                                         // no parent processed for this block
                                         debug!(
                                             "No such parent {}/{} for block, cannot process",
@@ -3528,66 +3534,41 @@ impl StacksChainState {
                                         );
                                         false
                                     }
-                                    1 => {
-                                        // can process this block
-                                        debug!(
-                                            "Have parent {}/{} for this block, will process",
-                                            &candidate.parent_consensus_hash,
-                                            &candidate.parent_anchored_block_hash
-                                        );
-                                        true
-                                    }
-                                    _ => {
-                                        // should be impossible -- stored the same block twice
-                                        unreachable!(
-                                            "Stored the same block twice: {}/{}",
-                                            &candidate.parent_anchored_block_hash,
-                                            &candidate.parent_consensus_hash
-                                        );
-                                    }
                                 }
                             }
                         };
 
                         if can_attach {
-                            // try and load up this staging block and its microblocks
-                            match StacksChainState::load_staging_block(
+                            // load up the block data
+                            candidate.block_data = match StacksChainState::load_block_bytes(blocks_path, &candidate.consensus_hash, &candidate.anchored_block_hash)? {
+                                Some(bytes) => {
+                                    if bytes.len() == 0 {
+                                        error!("CORRUPTION: No block data for {}/{}", &candidate.consensus_hash, &candidate.anchored_block_hash);
+                                        panic!();
+                                    }
+                                    bytes
+                                },
+                                None => {
+                                    error!("CORRUPTION: No block data for {}/{}", &candidate.consensus_hash, &candidate.anchored_block_hash);
+                                    panic!();
+                                }
+                            };
+
+                            // find its microblock parent stream
+                            match StacksChainState::find_parent_staging_microblock_stream(
                                 blocks_tx,
                                 blocks_path,
-                                &candidate.consensus_hash,
-                                &candidate.anchored_block_hash,
+                                &candidate
                             )? {
-                                Some(staging_block) => {
-                                    // must be unprocessed -- must have a block
-                                    if staging_block.block_data.len() == 0 {
-                                        return Err(Error::NetError(net_error::DeserializeError(
-                                            format!(
-                                                "No block data for staging block {}",
-                                                candidate.anchored_block_hash
-                                            ),
-                                        )));
-                                    }
-
-                                    // find its microblock parent stream
-                                    match StacksChainState::find_parent_staging_microblock_stream(
-                                        blocks_tx,
-                                        blocks_path,
-                                        &staging_block,
-                                    )? {
-                                        Some(parent_staging_microblocks) => {
-                                            return Ok(Some((
-                                                parent_staging_microblocks,
-                                                staging_block,
-                                            )));
-                                        }
-                                        None => {
-                                            // no microblock data yet
-                                        }
-                                    }
+                                Some(parent_staging_microblocks) => {
+                                    return Ok(Some((
+                                        parent_staging_microblocks,
+                                        candidate,
+                                    )));
                                 }
                                 None => {
-                                    // should be impossible -- selected unprocessed blocks
-                                    unreachable!("Failed to load staging block when an earlier query indicated that it was present");
+                                    // no microblock data yet, so we can't process this block
+                                    continue;
                                 }
                             }
                         } else {
