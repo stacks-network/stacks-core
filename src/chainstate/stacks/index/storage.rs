@@ -1653,19 +1653,19 @@ pub mod test {
     fn node_cmp(n1: &TrieNodeType, n2: &TrieNodeType) -> bool {
         match (n1, n2) {
             (TrieNodeType::Leaf(ref data1), TrieNodeType::Leaf(ref data2)) => {
-                (data1.path == data2.path && data1.data == data2.data)
+                data1.path == data2.path && data1.data == data2.data
             }
             (TrieNodeType::Node4(ref data1), TrieNodeType::Node4(ref data2)) => {
-                (data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs))
+                data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs)
             }
             (TrieNodeType::Node16(ref data1), TrieNodeType::Node16(ref data2)) => {
-                (data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs))
+                data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs)
             }
             (TrieNodeType::Node48(ref data1), TrieNodeType::Node48(ref data2)) => {
-                (data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs))
+                data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs)
             }
             (TrieNodeType::Node256(ref data1), TrieNodeType::Node256(ref data2)) => {
-                (data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs))
+                data1.path == data2.path && ptrs_cmp(&data1.ptrs, &data2.ptrs)
             }
             (_, _) => false,
         }

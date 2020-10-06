@@ -23,6 +23,7 @@ pub mod neon_node;
 pub mod node;
 pub mod operations;
 pub mod run_loop;
+pub mod syncctl;
 pub mod tenure;
 
 pub use self::burnchains::{

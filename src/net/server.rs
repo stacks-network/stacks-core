@@ -295,24 +295,19 @@ impl HttpPeer {
 
     /// Deregister a socket/event pair
     pub fn deregister_http(&mut self, network_state: &mut NetworkState, event_id: usize) -> () {
-        if self.peers.contains_key(&event_id) {
-            // kill the conversation
-            self.peers.remove(&event_id);
-        }
+        self.peers.remove(&event_id);
 
-        let mut to_remove: Vec<usize> = vec![];
-        match self.sockets.get_mut(&event_id) {
+        match self.sockets.remove(&event_id) {
             None => {}
-            Some(ref sock) => {
-                let _ = network_state.deregister(event_id, sock);
-                to_remove.push(event_id); // force it to close anyway
+            Some(sock) => {
+                let _ = network_state.deregister(event_id, &sock);
             }
         }
-
-        for event_id in to_remove {
-            // remove socket
-            self.sockets.remove(&event_id);
-            self.connecting.remove(&event_id);
+        match self.connecting.remove(&event_id) {
+            None => {}
+            Some((sock, ..)) => {
+                let _ = network_state.deregister(event_id, &sock);
+            }
         }
     }
 
@@ -788,9 +783,9 @@ mod test {
         client_sleep: u64,
         mut make_request: F,
         check_result: C,
-    ) -> ()
+    ) -> usize
     where
-        F: FnMut(usize, &mut TestPeer) -> Vec<u8>,
+        F: FnMut(usize, &mut StacksChainState) -> Vec<u8>,
         C: Fn(usize, Result<Vec<u8>, net_error>) -> bool,
     {
         let mut peer_config = TestPeerConfig::new(test_name, peer_p2p, peer_http);
@@ -800,14 +795,10 @@ mod test {
         let view = peer.get_burnchain_view().unwrap();
         let (http_sx, http_rx) = sync_channel(1);
 
-        let mut client_requests = vec![];
-        let mut client_threads = vec![];
-        let mut client_handles = vec![];
-        for i in 0..num_clients {
-            let request = make_request(i, &mut peer);
-            client_requests.push(request);
-        }
+        let network_id = peer.config.network_id;
+        let chainstate_path = peer.chainstate_path.clone();
 
+        let (num_events_sx, num_events_rx) = sync_channel(1);
         let http_thread = thread::spawn(move || {
             let view = peer.get_burnchain_view().unwrap();
             loop {
@@ -825,7 +816,19 @@ mod test {
             }
 
             test_debug!("http server joined");
+            let num_events = peer.network.network.as_ref().unwrap().num_events();
+            let _ = num_events_sx.send(num_events);
         });
+
+        let mut client_requests = vec![];
+        let mut client_threads = vec![];
+        let mut client_handles = vec![];
+        let (mut chainstate, _) =
+            StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+        for i in 0..num_clients {
+            let request = make_request(i, &mut chainstate);
+            client_requests.push(request);
+        }
 
         for (i, request) in client_requests.drain(..).enumerate() {
             let (client_sx, client_rx) = sync_channel(1);
@@ -881,7 +884,9 @@ mod test {
         }
 
         http_sx.send(true).unwrap();
+        let num_events = num_events_rx.recv().unwrap();
         http_thread.join().unwrap();
+        num_events
     }
 
     #[test]
@@ -950,7 +955,7 @@ mod test {
             ConnectionOptions::default(),
             1,
             0,
-            |client_id, ref mut peer_server| {
+            |client_id, ref mut chainstate| {
                 let peer_server_block = make_codec_test_block(25);
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
@@ -960,7 +965,7 @@ mod test {
 
                 test_debug!("Store peer server index block {:?}", &index_block_hash);
                 store_staging_block(
-                    peer_server.chainstate(),
+                    chainstate,
                     &peer_server_consensus_hash,
                     &peer_server_block,
                     &ConsensusHash([client_id as u8; 20]),
@@ -1014,7 +1019,7 @@ mod test {
             ConnectionOptions::default(),
             10,
             0,
-            |client_id, ref mut peer_server| {
+            |client_id, ref mut chainstate| {
                 let peer_server_block = make_codec_test_block(25);
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
@@ -1024,7 +1029,7 @@ mod test {
 
                 test_debug!("Store peer server index block {:?}", &index_block_hash);
                 store_staging_block(
-                    peer_server.chainstate(),
+                    chainstate,
                     &peer_server_consensus_hash,
                     &peer_server_block,
                     &ConsensusHash([client_id as u8; 20]),
@@ -1172,7 +1177,7 @@ mod test {
             conn_opts,
             1,
             0,
-            |client_id, ref mut peer| {
+            |client_id, ref mut chainstate| {
                 // make a gigantic transaction
                 let mut big_contract_parts = vec![];
                 let mut total_len = 0;
@@ -1202,7 +1207,7 @@ mod test {
                     .unwrap(),
                 );
 
-                tx_contract.chain_id = peer.config.network_id;
+                tx_contract.chain_id = chainstate.config().chain_id;
                 tx_contract.set_fee_rate(0);
 
                 let mut signer = StacksTransactionSigner::new(&tx_contract);
@@ -1289,6 +1294,43 @@ mod test {
     }
 
     #[test]
+    fn test_http_no_connecting_event_id_leak() {
+        use std::net::TcpListener;
+
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.timeout = 10;
+        conn_opts.connect_timeout = 10;
+
+        let num_events = test_http_server(
+            "test_http_no_connecting_event_id_leak",
+            51082,
+            51083,
+            conn_opts,
+            1,
+            0,
+            |client_id, _| {
+                // open a socket and just sit there
+                use std::net::TcpStream;
+                let sock = TcpStream::connect("127.0.0.1:51083");
+
+                sleep_ms(15_000);
+
+                // send a different request
+                let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
+                    PeerHost::from_host_port("127.0.0.1".to_string(), 51083),
+                ));
+                request.metadata_mut().keep_alive = false;
+
+                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                request_bytes
+            },
+            |client_id, res| true,
+        );
+
+        assert_eq!(num_events, 2);
+    }
+
+    #[test]
     fn test_http_noop() {
         if std::env::var("BLOCKSTACK_HTTP_TEST") != Ok("1".to_string()) {
             eprintln!("Set BLOCKSTACK_HTTP_TEST=1 to use this test.");
@@ -1305,7 +1347,7 @@ mod test {
             conn_opts,
             1,
             600,
-            |client_id, ref mut peer_server| {
+            |client_id, ref mut chainstate| {
                 let peer_server_block = make_codec_test_block(25);
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
@@ -1315,7 +1357,7 @@ mod test {
 
                 test_debug!("Store peer server index block {:?}", &index_block_hash);
                 store_staging_block(
-                    peer_server.chainstate(),
+                    chainstate,
                     &peer_server_consensus_hash,
                     &peer_server_block,
                     &ConsensusHash([client_id as u8; 20]),
