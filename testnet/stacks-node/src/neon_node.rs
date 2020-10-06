@@ -85,6 +85,7 @@ pub struct NeonGenesisNode {
     pub config: Config,
     keychain: Keychain,
     event_dispatcher: EventDispatcher,
+    burnchain: Burnchain
 }
 
 #[cfg(test)]
@@ -596,18 +597,12 @@ impl InitializedNeonNode {
         miner: bool,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        burnchain: Burnchain
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
             .expect("Error while instantiating sortition db");
-
-        let burnchain = Burnchain::new(
-            &config.get_burn_db_path(),
-            &config.burnchain.chain,
-            "regtest",
-        )
-        .expect("Error while instantiating burnchain");
 
         let view = {
             let ic = sortdb.index_conn();
@@ -1036,6 +1031,7 @@ impl InitializedNeonNode {
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
     /// and inspecting if a sortition was won.
+    /// `ibd`: boolean indicating whether or not we are in the initial block download
     pub fn process_burnchain_state(
         &mut self,
         sortdb: &SortitionDB,
@@ -1117,7 +1113,7 @@ impl InitializedNeonNode {
 
 impl NeonGenesisNode {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, mut event_dispatcher: EventDispatcher, boot_block_exec: F) -> Self
+    pub fn new<F>(config: Config, mut event_dispatcher: EventDispatcher, burnchain: Burnchain, boot_block_exec: F) -> Self
     where
         F: FnOnce(&mut ClarityTx) -> (),
     {
@@ -1151,6 +1147,7 @@ impl NeonGenesisNode {
             keychain,
             config,
             event_dispatcher,
+            burnchain
         }
     }
 
@@ -1172,6 +1169,7 @@ impl NeonGenesisNode {
             true,
             blocks_processed,
             coord_comms,
+            self.burnchain
         )
     }
 
@@ -1193,6 +1191,7 @@ impl NeonGenesisNode {
             false,
             blocks_processed,
             coord_comms,
+            self.burnchain
         )
     }
 }

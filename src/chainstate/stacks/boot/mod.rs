@@ -29,7 +29,7 @@ use burnchains::{
 };
 
 use core::{
-    POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS
+    POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX
 };
 use chainstate::burn::db::sortdb::SortitionDB;
 
@@ -201,11 +201,13 @@ impl StacksChainState {
         let reward_slots = pox_settings.reward_slots() as u128;
         let threshold_precise = scale_by / reward_slots;
         // compute the threshold as nearest 10k > threshold_precise
-        let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS {
+        let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
             0 => 0,
-            remainder => POX_THRESHOLD_STEPS - remainder,
+            remainder => POX_THRESHOLD_STEPS_USTX - remainder,
         };
-        threshold_precise + ceil_amount
+        let threshold = threshold_precise + ceil_amount;
+        info!("PoX participation threshold is {}, from {}", threshold, threshold_precise);
+        threshold
     }
 
     /// Each address will have at least (get-stacking-minimum) tokens.
@@ -312,11 +314,59 @@ pub mod test {
 
     use vm::contracts::Contract;
     use vm::types::*;
+    use core::*;
 
     use std::convert::From;
     use std::fs;
 
     use util::hash::to_hex;
+
+
+    #[test]
+    fn get_reward_threshold_units() {
+        // when the liquid amount = the threshold step,
+        //   the threshold should always be the step size.
+        let liquid = POX_THRESHOLD_STEPS_USTX;
+        assert_eq!(StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[], liquid),
+                   POX_THRESHOLD_STEPS_USTX);
+        assert_eq!(StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[(rand_addr(), liquid)], liquid),
+                   POX_THRESHOLD_STEPS_USTX);
+
+        let liquid = 200_000_000 * MICROSTACKS_PER_STACKS as u128;
+        // with zero participation, should scale to 25% of liquid
+        assert_eq!(StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[], liquid),
+                   50_000 * MICROSTACKS_PER_STACKS as u128);
+        // should be the same at 25% participation
+        assert_eq!(StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[(rand_addr(), liquid / 4)], liquid),
+                   50_000 * MICROSTACKS_PER_STACKS as u128);
+        // but not at 30% participation
+        assert_eq!(StacksChainState::get_reward_threshold(
+            &PoxConstants::new(1000, 1, 1, 1),
+            &[(rand_addr(), liquid / 4),
+              (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))],
+            liquid),
+                   60_000 * MICROSTACKS_PER_STACKS as u128);
+
+        // bump by just a little bit, should go to the next threshold step
+        assert_eq!(StacksChainState::get_reward_threshold(
+            &PoxConstants::new(1000, 1, 1, 1),
+            &[(rand_addr(), liquid / 4),
+              (rand_addr(), (MICROSTACKS_PER_STACKS as u128))],
+            liquid),
+                   60_000 * MICROSTACKS_PER_STACKS as u128);
+
+                // bump by just a little bit, should go to the next threshold step
+        assert_eq!(StacksChainState::get_reward_threshold(
+            &PoxConstants::new(1000, 1, 1, 1),
+            &[(rand_addr(), liquid)],
+            liquid),
+                   200_000 * MICROSTACKS_PER_STACKS as u128);
+
+    }
+
+    fn rand_addr() -> StacksAddress {
+        key_to_stacks_addr(&StacksPrivateKey::new())
+    }
 
     fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
         StacksAddress::from_public_keys(

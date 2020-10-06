@@ -2,7 +2,7 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
 };
-use stacks::burnchains::{Address, PublicKey};
+use stacks::burnchains::{Address, PublicKey, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
@@ -14,6 +14,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
+use stacks::core;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
@@ -212,7 +213,7 @@ fn bitcoind_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0));
+    thread::spawn(move || run_loop.start(0, None));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -290,7 +291,7 @@ fn microblock_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0));
+    thread::spawn(move || run_loop.start(0, None));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -577,7 +578,7 @@ fn size_check_integration_test() {
     let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0));
+    thread::spawn(move || run_loop.start(0, None));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -713,8 +714,8 @@ fn pox_integration_test() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
-    let total_bal = 10_000_000_000;
-    let stacked_bal = 1_000_000_000;
+    let total_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_bal = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -727,19 +728,23 @@ fn pox_integration_test() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
+
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let mut burnchain_config = btc_regtest_controller.get_burnchain();
+    burnchain_config.pox_constants = PoxConstants::new(10, 5, 4, 5);
 
     btc_regtest_controller.bootstrap_chain(201);
 
     eprintln!("Chain bootstrapped...");
 
-    let mut run_loop = neon::RunLoop::new(conf);
+    let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(0));
+    thread::spawn(move || run_loop.start(0, Some(burnchain_config)));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -852,18 +857,24 @@ fn pox_integration_test() {
         assert_eq!(res.nonce, 1, "Spender address nonce should be 1");
     }
 
-    // now let's mine until the next reward cycle starts ...
-    for _i in 0..35 {
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {}", sort_height);
+    // now let's mine until the next reward cycle finishes ...
+
+    while sort_height < 229 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
     }
 
-    // we should have received a Bitcoin commitment
+    // we should have received _three_ Bitcoin commitments, because our commitment was 3 * threshold
     let utxos = btc_regtest_controller
-        .get_utxos(&pox_pubkey, 1)
-        .expect("Should have been able to retrieve UTXOs for PoX recipient");
+        .get_all_utxos(&pox_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
-    assert!(utxos.len() > 0, "Should have received an output during PoX");
+    assert_eq!(utxos.len(), 3, "Should have received three outputs during PoX reward cycle");
+
+    // okay, the threshold for participation should be 
 
     channel.stop_chains_coordinator();
 }

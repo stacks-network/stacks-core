@@ -139,7 +139,7 @@ fn main() {
         || conf.burnchain.mode == "xenon"
     {
         let mut run_loop = neon::RunLoop::new(conf);
-        run_loop.start(num_round);
+        run_loop.start(num_round, None);
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }
