@@ -52,7 +52,7 @@ fn handle_pox_api_contract_call(
     function_name: &str,
     value: &Value,
 ) -> Result<()> {
-    if function_name == "stack-stx" || function_name == "delegator-stack-stx" {
+    if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
         debug!(
             "Handle special-case contract-call to {:?} {} (which returned {:?})",
             boot_code_id("pox"),
