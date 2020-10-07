@@ -297,6 +297,7 @@ impl RunLoop {
                     error!("Block relayer and miner hung up, exiting.");
                     return;
                 }
+            }
             if self.should_stop(block_height) {
                 println!("  stopping [{:?}] {:?}", thread::current().id(), block_height);
                 return
