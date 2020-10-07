@@ -2680,7 +2680,10 @@ impl PeerNetwork {
     }
 
     /// Handle unsolicited BlocksData.
-    /// Don't (yet) validate the data, but do update our inv for the peer that sent it.
+    /// Don't (yet) validate the data, but do update our inv for the peer that sent it, if we have
+    /// an outbound connection to that peer.  Accept the blocks data either way if it corresponds
+    /// to a winning sortition -- this will cause the blocks data to be fed into the relayer, which
+    /// will then decide whether or not it needs to be stored and/or forwarded.
     /// Mask errors.
     fn handle_unsolicited_BlocksData(
         &mut self,
@@ -2688,17 +2691,29 @@ impl PeerNetwork {
         event_id: usize,
         new_blocks: &BlocksData,
     ) -> () {
-        let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
-            Some(onk) => onk,
+        let (remote_neighbor_key, remote_is_authenticated) = match self.peers.get(&event_id) {
+            Some(convo) => (
+                convo.to_neighbor_key(),
+                convo.is_authenticated()
+            ),
             None => {
+                test_debug!("{:?}: No such neighbor event={}", &self.local_peer, event_id);
                 return;
             }
         };
 
+        if !remote_is_authenticated {
+            // drop -- a correct peer will have authenticated before sending this message
+            test_debug!("{:?}: Drop unauthenticated BlocksData from {:?}", &self.local_peer, &remote_neighbor_key);
+            return;
+        }
+
+        let outbound_neighbor_key_opt = self.find_outbound_neighbor(event_id);
+
         debug!(
             "{:?}: Process BlocksData from {:?} with {} entries",
             &self.local_peer,
-            outbound_neighbor_key,
+            outbound_neighbor_key_opt.as_ref().unwrap_or(&remote_neighbor_key),
             new_blocks.blocks.len()
         );
 
@@ -2711,25 +2726,26 @@ impl PeerNetwork {
                         continue;
                     }
                     Err(e) => {
-                        warn!(
-                            "Failed to query block snapshot for {}: {:?}",
-                            consensus_hash, &e
+                        info!(
+                            "{:?}: Failed to query block snapshot for {}: {:?}",
+                            &self.local_peer, consensus_hash, &e
                         );
                         continue;
                     }
                 };
 
             if !sn.pox_valid {
-                warn!(
-                    "Failed to query snapshot for {}: not on valid PoX fork",
-                    consensus_hash
+                info!(
+                    "{:?}: Failed to query snapshot for {}: not on the valid PoX fork",
+                    &self.local_peer, consensus_hash
                 );
                 continue;
             }
 
             if sn.winning_stacks_block_hash != block.block_hash() {
                 info!(
-                    "Ignoring block {} -- winning block was {} (sortition: {})",
+                    "{:?}: Ignoring block {} -- winning block was {} (sortition: {})",
+                    &self.local_peer,
                     block.block_hash(),
                     sn.winning_stacks_block_hash,
                     sn.sortition
@@ -2737,13 +2753,17 @@ impl PeerNetwork {
                 continue;
             }
 
-            self.handle_unsolicited_inv_update(
-                sortdb,
-                event_id,
-                &outbound_neighbor_key,
-                &sn.consensus_hash,
-                false,
-            );
+            // only bother updating the inventory for this event's peer if we have an outbound
+            // connection to it.
+            if let Some(outbound_neighbor_key) = outbound_neighbor_key_opt.as_ref() {
+                self.handle_unsolicited_inv_update(
+                    sortdb,
+                    event_id,
+                    &outbound_neighbor_key,
+                    &sn.consensus_hash,
+                    false,
+                );
+            }
         }
     }
 
