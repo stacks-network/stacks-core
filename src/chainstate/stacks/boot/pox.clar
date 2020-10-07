@@ -15,6 +15,9 @@
 (define-constant ERR_STACKING_INVALID_AMOUNT 18)
 (define-constant ERR_NOT_ALLOWED 19)
 (define-constant ERR_STACKING_ALREADY_DELEGATED 20)
+(define-constant ERR_DELEGATION_EXPIRES_DURING_LOCK 21)
+(define-constant ERR_DELEGATION_TOO_MUCH_LOCKED 22)
+(define-constant ERR_DELEGATION_POX_ADDR_REQUIRED 23)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -548,22 +551,24 @@
         (err ERR_STACKING_PERMISSION_DENIED))
 
       ;; stacker must have delegated to the caller
-      (asserts! 
-        (let ((delegation-info (unwrap! (get-check-delegation stacker) (err ERR_STACKING_PERMISSION_DENIED))))
-               ;; must have delegated to tx-sender
-          (and (is-eq (get delegated-to delegation-info) tx-sender)
-               ;; must have delegated enough stx
-               (>= (get amount-ustx delegation-info) amount-ustx)
-               ;; if pox-addr is set, must be equal to pox-addr
-               (match (get pox-addr delegation-info)
-                      specified-pox-addr (is-eq pox-addr specified-pox-addr)
+      (let ((delegation-info (unwrap! (get-check-delegation stacker) (err ERR_STACKING_PERMISSION_DENIED))))
+        ;; must have delegated to tx-sender
+        (asserts! (is-eq (get delegated-to delegation-info) tx-sender)
+                  (err ERR_STACKING_PERMISSION_DENIED))
+        ;; must have delegated enough stx
+        (asserts! (>= (get amount-ustx delegation-info) amount-ustx)
+                  (err ERR_DELEGATION_TOO_MUCH_LOCKED))
+        ;; if pox-addr is set, must be equal to pox-addr
+        (asserts! (match (get pox-addr delegation-info)
+                         specified-pox-addr (is-eq pox-addr specified-pox-addr)
+                         true)
+                  (err ERR_DELEGATION_POX_ADDR_REQUIRED))
+        ;; delegation must not expire before lock period
+        (asserts! (match (get until-burn-ht delegation-info)
+                         until-burn-ht (>= until-burn-ht
+                                           unlock-burn-height)
                       true)
-               ;; delegation must not expire before lock period
-               (match (get until-burn-ht delegation-info)
-                      until-burn-ht (>= until-burn-ht
-                                        unlock-burn-height)
-                      true)))
-        (err ERR_STACKING_PERMISSION_DENIED))
+                  (err ERR_DELEGATION_EXPIRES_DURING_LOCK)))
 
       ;; stacker principal must not be stacking
       (asserts! (is-none (get-stacker-info stacker))
