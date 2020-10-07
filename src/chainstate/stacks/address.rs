@@ -18,65 +18,57 @@
 */
 
 use std::io::prelude::*;
-use std::{io, fmt};
 use std::io::{Read, Write};
+use std::{fmt, io};
 
-use net::StacksMessageCodec;
-use net::Error as net_error;
 use net::codec::{read_next, write_next};
+use net::Error as net_error;
+use net::StacksMessageCodec;
 
-use address::AddressHashMode;
 use address::c32::c32_address;
 use address::public_keys_to_address_hash;
+use address::AddressHashMode;
 
-use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::StacksAddress;
+use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::STACKS_ADDRESS_ENCODED_SIZE;
 
 use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;
 
-use burnchains::PublicKey;
 use burnchains::Address;
+use burnchains::PublicKey;
 
 use address::c32::c32_address_decode;
 
-use deps::bitcoin::blockdata::script::{
-    Builder as BtcScriptBuilder,
-};
+use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 
+use deps::bitcoin::blockdata::opcodes::All as BtcOp;
 use deps::bitcoin::blockdata::transaction::TxOut;
-use deps::bitcoin::blockdata::opcodes::{All as BtcOp};
 
 use burnchains::bitcoin::address::{
-    BitcoinAddress, BitcoinAddressType,
-    address_type_to_version_byte,
-    to_c32_version_byte,
-    to_b52_version_byte,
-    version_byte_to_address_type
+    address_type_to_version_byte, to_b52_version_byte, to_c32_version_byte,
+    version_byte_to_address_type, BitcoinAddress, BitcoinAddressType,
 };
 
-use vm::types::{
-    PrincipalData,
-    StandardPrincipalData,
-};
+use vm::types::{PrincipalData, StandardPrincipalData};
 
 use chainstate::stacks::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
-
 impl StacksMessageCodec for StacksAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.version)?;
-        fd.write_all(self.bytes.as_bytes()).map_err(net_error::WriteError)
+        fd.write_all(self.bytes.as_bytes())
+            .map_err(net_error::WriteError)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, net_error> {
-        let version : u8 = read_next(fd)?;
-        let hash160 : Hash160 = read_next(fd)?;
+        let version: u8 = read_next(fd)?;
+        let hash160: Hash160 = read_next(fd)?;
         Ok(StacksAddress {
             version: version,
-            bytes: hash160
+            bytes: hash160,
         })
     }
 }
@@ -94,24 +86,33 @@ impl StacksAddress {
     pub fn new(version: u8, hash: Hash160) -> StacksAddress {
         StacksAddress {
             version,
-            bytes: hash
+            bytes: hash,
         }
     }
 
     pub fn burn_address(mainnet: bool) -> StacksAddress {
         StacksAddress {
-            version: if mainnet { C32_ADDRESS_VERSION_MAINNET_SINGLESIG } else { C32_ADDRESS_VERSION_TESTNET_SINGLESIG },
-            bytes: Hash160([0u8; 20])
+            version: if mainnet {
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+            } else {
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+            },
+            bytes: Hash160([0u8; 20]),
         }
     }
 
     /// Generate an address from a given address hash mode, signature threshold, and list of public
     /// keys.  Only return an address if the combination given is supported.
     /// The version is may be arbitrary.
-    pub fn from_public_keys(version: u8, hash_mode: &AddressHashMode, num_sigs: usize, pubkeys: &Vec<StacksPublicKey>) -> Option<StacksAddress> {
+    pub fn from_public_keys(
+        version: u8,
+        hash_mode: &AddressHashMode,
+        num_sigs: usize,
+        pubkeys: &Vec<StacksPublicKey>,
+    ) -> Option<StacksAddress> {
         // must be sufficient public keys
         if pubkeys.len() < num_sigs {
-            return None
+            return None;
         }
 
         // address hash mode must be consistent with the number of keys
@@ -121,7 +122,7 @@ impl StacksAddress {
                 if num_sigs != 1 || pubkeys.len() != 1 {
                     return None;
                 }
-            },
+            }
             _ => {}
         }
 
@@ -133,10 +134,10 @@ impl StacksAddress {
                         return None;
                     }
                 }
-            },
+            }
             _ => {}
         }
-        
+
         let hash_bits = public_keys_to_address_hash(hash_mode, num_sigs, pubkeys);
         Some(StacksAddress::new(version, hash_bits))
     }
@@ -146,25 +147,32 @@ impl StacksAddress {
         let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
 
         // should not fail by construction
-        let version = to_c32_version_byte(btc_version).expect("Failed to decode Bitcoin version byte to Stacks version byte");
+        let version = to_c32_version_byte(btc_version)
+            .expect("Failed to decode Bitcoin version byte to Stacks version byte");
         StacksAddress {
             version: version,
-            bytes: addr.bytes.clone()
+            bytes: addr.bytes.clone(),
         }
     }
 
     /// Convert to PrincipalData::Standard(StandardPrincipalData)
     pub fn to_account_principal(&self) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData(self.version, self.bytes.as_bytes().clone()))
+        PrincipalData::Standard(StandardPrincipalData(
+            self.version,
+            self.bytes.as_bytes().clone(),
+        ))
     }
 
     pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
         let btc_version = to_b52_version_byte(self.version)
             .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
         let btc_addr_type = version_byte_to_address_type(btc_version)
-            .expect("BUG: failed to decode Bitcoin version byte").0;
+            .expect("BUG: failed to decode Bitcoin version byte")
+            .0;
         match btc_addr_type {
-            BitcoinAddressType::PublicKeyHash => BitcoinAddress::to_p2pkh_tx_out(&self.bytes, value),
+            BitcoinAddressType::PublicKeyHash => {
+                BitcoinAddress::to_p2pkh_tx_out(&self.bytes, value)
+            }
             BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&self.bytes, value),
         }
     }
@@ -190,14 +198,17 @@ impl Address for StacksAddress {
                 return None;
             }
         };
-        
+
         if bytes.len() != 20 {
             return None;
         }
 
         let mut hash_bytes = [0u8; 20];
         hash_bytes.copy_from_slice(&bytes[..]);
-        Some(StacksAddress { version: version, bytes: Hash160(hash_bytes) })
+        Some(StacksAddress {
+            version: version,
+            bytes: Hash160(hash_bytes),
+        })
     }
 
     fn is_burn(&self) -> bool {
@@ -205,28 +216,30 @@ impl Address for StacksAddress {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
-    
+
     use chainstate::stacks::*;
-    use net::*;
-    use net::codec::*;
     use net::codec::test::check_codec_and_corruption;
-    use util::secp256k1::Secp256k1PublicKey as PubKey;
+    use net::codec::*;
+    use net::*;
     use util::hash::*;
+    use util::secp256k1::Secp256k1PublicKey as PubKey;
 
     #[test]
     fn tx_stacks_address_codec() {
-        let addr = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
+        let addr = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
         let addr_bytes = vec![
             // version
-            0x01,
-            // bytes
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+            0x01, // bytes
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         ];
-        
+
         check_codec_and_corruption::<StacksAddress>(&addr, &addr_bytes);
     }
 
@@ -236,12 +249,35 @@ mod test {
         assert_eq!(StacksAddress::from_public_keys(1, &AddressHashMode::SerializeP2PKH, 1, &vec![PubKey::from_hex("04b7c7cbe36a1aed38c6324b143584a1e822bbf0c4435b102f0497ccb592baf8e964a5a270f9348285595b78855c3e33dc36708e34f9abdeeaad4d2977cb81e3a1").unwrap()]),
                    Some(StacksAddress { version: 1, bytes: Hash160::from_hex("560ee9d7f5694dd4dbeddf55eff16bcc05409fef").unwrap() }));
 
-        assert_eq!(StacksAddress::from_public_keys(2, &AddressHashMode::SerializeP2PKH, 1, &vec![PubKey::from_hex("03b7c7cbe36a1aed38c6324b143584a1e822bbf0c4435b102f0497ccb592baf8e9").unwrap()]),
-                   Some(StacksAddress { version: 2, bytes: Hash160::from_hex("e3771b5724d9a8daca46052bab5d0f533cd1e619").unwrap() }));
+        assert_eq!(
+            StacksAddress::from_public_keys(
+                2,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![PubKey::from_hex(
+                    "03b7c7cbe36a1aed38c6324b143584a1e822bbf0c4435b102f0497ccb592baf8e9"
+                )
+                .unwrap()]
+            ),
+            Some(StacksAddress {
+                version: 2,
+                bytes: Hash160::from_hex("e3771b5724d9a8daca46052bab5d0f533cd1e619").unwrap()
+            })
+        );
 
         // should fail if we have too many signatures
-        assert_eq!(StacksAddress::from_public_keys(2, &AddressHashMode::SerializeP2PKH, 2, &vec![PubKey::from_hex("03b7c7cbe36a1aed38c6324b143584a1e822bbf0c4435b102f0497ccb592baf8e9").unwrap()]),
-                   None)
+        assert_eq!(
+            StacksAddress::from_public_keys(
+                2,
+                &AddressHashMode::SerializeP2PKH,
+                2,
+                &vec![PubKey::from_hex(
+                    "03b7c7cbe36a1aed38c6324b143584a1e822bbf0c4435b102f0497ccb592baf8e9"
+                )
+                .unwrap()]
+            ),
+            None
+        )
     }
 
     #[test]
@@ -250,19 +286,52 @@ mod test {
         assert_eq!(StacksAddress::from_public_keys(3, &AddressHashMode::SerializeP2WPKH, 1, &vec![PubKey::from_hex("04b7c7cbe36a1aed38c6324b143584a1e822bbf0c4435b102f0497ccb592baf8e964a5a270f9348285595b78855c3e33dc36708e34f9abdeeaad4d2977cb81e3a1").unwrap()]),
                   None);
 
-        assert_eq!(StacksAddress::from_public_keys(4, &AddressHashMode::SerializeP2WPKH, 1, &vec![PubKey::from_hex("02dd42250a8b45dd22c7f9dc7a8d387b6c7194ed3eff23c172c80bf8bee23c9047").unwrap()]),
-                   Some(StacksAddress { version: 4, bytes: Hash160::from_hex("384d172898686fd0337fba27843add64cbe684f1").unwrap() }));
+        assert_eq!(
+            StacksAddress::from_public_keys(
+                4,
+                &AddressHashMode::SerializeP2WPKH,
+                1,
+                &vec![PubKey::from_hex(
+                    "02dd42250a8b45dd22c7f9dc7a8d387b6c7194ed3eff23c172c80bf8bee23c9047"
+                )
+                .unwrap()]
+            ),
+            Some(StacksAddress {
+                version: 4,
+                bytes: Hash160::from_hex("384d172898686fd0337fba27843add64cbe684f1").unwrap()
+            })
+        );
     }
 
     #[test]
     fn tx_stacks_address_valid_p2sh() {
         // p2sh may accept compressed or uncompressed
-        assert_eq!(StacksAddress::from_public_keys(5, &AddressHashMode::SerializeP2SH, 2, &vec![PubKey::from_hex("02b30fafab3a12372c5d150d567034f37d60a91168009a779498168b0e9d8ec7f2").unwrap(),
-                                                                                                PubKey::from_hex("03ce61f1d155738a5e434fc8a61c3e104f891d1ec71576e8ad85abb68b34670d35").unwrap(),
-                                                                                                PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap()]),
-                   Some(StacksAddress { version: 5, bytes: Hash160::from_hex("b01162ecda72c57ed419f7966ec4e8dd7987c704").unwrap() }));
+        assert_eq!(
+            StacksAddress::from_public_keys(
+                5,
+                &AddressHashMode::SerializeP2SH,
+                2,
+                &vec![
+                    PubKey::from_hex(
+                        "02b30fafab3a12372c5d150d567034f37d60a91168009a779498168b0e9d8ec7f2"
+                    )
+                    .unwrap(),
+                    PubKey::from_hex(
+                        "03ce61f1d155738a5e434fc8a61c3e104f891d1ec71576e8ad85abb68b34670d35"
+                    )
+                    .unwrap(),
+                    PubKey::from_hex(
+                        "03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77"
+                    )
+                    .unwrap()
+                ]
+            ),
+            Some(StacksAddress {
+                version: 5,
+                bytes: Hash160::from_hex("b01162ecda72c57ed419f7966ec4e8dd7987c704").unwrap()
+            })
+        );
 
-        
         assert_eq!(StacksAddress::from_public_keys(6, &AddressHashMode::SerializeP2SH, 2, &vec![PubKey::from_hex("04b30fafab3a12372c5d150d567034f37d60a91168009a779498168b0e9d8ec7f259fc6bc2f317febe245344d9e11912427cee095b64418719207ac502e8cff0ce").unwrap(),
                                                                                                 PubKey::from_hex("04ce61f1d155738a5e434fc8a61c3e104f891d1ec71576e8ad85abb68b34670d35c61aec8a973b3b7d68c7325b03c1d18a82e88998b8307afeaa491c1e45e46255").unwrap(),
                                                                                                 PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()]),
@@ -272,12 +341,32 @@ mod test {
     #[test]
     fn tx_stacks_address_valid_p2wsh() {
         // p2wsh should accept only compressed keys
-        assert_eq!(StacksAddress::from_public_keys(7, &AddressHashMode::SerializeP2WSH, 2, &vec![PubKey::from_hex("02b30fafab3a12372c5d150d567034f37d60a91168009a779498168b0e9d8ec7f2").unwrap(),
-                                                                                                 PubKey::from_hex("03ce61f1d155738a5e434fc8a61c3e104f891d1ec71576e8ad85abb68b34670d35").unwrap(),
-                                                                                                 PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap()]),
-                   Some(StacksAddress { version: 7, bytes: Hash160::from_hex("57130f08a480e7518c1d685e8bb88008d90a0a60").unwrap() }));
+        assert_eq!(
+            StacksAddress::from_public_keys(
+                7,
+                &AddressHashMode::SerializeP2WSH,
+                2,
+                &vec![
+                    PubKey::from_hex(
+                        "02b30fafab3a12372c5d150d567034f37d60a91168009a779498168b0e9d8ec7f2"
+                    )
+                    .unwrap(),
+                    PubKey::from_hex(
+                        "03ce61f1d155738a5e434fc8a61c3e104f891d1ec71576e8ad85abb68b34670d35"
+                    )
+                    .unwrap(),
+                    PubKey::from_hex(
+                        "03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77"
+                    )
+                    .unwrap()
+                ]
+            ),
+            Some(StacksAddress {
+                version: 7,
+                bytes: Hash160::from_hex("57130f08a480e7518c1d685e8bb88008d90a0a60").unwrap()
+            })
+        );
 
-        
         assert_eq!(StacksAddress::from_public_keys(8, &AddressHashMode::SerializeP2PKH, 2, &vec![PubKey::from_hex("04b30fafab3a12372c5d150d567034f37d60a91168009a779498168b0e9d8ec7f259fc6bc2f317febe245344d9e11912427cee095b64418719207ac502e8cff0ce").unwrap(),
                                                                                                  PubKey::from_hex("04ce61f1d155738a5e434fc8a61c3e104f891d1ec71576e8ad85abb68b34670d35c61aec8a973b3b7d68c7325b03c1d18a82e88998b8307afeaa491c1e45e46255").unwrap(),
                                                                                                  PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()]),

@@ -23,14 +23,14 @@
 use util::uint::Uint256;
 
 use deps;
-use deps::bitcoin::util;
-use deps::bitcoin::util::Error::{SpvBadTarget, SpvBadProofOfWork};
+use deps::bitcoin::blockdata::constants::max_target;
+use deps::bitcoin::blockdata::transaction::Transaction;
+use deps::bitcoin::network::constants::Network;
 use deps::bitcoin::network::encodable::VarInt;
 use deps::bitcoin::network::serialize::BitcoinHash;
-use deps::bitcoin::network::constants::Network;
-use deps::bitcoin::blockdata::transaction::Transaction;
-use deps::bitcoin::blockdata::constants::max_target;
+use deps::bitcoin::util;
 use deps::bitcoin::util::hash::Sha256dHash;
+use deps::bitcoin::util::Error::{SpvBadProofOfWork, SpvBadTarget};
 
 /// A block header, which contains all the block's information except
 /// the actual transactions
@@ -58,7 +58,7 @@ pub struct Block {
     /// The block header
     pub header: BlockHeader,
     /// List of transactions contained in the block
-    pub txdata: Vec<Transaction>
+    pub txdata: Vec<Transaction>,
 }
 
 /// A block header with txcount attached, which is given in the `headers`
@@ -69,7 +69,7 @@ pub struct LoneBlockHeader {
     pub header: BlockHeader,
     /// The number of transactions in the block. This will always be zero
     /// when the LoneBlockHeader is returned as part of a `headers` message.
-    pub tx_count: VarInt
+    pub tx_count: VarInt,
 }
 
 impl BlockHeader {
@@ -82,7 +82,10 @@ impl BlockHeader {
         let (mant, expt) = {
             let unshifted_expt = self.bits >> 24;
             if unshifted_expt <= 3 {
-                ((self.bits & 0xFFFFFF) >> (8 * (3 - unshifted_expt as usize)), 0)
+                (
+                    (self.bits & 0xFFFFFF) >> (8 * (3 - unshifted_expt as usize)),
+                    0,
+                )
             } else {
                 (self.bits & 0xFFFFFF, 8 * ((self.bits >> 24) - 3))
             }
@@ -122,13 +125,20 @@ impl BlockHeader {
     /// Performs an SPV validation of a block, which confirms that the proof-of-work
     /// is correct, but does not verify that the transactions are valid or encoded
     /// correctly.
-    pub fn spv_validate(&self, required_target: &Uint256) -> Result<(), deps::bitcoin::util::Error> {
+    pub fn spv_validate(
+        &self,
+        required_target: &Uint256,
+    ) -> Result<(), deps::bitcoin::util::Error> {
         let target = &self.target();
         if target != required_target {
             return Err(SpvBadTarget);
         }
         let hash = &self.bitcoin_hash().into_le();
-        if hash <= target { Ok(()) } else { Err(SpvBadProofOfWork) }
+        if hash <= target {
+            Ok(())
+        } else {
+            Err(SpvBadProofOfWork)
+        }
     }
 
     /// Returns the total work of the block
@@ -156,7 +166,15 @@ impl BitcoinHash for Block {
     }
 }
 
-impl_consensus_encoding!(BlockHeader, version, prev_blockhash, merkle_root, time, bits, nonce);
+impl_consensus_encoding!(
+    BlockHeader,
+    version,
+    prev_blockhash,
+    merkle_root,
+    time,
+    bits,
+    nonce
+);
 impl_consensus_encoding!(Block, header, txdata);
 impl_consensus_encoding!(LoneBlockHeader, header, tx_count);
 
@@ -172,8 +190,10 @@ mod tests {
         let some_block = hex_decode("010000004ddccd549d28f385ab457e98d1b11ce80bfea2c5ab93015ade4973e400000000bf4473e53794beae34e64fccc471dace6ae544180816f89591894e0f417a914cd74d6e49ffff001d323b3a7b0201000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804ffff001d026e04ffffffff0100f2052a0100000043410446ef0102d1ec5240f0d061a4246c1bdef63fc3dbab7733052fbbf0ecd8f41fc26bf049ebb4f9527f374280259e7cfa99c48b0e3f39c51347a19a5819651503a5ac00000000010000000321f75f3139a013f50f315b23b0c9a2b6eac31e2bec98e5891c924664889942260000000049483045022100cb2c6b346a978ab8c61b18b5e9397755cbd17d6eb2fe0083ef32e067fa6c785a02206ce44e613f31d9a6b0517e46f3db1576e9812cc98d159bfdaf759a5014081b5c01ffffffff79cda0945903627c3da1f85fc95d0b8ee3e76ae0cfdc9a65d09744b1f8fc85430000000049483045022047957cdd957cfd0becd642f6b84d82f49b6cb4c51a91f49246908af7c3cfdf4a022100e96b46621f1bffcf5ea5982f88cef651e9354f5791602369bf5a82a6cd61a62501fffffffffe09f5fe3ffbf5ee97a54eb5e5069e9da6b4856ee86fc52938c2f979b0f38e82000000004847304402204165be9a4cbab8049e1af9723b96199bfd3e85f44c6b4c0177e3962686b26073022028f638da23fc003760861ad481ead4099312c60030d4cb57820ce4d33812a5ce01ffffffff01009d966b01000000434104ea1feff861b51fe3f5f8a3b12d0f4712db80e919548a80839fc47c6a21e66d957e9c5d8cd108c7a2d2324bad71f9904ac0ae7336507d785b17a2c115e427a32fac00000000").unwrap();
         let cutoff_block = hex_decode("010000004ddccd549d28f385ab457e98d1b11ce80bfea2c5ab93015ade4973e400000000bf4473e53794beae34e64fccc471dace6ae544180816f89591894e0f417a914cd74d6e49ffff001d323b3a7b0201000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804ffff001d026e04ffffffff0100f2052a0100000043410446ef0102d1ec5240f0d061a4246c1bdef63fc3dbab7733052fbbf0ecd8f41fc26bf049ebb4f9527f374280259e7cfa99c48b0e3f39c51347a19a5819651503a5ac00000000010000000321f75f3139a013f50f315b23b0c9a2b6eac31e2bec98e5891c924664889942260000000049483045022100cb2c6b346a978ab8c61b18b5e9397755cbd17d6eb2fe0083ef32e067fa6c785a02206ce44e613f31d9a6b0517e46f3db1576e9812cc98d159bfdaf759a5014081b5c01ffffffff79cda0945903627c3da1f85fc95d0b8ee3e76ae0cfdc9a65d09744b1f8fc85430000000049483045022047957cdd957cfd0becd642f6b84d82f49b6cb4c51a91f49246908af7c3cfdf4a022100e96b46621f1bffcf5ea5982f88cef651e9354f5791602369bf5a82a6cd61a62501fffffffffe09f5fe3ffbf5ee97a54eb5e5069e9da6b4856ee86fc52938c2f979b0f38e82000000004847304402204165be9a4cbab8049e1af9723b96199bfd3e85f44c6b4c0177e3962686b26073022028f638da23fc003760861ad481ead4099312c60030d4cb57820ce4d33812a5ce01ffffffff01009d966b01000000434104ea1feff861b51fe3f5f8a3b12d0f4712db80e919548a80839fc47c6a21e66d957e9c5d8cd108c7a2d2324bad71f9904ac0ae7336507d785b17a2c115e427a32fac").unwrap();
 
-        let prevhash = hex_decode("4ddccd549d28f385ab457e98d1b11ce80bfea2c5ab93015ade4973e400000000").unwrap();
-        let merkle = hex_decode("bf4473e53794beae34e64fccc471dace6ae544180816f89591894e0f417a914c").unwrap();
+        let prevhash =
+            hex_decode("4ddccd549d28f385ab457e98d1b11ce80bfea2c5ab93015ade4973e400000000").unwrap();
+        let merkle =
+            hex_decode("bf4473e53794beae34e64fccc471dace6ae544180816f89591894e0f417a914c").unwrap();
 
         let decode: Result<Block, _> = deserialize(&some_block);
         let bad_decode: Result<Block, _> = deserialize(&cutoff_block);
@@ -182,14 +202,20 @@ mod tests {
         assert!(bad_decode.is_err());
         let real_decode = decode.unwrap();
         assert_eq!(real_decode.header.version, 1);
-        assert_eq!(serialize(&real_decode.header.prev_blockhash).ok(), Some(prevhash));
+        assert_eq!(
+            serialize(&real_decode.header.prev_blockhash).ok(),
+            Some(prevhash)
+        );
         // [test] TODO: actually compute the merkle root
-        assert_eq!(serialize(&real_decode.header.merkle_root).ok(), Some(merkle));
+        assert_eq!(
+            serialize(&real_decode.header.merkle_root).ok(),
+            Some(merkle)
+        );
         assert_eq!(real_decode.header.time, 1231965655);
         assert_eq!(real_decode.header.bits, 486604799);
         assert_eq!(real_decode.header.nonce, 2067413810);
         // [test] TODO: check the transaction data
-    
+
         assert_eq!(serialize(&real_decode).ok(), Some(some_block));
     }
 
@@ -200,14 +226,22 @@ mod tests {
 
         let decode: Result<Block, _> = deserialize(&segwit_block);
 
-        let prevhash = hex_decode("2aa2f2ca794ccbd40c16e2f3333f6b8b683f9e7179b2c4d74906000000000000").unwrap();
-        let merkle = hex_decode("10bc26e70a2f672ad420a6153dd0c28b40a6002c55531bfc99bf8994a8e8f67e").unwrap();
+        let prevhash =
+            hex_decode("2aa2f2ca794ccbd40c16e2f3333f6b8b683f9e7179b2c4d74906000000000000").unwrap();
+        let merkle =
+            hex_decode("10bc26e70a2f672ad420a6153dd0c28b40a6002c55531bfc99bf8994a8e8f67e").unwrap();
 
         assert!(decode.is_ok());
         let real_decode = decode.unwrap();
-        assert_eq!(real_decode.header.version, 0x20000000);  // VERSIONBITS but no bits set
-        assert_eq!(serialize(&real_decode.header.prev_blockhash).ok(), Some(prevhash));
-        assert_eq!(serialize(&real_decode.header.merkle_root).ok(), Some(merkle));
+        assert_eq!(real_decode.header.version, 0x20000000); // VERSIONBITS but no bits set
+        assert_eq!(
+            serialize(&real_decode.header.prev_blockhash).ok(),
+            Some(prevhash)
+        );
+        assert_eq!(
+            serialize(&real_decode.header.merkle_root).ok(),
+            Some(merkle)
+        );
         assert_eq!(real_decode.header.time, 1472004949);
         assert_eq!(real_decode.header.bits, 0x1a06d450);
         assert_eq!(real_decode.header.nonce, 1879759182);
@@ -220,9 +254,12 @@ mod tests {
     fn compact_roundrtip_test() {
         let some_header = hex_decode("010000004ddccd549d28f385ab457e98d1b11ce80bfea2c5ab93015ade4973e400000000bf4473e53794beae34e64fccc471dace6ae544180816f89591894e0f417a914cd74d6e49ffff001d323b3a7b").unwrap();
 
-        let header: BlockHeader = deserialize(&some_header).expect("Can't deserialize correct block header");
+        let header: BlockHeader =
+            deserialize(&some_header).expect("Can't deserialize correct block header");
 
-        assert_eq!(header.bits, BlockHeader::compact_target_from_u256(&header.target()));
+        assert_eq!(
+            header.bits,
+            BlockHeader::compact_target_from_u256(&header.target())
+        );
     }
 }
-

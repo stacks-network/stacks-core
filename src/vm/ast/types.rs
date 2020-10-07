@@ -1,10 +1,10 @@
-use std::collections::{HashSet, HashMap};
-use vm::{ClarityName};
-use vm::types::signatures::FunctionSignature;
-use vm::representations::{SymbolicExpression, PreSymbolicExpression, TraitDefinition};
-use vm::ast::errors::{ParseResult};
-use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
+use std::collections::{HashMap, HashSet};
 use std::vec::Drain;
+use vm::ast::errors::ParseResult;
+use vm::representations::{PreSymbolicExpression, SymbolicExpression, TraitDefinition};
+use vm::types::signatures::FunctionSignature;
+use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
+use vm::ClarityName;
 
 pub trait BuildASTPass {
     fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()>;
@@ -21,7 +21,10 @@ pub struct ContractAST {
 }
 
 impl ContractAST {
-    pub fn new(contract_identifier: QualifiedContractIdentifier, pre_expressions: Vec<PreSymbolicExpression>) -> ContractAST {
+    pub fn new(
+        contract_identifier: QualifiedContractIdentifier,
+        pre_expressions: Vec<PreSymbolicExpression>,
+    ) -> ContractAST {
         ContractAST {
             contract_identifier,
             pre_expressions,
@@ -35,7 +38,7 @@ impl ContractAST {
     pub fn pre_expressions_drain(&mut self) -> PreExpressionsDrain {
         let sorting = match self.top_level_expression_sorting {
             Some(ref exprs_ids) => Some(exprs_ids[..].to_vec()),
-            None => None
+            None => None,
         };
 
         PreExpressionsDrain::new(self.pre_expressions.drain(..), sorting)
@@ -89,7 +92,7 @@ impl Iterator for PreExpressionsDrain {
         }
         let expr_index = match self.sorting {
             Some(ref indirections) => indirections[self.index],
-            None => self.index
+            None => self.index,
         };
         let result = self.pre_expressions.remove(&expr_index);
         self.index += 1;

@@ -23,25 +23,22 @@
 pub mod address;
 pub mod bits;
 pub mod blocks;
-pub mod messages;
-pub mod keys;
 pub mod indexer;
+pub mod keys;
+pub mod messages;
 pub mod network;
 pub mod spv;
 
+use std::error;
 use std::fmt;
 use std::io;
-use std::error;
 use std::sync::Arc;
 
 use chainstate::burn::operations::BlockstackOperationType;
 
 use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::{
-    BurnchainHeaderHash,
-    Txid
-};
+use burnchains::{BurnchainHeaderHash, Txid};
 
 use deps;
 
@@ -53,7 +50,7 @@ use util::db::Error as db_error;
 
 pub type PeerMessage = deps::bitcoin::network::message::NetworkMessage;
 
-// Borrowed from Andrew Poelstra's rust-bitcoin 
+// Borrowed from Andrew Poelstra's rust-bitcoin
 
 /// Network error
 #[derive(Debug)]
@@ -62,15 +59,15 @@ pub enum Error {
     Io(io::Error),
     /// Not connected to peer
     SocketNotConnectedToPeer,
-    /// Serialization error 
+    /// Serialization error
     SerializationError(btc_serialize_error),
     /// Invalid Message to peer
     InvalidMessage(PeerMessage),
     /// Invalid Reply from peer
     InvalidReply,
-    /// Invalid magic 
+    /// Invalid magic
     InvalidMagic,
-    /// Unhandled message 
+    /// Unhandled message
     UnhandledMessage(PeerMessage),
     /// Connection is broken and ought to be re-established
     ConnectionBroken,
@@ -82,15 +79,15 @@ pub enum Error {
     DBError(db_error),
     /// Hashing error
     HashError(btc_hex_error),
-    /// Non-contiguous header 
+    /// Non-contiguous header
     NoncontiguousHeader,
     /// Missing header
     MissingHeader,
-    /// Invalid target 
+    /// Invalid target
     InvalidPoW,
     /// Wrong number of bytes for constructing an address
     InvalidByteSequence,
-    /// Configuration error 
+    /// Configuration error
     ConfigError(String),
     /// Tried to synchronize to a point above the chain tip
     BlockchainHeight,
@@ -160,26 +157,26 @@ impl From<db_error> for Error {
 pub enum BitcoinNetworkType {
     Mainnet,
     Testnet,
-    Regtest
+    Regtest,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct BitcoinTxOutput {
     pub address: BitcoinAddress,
-    pub units: u64
+    pub units: u64,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub enum BitcoinInputType {
     Standard,
-    SegwitP2SH
+    SegwitP2SH,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BitcoinTxInput {
     pub keys: Vec<BitcoinPublicKey>,
     pub num_required: usize,
-    pub in_type: BitcoinInputType
+    pub in_type: BitcoinInputType,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -189,7 +186,7 @@ pub struct BitcoinTransaction {
     pub opcode: u8,
     pub data: Vec<u8>,
     pub inputs: Vec<BitcoinTxInput>,
-    pub outputs: Vec<BitcoinTxOutput>
+    pub outputs: Vec<BitcoinTxOutput>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -198,17 +195,23 @@ pub struct BitcoinBlock {
     pub block_hash: BurnchainHeaderHash,
     pub parent_block_hash: BurnchainHeaderHash,
     pub txs: Vec<BitcoinTransaction>,
-    pub timestamp: u64
+    pub timestamp: u64,
 }
 
 impl BitcoinBlock {
-    pub fn new(height: u64, hash: &BurnchainHeaderHash, parent: &BurnchainHeaderHash, txs: &Vec<BitcoinTransaction>, timestamp: u64) -> BitcoinBlock {
+    pub fn new(
+        height: u64,
+        hash: &BurnchainHeaderHash,
+        parent: &BurnchainHeaderHash,
+        txs: &Vec<BitcoinTransaction>,
+        timestamp: u64,
+    ) -> BitcoinBlock {
         BitcoinBlock {
             block_height: height,
             block_hash: hash.clone(),
             parent_block_hash: parent.clone(),
             txs: txs.clone(),
-            timestamp: timestamp
+            timestamp: timestamp,
         }
     }
 }

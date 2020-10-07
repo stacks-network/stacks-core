@@ -1,7 +1,7 @@
-use vm::representations::{PreSymbolicExpression};
+use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use vm::ast::types::{BuildASTPass, ContractAST};
+use vm::representations::PreSymbolicExpression;
 use vm::representations::PreSymbolicExpressionType::List;
-use vm::ast::types::{ContractAST, BuildASTPass};
-use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
 
 use vm::MAX_CALL_STACK_DEPTH;
 
@@ -16,14 +16,12 @@ fn check(args: &[PreSymbolicExpression], depth: u64) -> ParseResult<()> {
     }
     for expression in args.iter() {
         match expression.pre_expr {
-            List(ref exprs) => {
-                check(exprs, depth + 1)
-            },
+            List(ref exprs) => check(exprs, depth + 1),
             _ => {
                 // Other symbolic expressions don't have depth
                 //  impacts.
                 Ok(())
-            },
+            }
         }?;
     }
     Ok(())

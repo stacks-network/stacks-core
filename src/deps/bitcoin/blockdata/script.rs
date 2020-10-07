@@ -36,8 +36,8 @@ use deps::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 // careful...
 use deps::bitcoin::util::hash::Hash160;
 
-use sha2::Sha256;
 use sha2::Digest;
+use sha2::Sha256;
 
 #[derive(Clone, Default, PartialOrd, Ord, PartialEq, Eq, Hash)]
 /// A Bitcoin script
@@ -62,8 +62,14 @@ impl fmt::Debug for Script {
                             break;
                         }
                         match read_uint(&self.0[index..], 1) {
-                            Ok(n) => { index += 1; n as usize }
-                            Err(_) => { f.write_str("<bad length>")?; break; }
+                            Ok(n) => {
+                                index += 1;
+                                n as usize
+                            }
+                            Err(_) => {
+                                f.write_str("<bad length>")?;
+                                break;
+                            }
                         }
                     }
                     opcodes::All::OP_PUSHDATA2 => {
@@ -72,8 +78,14 @@ impl fmt::Debug for Script {
                             break;
                         }
                         match read_uint(&self.0[index..], 2) {
-                            Ok(n) => { index += 2; n as usize }
-                            Err(_) => { f.write_str("<bad length>")?; break; }
+                            Ok(n) => {
+                                index += 2;
+                                n as usize
+                            }
+                            Err(_) => {
+                                f.write_str("<bad length>")?;
+                                break;
+                            }
                         }
                     }
                     opcodes::All::OP_PUSHDATA4 => {
@@ -82,15 +94,23 @@ impl fmt::Debug for Script {
                             break;
                         }
                         match read_uint(&self.0[index..], 4) {
-                            Ok(n) => { index += 4; n as usize }
-                            Err(_) => { f.write_str("<bad length>")?; break; }
+                            Ok(n) => {
+                                index += 4;
+                                n as usize
+                            }
+                            Err(_) => {
+                                f.write_str("<bad length>")?;
+                                break;
+                            }
                         }
                     }
-                    _ => 0
+                    _ => 0,
                 }
             };
 
-            if index > 1 { f.write_str(" ")?; }
+            if index > 1 {
+                f.write_str(" ")?;
+            }
             // Write the opcode
             if opcode == opcodes::All::OP_PUSHBYTES_0 {
                 f.write_str("OP_0")?;
@@ -102,7 +122,7 @@ impl fmt::Debug for Script {
                 f.write_str(" ")?;
                 if index + data_len <= self.0.len() {
                     for ch in &self.0[index..index + data_len] {
-                            write!(f, "{:02x}", ch)?;
+                        write!(f, "{:02x}", ch)?;
                     }
                     index += data_len;
                 } else {
@@ -163,18 +183,24 @@ impl fmt::Display for Error {
         match *self {
             Error::NonMinimalPush => write!(f, "non-minimal datapush"),
             Error::EarlyEndOfScript => write!(f, "unexpected end of script"),
-            Error::NumericOverflow => write!(f, "numeric overflow (number on stack larger than 4 bytes)"),
+            Error::NumericOverflow => {
+                write!(f, "numeric overflow (number on stack larger than 4 bytes)")
+            }
         }
     }
 }
 
 impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> { None }
+    fn cause(&self) -> Option<&dyn error::Error> {
+        None
+    }
 }
 
 /// Helper to encode an integer in script format
 fn build_scriptint(n: i64) -> Vec<u8> {
-    if n == 0 { return vec![] }
+    if n == 0 {
+        return vec![];
+    }
 
     let neg = n < 0;
 
@@ -214,11 +240,16 @@ fn build_scriptint(n: i64) -> Vec<u8> {
 /// This is basically a ranged type implementation.
 pub fn read_scriptint(v: &[u8]) -> Result<i64, Error> {
     let len = v.len();
-    if len == 0 { return Ok(0); }
-    if len > 4 { return Err(Error::NumericOverflow); }
+    if len == 0 {
+        return Ok(0);
+    }
+    if len > 4 {
+        return Err(Error::NumericOverflow);
+    }
 
-    let (mut ret, sh) = v.iter()
-                         .fold((0, 0), |(acc, sh), n| (acc + ((*n as i64) << sh), sh + 8));
+    let (mut ret, sh) = v
+        .iter()
+        .fold((0, 0), |(acc, sh), n| (acc + ((*n as i64) << sh), sh + 8));
     if v[len - 1] & 0x80 != 0 {
         ret &= (1 << (sh - 1)) - 1;
         ret = -ret;
@@ -230,9 +261,9 @@ pub fn read_scriptint(v: &[u8]) -> Result<i64, Error> {
 /// else as true", except that the overflow rules don't apply.
 #[inline]
 pub fn read_scriptbool(v: &[u8]) -> bool {
-    !(v.is_empty() ||
-        ((v[v.len() - 1] == 0 || v[v.len() - 1] == 0x80) &&
-         v.iter().rev().skip(1).all(|&w| w == 0)))
+    !(v.is_empty()
+        || ((v[v.len() - 1] == 0 || v[v.len() - 1] == 0x80)
+            && v.iter().rev().skip(1).all(|&w| w == 0)))
 }
 
 /// Read a script-encoded unsigned integer
@@ -250,29 +281,42 @@ pub fn read_uint(data: &[u8], size: usize) -> Result<usize, Error> {
 
 impl Script {
     /// Creates a new empty script
-    pub fn new() -> Script { Script(vec![].into_boxed_slice()) }
+    pub fn new() -> Script {
+        Script(vec![].into_boxed_slice())
+    }
 
     /// The length in bytes of the script
-    pub fn len(&self) -> usize { self.0.len() }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 
     /// Whether the script is the empty script
-    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 
     /// Returns the script data
-    pub fn as_bytes(&self) -> &[u8] { &*self.0 }
+    pub fn as_bytes(&self) -> &[u8] {
+        &*self.0
+    }
 
     /// Returns a copy of the script data
-    pub fn to_bytes(&self) -> Vec<u8> { self.0.clone().into_vec() }
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.clone().into_vec()
+    }
 
     /// Convert the script into a byte vector
-    pub fn into_bytes(self) -> Vec<u8> { self.0.into_vec() }
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0.into_vec()
+    }
 
     /// Compute the P2SH output corresponding to this redeem script
     pub fn to_p2sh(&self) -> Script {
-        Builder::new().push_opcode(opcodes::All::OP_HASH160)
-                      .push_slice(&Hash160::from_data(&self.0)[..])
-                      .push_opcode(opcodes::All::OP_EQUAL)
-                      .into_script()
+        Builder::new()
+            .push_opcode(opcodes::All::OP_HASH160)
+            .push_slice(&Hash160::from_data(&self.0)[..])
+            .push_opcode(opcodes::All::OP_EQUAL)
+            .into_script()
     }
 
     /// Compute the P2WSH output corresponding to this witnessScript (aka the "witness redeem
@@ -282,64 +326,63 @@ impl Script {
         let mut sha2 = Sha256::new();
         sha2.input(&self.0);
         tmp.copy_from_slice(&sha2.result().as_slice());
-        Builder::new().push_int(0)
-                      .push_slice(&tmp)
-                      .into_script()
+        Builder::new().push_int(0).push_slice(&tmp).into_script()
     }
 
     /// Checks whether a script pubkey is a p2sh output
     #[inline]
     pub fn is_p2sh(&self) -> bool {
-        self.0.len() == 23 &&
-        self.0[0] == opcodes::All::OP_HASH160 as u8 &&
-        self.0[1] == opcodes::All::OP_PUSHBYTES_20 as u8 &&
-        self.0[22] == opcodes::All::OP_EQUAL as u8
+        self.0.len() == 23
+            && self.0[0] == opcodes::All::OP_HASH160 as u8
+            && self.0[1] == opcodes::All::OP_PUSHBYTES_20 as u8
+            && self.0[22] == opcodes::All::OP_EQUAL as u8
     }
 
     /// Checks whether a script pubkey is a p2pkh output
     #[inline]
     pub fn is_p2pkh(&self) -> bool {
-        self.0.len() == 25 &&
-        self.0[0] == opcodes::All::OP_DUP as u8 &&
-        self.0[1] == opcodes::All::OP_HASH160 as u8 &&
-        self.0[2] == opcodes::All::OP_PUSHBYTES_20 as u8 &&
-        self.0[23] == opcodes::All::OP_EQUALVERIFY as u8 &&
-        self.0[24] == opcodes::All::OP_CHECKSIG as u8
+        self.0.len() == 25
+            && self.0[0] == opcodes::All::OP_DUP as u8
+            && self.0[1] == opcodes::All::OP_HASH160 as u8
+            && self.0[2] == opcodes::All::OP_PUSHBYTES_20 as u8
+            && self.0[23] == opcodes::All::OP_EQUALVERIFY as u8
+            && self.0[24] == opcodes::All::OP_CHECKSIG as u8
     }
 
     /// Checks whether a script pubkey is a p2pkh output
     #[inline]
     pub fn is_p2pk(&self) -> bool {
-        self.0.len() == 67 &&
-            self.0[0] == opcodes::All::OP_PUSHBYTES_65 as u8 &&
-            self.0[66] == opcodes::All::OP_CHECKSIG as u8
+        self.0.len() == 67
+            && self.0[0] == opcodes::All::OP_PUSHBYTES_65 as u8
+            && self.0[66] == opcodes::All::OP_CHECKSIG as u8
     }
 
     /// Checks whether a script pubkey is a p2wsh output
     #[inline]
     pub fn is_v0_p2wsh(&self) -> bool {
-        self.0.len() == 34 &&
-        self.0[0] == opcodes::All::OP_PUSHBYTES_0 as u8 &&
-        self.0[1] == opcodes::All::OP_PUSHBYTES_32 as u8
+        self.0.len() == 34
+            && self.0[0] == opcodes::All::OP_PUSHBYTES_0 as u8
+            && self.0[1] == opcodes::All::OP_PUSHBYTES_32 as u8
     }
 
     /// Checks whether a script pubkey is a p2wpkh output
     #[inline]
     pub fn is_v0_p2wpkh(&self) -> bool {
-        self.0.len() == 22 &&
-            self.0[0] == opcodes::All::OP_PUSHBYTES_0 as u8 &&
-            self.0[1] == opcodes::All::OP_PUSHBYTES_20 as u8
+        self.0.len() == 22
+            && self.0[0] == opcodes::All::OP_PUSHBYTES_0 as u8
+            && self.0[1] == opcodes::All::OP_PUSHBYTES_20 as u8
     }
 
     /// Check if this is an OP_RETURN output
-    pub fn is_op_return (&self) -> bool {
+    pub fn is_op_return(&self) -> bool {
         !self.0.is_empty() && (opcodes::All::from(self.0[0]) == opcodes::All::OP_RETURN)
     }
 
     /// Whether a script can be proven to have no satisfying input
     pub fn is_provably_unspendable(&self) -> bool {
-        !self.0.is_empty() && (opcodes::All::from(self.0[0]).classify() == opcodes::Class::ReturnOp ||
-                               opcodes::All::from(self.0[0]).classify() == opcodes::Class::IllegalOp)
+        !self.0.is_empty()
+            && (opcodes::All::from(self.0[0]).classify() == opcodes::Class::ReturnOp
+                || opcodes::All::from(self.0[0]).classify() == opcodes::Class::IllegalOp)
     }
 
     /// Iterate over the script in the form of `Instruction`s, which are an enum covering
@@ -356,7 +399,9 @@ impl Script {
 
 /// Creates a new script from an existing vector
 impl From<Vec<u8>> for Script {
-    fn from(v: Vec<u8>) -> Script { Script(v.into_boxed_slice()) }
+    fn from(v: Vec<u8>) -> Script {
+        Script(v.into_boxed_slice())
+    }
 }
 
 impl_index_newtype!(Script, u8);
@@ -369,7 +414,7 @@ pub enum Instruction<'a> {
     /// Some non-push opcode
     Op(opcodes::All),
     /// An opcode we were unable to parse
-    Error(Error)
+    Error(Error),
 }
 
 /// Iterator over a script returning parsed opcodes
@@ -390,16 +435,17 @@ impl<'a> Iterator for Instructions<'a> {
             opcodes::Class::PushBytes(n) => {
                 let n = n as usize;
                 if self.data.len() < n + 1 {
-                    self.data = &[];  // Kill iterator so that it does not return an infinite stream of errors
+                    self.data = &[]; // Kill iterator so that it does not return an infinite stream of errors
                     return Some(Instruction::Error(Error::EarlyEndOfScript));
                 }
                 if self.enforce_minimal {
-                    if n == 1 && (self.data[1] == 0x81 || (self.data[1] > 0 && self.data[1] <= 16)) {
+                    if n == 1 && (self.data[1] == 0x81 || (self.data[1] > 0 && self.data[1] <= 16))
+                    {
                         self.data = &[];
                         return Some(Instruction::Error(Error::NonMinimalPush));
                     }
                 }
-                let ret = Some(Instruction::PushBytes(&self.data[1..n+1]));
+                let ret = Some(Instruction::PushBytes(&self.data[1..n + 1]));
                 self.data = &self.data[n + 1..];
                 ret
             }
@@ -423,7 +469,7 @@ impl<'a> Iterator for Instructions<'a> {
                     self.data = &[];
                     return Some(Instruction::Error(Error::NonMinimalPush));
                 }
-                let ret = Some(Instruction::PushBytes(&self.data[2..n+2]));
+                let ret = Some(Instruction::PushBytes(&self.data[2..n + 2]));
                 self.data = &self.data[n + 2..];
                 ret
             }
@@ -487,13 +533,19 @@ impl<'a> Iterator for Instructions<'a> {
 
 impl Builder {
     /// Creates a new empty script
-    pub fn new() -> Builder { Builder(vec![]) }
+    pub fn new() -> Builder {
+        Builder(vec![])
+    }
 
     /// The length in bytes of the script
-    pub fn len(&self) -> usize { self.0.len() }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 
     /// Whether the script is the empty script
-    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 
     /// Adds instructions to push an integer onto the stack. Integers are
     /// encoded as little-endian signed-magnitude numbers, but there are
@@ -510,7 +562,9 @@ impl Builder {
             self
         }
         // Otherwise encode it as data
-        else { self.push_scriptint(data) }
+        else {
+            self.push_scriptint(data)
+        }
     }
 
     /// Adds instructions to push an integer onto the stack, using the explicit
@@ -523,16 +577,18 @@ impl Builder {
     pub fn push_slice(mut self, data: &[u8]) -> Builder {
         // Start with a PUSH opcode
         match data.len() as u64 {
-            n if n < opcodes::Ordinary::OP_PUSHDATA1 as u64 => { self.0.push(n as u8); },
+            n if n < opcodes::Ordinary::OP_PUSHDATA1 as u64 => {
+                self.0.push(n as u8);
+            }
             n if n < 0x100 => {
                 self.0.push(opcodes::Ordinary::OP_PUSHDATA1 as u8);
                 self.0.push(n as u8);
-            },
+            }
             n if n < 0x10000 => {
                 self.0.push(opcodes::Ordinary::OP_PUSHDATA2 as u8);
                 self.0.push((n % 0x100) as u8);
                 self.0.push((n / 0x100) as u8);
-            },
+            }
             n if n < 0x100000000 => {
                 self.0.push(opcodes::Ordinary::OP_PUSHDATA4 as u8);
                 self.0.push((n % 0x100) as u8);
@@ -540,7 +596,7 @@ impl Builder {
                 self.0.push(((n / 0x10000) % 0x100) as u8);
                 self.0.push((n / 0x1000000) as u8);
             }
-            _ => panic!("tried to put a 4bn+ sized object into a script!")
+            _ => panic!("tried to put a 4bn+ sized object into a script!"),
         }
         // Then push the acraw
         self.0.extend(data.iter().cloned());
@@ -561,12 +617,16 @@ impl Builder {
 
 /// Adds an individual opcode to the script
 impl Default for Builder {
-    fn default() -> Builder { Builder(vec![]) }
+    fn default() -> Builder {
+        Builder(vec![])
+    }
 }
 
 /// Creates a new script from an existing vector
 impl From<Vec<u8>> for Builder {
-    fn from(v: Vec<u8>) -> Builder { Builder(v) }
+    fn from(v: Vec<u8>) -> Builder {
+        Builder(v)
+    }
 }
 
 impl_index_newtype!(Builder, u8);
@@ -644,11 +704,11 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Script {
 mod test {
     use util::hash::hex_bytes as hex_decode;
 
-    use super::*;
     use super::build_scriptint;
+    use super::*;
 
-    use deps::bitcoin::network::serialize::{deserialize, serialize};
     use deps::bitcoin::blockdata::opcodes;
+    use deps::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn script() {
@@ -657,37 +717,65 @@ mod test {
         assert_eq!(&script[..], &comp[..]);
 
         // small ints
-        script = script.push_int(1);  comp.push(81u8); assert_eq!(&script[..], &comp[..]);
-        script = script.push_int(0);  comp.push(0u8);  assert_eq!(&script[..], &comp[..]);
-        script = script.push_int(4);  comp.push(84u8); assert_eq!(&script[..], &comp[..]);
-        script = script.push_int(-1); comp.push(79u8); assert_eq!(&script[..], &comp[..]);
+        script = script.push_int(1);
+        comp.push(81u8);
+        assert_eq!(&script[..], &comp[..]);
+        script = script.push_int(0);
+        comp.push(0u8);
+        assert_eq!(&script[..], &comp[..]);
+        script = script.push_int(4);
+        comp.push(84u8);
+        assert_eq!(&script[..], &comp[..]);
+        script = script.push_int(-1);
+        comp.push(79u8);
+        assert_eq!(&script[..], &comp[..]);
         // forced scriptint
-        script = script.push_scriptint(4); comp.extend([1u8, 4].iter().cloned()); assert_eq!(&script[..], &comp[..]);
+        script = script.push_scriptint(4);
+        comp.extend([1u8, 4].iter().cloned());
+        assert_eq!(&script[..], &comp[..]);
         // big ints
-        script = script.push_int(17); comp.extend([1u8, 17].iter().cloned()); assert_eq!(&script[..], &comp[..]);
-        script = script.push_int(10000); comp.extend([2u8, 16, 39].iter().cloned()); assert_eq!(&script[..], &comp[..]);
+        script = script.push_int(17);
+        comp.extend([1u8, 17].iter().cloned());
+        assert_eq!(&script[..], &comp[..]);
+        script = script.push_int(10000);
+        comp.extend([2u8, 16, 39].iter().cloned());
+        assert_eq!(&script[..], &comp[..]);
         // notice the sign bit set here, hence the extra zero/128 at the end
-        script = script.push_int(10000000); comp.extend([4u8, 128, 150, 152, 0].iter().cloned()); assert_eq!(&script[..], &comp[..]);
-        script = script.push_int(-10000000); comp.extend([4u8, 128, 150, 152, 128].iter().cloned()); assert_eq!(&script[..], &comp[..]);
+        script = script.push_int(10000000);
+        comp.extend([4u8, 128, 150, 152, 0].iter().cloned());
+        assert_eq!(&script[..], &comp[..]);
+        script = script.push_int(-10000000);
+        comp.extend([4u8, 128, 150, 152, 128].iter().cloned());
+        assert_eq!(&script[..], &comp[..]);
 
         // data
-        script = script.push_slice("NRA4VR".as_bytes()); comp.extend([6u8, 78, 82, 65, 52, 86, 82].iter().cloned()); assert_eq!(&script[..], &comp[..]);
+        script = script.push_slice("NRA4VR".as_bytes());
+        comp.extend([6u8, 78, 82, 65, 52, 86, 82].iter().cloned());
+        assert_eq!(&script[..], &comp[..]);
 
         // opcodes
-        script = script.push_opcode(opcodes::All::OP_CHECKSIG); comp.push(0xACu8); assert_eq!(&script[..], &comp[..]);
-        script = script.push_opcode(opcodes::All::OP_CHECKSIG); comp.push(0xACu8); assert_eq!(&script[..], &comp[..]);
+        script = script.push_opcode(opcodes::All::OP_CHECKSIG);
+        comp.push(0xACu8);
+        assert_eq!(&script[..], &comp[..]);
+        script = script.push_opcode(opcodes::All::OP_CHECKSIG);
+        comp.push(0xACu8);
+        assert_eq!(&script[..], &comp[..]);
     }
 
     #[test]
     fn script_builder() {
         // from txid 3bb5e6434c11fb93f64574af5d116736510717f2c595eb45b52c28e31622dfff which was in my mempool when I wrote the test
-        let script = Builder::new().push_opcode(opcodes::All::OP_DUP)
-                                   .push_opcode(opcodes::All::OP_HASH160)
-                                   .push_slice(&hex_decode("16e1ae70ff0fa102905d4af297f6912bda6cce19").unwrap())
-                                   .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                                   .push_opcode(opcodes::All::OP_CHECKSIG)
-                                   .into_script();
-        assert_eq!(&format!("{:x}", script), "76a91416e1ae70ff0fa102905d4af297f6912bda6cce1988ac");
+        let script = Builder::new()
+            .push_opcode(opcodes::All::OP_DUP)
+            .push_opcode(opcodes::All::OP_HASH160)
+            .push_slice(&hex_decode("16e1ae70ff0fa102905d4af297f6912bda6cce19").unwrap())
+            .push_opcode(opcodes::All::OP_EQUALVERIFY)
+            .push_opcode(opcodes::All::OP_CHECKSIG)
+            .into_script();
+        assert_eq!(
+            &format!("{:x}", script),
+            "76a91416e1ae70ff0fa102905d4af297f6912bda6cce1988ac"
+        );
     }
 
     #[test]
@@ -705,8 +793,22 @@ mod test {
         assert_eq!(build_scriptint(256), vec![0, 1]);
         assert_eq!(build_scriptint(257), vec![1, 1]);
         assert_eq!(build_scriptint(511), vec![255, 1]);
-        for &i in [10, 100, 255, 256, 1000, 10000, 25000, 200000, 5000000, 1000000000,
-                             (1 << 31) - 1, -((1 << 31) - 1)].iter() {
+        for &i in [
+            10,
+            100,
+            255,
+            256,
+            1000,
+            10000,
+            25000,
+            200000,
+            5000000,
+            1000000000,
+            (1 << 31) - 1,
+            -((1 << 31) - 1),
+        ]
+        .iter()
+        {
             assert_eq!(Ok(i), read_scriptint(&build_scriptint(i)));
             assert_eq!(Ok(-i), read_scriptint(&build_scriptint(-i)));
         }
@@ -720,14 +822,28 @@ mod test {
         assert_eq!(hex_script!("410446ef0102d1ec5240f0d061a4246c1bdef63fc3dbab7733052fbbf0ecd8f41fc26bf049ebb4f9527f374280259e7cfa99c48b0e3f39c51347a19a5819651503a5ac").is_provably_unspendable(), false);
         assert_eq!(hex_script!("4104ea1feff861b51fe3f5f8a3b12d0f4712db80e919548a80839fc47c6a21e66d957e9c5d8cd108c7a2d2324bad71f9904ac0ae7336507d785b17a2c115e427a32fac").is_provably_unspendable(), false);
         // p2pkhash
-        assert_eq!(hex_script!("76a914ee61d57ab51b9d212335b1dba62794ac20d2bcf988ac").is_provably_unspendable(), false);
-        assert_eq!(hex_script!("6aa9149eb21980dc9d413d8eac27314938b9da920ee53e87").is_provably_unspendable(), true);
+        assert_eq!(
+            hex_script!("76a914ee61d57ab51b9d212335b1dba62794ac20d2bcf988ac")
+                .is_provably_unspendable(),
+            false
+        );
+        assert_eq!(
+            hex_script!("6aa9149eb21980dc9d413d8eac27314938b9da920ee53e87")
+                .is_provably_unspendable(),
+            true
+        );
     }
 
     #[test]
     fn op_return_test() {
-        assert_eq!(hex_script!("6aa9149eb21980dc9d413d8eac27314938b9da920ee53e87").is_op_return(), true);
-        assert_eq!(hex_script!("76a914ee61d57ab51b9d212335b1dba62794ac20d2bcf988ac").is_op_return(), false);
+        assert_eq!(
+            hex_script!("6aa9149eb21980dc9d413d8eac27314938b9da920ee53e87").is_op_return(),
+            true
+        );
+        assert_eq!(
+            hex_script!("76a914ee61d57ab51b9d212335b1dba62794ac20d2bcf988ac").is_op_return(),
+            false
+        );
         assert_eq!(hex_script!("").is_op_return(), false);
     }
 
@@ -774,7 +890,8 @@ mod test {
         // Test vectors taken from Core tests/data/script_tests.json
         // bare p2wsh
         let redeem_script = hex_script!("410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8ac");
-        let expected_witout = hex_script!("0020b95237b48faaa69eb078e1170be3b5cbb3fddf16d0a991e14ad274f7b33a4f64");
+        let expected_witout =
+            hex_script!("0020b95237b48faaa69eb078e1170be3b5cbb3fddf16d0a991e14ad274f7b33a4f64");
         assert!(redeem_script.to_v0_p2wsh().is_v0_p2wsh());
         assert_eq!(redeem_script.to_v0_p2wsh(), expected_witout);
 
@@ -786,7 +903,8 @@ mod test {
 
         // p2sh-p2wsh
         let redeem_script = hex_script!("410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8ac");
-        let expected_witout = hex_script!("0020b95237b48faaa69eb078e1170be3b5cbb3fddf16d0a991e14ad274f7b33a4f64");
+        let expected_witout =
+            hex_script!("0020b95237b48faaa69eb078e1170be3b5cbb3fddf16d0a991e14ad274f7b33a4f64");
         let expected_out = hex_script!("a914f386c2ba255cc56d20cfa6ea8b062f8b5994551887");
         assert!(redeem_script.to_p2sh().is_p2sh());
         assert!(redeem_script.to_p2sh().to_v0_p2wsh().is_v0_p2wsh());
@@ -799,9 +917,9 @@ mod test {
         let zero = hex_script!("00");
         let zeropush = hex_script!("0100");
 
-        let nonminimal = hex_script!("4c0169b2");      // PUSHDATA1 for no reason
-        let minimal = hex_script!("0169b2");           // minimal
-        let nonminimal_alt = hex_script!("026900b2");  // non-minimal number but minimal push (should be OK)
+        let nonminimal = hex_script!("4c0169b2"); // PUSHDATA1 for no reason
+        let minimal = hex_script!("0169b2"); // minimal
+        let nonminimal_alt = hex_script!("026900b2"); // non-minimal number but minimal push (should be OK)
 
         let v_zero: Vec<Instruction> = zero.iter(true).collect();
         let v_zeropush: Vec<Instruction> = zeropush.iter(true).collect();
@@ -813,18 +931,8 @@ mod test {
         let slop_v_nonmin: Vec<Instruction> = nonminimal.iter(false).collect();
         let slop_v_nonmin_alt: Vec<Instruction> = nonminimal_alt.iter(false).collect();
 
-        assert_eq!(
-            v_zero,
-            vec![
-                Instruction::PushBytes(&[]),
-            ]
-        );
-        assert_eq!(
-            v_zeropush,
-            vec![
-                Instruction::PushBytes(&[0]),
-            ]
-        );
+        assert_eq!(v_zero, vec![Instruction::PushBytes(&[]),]);
+        assert_eq!(v_zeropush, vec![Instruction::PushBytes(&[0]),]);
 
         assert_eq!(
             v_min,
@@ -834,12 +942,7 @@ mod test {
             ]
         );
 
-        assert_eq!(
-            v_nonmin,
-            vec![
-                Instruction::Error(Error::NonMinimalPush),
-            ]
-        );
+        assert_eq!(v_nonmin, vec![Instruction::Error(Error::NonMinimalPush),]);
 
         assert_eq!(
             v_nonmin_alt,
@@ -854,12 +957,14 @@ mod test {
         assert_eq!(v_nonmin_alt, slop_v_nonmin_alt);
     }
 
-	#[test]
+    #[test]
     fn script_ord() {
-        let script_1 = Builder::new().push_slice(&[1,2,3,4]).into_script();
+        let script_1 = Builder::new().push_slice(&[1, 2, 3, 4]).into_script();
         let script_2 = Builder::new().push_int(10).into_script();
         let script_3 = Builder::new().push_int(15).into_script();
-        let script_4 = Builder::new().push_opcode(opcodes::All::OP_RETURN).into_script();
+        let script_4 = Builder::new()
+            .push_opcode(opcodes::All::OP_RETURN)
+            .into_script();
 
         assert!(script_1 < script_2);
         assert!(script_2 < script_3);
@@ -873,4 +978,3 @@ mod test {
         assert!(script_2 > script_1);
     }
 }
-

@@ -1,26 +1,22 @@
-use vm::{eval, execute as vm_execute};
-use vm::database::MemoryBackingStore;
-use vm::errors::{CheckErrors, ShortReturnType, RuntimeErrorType, Error};
-use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
-use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::types::signatures::BufferLength;
-use vm::contexts::{OwnedEnvironment};
-use vm::callables::DefinedFunction;
-use vm::types::{TypeSignature, BuffData, QualifiedContractIdentifier};
-use vm::ast::parse;
-use vm::costs::LimitedCostTracker;
-use util::hash::{hex_bytes, to_hex};
 use std::collections::HashMap;
-use vm::tests::{execute};
+use util::hash::{hex_bytes, to_hex};
+use vm::ast::parse;
+use vm::callables::DefinedFunction;
+use vm::contexts::OwnedEnvironment;
+use vm::costs::LimitedCostTracker;
+use vm::database::MemoryBackingStore;
+use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
+use vm::tests::execute;
+use vm::types::signatures::BufferLength;
+use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
+use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
+use vm::{eval, execute as vm_execute};
+use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
-use chainstate::stacks::StacksPublicKey;
-use address::AddressHashMode;
-use chainstate::stacks::{
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    StacksPrivateKey, StacksAddress
-};
 use address::c32;
-
+use address::AddressHashMode;
+use chainstate::stacks::StacksPublicKey;
+use chainstate::stacks::{StacksAddress, StacksPrivateKey, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -30,7 +26,10 @@ fn test_doubly_defined_persisted_vars() {
         "(define-data-var cursor int 0) (define-data-var cursor int 0)",
         "(define-map cursor ((cursor int)) ((place uint))) (define-map cursor ((cursor int)) ((place uint)))" ];
     for p in tests.iter() {
-        assert_eq!(vm_execute(p).unwrap_err(), CheckErrors::NameAlreadyUsed("cursor".into()).into());
+        assert_eq!(
+            vm_execute(p).unwrap_err(),
+            CheckErrors::NameAlreadyUsed("cursor".into()).into()
+        );
     }
 }
 
@@ -56,11 +55,17 @@ fn test_simple_let() {
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db());
 
-        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));
+        assert_eq!(
+            Ok(Value::Int(7)),
+            eval(
+                &parsed_program[0],
+                &mut env.get_exec_environment(None),
+                &context
+            )
+        );
     } else {
         assert!(false, "Failed to parse program.");
     }
-
 }
 
 #[test]
@@ -72,16 +77,20 @@ fn test_sha256() {
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hex).unwrap() }));
+        return Value::Sequence(SequenceData::Buffer(BuffData {
+            data: hex_bytes(hex).unwrap(),
+        }));
     }
 
     let expectations = [
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb",
-        "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592"
+        "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592",
     ];
 
-    sha256_evals.iter().zip(expectations.iter())
+    sha256_evals
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(to_buffer(expectation), execute(program)));
 }
 
@@ -96,7 +105,7 @@ fn test_sha512() {
     fn p_to_hex(val: Value) -> String {
         match val {
             Value::Sequence(SequenceData::Buffer(BuffData { data })) => to_hex(&data),
-            _ => panic!("Failed")
+            _ => panic!("Failed"),
         }
     }
 
@@ -106,7 +115,9 @@ fn test_sha512() {
         "07e547d9586f6a73f73fbac0435ed76951218fb7d0c8d788a309d785436bbb642e93a252a954f23912547d1e8a3b5ed6e1bfd7097821233fa0538f3db854fee6"
     ];
 
-    sha512_evals.iter().zip(expectations.iter())
+    sha512_evals
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation, &p_to_hex(execute(program))));
 }
 
@@ -121,7 +132,7 @@ fn test_sha512trunc256() {
     fn p_to_hex(val: Value) -> String {
         match val {
             Value::Sequence(SequenceData::Buffer(BuffData { data })) => to_hex(&data),
-            _ => panic!("Failed")
+            _ => panic!("Failed"),
         }
     }
 
@@ -131,7 +142,9 @@ fn test_sha512trunc256() {
         "dd9d67b371519c339ed8dbd25af90e976a1eeefd4ad3d889005e532fc5bef04d",
     ];
 
-    sha512_evals.iter().zip(expectations.iter())
+    sha512_evals
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation, &p_to_hex(execute(program))));
 }
 
@@ -144,16 +157,20 @@ fn test_keccak256() {
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hex).unwrap() }));
+        return Value::Sequence(SequenceData::Buffer(BuffData {
+            data: hex_bytes(hex).unwrap(),
+        }));
     }
 
     let expectations = [
         "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
         "f490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4",
-        "4d741b6f1eb29cb2a9b9911c82f56fa8d73b04959d3d9d222895df6c0b28aa15"
+        "4d741b6f1eb29cb2a9b9911c82f56fa8d73b04959d3d9d222895df6c0b28aa15",
     ];
 
-    keccak256_evals.iter().zip(expectations.iter())
+    keccak256_evals
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(to_buffer(expectation), execute(program)));
 }
 
@@ -171,17 +188,35 @@ fn test_secp256k1() {
         "(unwrap-err! (principal-of? 0x000000000000000000000000000000000000000000000000000000000000000000) 3)",
     ];
 
-    let privk = StacksPrivateKey::from_hex("510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101").unwrap();  // need the "compressed extra 0x01 to match, as this changes the address"
+    let privk = StacksPrivateKey::from_hex(
+        "510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101",
+    )
+    .unwrap(); // need the "compressed extra 0x01 to match, as this changes the address"
     eprintln!("privk {:?}", &privk);
     eprintln!("from_private {:?}", &StacksPublicKey::from_private(&privk));
-    let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk)]).unwrap();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+    .unwrap();
     eprintln!("addr from privk {:?}", &addr);
     let principal = addr.to_account_principal();
     if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
 
-    let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_hex("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110").unwrap()]).unwrap();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_hex(
+            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+        )
+        .unwrap()],
+    )
+    .unwrap();
     eprintln!("addr from hex {:?}", addr);
     let principal = addr.to_account_principal();
     if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
@@ -189,7 +224,10 @@ fn test_secp256k1() {
     }
 
     let expectations = [
-        Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110").unwrap() })),
+        Value::Sequence(SequenceData::Buffer(BuffData {
+            data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110")
+                .unwrap(),
+        })),
         Value::UInt(1),
         Value::UInt(2),
         Value::Bool(true),
@@ -200,7 +238,9 @@ fn test_secp256k1() {
         Value::UInt(1),
     ];
 
-    secp256k1_evals.iter().zip(expectations.iter())
+    secp256k1_evals
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
@@ -241,8 +281,6 @@ fn test_secp256k1_errors() {
     }
 }
 
-
-
 #[test]
 fn test_buffer_equality() {
     let tests = [
@@ -250,13 +288,13 @@ fn test_buffer_equality() {
         "(is-eq \"\\\" a b d\"
                \"\\\" a b d\")",
         "(not (is-eq \"\\\" a b d\"
-                    \" a b d\"))"];
-    let expectations = [
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true)];
+                    \" a b d\"))",
+    ];
+    let expectations = [Value::Bool(true), Value::Bool(true), Value::Bool(true)];
 
-    tests.iter().zip(expectations.iter())
+    tests
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
@@ -266,11 +304,11 @@ fn test_principal_equality() {
         "(is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(not (is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
                    'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))"];
-    let expectations = [
-        Value::Bool(true),
-        Value::Bool(true)];
+    let expectations = [Value::Bool(true), Value::Bool(true)];
 
-    tests.iter().zip(expectations.iter())
+    tests
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
@@ -288,41 +326,61 @@ fn test_simple_if_functions() {
 
     let contract_id = QualifiedContractIdentifier::transient();
 
-    let evals = parse(&contract_id, &
-        "(with_else 5)
+    let evals = parse(
+        &contract_id,
+        &"(with_else 5)
          (without_else 3)
-         (with_else 3)");
+         (with_else 3)",
+    );
 
     let contract_id = QualifiedContractIdentifier::transient();
 
-    let function_bodies = parse(&contract_id, &"(if (is-eq 5 x) 1 0)
-                                  (if (is-eq 5 x) 1 3)");
+    let function_bodies = parse(
+        &contract_id,
+        &"(if (is-eq 5 x) 1 0)
+                                  (if (is-eq 5 x) 1 3)",
+    );
 
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec![("x".into(), TypeSignature::IntType)];
         let func_args2 = vec![("x".into(), TypeSignature::IntType)];
-        let user_function1 = DefinedFunction::new(func_args1,
-                                                  parsed_bodies[0].clone(),
-                                                  Private,
-                                                  &"with_else".into(),
-                                                  &"");
+        let user_function1 = DefinedFunction::new(
+            func_args1,
+            parsed_bodies[0].clone(),
+            Private,
+            &"with_else".into(),
+            &"",
+        );
 
-        let user_function2 = DefinedFunction::new(func_args2,
-                                                  parsed_bodies[1].clone(),
-                                                  Private,
-                                                  &"without_else".into(),
-                                                  &"");
+        let user_function2 = DefinedFunction::new(
+            func_args2,
+            parsed_bodies[1].clone(),
+            Private,
+            &"without_else".into(),
+            &"",
+        );
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut marf = MemoryBackingStore::new();
-        let mut global_context = GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
+        let mut global_context =
+            GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
 
-        contract_context.functions.insert("with_else".into(), user_function1);
-        contract_context.functions.insert("without_else".into(), user_function2);
+        contract_context
+            .functions
+            .insert("with_else".into(), user_function1);
+        contract_context
+            .functions
+            .insert("without_else".into(), user_function2);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None, None);
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+        );
 
         if let Ok(tests) = evals {
             assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
@@ -343,64 +401,71 @@ fn test_concat_append_supertype() {
         "(concat (list (list 2) (list) (list 4 5))
                  (list (list) (list) (list 7 8 9)))",
         "(append (list) 1)",
-        "(append (list (list 3 4) (list)) (list 4 5 7))" ];
+        "(append (list (list 3 4) (list)) (list 4 5 7))",
+    ];
 
     let expectations = [
         Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),
         Value::list_from(vec![
             Value::list_from(vec![Value::Int(2)]).unwrap(),
             Value::list_from(vec![]).unwrap(),
-            Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),            
+            Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),
             Value::list_from(vec![]).unwrap(),
             Value::list_from(vec![]).unwrap(),
-            Value::list_from(vec![Value::Int(7), Value::Int(8), Value::Int(9)]).unwrap()]).unwrap(),
+            Value::list_from(vec![Value::Int(7), Value::Int(8), Value::Int(9)]).unwrap(),
+        ])
+        .unwrap(),
         Value::list_from(vec![Value::Int(1)]).unwrap(),
         Value::list_from(vec![
-            Value::list_from(vec![Value::Int(3), Value::Int(4)]).unwrap(),            
+            Value::list_from(vec![Value::Int(3), Value::Int(4)]).unwrap(),
             Value::list_from(vec![]).unwrap(),
-            Value::list_from(vec![Value::Int(4), Value::Int(5), Value::Int(7)]).unwrap()]).unwrap(),
+            Value::list_from(vec![Value::Int(4), Value::Int(5), Value::Int(7)]).unwrap(),
+        ])
+        .unwrap(),
     ];
 
-    tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| {
-        assert_eq!(expectation.clone(), execute(program))});
+    tests
+        .iter()
+        .zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
 #[test]
 fn test_simple_arithmetic_functions() {
     let tests = [
         "(* 52314 414)",
-         "(/ 52314 414)",
-         "(* 2 3 4 5)",
-         "(/ 10 13)",
-         "(mod 51 2)",
-         "(- 5 4 1)",
-         "(+ 5 4 1)",
-         "(is-eq (* 2 3)
+        "(/ 52314 414)",
+        "(* 2 3 4 5)",
+        "(/ 10 13)",
+        "(mod 51 2)",
+        "(- 5 4 1)",
+        "(+ 5 4 1)",
+        "(is-eq (* 2 3)
               (+ 2 2 2))",
-         "(> 1 2)",
-         "(< 1 2)",
-         "(<= 1 1)",
-         "(>= 2 1)",
-         "(>= 1 1)",
-         "(pow 2 16)",
-         "(pow 2 32)",
-         "(pow 0 0)",
-         "(pow 170141183460469231731687303715884105727 1)",
-         "(pow u340282366920938463463374607431768211455 u1)",
-         "(pow 0 170141183460469231731687303715884105727)",
-         "(pow u1 u340282366920938463463374607431768211455)",
-         "(sqrti u81)",
-         "(sqrti u80)",
-         "(sqrti 81)",
-         "(sqrti 80)",
-         // from https://en.wikipedia.org/wiki/128-bit_computing
-         "(sqrti 170141183460469231731687303715884105727)",  // max i128
-         "(sqrti u340282366920938463463374607431768211455)", // max u128
-         "(+ (pow u2 u127) (- (pow u2 u127) u1))",
-         "(+ (to-uint 127) u10)",
-         "(to-int (- (pow u2 u127) u1))",
-         "(- (pow 2 32))"];
+        "(> 1 2)",
+        "(< 1 2)",
+        "(<= 1 1)",
+        "(>= 2 1)",
+        "(>= 1 1)",
+        "(pow 2 16)",
+        "(pow 2 32)",
+        "(pow 0 0)",
+        "(pow 170141183460469231731687303715884105727 1)",
+        "(pow u340282366920938463463374607431768211455 u1)",
+        "(pow 0 170141183460469231731687303715884105727)",
+        "(pow u1 u340282366920938463463374607431768211455)",
+        "(sqrti u81)",
+        "(sqrti u80)",
+        "(sqrti 81)",
+        "(sqrti 80)",
+        // from https://en.wikipedia.org/wiki/128-bit_computing
+        "(sqrti 170141183460469231731687303715884105727)", // max i128
+        "(sqrti u340282366920938463463374607431768211455)", // max u128
+        "(+ (pow u2 u127) (- (pow u2 u127) u1))",
+        "(+ (to-uint 127) u10)",
+        "(to-int (- (pow u2 u127) u1))",
+        "(- (pow 2 32))",
+    ];
 
     let expectations = [
         Value::Int(21657996),
@@ -435,7 +500,9 @@ fn test_simple_arithmetic_functions() {
         Value::Int(-1 * (u32::max_value() as i128 + 1)),
     ];
 
-    tests.iter().zip(expectations.iter())
+    tests
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
@@ -460,10 +527,11 @@ fn test_simple_arithmetic_errors() {
         "(xor 1)",
         "(pow 2 (pow 2 32))",
         "(pow 2 (- 1))",
-        "(is-eq (some 1) (some true))"];
+        "(is-eq (some 1) (some true))",
+    ];
 
     let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(2, 1).into(),
         CheckErrors::TypeValueError(TypeSignature::IntType, Value::Bool(true)).into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::DivisionByZero.into(),
@@ -471,17 +539,23 @@ fn test_simple_arithmetic_errors() {
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
-        CheckErrors::IncorrectArgumentCount(1,0).into(),
-        CheckErrors::IncorrectArgumentCount(1,0).into(),
-        CheckErrors::IncorrectArgumentCount(2,1).into(),
-        CheckErrors::IncorrectArgumentCount(2,1).into(),
-        CheckErrors::IncorrectArgumentCount(1,0).into(),
-        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 0).into(),
+        CheckErrors::IncorrectArgumentCount(1, 0).into(),
+        CheckErrors::IncorrectArgumentCount(2, 1).into(),
+        CheckErrors::IncorrectArgumentCount(2, 1).into(),
+        CheckErrors::IncorrectArgumentCount(1, 0).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
         RuntimeErrorType::Arithmetic("sqrti must be passed a positive number".to_string()).into(),
-        CheckErrors::IncorrectArgumentCount(2,1).into(),
-        RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
-        CheckErrors::TypeError(TypeSignature::from("bool"), TypeSignature::from("int")).into() 
+        CheckErrors::IncorrectArgumentCount(2, 1).into(),
+        RuntimeErrorType::Arithmetic(
+            "Power argument to (pow ...) must be a u32 integer".to_string(),
+        )
+        .into(),
+        RuntimeErrorType::Arithmetic(
+            "Power argument to (pow ...) must be a u32 integer".to_string(),
+        )
+        .into(),
+        CheckErrors::TypeError(TypeSignature::from("bool"), TypeSignature::from("int")).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -503,7 +577,11 @@ fn test_unsigned_arithmetic() {
     let expectations: &[Error] = &[
         RuntimeErrorType::ArithmeticUnderflow.into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType], Value::UInt(10)).into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::UInt(10),
+        )
+        .into(),
         CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(80)).into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
@@ -532,24 +610,24 @@ fn test_options_errors() {
         "(default-to 4 true)",
         "(get field-0 (some 1))",
         "(get field-0 1)",
-        ];
+    ];
 
     let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
-        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::ExpectedResponseValue(Value::Bool(true)).into(),
-        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::ExpectedResponseValue(Value::Bool(true)).into(),
-        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
-        CheckErrors::IncorrectArgumentCount(1,2).into(),
-        CheckErrors::IncorrectArgumentCount(1,2).into(),
-        CheckErrors::IncorrectArgumentCount(1,2).into(),
-        CheckErrors::IncorrectArgumentCount(2,3).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(2, 3).into(),
         CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
         CheckErrors::ExpectedTuple(TypeSignature::IntType).into(),
-        CheckErrors::ExpectedTuple(TypeSignature::IntType).into()
+        CheckErrors::ExpectedTuple(TypeSignature::IntType).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -568,10 +646,10 @@ fn test_stx_ops_errors() {
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(3,2).into(),
+        CheckErrors::IncorrectArgumentCount(3, 2).into(),
         CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(2, 1).into(),
         CheckErrors::BadTransferSTXArguments.into(),
     ];
 
@@ -592,7 +670,7 @@ fn test_some() {
         "(is-eq (some 1) none)",
         "(is-eq none (some 1))",
         "(is-eq (some 1) (some 2))",
-        ];
+    ];
 
     let expectations = [
         Value::Bool(true),
@@ -610,7 +688,6 @@ fn test_some() {
         assert_eq!(*expectation, vm_execute(program).unwrap().unwrap());
     }
 }
-
 
 #[test]
 fn test_option_destructs() {
@@ -638,7 +715,7 @@ fn test_option_destructs() {
         "(try! (some true))",
         "(try! none 1)",
         "(try! 1)",
-        ];
+    ];
 
     let expectations: &[Result<Value, Error>] = &[
         Ok(Value::Int(1)),
@@ -663,15 +740,13 @@ fn test_option_destructs() {
         Err(ShortReturnType::ExpectedValue(Value::none()).into()),
         Ok(Value::Bool(true)),
         Err(CheckErrors::IncorrectArgumentCount(1, 2).into()),
-        Err(CheckErrors::ExpectedOptionalOrResponseValue(
-            Value::Int(1)).into()),
+        Err(CheckErrors::ExpectedOptionalOrResponseValue(Value::Int(1)).into()),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
         assert_eq!(*expectation, vm_execute(program).map(|x| x.unwrap()));
     }
 }
-
 
 #[test]
 fn test_hash_errors() {
@@ -692,12 +767,52 @@ fn test_hash_errors() {
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_buffer(),
+            ],
+            Value::Bool(true),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_buffer(),
+            ],
+            Value::Bool(true),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_buffer(),
+            ],
+            Value::Bool(true),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_buffer(),
+            ],
+            Value::Bool(true),
+        )
+        .into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_buffer(),
+            ],
+            Value::Bool(true),
+        )
+        .into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
     ];
 
@@ -710,14 +825,15 @@ fn test_hash_errors() {
 fn test_bool_functions() {
     let tests = [
         "true",
-         "(and true true true)",
-         "(and false true true)",
-         "(and false (> 1 (/ 10 0)))",
-         "(or true (> 1 (/ 10 0)))",
-         "(or false false false)",
-         "(not true)",
-         "(and true false)",
-         "(or false true)"];
+        "(and true true true)",
+        "(and false true true)",
+        "(and false (> 1 (/ 10 0)))",
+        "(or true (> 1 (/ 10 0)))",
+        "(or false false false)",
+        "(not true)",
+        "(and true false)",
+        "(or false true)",
+    ];
 
     let expectations = [
         Value::Bool(true),
@@ -728,9 +844,12 @@ fn test_bool_functions() {
         Value::Bool(false),
         Value::Bool(false),
         Value::Bool(false),
-        Value::Bool(true)];
+        Value::Bool(true),
+    ];
 
-    tests.iter().zip(expectations.iter())
+    tests
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
@@ -742,7 +861,8 @@ fn test_bad_lets() {
         "(let ((a 1) (a 2)) (+ a a))",
         "(let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (+ a b))",
         "(let ((true 0)) true)",
-        "(let ((false 1)) false)"];
+        "(let ((false 1)) false)",
+    ];
 
     let expectations: &[Error] = &[
         CheckErrors::NameAlreadyUsed("tx-sender".to_string()).into(),
@@ -750,10 +870,15 @@ fn test_bad_lets() {
         CheckErrors::NameAlreadyUsed("a".to_string()).into(),
         CheckErrors::NoSuchDataVariable("cursor".to_string()).into(),
         CheckErrors::NameAlreadyUsed("true".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("false".to_string()).into(),];
+        CheckErrors::NameAlreadyUsed("false".to_string()).into(),
+    ];
 
-    tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
+    tests
+        .iter()
+        .zip(expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!((*expectation), vm_execute(program).unwrap_err())
+        });
 }
 
 #[test]
@@ -762,11 +887,11 @@ fn test_lets() {
         "(let ((a 1) (b 2)) (+ a b))",
         "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (var-get cursor))"];
 
-    let expectations = [
-        Value::Int(3),
-        Value::Int(3)];
+    let expectations = [Value::Int(3), Value::Int(3)];
 
-    tests.iter().zip(expectations.iter())
+    tests
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
@@ -774,13 +899,17 @@ fn test_lets() {
 fn test_asserts() {
     let tests = [
         "(begin (asserts! (is-eq 1 1) (err 0)) (ok 1))",
-        "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 2) (err 1)) (ok 2))"];
+        "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 2) (err 1)) (ok 2))",
+    ];
 
     let expectations = [
         Value::okay(Value::Int(1)).unwrap(),
-        Value::okay(Value::Int(2)).unwrap()];
+        Value::okay(Value::Int(2)).unwrap(),
+    ];
 
-    tests.iter().zip(expectations.iter())
+    tests
+        .iter()
+        .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
@@ -788,12 +917,22 @@ fn test_asserts() {
 fn test_asserts_short_circuit() {
     let tests = [
         "(begin (asserts! (is-eq 1 0) (err 0)) (ok 1))",
-        "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 1) (err 1)) (ok 2))"];
+        "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 1) (err 1)) (ok 2))",
+    ];
 
     let expectations: &[Error] = &[
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)).unwrap())),
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(1)).unwrap()))];
+        Error::ShortReturn(ShortReturnType::AssertionFailed(
+            Value::error(Value::Int(0)).unwrap(),
+        )),
+        Error::ShortReturn(ShortReturnType::AssertionFailed(
+            Value::error(Value::Int(1)).unwrap(),
+        )),
+    ];
 
-    tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
+    tests
+        .iter()
+        .zip(expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!((*expectation), vm_execute(program).unwrap_err())
+        });
 }

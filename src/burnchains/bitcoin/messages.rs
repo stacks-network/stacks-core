@@ -17,11 +17,15 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
+use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::PeerMessage;
 
 pub trait BitcoinMessageHandler {
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error>;
-    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: PeerMessage) -> Result<bool, btc_error>;
+    fn handle_message(
+        &mut self,
+        indexer: &mut BitcoinIndexer,
+        msg: PeerMessage,
+    ) -> Result<bool, btc_error>;
 }

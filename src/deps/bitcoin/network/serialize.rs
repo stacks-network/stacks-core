@@ -45,7 +45,7 @@ pub enum Error {
         actual: u32,
     },
     /// Tried to allocate an oversized vector
-    OversizedVectorAllocation{
+    OversizedVectorAllocation {
         /// The capacity requested
         requested: usize,
         /// The maximum capacity
@@ -77,14 +77,38 @@ impl fmt::Display for Error {
         match *self {
             Error::Io(ref e) => fmt::Display::fmt(e, f),
             Error::Base58(ref e) => fmt::Display::fmt(e, f),
-            Error::UnexpectedNetworkMagic { expected: ref e, actual: ref a } => write!(f, "unexpected network magic: expected {}, actual {}", e, a),
-            Error::OversizedVectorAllocation { requested: ref r, max: ref m } => write!(f, "allocation of oversized vector requested: requested {}, maximum {}", r, m),
-            Error::InvalidChecksum { expected: ref e, actual: ref a } => write!(f, "invalid checksum: expected {}, actual {}", hex_encode(e), hex_encode(a)),
+            Error::UnexpectedNetworkMagic {
+                expected: ref e,
+                actual: ref a,
+            } => write!(f, "unexpected network magic: expected {}, actual {}", e, a),
+            Error::OversizedVectorAllocation {
+                requested: ref r,
+                max: ref m,
+            } => write!(
+                f,
+                "allocation of oversized vector requested: requested {}, maximum {}",
+                r, m
+            ),
+            Error::InvalidChecksum {
+                expected: ref e,
+                actual: ref a,
+            } => write!(
+                f,
+                "invalid checksum: expected {}, actual {}",
+                hex_encode(e),
+                hex_encode(a)
+            ),
             Error::UnknownNetworkMagic(ref m) => write!(f, "unknown network magic: {}", m),
             Error::ParseFailed(ref e) => write!(f, "parse failed: {}", e),
-            Error::UnsupportedWitnessVersion(ref wver) => write!(f, "unsupported witness version: {}", wver),
-            Error::UnsupportedSegwitFlag(ref swflag) => write!(f, "unsupported segwit version: {}", swflag),
-            Error::UnrecognizedNetworkCommand(ref nwcmd) => write!(f, "unrecognized network command: {}", nwcmd),
+            Error::UnsupportedWitnessVersion(ref wver) => {
+                write!(f, "unsupported witness version: {}", wver)
+            }
+            Error::UnsupportedSegwitFlag(ref swflag) => {
+                write!(f, "unsupported segwit version: {}", swflag)
+            }
+            Error::UnrecognizedNetworkCommand(ref nwcmd) => {
+                write!(f, "unrecognized network command: {}", nwcmd)
+            }
             Error::UnexpectedHexDigit(ref d) => write!(f, "unexpected hex digit: {}", d),
         }
     }
@@ -137,7 +161,8 @@ impl BitcoinHash for Vec<u8> {
 
 /// Encode an object into a vector
 pub fn serialize<T: ?Sized>(data: &T) -> Result<Vec<u8>, Error>
-     where T: ConsensusEncodable<RawEncoder<Cursor<Vec<u8>>>>,
+where
+    T: ConsensusEncodable<RawEncoder<Cursor<Vec<u8>>>>,
 {
     let mut encoder = RawEncoder::new(Cursor::new(vec![]));
     data.consensus_encode(&mut encoder)?;
@@ -146,7 +171,8 @@ pub fn serialize<T: ?Sized>(data: &T) -> Result<Vec<u8>, Error>
 
 /// Encode an object into a hex-encoded string
 pub fn serialize_hex<T: ?Sized>(data: &T) -> Result<String, Error>
-     where T: ConsensusEncodable<RawEncoder<Cursor<Vec<u8>>>>
+where
+    T: ConsensusEncodable<RawEncoder<Cursor<Vec<u8>>>>,
 {
     let serial = serialize(data)?;
     Ok(hex_encode(&serial[..]))
@@ -155,7 +181,8 @@ pub fn serialize_hex<T: ?Sized>(data: &T) -> Result<String, Error>
 /// Deserialize an object from a vector, will error if said deserialization
 /// doesn't consume the entire vector.
 pub fn deserialize<'a, T>(data: &'a [u8]) -> Result<T, Error>
-     where T: ConsensusDecodable<RawDecoder<Cursor<&'a [u8]>>>
+where
+    T: ConsensusDecodable<RawDecoder<Cursor<&'a [u8]>>>,
 {
     let mut decoder = RawDecoder::new(Cursor::new(data));
     let rv = ConsensusDecodable::consensus_decode(&mut decoder)?;
@@ -164,32 +191,42 @@ pub fn deserialize<'a, T>(data: &'a [u8]) -> Result<T, Error>
     if decoder.into_inner().position() == data.len() as u64 {
         Ok(rv)
     } else {
-        Err(Error::ParseFailed("data not consumed entirely when explicitly deserializing"))
+        Err(Error::ParseFailed(
+            "data not consumed entirely when explicitly deserializing",
+        ))
     }
 }
 
 /// An encoder for raw binary data
 pub struct RawEncoder<W> {
-    writer: W
+    writer: W,
 }
 
 /// An decoder for raw binary data
 pub struct RawDecoder<R> {
-    reader: R
+    reader: R,
 }
 
 impl<W: Write> RawEncoder<W> {
     /// Constructor
-    pub fn new(writer: W) -> RawEncoder<W> { RawEncoder { writer: writer } }
+    pub fn new(writer: W) -> RawEncoder<W> {
+        RawEncoder { writer: writer }
+    }
     /// Returns the underlying Writer
-    pub fn into_inner(self) -> W { self.writer }
+    pub fn into_inner(self) -> W {
+        self.writer
+    }
 }
 
 impl<R: Read> RawDecoder<R> {
-  /// Constructor
-  pub fn new(reader: R) -> RawDecoder<R> { RawDecoder { reader: reader } }
-  /// Returns the underlying Reader
-  pub fn into_inner(self) -> R { self.reader }
+    /// Constructor
+    pub fn new(reader: R) -> RawDecoder<R> {
+        RawDecoder { reader: reader }
+    }
+    /// Returns the underlying Reader
+    pub fn into_inner(self) -> R {
+        self.reader
+    }
 }
 
 /// A simple Encoder trait
@@ -246,7 +283,7 @@ macro_rules! encoder_fn {
         fn $name(&mut self, v: $val_type) -> Result<(), Error> {
             self.writer.write_all(&v.to_le_bytes()).map_err(Error::Io)
         }
-    }
+    };
 }
 
 macro_rules! decoder_fn {
@@ -254,11 +291,10 @@ macro_rules! decoder_fn {
         #[inline]
         fn $name(&mut self) -> Result<$val_type, Error> {
             let mut buff = [0; $type_size];
-            self.reader.read_exact(&mut buff)
-                .map_err(Error::Io)?;
+            self.reader.read_exact(&mut buff).map_err(Error::Io)?;
             Ok(<$val_type>::from_le_bytes(buff))
         }
-    }
+    };
 }
 
 impl<W: Write> SimpleEncoder for RawEncoder<W> {
@@ -273,7 +309,7 @@ impl<W: Write> SimpleEncoder for RawEncoder<W> {
 
     #[inline]
     fn emit_bool(&mut self, v: bool) -> Result<(), Error> {
-        self.emit_i8(if v {1} else {0})
+        self.emit_i8(if v { 1 } else { 0 })
     }
 }
 
@@ -289,12 +325,10 @@ impl<R: Read> SimpleDecoder for RawDecoder<R> {
 
     #[inline]
     fn read_bool(&mut self) -> Result<bool, Error> {
-        self.read_i8()
-            .map(|bit| bit != 0)
+        self.read_i8().map(|bit| bit != 0)
     }
 }
 
 // Aren't really any tests here.. the main functions are serialize and
 // deserialize, which get the crap tested out of them it every other
 // module.
-

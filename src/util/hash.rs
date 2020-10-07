@@ -17,33 +17,34 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::char::from_digit;
 use std::fmt;
 use std::fmt::Write;
 use std::mem;
-use std::char::from_digit;
 
-use util::pair::*;
 use util::log;
+use util::pair::*;
 use util::HexError;
 
 use ripemd160::Ripemd160;
-use sha2::{Sha256, Sha512, Sha512Trunc256, Digest};
+use sha2::{Digest, Sha256, Sha512, Sha512Trunc256};
 use sha3::Keccak256;
 
 use util::uint::Uint256;
 
-use serde::Serialize;
-use serde::ser::Error as ser_Error;
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
-
+use serde::ser::Error as ser_Error;
+use serde::Serialize;
 
 // hash function for Merkle trees
 pub trait MerkleHashFunc {
     fn empty() -> Self
-        where Self: Sized;
+    where
+        Self: Sized;
     fn from_tagged_data(tag: u8, data: &[u8]) -> Self
-        where Self: Sized;
+    where
+        Self: Sized;
     fn bits(&self) -> &[u8];
 }
 
@@ -51,27 +52,34 @@ macro_rules! impl_serde_json_hex_string {
     ($name:ident, $len:expr) => {
         pub struct $name {}
         impl $name {
-            pub fn json_serialize<S: serde::Serializer>(inst: &[u8; $len], s: S) -> Result<S::Ok, S::Error> {
+            pub fn json_serialize<S: serde::Serializer>(
+                inst: &[u8; $len],
+                s: S,
+            ) -> Result<S::Ok, S::Error> {
                 let hex_inst = to_hex(inst);
                 s.serialize_str(&hex_inst.as_str())
             }
 
-            pub fn json_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[u8; $len], D::Error> {
+            pub fn json_deserialize<'de, D: serde::Deserializer<'de>>(
+                d: D,
+            ) -> Result<[u8; $len], D::Error> {
                 let hex_inst = String::deserialize(d)?;
-                let inst_bytes = hex_bytes(&hex_inst)
-                    .map_err(de_Error::custom)?;
+                let inst_bytes = hex_bytes(&hex_inst).map_err(de_Error::custom)?;
 
                 match inst_bytes.len() {
                     $len => {
                         let mut byte_slice = [0u8; $len];
                         byte_slice.copy_from_slice(&inst_bytes);
                         Ok(byte_slice)
-                    },
-                    _ => Err(de_Error::custom(format!("Invalid hex string -- not {} bytes", $len)))
+                    }
+                    _ => Err(de_Error::custom(format!(
+                        "Invalid hex string -- not {} bytes",
+                        $len
+                    ))),
                 }
             }
         }
-    }
+    };
 }
 
 impl_serde_json_hex_string!(Hash20, 20);
@@ -80,63 +88,87 @@ impl_serde_json_hex_string!(Hash64, 64);
 
 #[derive(Serialize, Deserialize)]
 pub struct Hash160(
-    #[serde(serialize_with = "Hash20::json_serialize", deserialize_with = "Hash20::json_deserialize")]
-    pub [u8; 20]);
+    #[serde(
+        serialize_with = "Hash20::json_serialize",
+        deserialize_with = "Hash20::json_deserialize"
+    )]
+    pub [u8; 20],
+);
 impl_array_newtype!(Hash160, u8, 20);
 impl_array_hexstring_fmt!(Hash160);
 impl_byte_array_newtype!(Hash160, u8, 20);
-pub const HASH160_ENCODED_SIZE : u32 = 20;
+pub const HASH160_ENCODED_SIZE: u32 = 20;
 
 #[derive(Serialize, Deserialize)]
 pub struct Keccak256Hash(
-    #[serde(serialize_with = "Hash32::json_serialize", deserialize_with = "Hash32::json_deserialize")]
-    pub [u8; 32]);
+    #[serde(
+        serialize_with = "Hash32::json_serialize",
+        deserialize_with = "Hash32::json_deserialize"
+    )]
+    pub [u8; 32],
+);
 impl_array_newtype!(Keccak256Hash, u8, 32);
 impl_array_hexstring_fmt!(Keccak256Hash);
 impl_byte_array_newtype!(Keccak256Hash, u8, 32);
 
 #[derive(Serialize, Deserialize)]
 pub struct Sha256Sum(
-    #[serde(serialize_with = "Hash32::json_serialize", deserialize_with = "Hash32::json_deserialize")]
-    pub [u8; 32]);
+    #[serde(
+        serialize_with = "Hash32::json_serialize",
+        deserialize_with = "Hash32::json_deserialize"
+    )]
+    pub [u8; 32],
+);
 impl_array_newtype!(Sha256Sum, u8, 32);
 impl_array_hexstring_fmt!(Sha256Sum);
 impl_byte_array_newtype!(Sha256Sum, u8, 32);
 
 #[derive(Serialize, Deserialize)]
 pub struct Sha512Sum(
-    #[serde(serialize_with = "Hash64::json_serialize", deserialize_with = "Hash64::json_deserialize")]
-    pub [u8; 64]);
+    #[serde(
+        serialize_with = "Hash64::json_serialize",
+        deserialize_with = "Hash64::json_deserialize"
+    )]
+    pub [u8; 64],
+);
 impl_array_newtype!(Sha512Sum, u8, 64);
 impl_array_hexstring_fmt!(Sha512Sum);
 impl_byte_array_newtype!(Sha512Sum, u8, 64);
 
 #[derive(Serialize, Deserialize)]
 pub struct Sha512Trunc256Sum(
-    #[serde(serialize_with = "Hash32::json_serialize", deserialize_with = "Hash32::json_deserialize")]
-    pub [u8; 32]);
+    #[serde(
+        serialize_with = "Hash32::json_serialize",
+        deserialize_with = "Hash32::json_deserialize"
+    )]
+    pub [u8; 32],
+);
 impl_array_newtype!(Sha512Trunc256Sum, u8, 32);
 impl_array_hexstring_fmt!(Sha512Trunc256Sum);
 impl_byte_array_newtype!(Sha512Trunc256Sum, u8, 32);
 
 #[derive(Serialize, Deserialize)]
 pub struct DoubleSha256(
-    #[serde(serialize_with = "Hash32::json_serialize", deserialize_with = "Hash32::json_deserialize")]
-    pub [u8; 32]);
+    #[serde(
+        serialize_with = "Hash32::json_serialize",
+        deserialize_with = "Hash32::json_deserialize"
+    )]
+    pub [u8; 32],
+);
 impl_array_newtype!(DoubleSha256, u8, 32);
 impl_array_hexstring_fmt!(DoubleSha256);
 impl_byte_array_newtype!(DoubleSha256, u8, 32);
-pub const DOUBLE_SHA256_ENCODED_SIZE : u32 = 32;
+pub const DOUBLE_SHA256_ENCODED_SIZE: u32 = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
 enum MerklePathOrder {
     Left = 0x02,
-    Right = 0x03
+    Right = 0x03,
 }
 
-const MERKLE_PATH_LEAF_TAG : u8 = 0x00;
-const MERKLE_PATH_NODE_TAG : u8 = 0x01;
+const MERKLE_PATH_LEAF_TAG: u8 = 0x00;
+const MERKLE_PATH_NODE_TAG: u8 = 0x01;
 
 impl Hash160 {
     pub fn from_sha256(sha256_hash: &[u8; 32]) -> Hash160 {
@@ -146,7 +178,7 @@ impl Hash160 {
         ret.copy_from_slice(rmd.result().as_slice());
         Hash160(ret)
     }
-    
+
     /// Create a hash by hashing some data
     /// (borrwed from Andrew Poelstra)
     pub fn from_data(data: &[u8]) -> Hash160 {
@@ -282,7 +314,7 @@ impl Sha256Sum {
 impl DoubleSha256 {
     pub fn from_data(data: &[u8]) -> DoubleSha256 {
         let mut tmp = [0u8; 32];
-        
+
         let mut sha2 = Sha256::new();
         sha2.input(data);
         tmp.copy_from_slice(sha2.result().as_slice());
@@ -299,7 +331,9 @@ impl DoubleSha256 {
     pub fn into_le(self) -> Uint256 {
         let DoubleSha256(data) = self;
         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() { *x = x.to_le(); }
+        for x in (&mut ret).iter_mut() {
+            *x = x.to_le();
+        }
         Uint256(ret)
     }
 
@@ -309,7 +343,9 @@ impl DoubleSha256 {
         let DoubleSha256(mut data) = self;
         data.reverse();
         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() { *x = x.to_be(); }
+        for x in (&mut ret).iter_mut() {
+            *x = x.to_be();
+        }
         Uint256(ret)
     }
 
@@ -340,13 +376,13 @@ impl DoubleSha256 {
 pub struct MerkleTree<H: MerkleHashFunc> {
     // nodes[0] is the list of leaves
     // nodes[-1][0] is the root
-    nodes: Vec<Vec<H>>
+    nodes: Vec<Vec<H>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MerklePathPoint<H: MerkleHashFunc> {
     order: MerklePathOrder,
-    hash: H
+    hash: H,
 }
 
 pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
@@ -360,21 +396,21 @@ pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
 /// tree roots in Stacks blocks.
 impl<H> MerkleTree<H>
 where
-    H: MerkleHashFunc + Clone + PartialEq + fmt::Debug
+    H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
 {
     pub fn new(data: &Vec<Vec<u8>>) -> MerkleTree<H> {
         if data.len() == 0 {
             return MerkleTree { nodes: vec![] };
         }
 
-        let mut leaf_hashes : Vec<H> = data
+        let mut leaf_hashes: Vec<H> = data
             .iter()
             .map(|buf| MerkleTree::get_leaf_hash(&buf[..]))
             .collect();
-        
-        // force even number 
+
+        // force even number
         if leaf_hashes.len() % 2 != 0 {
-            let dup = leaf_hashes[leaf_hashes.len()-1].clone();
+            let dup = leaf_hashes[leaf_hashes.len() - 1].clone();
             leaf_hashes.push(dup);
         }
 
@@ -382,13 +418,13 @@ where
         nodes.push(leaf_hashes);
 
         loop {
-            // next row 
+            // next row
             let i = nodes.len() - 1;
             let mut row_hashes = vec![];
             row_hashes.reserve(nodes[i].len() / 2);
 
-            for j in 0..(nodes[i].len()/2) {
-                let h = MerkleTree::get_node_hash(&nodes[i][(2*j)], &nodes[i][2*j+1]);
+            for j in 0..(nodes[i].len() / 2) {
+                let h = MerkleTree::get_node_hash(&nodes[i][(2 * j)], &nodes[i][2 * j + 1]);
                 row_hashes.push(h);
             }
 
@@ -398,25 +434,23 @@ where
                 break;
             }
 
-            // force even 
+            // force even
             if row_hashes.len() % 2 != 0 {
-                let dup = row_hashes[row_hashes.len()-1].clone();
+                let dup = row_hashes[row_hashes.len() - 1].clone();
                 row_hashes.push(dup);
             }
             nodes.push(row_hashes);
         }
 
-        MerkleTree {
-            nodes: nodes
-        }
+        MerkleTree { nodes: nodes }
     }
 
-    /// Get the leaf hash 
+    /// Get the leaf hash
     fn get_leaf_hash(leaf_data: &[u8]) -> H {
         H::from_tagged_data(MERKLE_PATH_LEAF_TAG, leaf_data)
     }
 
-    /// Get a non-leaf hash 
+    /// Get a non-leaf hash
     fn get_node_hash(left: &H, right: &H) -> H {
         let mut buf = vec![];
         buf.extend_from_slice(left.bits());
@@ -427,7 +461,11 @@ where
     /// Find a given hash in a merkle tree row
     fn find_hash_index(&self, hash: &H, row_index: usize) -> Option<usize> {
         if row_index >= self.nodes.len() {
-            panic!("Tried to index Merkle tree at height {} (>= {})", row_index, self.nodes.len());
+            panic!(
+                "Tried to index Merkle tree at height {} (>= {})",
+                row_index,
+                self.nodes.len()
+            );
         }
 
         for i in 0..self.nodes[row_index].len() {
@@ -450,23 +488,40 @@ where
         }
 
         if row_index >= self.nodes.len() {
-            panic!("Tried to index Merkle tree at height {} (>= {})", row_index, self.nodes.len());
+            panic!(
+                "Tried to index Merkle tree at height {} (>= {})",
+                row_index,
+                self.nodes.len()
+            );
         }
         if hash_index >= self.nodes[row_index].len() {
-            panic!("Tried to index Merkle tree at column {} (>= {}) in row {}", hash_index, self.nodes[row_index].len(), row_index);
+            panic!(
+                "Tried to index Merkle tree at column {} (>= {}) in row {}",
+                hash_index,
+                self.nodes[row_index].len(),
+                row_index
+            );
         }
 
         if hash_index % 2 == 0 {
             if hash_index + 1 >= self.nodes[row_index].len() {
-                panic!("Corrupt Merkle tree -- colunn {} is the last item in row {}", hash_index, row_index);
+                panic!(
+                    "Corrupt Merkle tree -- colunn {} is the last item in row {}",
+                    hash_index, row_index
+                );
             }
 
-            // left sibling 
-            (self.nodes[row_index][hash_index].clone(), self.nodes[row_index][hash_index+1].clone())
-        }
-        else {
-            // right sibling 
-            (self.nodes[row_index][hash_index-1].clone(), self.nodes[row_index][hash_index].clone())
+            // left sibling
+            (
+                self.nodes[row_index][hash_index].clone(),
+                self.nodes[row_index][hash_index + 1].clone(),
+            )
+        } else {
+            // right sibling
+            (
+                self.nodes[row_index][hash_index - 1].clone(),
+                self.nodes[row_index][hash_index].clone(),
+            )
         }
     }
 
@@ -474,14 +529,12 @@ where
     /// will be all 0's if the tree is empty.
     pub fn root(&self) -> H {
         if self.nodes.len() > 0 {
-            if self.nodes[self.nodes.len()-1].len() > 0 {
-                self.nodes[self.nodes.len()-1][0].clone()
-            }
-            else {
+            if self.nodes[self.nodes.len() - 1].len() > 0 {
+                self.nodes[self.nodes.len() - 1][0].clone()
+            } else {
                 H::empty()
             }
-        }
-        else {
+        } else {
             H::empty()
         }
     }
@@ -490,42 +543,41 @@ where
     /// will be None if the data isn't a leaf.
     pub fn path(&self, data: &Vec<u8>) -> Option<MerklePath<H>> {
         let leaf_hash = MerkleTree::get_leaf_hash(&data[..]);
-        let mut hash_index = 
-            match self.find_hash_index(&leaf_hash, 0) {
-                None => {
-                    return None;
-                },
-                Some(i) => {
-                    i
-                }
-            };
+        let mut hash_index = match self.find_hash_index(&leaf_hash, 0) {
+            None => {
+                return None;
+            }
+            Some(i) => i,
+        };
 
-        let mut path : MerklePath<H> = vec![];
+        let mut path: MerklePath<H> = vec![];
         path.reserve(self.nodes.len());
 
         let mut next_hash = leaf_hash;
 
-        for i in 0..self.nodes.len()-1 {
+        for i in 0..self.nodes.len() - 1 {
             let (left, right) = self.find_siblings(i, hash_index);
             if next_hash == left {
                 // this is the left hash
-                path.push(MerklePathPoint { order: MerklePathOrder::Left, hash: right.clone() } );
-            }
-            else {
+                path.push(MerklePathPoint {
+                    order: MerklePathOrder::Left,
+                    hash: right.clone(),
+                });
+            } else {
                 // this is the right hash
-                path.push(MerklePathPoint { order: MerklePathOrder::Right, hash: left.clone() } );
+                path.push(MerklePathPoint {
+                    order: MerklePathOrder::Right,
+                    hash: left.clone(),
+                });
             }
 
             next_hash = MerkleTree::get_node_hash(&left, &right);
-            hash_index = 
-                match self.find_hash_index(&next_hash, i+1) {
-                    None => {
-                        return None;
-                    },
-                    Some(hi) => {
-                        hi
-                    }
-                };
+            hash_index = match self.find_hash_index(&next_hash, i + 1) {
+                None => {
+                    return None;
+                }
+                Some(hi) => hi,
+            };
         }
 
         Some(path)
@@ -534,7 +586,7 @@ where
     /// Verify a datum and its Merkle path against a Merkle root
     pub fn path_verify(data: &Vec<u8>, path: &MerklePath<H>, root: &H) -> bool {
         if path.len() < 1 {
-            // invalid path 
+            // invalid path
             return false;
         }
 
@@ -543,7 +595,7 @@ where
             match path[i].order {
                 MerklePathOrder::Left => {
                     hash_acc = MerkleTree::get_node_hash(&hash_acc, &path[i].hash);
-                },
+                }
                 MerklePathOrder::Right => {
                     hash_acc = MerkleTree::get_node_hash(&path[i].hash, &hash_acc);
                 }
@@ -554,27 +606,30 @@ where
     }
 }
 
-
 // borrowed from Andrew Poelstra's rust-bitcoin library
 /// Convert a hexadecimal-encoded string to its corresponding bytes
 pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
     let mut v = vec![];
     let mut iter = s.chars().pair();
     // Do the parsing
-    iter.by_ref().fold(Ok(()), |e, (f, s)| 
-        if e.is_err() { e }
-        else {
+    iter.by_ref().fold(Ok(()), |e, (f, s)| {
+        if e.is_err() {
+            e
+        } else {
             match (f.to_digit(16), s.to_digit(16)) {
                 (None, _) => Err(HexError::BadCharacter(f)),
                 (_, None) => Err(HexError::BadCharacter(s)),
-                (Some(f), Some(s)) => { v.push((f * 0x10 + s) as u8); Ok(()) }
+                (Some(f), Some(s)) => {
+                    v.push((f * 0x10 + s) as u8);
+                    Ok(())
+                }
             }
         }
-    )?;
+    })?;
     // Check that there was no remainder
     match iter.remainder() {
         Some(_) => Err(HexError::BadLength(s.len())),
-        None => Ok(v)
+        None => Ok(v),
     }
 }
 
@@ -601,7 +656,6 @@ pub fn bin_bytes(s: &str) -> Result<Vec<u8>, HexError> {
     Ok(v)
 }
 
-
 /// Convert a slice of u8 to a hex string
 pub fn to_hex(s: &[u8]) -> String {
     let mut r = String::with_capacity(s.len() * 2);
@@ -627,17 +681,17 @@ pub fn bytes_to_hex(s: &Vec<u8>) -> String {
 
 #[cfg(test)]
 mod test {
-    use super::MerkleTree;
-    use super::MerklePath;
-    use super::DoubleSha256;
+    use super::bin_bytes;
     use super::hex_bytes;
     use super::to_bin;
-    use super::bin_bytes;
+    use super::DoubleSha256;
     use super::MerkleHashFunc;
+    use super::MerklePath;
+    use super::MerkleTree;
 
     struct MerkleTreeFixture {
         data: Vec<Vec<u8>>,
-        res: Option<MerkleTree<DoubleSha256>>
+        res: Option<MerkleTree<DoubleSha256>>,
     }
 
     #[test]
@@ -748,9 +802,8 @@ mod test {
                 let nodes = fixture.res.unwrap().nodes;
 
                 if nodes.len() > 0 {
-                    assert_eq!(tree.root(), nodes[nodes.len()-1][0]);
-                }
-                else {
+                    assert_eq!(tree.root(), nodes[nodes.len() - 1][0]);
+                } else {
                     assert_eq!(tree.root(), DoubleSha256::empty());
                 }
 
@@ -780,8 +833,14 @@ mod test {
         assert_eq!(bin_bytes("1111111111111111").unwrap(), vec![255, 255]);
 
         assert_eq!(to_bin(&[127, 0, 0, 1]), "01111111000000000000000000000001");
-        assert_eq!(bin_bytes("01111111000000000000000000000001").unwrap(), vec![127, 0, 0, 1]);
-        assert_eq!(bin_bytes("1111111000000000000000000000001").unwrap(), vec![127, 0, 0, 1]);
+        assert_eq!(
+            bin_bytes("01111111000000000000000000000001").unwrap(),
+            vec![127, 0, 0, 1]
+        );
+        assert_eq!(
+            bin_bytes("1111111000000000000000000000001").unwrap(),
+            vec![127, 0, 0, 1]
+        );
 
         assert_eq!(bin_bytes("").unwrap().len(), 0);
         assert!(bin_bytes("2").is_err());

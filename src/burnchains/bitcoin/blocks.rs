@@ -20,46 +20,38 @@
 use std::ops::Deref;
 
 use deps;
-use deps::bitcoin::blockdata::block::{LoneBlockHeader, Block};
-use deps::bitcoin::blockdata::transaction::Transaction;
+use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
 use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
-use deps::bitcoin::blockdata::script::{Script, Instruction};
+use deps::bitcoin::blockdata::script::{Instruction, Script};
+use deps::bitcoin::blockdata::transaction::Transaction;
 
-use deps::bitcoin::network::serialize::BitcoinHash;
 use deps::bitcoin::network::message as btc_message;
+use deps::bitcoin::network::serialize::BitcoinHash;
 
 use deps::bitcoin::util::hash::bitcoin_merkle_root;
 
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::PeerMessage;
-use burnchains::bitcoin::bits;
-use burnchains::bitcoin::BitcoinInputType;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::bits;
+use burnchains::bitcoin::indexer::BitcoinIndexer;
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+use burnchains::bitcoin::messages::BitcoinMessageHandler;
+use burnchains::bitcoin::BitcoinInputType;
 use burnchains::bitcoin::BitcoinNetworkType;
+use burnchains::bitcoin::Error as btc_error;
+use burnchains::bitcoin::PeerMessage;
 
-use burnchains::indexer::{BurnHeaderIPC, BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser};
+use burnchains::indexer::{
+    BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
+};
 
 use burnchains::Error as burnchain_error;
 
 use util::log;
 
-use burnchains::bitcoin::{
-    BitcoinTxInput,
-    BitcoinTxOutput,
-    BitcoinTransaction,
-    BitcoinBlock
-};
+use burnchains::bitcoin::{BitcoinBlock, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput};
 
 use burnchains::{
-    BurnchainBlock, 
-    BurnchainTransaction,
-    Txid,
-    BurnchainHeaderHash,
-    MagicBytes, 
-    MAGIC_BYTES_LENGTH
+    BurnchainBlock, BurnchainHeaderHash, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH,
 };
 
 use util::hash::to_hex;
@@ -67,7 +59,7 @@ use util::hash::to_hex;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinHeaderIPC {
     pub block_header: LoneBlockHeader,
-    pub block_height: u64
+    pub block_height: u64,
 }
 
 impl BurnHeaderIPC for BitcoinHeaderIPC {
@@ -80,12 +72,16 @@ impl BurnHeaderIPC for BitcoinHeaderIPC {
     fn height(&self) -> u64 {
         self.block_height
     }
+
+    fn header_hash(&self) -> [u8; 32] {
+        self.block_header.header.bitcoin_hash().0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinBlockIPC {
     pub header_data: BitcoinHeaderIPC,
-    pub block_message: PeerMessage
+    pub block_message: PeerMessage,
 }
 
 impl BurnBlockIPC for BitcoinBlockIPC {
@@ -108,12 +104,12 @@ impl BurnBlockIPC for BitcoinBlockIPC {
 pub struct BitcoinBlockDownloader {
     cur_request: Option<BitcoinHeaderIPC>,
     cur_block: Option<BitcoinBlockIPC>,
-    indexer: Option<BitcoinIndexer>
+    indexer: Option<BitcoinIndexer>,
 }
 
 pub struct BitcoinBlockParser {
     network_id: BitcoinNetworkType,
-    magic_bytes: MagicBytes
+    magic_bytes: MagicBytes,
 }
 
 impl BitcoinBlockDownloader {
@@ -121,22 +117,25 @@ impl BitcoinBlockDownloader {
         BitcoinBlockDownloader {
             cur_request: None,
             cur_block: None,
-            indexer: Some(indexer)
+            indexer: Some(indexer),
         }
     }
 
     pub fn run(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, btc_error> {
         self.cur_request = Some((*header).clone());
-        
+
         // should always work, since at most one thread can call this method at once
         // due to &mut self.
         let mut indexer = self.indexer.take().unwrap();
-        
-        indexer.peer_communicate(self, false)?; 
-        
+
+        indexer.peer_communicate(self, false)?;
+
         self.indexer = Some(indexer);
 
-        assert!(self.cur_block.is_some(), "BUG: should have received block on 'ok' condition");
+        assert!(
+            self.cur_block.is_some(),
+            "BUG: should have received block on 'ok' condition"
+        );
         let ipc_block = self.cur_block.take().unwrap();
         Ok(ipc_block)
     }
@@ -147,25 +146,23 @@ impl BurnchainBlockDownloader for BitcoinBlockDownloader {
     type B = BitcoinBlockIPC;
 
     fn download(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, burnchain_error> {
-        self.run(header)
-            .map_err(|e| {
-                match e {
-                    btc_error::TimedOut => burnchain_error::TrySyncAgain,
-                    x => burnchain_error::DownloadError(x)
-                }
-            })
+        self.run(header).map_err(|e| match e {
+            btc_error::TimedOut => burnchain_error::TrySyncAgain,
+            x => burnchain_error::DownloadError(x),
+        })
     }
 }
 
 impl BitcoinMessageHandler for BitcoinBlockDownloader {
-    /// Trait message handler 
+    /// Trait message handler
     /// initiate the conversation with the bitcoin peer
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error> {
         match self.cur_request {
             None => panic!("No block header set"),
             Some(ref ipc_header) => {
                 let block_hash = ipc_header.block_header.header.bitcoin_hash().clone();
-                indexer.send_getdata(&vec![block_hash])
+                indexer
+                    .send_getdata(&vec![block_hash])
                     .and_then(|_r| Ok(true))
             }
         }
@@ -173,7 +170,11 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
 
     /// Trait message handler
     /// Wait for a block to arrive that matches self.cur_request
-    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: PeerMessage) -> Result<bool, btc_error> {
+    fn handle_message(
+        &mut self,
+        indexer: &mut BitcoinIndexer,
+        msg: PeerMessage,
+    ) -> Result<bool, btc_error> {
         // send to our consumer thread for parsing
         if self.cur_block.is_some() {
             debug!("Already have a block");
@@ -196,13 +197,17 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
             btc_message::NetworkMessage::Block(ref block) => {
                 // make sure this block matches
                 if !BitcoinBlockParser::check_block(block, &ipc_header.block_header) {
-                    debug!("Requested block {}, got block {}", &to_hex(ipc_header.block_header.header.bitcoin_hash().as_bytes()), &to_hex(block.bitcoin_hash().as_bytes()));
-                    
-                    // try again 
+                    debug!(
+                        "Requested block {}, got block {}",
+                        &to_hex(ipc_header.block_header.header.bitcoin_hash().as_bytes()),
+                        &to_hex(block.bitcoin_hash().as_bytes())
+                    );
+
+                    // try again
                     indexer.send_getdata(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
                     return Ok(true);
                 }
-                
+
                 // clear timeout
                 indexer.runtime.last_getdata_send_time = 0;
 
@@ -210,18 +215,22 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
                 height = ipc_header.block_height;
                 header = self.cur_request.clone().unwrap();
                 block_hash = ipc_header.block_header.header.bitcoin_hash();
-            },
-            _ => { 
+            }
+            _ => {
                 return Err(btc_error::UnhandledMessage(msg.clone()));
             }
         }
 
-        debug!("Got block {}: {}", height, &to_hex(BurnchainHeaderHash::from_bitcoin_hash(&block_hash).as_bytes()));
+        debug!(
+            "Got block {}: {}",
+            height,
+            &to_hex(BurnchainHeaderHash::from_bitcoin_hash(&block_hash).as_bytes())
+        );
 
         // store response. we're done.
         let ipc_block = BitcoinBlockIPC {
             header_data: header,
-            block_message: msg
+            block_message: msg,
         };
 
         self.cur_block = Some(ipc_block);
@@ -234,21 +243,19 @@ impl BitcoinBlockParser {
     pub fn new(network_id: BitcoinNetworkType, magic_bytes: MagicBytes) -> BitcoinBlockParser {
         BitcoinBlockParser {
             network_id: network_id,
-            magic_bytes: magic_bytes.clone()
+            magic_bytes: magic_bytes.clone(),
         }
     }
-   
-    /// Verify that a block matches a header 
+
+    /// Verify that a block matches a header
     pub fn check_block(block: &Block, header: &LoneBlockHeader) -> bool {
         if header.header.bitcoin_hash() != block.bitcoin_hash() {
             return false;
         }
 
         // block transactions must match header merkle root
-        let tx_merkle_root = bitcoin_merkle_root(block.txdata
-                                                 .iter()
-                                                 .map(|ref tx| { tx.txid() })
-                                                 .collect());
+        let tx_merkle_root =
+            bitcoin_merkle_root(block.txdata.iter().map(|ref tx| tx.txid()).collect());
 
         if block.header.merkle_root != tx_merkle_root {
             return false;
@@ -257,7 +264,7 @@ impl BitcoinBlockParser {
         true
     }
 
-    /// Parse the data output to get a byte payload 
+    /// Parse the data output to get a byte payload
     fn parse_data(&self, data_output: &Script) -> Option<(u8, Vec<u8>)> {
         if !data_output.is_op_return() {
             test_debug!("Data output is not an OP_RETURN");
@@ -286,17 +293,16 @@ impl BitcoinBlockParser {
                     test_debug!("Data output does not start with magic bytes");
                     return None;
                 }
-                
+
                 let opcode = data[MAGIC_BYTES_LENGTH];
-                Some((opcode, data[MAGIC_BYTES_LENGTH+1..data.len()].to_vec()))
-            },
+                Some((opcode, data[MAGIC_BYTES_LENGTH + 1..data.len()].to_vec()))
+            }
             (_, _) => {
                 test_debug!("Data output is not OP_RETURN <data>");
                 None
             }
         }
     }
-
 
     /// Is this an acceptable transaction?  It must have
     /// * an OP_RETURN output at output 0
@@ -310,14 +316,17 @@ impl BitcoinBlockParser {
         for i in 1..tx.output.len() {
             if !tx.output[i].script_pubkey.is_p2pkh() && !tx.output[i].script_pubkey.is_p2sh() {
                 // unrecognized output type
-                test_debug!("Tx {:?} has unrecognized output type in output {}", tx.txid(), i);
+                test_debug!(
+                    "Tx {:?} has unrecognized output type in output {}",
+                    tx.txid(),
+                    i
+                );
                 return false;
             }
         }
 
         return true;
     }
-
 
     /// Parse a transaction's inputs into burnchain tx inputs.
     /// Succeeds only if we can parse each input.
@@ -356,7 +365,7 @@ impl BitcoinBlockParser {
         Some(ret)
     }
 
-    /// Parse a Bitcoin transaction into a Burnchain transaction 
+    /// Parse a Bitcoin transaction into a Burnchain transaction
     pub fn parse_tx(&self, tx: &Transaction, vtxindex: usize) -> Option<BitcoinTransaction> {
         if !self.maybe_burnchain_tx(tx) {
             test_debug!("Not a burnchain tx");
@@ -381,7 +390,7 @@ impl BitcoinBlockParser {
                     opcode: opcode,
                     data: data,
                     inputs: inputs,
-                    outputs: outputs
+                    outputs: outputs,
                 })
             }
             (_, _) => {
@@ -390,7 +399,7 @@ impl BitcoinBlockParser {
             }
         }
     }
-    
+
     /// Given a Bitcoin block, extract the transactions that have OP_RETURN <magic>.
     /// All outputs must also either be p2pkh or p2sh, and all inputs must encode
     /// eiher a p2pkh or multisig p2sh scriptsig.
@@ -413,7 +422,7 @@ impl BitcoinBlockParser {
             block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.bitcoin_hash()),
             parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
             txs: accepted_txs,
-            timestamp: block.header.time as u64
+            timestamp: block.header.time as u64,
         }
     }
 
@@ -422,14 +431,23 @@ impl BitcoinBlockParser {
     ///
     /// Return false if the block we got did not match the next expected block's header
     /// (in which case, we should re-start the conversation with the peer and try again).
-    pub fn process_block(&self, block: &Block, header: &LoneBlockHeader, height: u64) -> Option<BitcoinBlock> {
+    pub fn process_block(
+        &self,
+        block: &Block,
+        header: &LoneBlockHeader,
+        height: u64,
+    ) -> Option<BitcoinBlock> {
         // block header contents must match
         if !BitcoinBlockParser::check_block(block, header) {
-            error!("Expected block {} does not match received block {}", header.header.bitcoin_hash(), block.bitcoin_hash());
+            error!(
+                "Expected block {} does not match received block {}",
+                header.header.bitcoin_hash(),
+                block.bitcoin_hash()
+            );
             return None;
         }
 
-        // parse it 
+        // parse it
         let burn_block = self.parse_block(&block, height);
         Some(burn_block)
     }
@@ -440,14 +458,18 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
     fn parse(&mut self, ipc_block: &BitcoinBlockIPC) -> Result<BurnchainBlock, burnchain_error> {
         match ipc_block.block_message {
-            btc_message::NetworkMessage::Block(ref block) => { 
-                match self.process_block(&block, &ipc_block.header_data.block_header, ipc_block.header_data.block_height) {
+            btc_message::NetworkMessage::Block(ref block) => {
+                match self.process_block(
+                    &block,
+                    &ipc_block.header_data.block_header,
+                    ipc_block.header_data.block_height,
+                ) {
                     None => Err(burnchain_error::ParseError),
-                    Some(block_data) => Ok(BurnchainBlock::Bitcoin(block_data))
+                    Some(block_data) => Ok(BurnchainBlock::Bitcoin(block_data)),
                 }
-            },
+            }
             _ => {
-                panic!("Did not receive a Block message");      // should never happen 
+                panic!("Did not receive a Block message"); // should never happen
             }
         }
     }
@@ -455,88 +477,73 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
 #[cfg(test)]
 mod tests {
-    
+
     use super::BitcoinBlockParser;
     use util::hash::hex_bytes;
 
-    use deps::bitcoin::network::serialize::deserialize;
-    use deps::bitcoin::network::encodable::VarInt;
-    use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
+    use deps::bitcoin::blockdata::transaction::Transaction;
+    use deps::bitcoin::network::encodable::VarInt;
+    use deps::bitcoin::network::serialize::deserialize;
 
     use burnchains::bitcoin::{
-        BitcoinTxInput,
-        BitcoinTxOutput,
-        BitcoinTransaction,
-        BitcoinBlock,
-        BitcoinInputType
+        BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
     };
 
-    use burnchains::{
-        BurnchainBlock, 
-        BurnchainTransaction, 
-        Txid,
-        BurnchainHeaderHash,
-        MagicBytes, 
-    };
+    use burnchains::{BurnchainBlock, BurnchainHeaderHash, BurnchainTransaction, MagicBytes, Txid};
 
+    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
     use burnchains::bitcoin::BitcoinNetworkType;
 
     use util::log;
 
     struct TxFixture {
         txstr: String,
-        result: Option<BitcoinTransaction>
+        result: Option<BitcoinTransaction>,
     }
 
     struct TxParseFixture {
         txstr: String,
-        result: bool
+        result: bool,
     }
 
     struct BlockFixture {
         block: String,
         header: String,
         height: u64,
-        result: Option<BitcoinBlock>
+        result: Option<BitcoinBlock>,
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
-        let tx_bin = hex_bytes(hex_str)
-            .map_err(|_e| "failed to decode hex")?;
-        let tx = deserialize(&tx_bin.to_vec())
-            .map_err(|_e| "failed to deserialize")?;
+        let tx_bin = hex_bytes(hex_str).map_err(|_e| "failed to decode hex")?;
+        let tx = deserialize(&tx_bin.to_vec()).map_err(|_e| "failed to deserialize")?;
         Ok(tx)
     }
 
     fn make_block(hex_str: &str) -> Result<Block, &'static str> {
-        let block_bin = hex_bytes(hex_str)
-            .map_err(|_e| "failed to decode hex")?;
-        let block = deserialize(&block_bin.to_vec())
-            .map_err(|_e| "failed to deserialize block")?;
+        let block_bin = hex_bytes(hex_str).map_err(|_e| "failed to decode hex")?;
+        let block = deserialize(&block_bin.to_vec()).map_err(|_e| "failed to deserialize block")?;
         Ok(block)
     }
 
     fn make_block_header(hex_str: &str) -> Result<LoneBlockHeader, &'static str> {
-        let header_bin = hex_bytes(hex_str)
-            .map_err(|_e| "failed to decode hex")?;
-        let header = deserialize(&header_bin.to_vec())
-            .map_err(|_e| "failed to deserialize header")?;
+        let header_bin = hex_bytes(hex_str).map_err(|_e| "failed to decode hex")?;
+        let header =
+            deserialize(&header_bin.to_vec()).map_err(|_e| "failed to deserialize header")?;
         Ok(LoneBlockHeader {
             header: header,
-            tx_count: VarInt(0)
+            tx_count: VarInt(0),
         })
     }
-    
+
     fn to_txid(inp: &Vec<u8>) -> Txid {
         let mut ret = [0; 32];
         let bytes = &inp[..inp.len()];
         ret.copy_from_slice(bytes);
         Txid(ret)
     }
-    
+
     fn to_block_hash(inp: &Vec<u8>) -> BurnchainHeaderHash {
         let mut ret = [0; 32];
         let bytes = &inp[..inp.len()];
@@ -564,7 +571,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));   // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let res = parser.maybe_burnchain_tx(&tx);
@@ -721,7 +728,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));   // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize);
@@ -747,7 +754,7 @@ mod tests {
             // TODO: add more transactions with non-standard scripts that we don't care about
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));   // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
         for tx_fixture in tx_fixtures_strange {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize);
@@ -951,7 +958,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));   // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
         for block_fixture in block_fixtures {
             let block = make_block(&block_fixture.block).unwrap();
             let header = make_block_header(&block_fixture.header).unwrap();
@@ -962,4 +969,3 @@ mod tests {
         }
     }
 }
-

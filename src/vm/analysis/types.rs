@@ -1,18 +1,23 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use vm::{SymbolicExpression, ClarityName};
-use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier, TraitIdentifier};
-use vm::types::signatures::FunctionSignature;
-use vm::analysis::analysis_db::{AnalysisDatabase};
-use vm::analysis::errors::{CheckResult, CheckErrors};
-use vm::analysis::type_checker::contexts::TypeMap;
+use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::contract_interface_builder::ContractInterface;
+use vm::analysis::errors::{CheckErrors, CheckResult};
+use vm::analysis::type_checker::contexts::TypeMap;
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
+use vm::types::signatures::FunctionSignature;
+use vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use vm::{ClarityName, SymbolicExpression};
 
-const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
-const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
+const DESERIALIZE_FAIL_MESSAGE: &str =
+    "PANIC: Failed to deserialize bad database data in contract analysis.";
+const SERIALIZE_FAIL_MESSAGE: &str =
+    "PANIC: Failed to deserialize bad database data in contract analysis.";
 
 pub trait AnalysisPass {
-    fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()>;
+    fn run_pass(
+        contract_analysis: &mut ContractAnalysis,
+        analysis_db: &mut AnalysisDatabase,
+    ) -> CheckResult<()>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -27,18 +32,22 @@ pub struct ContractAnalysis {
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub implemented_traits: BTreeSet<TraitIdentifier>,    
+    pub implemented_traits: BTreeSet<TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
     #[serde(skip)]
     pub type_map: Option<TypeMap>,
     #[serde(skip)]
-    pub cost_track: Option<LimitedCostTracker>
+    pub cost_track: Option<LimitedCostTracker>,
 }
 
 impl ContractAnalysis {
-    pub fn new(contract_identifier: QualifiedContractIdentifier, expressions: Vec<SymbolicExpression>, cost_track: LimitedCostTracker) -> ContractAnalysis {
+    pub fn new(
+        contract_identifier: QualifiedContractIdentifier,
+        expressions: Vec<SymbolicExpression>,
+        cost_track: LimitedCostTracker,
+    ) -> ContractAnalysis {
         ContractAnalysis {
             contract_identifier,
             expressions,
@@ -54,12 +63,13 @@ impl ContractAnalysis {
             implemented_traits: BTreeSet::new(),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
-            cost_track: Some(cost_track)
+            cost_track: Some(cost_track),
         }
     }
 
     pub fn take_contract_cost_tracker(&mut self) -> LimitedCostTracker {
-        self.cost_track.take()
+        self.cost_track
+            .take()
             .expect("BUG: contract analysis attempted to take a cost tracker already claimed.")
     }
 
@@ -68,16 +78,26 @@ impl ContractAnalysis {
         self.cost_track.replace(cost_track);
     }
 
-    pub fn add_map_type(&mut self, name: ClarityName, key_type: TypeSignature, map_type: TypeSignature) {
+    pub fn add_map_type(
+        &mut self,
+        name: ClarityName,
+        key_type: TypeSignature,
+        map_type: TypeSignature,
+    ) {
         self.map_types.insert(name, (key_type, map_type));
     }
-    
+
     pub fn add_variable_type(&mut self, name: ClarityName, variable_type: TypeSignature) {
         self.variable_types.insert(name, variable_type);
     }
-    
-    pub fn add_persisted_variable_type(&mut self, name: ClarityName, persisted_variable_type: TypeSignature) {
-        self.persisted_variable_types.insert(name, persisted_variable_type);
+
+    pub fn add_persisted_variable_type(
+        &mut self,
+        name: ClarityName,
+        persisted_variable_type: TypeSignature,
+    ) {
+        self.persisted_variable_types
+            .insert(name, persisted_variable_type);
     }
 
     pub fn add_read_only_function(&mut self, name: ClarityName, function_type: FunctionType) {
@@ -100,7 +120,11 @@ impl ContractAnalysis {
         self.fungible_tokens.insert(name);
     }
 
-    pub fn add_defined_trait(&mut self, name: ClarityName, function_types: BTreeMap<ClarityName, FunctionSignature>) {
+    pub fn add_defined_trait(
+        &mut self,
+        name: ClarityName,
+        function_types: BTreeMap<ClarityName, FunctionSignature>,
+    ) {
         self.defined_traits.insert(name, function_types);
     }
 
@@ -132,29 +156,50 @@ impl ContractAnalysis {
         self.persisted_variable_types.get(name)
     }
 
-    pub fn get_defined_trait(&self, name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+    pub fn get_defined_trait(
+        &self,
+        name: &str,
+    ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
         self.defined_traits.get(name)
     }
 
-    pub fn check_trait_compliance(&self, trait_identifier: &TraitIdentifier, trait_definition: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
-
-        let trait_name = trait_identifier.name.to_string(); 
+    pub fn check_trait_compliance(
+        &self,
+        trait_identifier: &TraitIdentifier,
+        trait_definition: &BTreeMap<ClarityName, FunctionSignature>,
+    ) -> CheckResult<()> {
+        let trait_name = trait_identifier.name.to_string();
 
         for (func_name, expected_sig) in trait_definition.iter() {
-            match (self.get_public_function_type(func_name), self.get_read_only_function_type(func_name)) {
-                (Some(FunctionType::Fixed(func)), None) | (None, Some(FunctionType::Fixed(func))) => {
-
+            match (
+                self.get_public_function_type(func_name),
+                self.get_read_only_function_type(func_name),
+            ) {
+                (Some(FunctionType::Fixed(func)), None)
+                | (None, Some(FunctionType::Fixed(func))) => {
                     let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
                     if !expected_sig.check_args_trait_compliance(args_sig) {
-                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), func_name.to_string()).into())
+                        return Err(CheckErrors::BadTraitImplementation(
+                            trait_name.clone(),
+                            func_name.to_string(),
+                        )
+                        .into());
                     }
-            
+
                     if !expected_sig.returns.admits_type(&func.returns) {
-                        return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
+                        return Err(CheckErrors::BadTraitImplementation(
+                            trait_name,
+                            func_name.to_string(),
+                        )
+                        .into());
                     }
                 }
                 (_, _) => {
-                    return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
+                    return Err(CheckErrors::BadTraitImplementation(
+                        trait_name,
+                        func_name.to_string(),
+                    )
+                    .into())
                 }
             }
         }

@@ -1,59 +1,54 @@
-use std::{
-    fs, io
+use rusqlite::{
+    types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
 };
 use serde_json;
-use rusqlite::{
-    Connection, Transaction, types::ToSql, NO_PARAMS,
-    OptionalExtension, Row, OpenFlags
-};
+use std::{fs, io};
 
 use burnchains::{
-    Burnchain,
-    BurnchainBlock,
-    BurnchainBlockHeader,
-    BurnchainHeaderHash,
-    Error as BurnchainError
+    Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError,
 };
 
-use chainstate::burn::operations::{
-    BlockstackOperationType
-};
+use chainstate::burn::operations::BlockstackOperationType;
 
-use chainstate::stacks::index::{
-    MarfTrieId
-};
+use chainstate::stacks::index::MarfTrieId;
 
 use util::db::{
-    u64_to_sql, query_row, query_rows,
-    FromRow, FromColumn, Error as DBError
+    query_row, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql, Error as DBError,
+    FromColumn, FromRow,
 };
 
 pub struct BurnchainDB {
-    conn: Connection
+    conn: Connection,
 }
 
 struct BurnchainDBTransaction<'a> {
-    sql_tx: Transaction<'a>
+    sql_tx: Transaction<'a>,
 }
 
 pub struct BurnchainBlockData {
     pub header: BurnchainBlockHeader,
-    pub ops: Vec<BlockstackOperationType>
+    pub ops: Vec<BlockstackOperationType>,
 }
-
 
 /// Apply safety checks on extracted blockstack transactions
 /// - put them in order by vtxindex
 /// - make sure there are no vtxindex duplicates
-fn apply_blockstack_txs_safety_checks(block_height: u64, blockstack_txs: &mut Vec<BlockstackOperationType>) -> () {
+fn apply_blockstack_txs_safety_checks(
+    block_height: u64,
+    blockstack_txs: &mut Vec<BlockstackOperationType>,
+) -> () {
     // safety -- make sure these are in order
     blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
     // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
     if blockstack_txs.len() > 1 {
         for i in 0..blockstack_txs.len() - 1 {
-            if blockstack_txs[i].vtxindex() == blockstack_txs[i+1].vtxindex() {
-                panic!("FATAL: BUG: duplicate vtxindex {} in block {}", blockstack_txs[i].vtxindex(), blockstack_txs[i].block_height());
+            if blockstack_txs[i].vtxindex() == blockstack_txs[i + 1].vtxindex() {
+                panic!(
+                    "FATAL: BUG: duplicate vtxindex {} in block {}",
+                    blockstack_txs[i].vtxindex(),
+                    blockstack_txs[i].block_height()
+                );
             }
         }
     }
@@ -61,7 +56,11 @@ fn apply_blockstack_txs_safety_checks(block_height: u64, blockstack_txs: &mut Ve
     // safety -- block heights all match
     for tx in blockstack_txs.iter() {
         if tx.block_height() != block_height {
-            panic!("FATAL: BUG: block height mismatch: {} != {}", tx.block_height(), block_height);
+            panic!(
+                "FATAL: BUG: block height mismatch: {} != {}",
+                tx.block_height(),
+                block_height
+            );
         }
     }
 }
@@ -75,7 +74,11 @@ impl FromRow<BurnchainBlockHeader> for BurnchainBlockHeader {
         let parent_block_hash = BurnchainHeaderHash::from_column(row, "parent_block_hash")?;
 
         Ok(BurnchainBlockHeader {
-            block_height, block_hash, timestamp, num_txs, parent_block_hash
+            block_height,
+            block_hash,
+            timestamp,
+            num_txs,
+            parent_block_hash,
         })
     }
 }
@@ -109,50 +112,62 @@ CREATE TABLE burnchain_db_block_ops (
 );
 ";
 
-impl <'a> BurnchainDBTransaction <'a> {
-    fn store_burnchain_db_entry(&self, header: &BurnchainBlockHeader) -> Result<i64, BurnchainError> {
+impl<'a> BurnchainDBTransaction<'a> {
+    fn store_burnchain_db_entry(
+        &self,
+        header: &BurnchainBlockHeader,
+    ) -> Result<i64, BurnchainError> {
         let sql = "INSERT INTO burnchain_db_block_headers
                    (block_height, block_hash, parent_block_hash, num_txs, timestamp)
                    VALUES (?, ?, ?, ?, ?)";
-        let args: &[&dyn ToSql] = &[ &u64_to_sql(header.block_height)?,
-                                     &header.block_hash,
-                                     &header.parent_block_hash,
-                                     &u64_to_sql(header.num_txs)?,
-                                     &u64_to_sql(header.timestamp)? ];
+        let args: &[&dyn ToSql] = &[
+            &u64_to_sql(header.block_height)?,
+            &header.block_hash,
+            &header.parent_block_hash,
+            &u64_to_sql(header.num_txs)?,
+            &u64_to_sql(header.timestamp)?,
+        ];
         match self.sql_tx.execute(sql, args) {
             Ok(_) => Ok(self.sql_tx.last_insert_rowid()),
-            Err(e) => Err(BurnchainError::from(e))
+            Err(e) => Err(BurnchainError::from(e)),
         }
     }
 
-    fn store_blockstack_ops(&self, block_hash: &BurnchainHeaderHash, block_ops: &[BlockstackOperationType]) -> Result<(), BurnchainError> {
+    fn store_blockstack_ops(
+        &self,
+        block_hash: &BurnchainHeaderHash,
+        block_ops: &[BlockstackOperationType],
+    ) -> Result<(), BurnchainError> {
         let sql = "INSERT INTO burnchain_db_block_ops
                    (block_hash, op) VALUES (?, ?)";
         let mut stmt = self.sql_tx.prepare(sql)?;
         for op in block_ops.iter() {
-            let serialized_op = serde_json::to_string(op)
-                .expect("Failed to serialize parsed BlockstackOp");
-            let args: &[&dyn ToSql] = &[block_hash,
-                                        &serialized_op];
+            let serialized_op =
+                serde_json::to_string(op).expect("Failed to serialize parsed BlockstackOp");
+            let args: &[&dyn ToSql] = &[block_hash, &serialized_op];
             stmt.execute(args)?;
         }
         Ok(())
     }
 
     fn commit(self) -> Result<(), BurnchainError> {
-        self.sql_tx.commit()
-            .map_err(BurnchainError::from)
+        self.sql_tx.commit().map_err(BurnchainError::from)
     }
 }
 
 impl BurnchainDB {
-    pub fn connect(path: &str, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash,
-                   first_burn_header_timestamp: u64, readwrite: bool) -> Result<BurnchainDB, BurnchainError> {
+    pub fn connect(
+        path: &str,
+        first_block_height: u64,
+        first_burn_header_hash: &BurnchainHeaderHash,
+        first_burn_header_timestamp: u64,
+        readwrite: bool,
+    ) -> Result<BurnchainDB, BurnchainError> {
         let mut create_flag = false;
         let open_flags = match fs::metadata(path) {
             Err(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
-                    // need to create 
+                    // need to create
                     if readwrite {
                         create_flag = true;
                         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -162,22 +177,23 @@ impl BurnchainDB {
                 } else {
                     return Err(BurnchainError::from(DBError::IOError(e)));
                 }
-            },
+            }
             Ok(_md) => {
-                // can just open 
+                // can just open
                 if readwrite {
                     OpenFlags::SQLITE_OPEN_READ_WRITE
-                }
-                else {
+                } else {
                     OpenFlags::SQLITE_OPEN_READ_ONLY
                 }
             }
         };
 
-        let mut db = BurnchainDB {
-            conn: Connection::open_with_flags(path, open_flags)
-                .expect(&format!("FAILED to open: {}", path))
-        };
+        let conn = Connection::open_with_flags(path, open_flags)
+            .expect(&format!("FAILED to open: {}", path));
+
+        conn.busy_handler(Some(tx_busy_handler))?;
+
+        let mut db = BurnchainDB { conn };
 
         if create_flag {
             let db_tx = db.tx_begin()?;
@@ -188,9 +204,8 @@ impl BurnchainDB {
                 block_hash: first_burn_header_hash.clone(),
                 timestamp: first_burn_header_timestamp,
                 num_txs: 0,
-                parent_block_hash: BurnchainHeaderHash::sentinel()
+                parent_block_hash: BurnchainHeaderHash::sentinel(),
             };
-
 
             db_tx.store_burnchain_db_entry(&first_block_header)?;
             db_tx.commit()?;
@@ -206,12 +221,14 @@ impl BurnchainDB {
             OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = Connection::open_with_flags(path, open_flags)?;
+        conn.busy_handler(Some(tx_busy_handler))?;
 
         Ok(BurnchainDB { conn })
     }
 
     fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
-        Ok(BurnchainDBTransaction { sql_tx: self.conn.transaction()? })
+        let sql_tx = tx_begin_immediate(&mut self.conn)?;
+        Ok(BurnchainDBTransaction { sql_tx: sql_tx })
     }
 
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
@@ -220,8 +237,12 @@ impl BurnchainDB {
         Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
-    pub fn get_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<BurnchainBlockData, BurnchainError> {
-        let block_header_qry = "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
+    pub fn get_burnchain_block(
+        &self,
+        block: &BurnchainHeaderHash,
+    ) -> Result<BurnchainBlockData, BurnchainError> {
+        let block_header_qry =
+            "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
         let block_ops_qry = "SELECT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
         let block_header = query_row(&self.conn, block_header_qry, &[block])?
@@ -230,17 +251,32 @@ impl BurnchainDB {
 
         Ok(BurnchainBlockData {
             header: block_header,
-            ops: block_ops })
+            ops: block_ops,
+        })
     }
 
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
     /// Return the ordered list of blockstack operations by vtxindex
-    fn get_blockstack_transactions(block: &BurnchainBlock, block_header: &BurnchainBlockHeader) -> Vec<BlockstackOperationType> {
-        debug!("Extract Blockstack transactions from block {} {}", block.block_height(), &block.block_hash());
-        block.txs().iter().filter_map(|tx| Burnchain::classify_transaction(block_header, &tx)).collect()
+    fn get_blockstack_transactions(
+        block: &BurnchainBlock,
+        block_header: &BurnchainBlockHeader,
+    ) -> Vec<BlockstackOperationType> {
+        debug!(
+            "Extract Blockstack transactions from block {} {}",
+            block.block_height(),
+            &block.block_hash()
+        );
+        block
+            .txs()
+            .iter()
+            .filter_map(|tx| Burnchain::classify_transaction(block_header, &tx))
+            .collect()
     }
 
-    pub fn store_new_burnchain_block(&mut self, block: &BurnchainBlock) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
+    pub fn store_new_burnchain_block(
+        &mut self,
+        block: &BurnchainBlock,
+    ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
         let mut blockstack_ops = BurnchainDB::get_blockstack_transactions(block, &header);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
@@ -256,7 +292,11 @@ impl BurnchainDB {
     }
 
     #[cfg(test)]
-    pub fn raw_store_burnchain_block(&mut self, header: BurnchainBlockHeader, mut blockstack_ops: Vec<BlockstackOperationType>) -> Result<(), BurnchainError> {
+    pub fn raw_store_burnchain_block(
+        &mut self,
+        header: BurnchainBlockHeader,
+        mut blockstack_ops: Vec<BlockstackOperationType>,
+    ) -> Result<(), BurnchainError> {
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         let db_tx = self.tx_begin()?;
@@ -270,18 +310,17 @@ impl BurnchainDB {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burnchains::bitcoin::*;
     use burnchains::bitcoin::blocks::*;
-    use chainstate::burn::operations;
+    use burnchains::bitcoin::*;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
-    use util::hash::{hex_bytes, to_hex};
-    use deps::bitcoin::network::serialize::deserialize;
+    use chainstate::burn::operations;
     use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
+    use deps::bitcoin::network::serialize::deserialize;
     use std::convert::TryInto;
+    use util::hash::{hex_bytes, to_hex};
 
     fn make_tx(hex_str: &str) -> BtcTx {
         let tx_bin = hex_bytes(hex_str).unwrap();
@@ -294,28 +333,42 @@ mod tests {
         let first_timestamp = 321;
         let first_height = 1;
 
-        let mut burnchain_db = BurnchainDB::connect(":memory:", first_height, &first_bhh, first_timestamp, true).unwrap();
+        let mut burnchain_db =
+            BurnchainDB::connect(":memory:", first_height, &first_bhh, first_timestamp, true)
+                .unwrap();
 
         let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&first_block_header.block_hash, &first_bhh);
         assert_eq!(&first_block_header.block_height, &first_height);
         assert_eq!(&first_block_header.timestamp, &first_timestamp);
-        assert_eq!(&first_block_header.parent_block_hash, &BurnchainHeaderHash::sentinel());
+        assert_eq!(
+            &first_block_header.parent_block_hash,
+            &BurnchainHeaderHash::sentinel()
+        );
 
         let canon_hash = BurnchainHeaderHash([1; 32]);
 
-        let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, &vec![], 485));
-        let ops = burnchain_db.store_new_burnchain_block(&canonical_block).unwrap();
+        let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            500,
+            &canon_hash,
+            &first_bhh,
+            &vec![],
+            485,
+        ));
+        let ops = burnchain_db
+            .store_new_burnchain_block(&canonical_block)
+            .unwrap();
         assert_eq!(ops.len(), 0);
-
 
         let vtxindex = 1;
         let noncanon_block_height = 400;
         let non_canon_hash = BurnchainHeaderHash([2; 32]);
 
         let fixtures = operations::leader_key_register::tests::get_test_fixtures(
-            vtxindex, noncanon_block_height, non_canon_hash);
-
+            vtxindex,
+            noncanon_block_height,
+            non_canon_hash,
+        );
 
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
         let mut broadcast_ops = vec![];
@@ -332,15 +385,23 @@ mod tests {
             broadcast_ops.push(burnchain_tx);
         }
 
-        let non_canonical_block = BurnchainBlock::Bitcoin(
-            BitcoinBlock::new(400, &non_canon_hash, &first_bhh, &broadcast_ops, 350));
+        let non_canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            400,
+            &non_canon_hash,
+            &first_bhh,
+            &broadcast_ops,
+            350,
+        ));
 
-        let ops = burnchain_db.store_new_burnchain_block(&non_canonical_block).unwrap();
+        let ops = burnchain_db
+            .store_new_burnchain_block(&non_canonical_block)
+            .unwrap();
         assert_eq!(ops.len(), expected_ops.len());
         for op in ops.iter() {
-            let expected_op = expected_ops.iter().find(|candidate| {
-                candidate.txid == op.txid()
-            }).expect("FAILED to find parsed op in expected ops");
+            let expected_op = expected_ops
+                .iter()
+                .find(|candidate| candidate.txid == op.txid())
+                .expect("FAILED to find parsed op in expected ops");
             if let BlockstackOperationType::LeaderKeyRegister(op) = op {
                 assert_eq!(op, expected_op);
             } else {
@@ -348,12 +409,14 @@ mod tests {
             }
         }
 
-        let BurnchainBlockData { header, ops } = burnchain_db.get_burnchain_block(&non_canon_hash).unwrap();
+        let BurnchainBlockData { header, ops } =
+            burnchain_db.get_burnchain_block(&non_canon_hash).unwrap();
         assert_eq!(ops.len(), expected_ops.len());
         for op in ops.iter() {
-            let expected_op = expected_ops.iter().find(|candidate| {
-                candidate.txid == op.txid()
-            }).expect("FAILED to find parsed op in expected ops");
+            let expected_op = expected_ops
+                .iter()
+                .find(|candidate| candidate.txid == op.txid())
+                .expect("FAILED to find parsed op in expected ops");
             if let BlockstackOperationType::LeaderKeyRegister(op) = op {
                 assert_eq!(op, expected_op);
             } else {
@@ -365,7 +428,8 @@ mod tests {
         let looked_up_canon = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&looked_up_canon, &canonical_block.header());
 
-        let BurnchainBlockData { header, ops } = burnchain_db.get_burnchain_block(&canon_hash).unwrap();
+        let BurnchainBlockData { header, ops } =
+            burnchain_db.get_burnchain_block(&canon_hash).unwrap();
         assert_eq!(ops.len(), 0);
         assert_eq!(&header, &looked_up_canon);
     }

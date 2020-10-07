@@ -1,34 +1,41 @@
+extern crate libc;
 extern crate rand;
 extern crate serde;
-extern crate libc;
 
-#[macro_use] extern crate lazy_static;
-#[macro_use] extern crate serde_derive;
-#[macro_use] extern crate serde_json;
-#[macro_use] extern crate stacks;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate serde_derive;
+#[macro_use]
+extern crate serde_json;
+#[macro_use]
+extern crate stacks;
 
 pub use stacks::util;
 
 pub mod monitoring;
 
-pub mod run_loop; 
-pub mod keychain;
-pub mod node;
-pub mod tenure;
+pub mod burnchains;
 pub mod config;
 pub mod event_dispatcher;
-pub mod operations;
-pub mod burnchains;
+pub mod keychain;
 pub mod neon_node;
+pub mod node;
+pub mod operations;
+pub mod run_loop;
+pub mod syncctl;
+pub mod tenure;
 
-pub use self::keychain::{Keychain};
-pub use self::node::{Node, ChainTip};
-pub use self::neon_node::{InitializedNeonNode, NeonGenesisNode};
-pub use self::burnchains::{MocknetController, BitcoinRegtestController, BurnchainTip, BurnchainController};
-pub use self::tenure::{Tenure};
+pub use self::burnchains::{
+    BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
+};
 pub use self::config::{Config, ConfigFile};
-pub use self::event_dispatcher::{EventDispatcher};
-pub use self::run_loop::{neon, helium};
+pub use self::event_dispatcher::EventDispatcher;
+pub use self::keychain::Keychain;
+pub use self::neon_node::{InitializedNeonNode, NeonGenesisNode};
+pub use self::node::{ChainTip, Node};
+pub use self::run_loop::{helium, neon};
+pub use self::tenure::Tenure;
 
 use pico_args::Arguments;
 use std::env;
@@ -40,7 +47,6 @@ use std::process;
 use backtrace::Backtrace;
 
 fn main() {
-
     panic::set_hook(Box::new(|_| {
         eprintln!("Process abort due to thread panic");
         let bt = Backtrace::new();
@@ -98,14 +104,18 @@ fn main() {
             ConfigFile::from_path(&config_path)
         }
         "version" => {
-            println!("{}", &stacks::version_string(
-                option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
-                option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")));
+            println!(
+                "{}",
+                &stacks::version_string(
+                    option_env!("CARGO_PKG_NAME").unwrap_or("stacks-node"),
+                    option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")
+                )
+            );
             return;
         }
         _ => {
             print_help();
-            return
+            return;
         }
     };
 
@@ -115,16 +125,19 @@ fn main() {
     debug!("connection configuration {:?}", &conf.connection_options);
     debug!("block_limit {:?}", &conf.block_limit);
 
-
     let num_round: u64 = 0; // Infinite number of rounds
 
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         if let Err(e) = run_loop.start(num_round) {
             warn!("Helium runloop exited: {}", e);
-            return
+            return;
         }
-    } else if conf.burnchain.mode == "neon" || conf.burnchain.mode == "argon" || conf.burnchain.mode == "krypton" || conf.burnchain.mode == "xenon" {
+    } else if conf.burnchain.mode == "neon"
+        || conf.burnchain.mode == "argon"
+        || conf.burnchain.mode == "krypton"
+        || conf.burnchain.mode == "xenon"
+    {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round);
     } else {

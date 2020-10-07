@@ -2,16 +2,17 @@ use std::collections::HashMap;
 
 use super::operations::BurnchainOpSigner;
 
-use stacks::chainstate::stacks::{StacksTransactionSigner, TransactionAuth, StacksPublicKey, StacksPrivateKey, StacksAddress};
 use stacks::address::AddressHashMode;
 use stacks::burnchains::{BurnchainSigner, PrivateKey};
-use stacks::util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
-use stacks::util::hash::{Sha256Sum};
-
+use stacks::chainstate::stacks::{
+    StacksAddress, StacksPrivateKey, StacksPublicKey, StacksTransactionSigner, TransactionAuth,
+};
+use stacks::util::hash::Sha256Sum;
+use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 #[derive(Clone)]
 pub struct Keychain {
-    secret_keys: Vec<StacksPrivateKey>, 
+    secret_keys: Vec<StacksPrivateKey>,
     threshold: u16,
     hash_mode: AddressHashMode,
     pub hashed_secret_state: Sha256Sum,
@@ -22,14 +23,19 @@ pub struct Keychain {
 }
 
 impl Keychain {
-
-    pub fn new(secret_keys: Vec<StacksPrivateKey>, threshold: u16, hash_mode: AddressHashMode) -> Keychain {
+    pub fn new(
+        secret_keys: Vec<StacksPrivateKey>,
+        threshold: u16,
+        hash_mode: AddressHashMode,
+    ) -> Keychain {
         // Compute hashed secret state
         let hashed_secret_state = {
-            let mut buf : Vec<u8> = secret_keys.iter()
-                .flat_map(|sk| sk.to_bytes())
-                .collect();
-            buf.extend_from_slice(&[(threshold >> 8) as u8, (threshold & 0xff) as u8, hash_mode as u8]);
+            let mut buf: Vec<u8> = secret_keys.iter().flat_map(|sk| sk.to_bytes()).collect();
+            buf.extend_from_slice(&[
+                (threshold >> 8) as u8,
+                (threshold & 0xff) as u8,
+                hash_mode as u8,
+            ]);
             Sha256Sum::from_data(&buf[..])
         };
 
@@ -46,12 +52,15 @@ impl Keychain {
     }
 
     pub fn default(seed: Vec<u8>) -> Keychain {
-
         let mut re_hashed_seed = seed;
         let secret_key = loop {
             match StacksPrivateKey::from_slice(&re_hashed_seed[..]) {
                 Ok(sk) => break sk,
-                Err(_) => re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..]).as_bytes().to_vec()
+                Err(_) => {
+                    re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
+                        .as_bytes()
+                        .to_vec()
+                }
             }
         };
 
@@ -60,9 +69,11 @@ impl Keychain {
 
         Keychain::new(vec![secret_key], threshold, hash_mode)
     }
-    
+
     pub fn rotate_vrf_keypair(&mut self, block_height: u64) -> VRFPublicKey {
-        self.rotations = self.rotations.checked_add(1)
+        self.rotations = self
+            .rotations
+            .checked_add(1)
             .expect("Exhausted VRF keypairs"); // this would require quite the hash power...
         let mut seed = {
             let mut secret_state = self.hashed_secret_state.to_bytes().to_vec();
@@ -70,15 +81,15 @@ impl Keychain {
             secret_state.extend_from_slice(&block_height.to_be_bytes());
             Sha256Sum::from_data(&secret_state)
         };
-        
+
         // Not every 256-bit number is a valid Ed25519 secret key.
         // As such, we continuously generate seeds through re-hashing until one works.
         let sk = loop {
             match VRFPrivateKey::from_bytes(seed.as_bytes()) {
                 Some(sk) => break sk,
-                None => seed = Sha256Sum::from_data(seed.as_bytes())
+                None => seed = Sha256Sum::from_data(seed.as_bytes()),
             }
-        };        
+        };
         let pk = VRFPublicKey::from_private(&sk);
 
         self.vrf_secret_keys.push(sk.clone());
@@ -91,7 +102,7 @@ impl Keychain {
             // First key is the hash of the secret state
             None => self.hashed_secret_state,
             // Next key is the hash of the last
-            Some(last_sk) => Sha256Sum::from_data(&last_sk.to_bytes()[..]),  
+            Some(last_sk) => Sha256Sum::from_data(&last_sk.to_bytes()[..]),
         };
 
         // Not every 256-bit number is a valid secp256k1 secret key.
@@ -99,7 +110,7 @@ impl Keychain {
         let mut sk = loop {
             match StacksPrivateKey::from_slice(&seed.to_bytes()[..]) {
                 Ok(sk) => break sk,
-                Err(_) => seed = Sha256Sum::from_data(seed.as_bytes())
+                Err(_) => seed = Sha256Sum::from_data(seed.as_bytes()),
             }
         };
         sk.set_compress_public(true);
@@ -114,7 +125,7 @@ impl Keychain {
 
     pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) -> () {
         let num_keys = if self.secret_keys.len() < self.threshold as usize {
-            self.secret_keys.len() 
+            self.secret_keys.len()
         } else {
             self.threshold as usize
         };
@@ -129,7 +140,10 @@ impl Keychain {
         // Retrieve the corresponding VRF secret key
         let vrf_sk = match self.vrf_map.get(vrf_pk) {
             Some(vrf_pk) => vrf_pk,
-            None => return None
+            None => {
+                warn!("No VRF secret key on file for {:?}", vrf_pk);
+                return None;
+            }
         };
 
         // Generate the proof
@@ -137,7 +151,7 @@ impl Keychain {
         // Ensure that the proof is valid by verifying
         let is_valid = match VRF::verify(vrf_pk, &proof, &bytes.to_vec()) {
             Ok(v) => v,
-            Err(_) => false
+            Err(_) => false,
         };
         assert!(is_valid);
         Some(proof)
@@ -146,12 +160,18 @@ impl Keychain {
     /// Given the keychain's secret keys, computes and returns the corresponding Stack address.
     /// Note: Testnet bit is hardcoded.
     pub fn get_address(&self) -> StacksAddress {
-        let public_keys = self.secret_keys.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
+        let public_keys = self
+            .secret_keys
+            .iter()
+            .map(|ref pk| StacksPublicKey::from_private(pk))
+            .collect();
         StacksAddress::from_public_keys(
             self.hash_mode.to_version_testnet(),
-            &self.hash_mode, 
-            self.threshold as usize, 
-            &public_keys).unwrap()
+            &self.hash_mode,
+            self.threshold as usize,
+            &public_keys,
+        )
+        .unwrap()
     }
 
     pub fn address_from_burnchain_signer(signer: &BurnchainSigner) -> StacksAddress {
@@ -159,24 +179,34 @@ impl Keychain {
             signer.hash_mode.to_version_testnet(),
             &signer.hash_mode,
             signer.num_sigs,
-            &signer.public_keys).unwrap()
+            &signer.public_keys,
+        )
+        .unwrap()
     }
 
     pub fn get_burnchain_signer(&self) -> BurnchainSigner {
-        let public_keys = self.secret_keys.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
+        let public_keys = self
+            .secret_keys
+            .iter()
+            .map(|ref pk| StacksPublicKey::from_private(pk))
+            .collect();
         BurnchainSigner {
             hash_mode: self.hash_mode,
             num_sigs: self.threshold as usize,
-            public_keys
+            public_keys,
         }
     }
 
     pub fn get_transaction_auth(&self) -> Option<TransactionAuth> {
         match self.hash_mode {
             AddressHashMode::SerializeP2PKH => TransactionAuth::from_p2pkh(&self.secret_keys[0]),
-            AddressHashMode::SerializeP2SH => TransactionAuth::from_p2sh(&self.secret_keys, self.threshold),
+            AddressHashMode::SerializeP2SH => {
+                TransactionAuth::from_p2sh(&self.secret_keys, self.threshold)
+            }
             AddressHashMode::SerializeP2WPKH => TransactionAuth::from_p2wpkh(&self.secret_keys[0]),
-            AddressHashMode::SerializeP2WSH => TransactionAuth::from_p2wsh(&self.secret_keys, self.threshold),
+            AddressHashMode::SerializeP2WSH => {
+                TransactionAuth::from_p2wsh(&self.secret_keys, self.threshold)
+            }
         }
     }
 
@@ -184,7 +214,7 @@ impl Keychain {
         match self.get_transaction_auth() {
             // Note: testnet hard-coded
             Some(auth) => Some(auth.origin().address_testnet()),
-            None => None
+            None => None,
         }
     }
 

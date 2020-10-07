@@ -1,16 +1,12 @@
 use super::StacksAddress;
-use chainstate::stacks::StacksTransaction;
 use burnchains::Txid;
+use chainstate::stacks::StacksTransaction;
 use net::StacksMessageCodec;
-use vm::types::{
-    Value,
-    PrincipalData,
-    StandardPrincipalData,
-    QualifiedContractIdentifier,
-    AssetIdentifier
-};
-use vm::costs::ExecutionCost;
 use vm::analysis::ContractAnalysis;
+use vm::costs::ExecutionCost;
+use vm::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksTransactionReceipt {
@@ -20,7 +16,7 @@ pub struct StacksTransactionReceipt {
     pub result: Value,
     pub stx_burned: u128,
     pub contract_analysis: Option<ContractAnalysis>,
-    pub execution_cost: ExecutionCost
+    pub execution_cost: ExecutionCost,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,7 +93,7 @@ pub enum STXEventType {
     STXTransferEvent(STXTransferEventData),
     STXMintEvent(STXMintEventData),
     STXBurnEvent(STXBurnEventData),
-    STXLockEvent(STXLockEventData)
+    STXLockEvent(STXLockEventData),
 }
 
 #[derive(Debug, Clone, PartialEq)]

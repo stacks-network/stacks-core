@@ -1,17 +1,12 @@
-use std::{
-    thread, process
-};
-use std::time::{
-    Duration, Instant
-};
 use std::sync::{
-    Arc, RwLock,
-    Condvar, Mutex,
-    atomic::{Ordering, AtomicU64}
+    atomic::{AtomicU64, Ordering},
+    Arc, Condvar, Mutex, RwLock,
 };
+use std::time::{Duration, Instant};
+use std::{process, thread};
 
 /// Trait for use by the ChainsCoordinator
-/// 
+///
 pub trait CoordinatorNotices {
     fn notify_stacks_block_processed(&mut self);
     fn notify_sortition_processed(&mut self);
@@ -19,7 +14,7 @@ pub trait CoordinatorNotices {
 
 pub struct ArcCounterCoordinatorNotices {
     pub stacks_blocks_processed: Arc<AtomicU64>,
-    pub sortitions_processed: Arc<AtomicU64>
+    pub sortitions_processed: Arc<AtomicU64>,
 }
 
 impl CoordinatorNotices for () {
@@ -79,7 +74,10 @@ pub struct CoordinatorReceivers {
 pub struct CoordinatorCommunication;
 
 pub enum CoordinatorEvents {
-    NEW_STACKS_BLOCK, NEW_BURN_BLOCK, STOP, TIMEOUT
+    NEW_STACKS_BLOCK,
+    NEW_BURN_BLOCK,
+    STOP,
+    TIMEOUT,
 }
 
 impl SignalBools {
@@ -88,7 +86,7 @@ impl SignalBools {
     }
     fn receive_signal(&mut self) -> CoordinatorEvents {
         if self.stop {
-            return CoordinatorEvents::STOP
+            return CoordinatorEvents::STOP;
         } else if self.new_burn_block {
             self.new_burn_block = false;
             return CoordinatorEvents::NEW_BURN_BLOCK;
@@ -150,7 +148,7 @@ impl CoordinatorChannels {
             thread::sleep(Duration::from_millis(100));
             std::sync::atomic::spin_loop_hint();
         }
-        return true
+        return true;
     }
 
     pub fn wait_for_stacks_blocks_processed(&self, current: u64, timeout_millis: u64) -> bool {
@@ -162,7 +160,7 @@ impl CoordinatorChannels {
             thread::sleep(Duration::from_millis(100));
             std::sync::atomic::spin_loop_hint();
         }
-        return true
+        return true;
     }
 }
 
@@ -191,10 +189,9 @@ impl CoordinatorCommunication {
             signal_bools: signal_bools,
             signal_wakeup: signal_wakeup,
             stacks_blocks_processed,
-            sortitions_processed
+            sortitions_processed,
         };
 
         (rcvrs, senders)
     }
-
 }

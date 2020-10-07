@@ -35,22 +35,31 @@ macro_rules! impl_consensus_encoding {
 }
 
 macro_rules! impl_newtype_consensus_encoding {
-    ($thing:ident) => (
-        impl<S: ::deps::bitcoin::network::serialize::SimpleEncoder> ::deps::bitcoin::network::encodable::ConsensusEncodable<S> for $thing {
+    ($thing:ident) => {
+        impl<S: ::deps::bitcoin::network::serialize::SimpleEncoder>
+            ::deps::bitcoin::network::encodable::ConsensusEncodable<S> for $thing
+        {
             #[inline]
-            fn consensus_encode(&self, s: &mut S) -> Result<(), ::deps::bitcoin::network::serialize::Error> {
+            fn consensus_encode(
+                &self,
+                s: &mut S,
+            ) -> Result<(), ::deps::bitcoin::network::serialize::Error> {
                 let &$thing(ref data) = self;
                 data.consensus_encode(s)
             }
         }
 
-        impl<D: ::deps::bitcoin::network::serialize::SimpleDecoder> ::deps::bitcoin::network::encodable::ConsensusDecodable<D> for $thing {
+        impl<D: ::deps::bitcoin::network::serialize::SimpleDecoder>
+            ::deps::bitcoin::network::encodable::ConsensusDecodable<D> for $thing
+        {
             #[inline]
-            fn consensus_decode(d: &mut D) -> Result<$thing, ::deps::bitcoin::network::serialize::Error> {
+            fn consensus_decode(
+                d: &mut D,
+            ) -> Result<$thing, ::deps::bitcoin::network::serialize::Error> {
                 Ok($thing(ConsensusDecodable::consensus_decode(d)?))
             }
         }
-    );
+    };
 }
 
 macro_rules! user_enum {
@@ -194,8 +203,7 @@ macro_rules! impl_index_newtype {
                 &self.0[..]
             }
         }
-
-    }
+    };
 }
 
 macro_rules! display_from_debug {
@@ -205,7 +213,7 @@ macro_rules! display_from_debug {
                 ::std::fmt::Debug::fmt(self, f)
             }
         }
-    }
+    };
 }
 
 #[cfg(test)]

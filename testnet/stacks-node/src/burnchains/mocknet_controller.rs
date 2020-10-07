@@ -1,24 +1,22 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use super::super::{Config};
 use super::super::operations::BurnchainOpSigner;
+use super::super::Config;
 
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use stacks::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransitionOps};
 use stacks::burnchains::bitcoin::BitcoinBlock;
-use stacks::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionHandleTx, PoxId,
+use stacks::burnchains::{
+    Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainHeaderHash,
+    BurnchainStateTransitionOps, Txid,
 };
-use stacks::chainstate::burn::{BlockSnapshot};
+use stacks::chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::{
-    LeaderBlockCommitOp,
-    LeaderKeyRegisterOp,
-    UserBurnSupportOp,
-    BlockstackOperationType,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use stacks::util::hash::Sha256Sum;
+use stacks::chainstate::burn::BlockSnapshot;
 use stacks::util::get_epoch_time_secs;
+use stacks::util::hash::Sha256Sum;
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {
@@ -30,15 +28,18 @@ pub struct MocknetController {
 }
 
 impl MocknetController {
-
     pub fn generic(config: Config) -> Box<dyn BurnchainController> {
         Box::new(Self::new(config))
     }
 
     fn new(config: Config) -> Self {
         debug!("Opening Burnchain at {}", &config.get_burn_db_path());
-        let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain, &"regtest".to_string())
-            .expect("Error while instantiating burnchain");
+        let burnchain = Burnchain::new(
+            &config.get_burn_db_path(),
+            &config.burnchain.chain,
+            &"regtest".to_string(),
+        )
+        .expect("Error while instantiating burnchain");
 
         Self {
             config: config,
@@ -55,16 +56,16 @@ impl MocknetController {
 
         let block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
             current_block.block_height + 1,
-            &BurnchainHeaderHash::from_bytes(next_hash.as_bytes()).unwrap(), 
-            &current_block.burn_header_hash, 
+            &BurnchainHeaderHash::from_bytes(next_hash.as_bytes()).unwrap(),
+            &current_block.burn_header_hash,
             &vec![],
-            get_epoch_time_secs()));
+            get_epoch_time_secs(),
+        ));
         block.header()
     }
 }
 
 impl BurnchainController for MocknetController {
-    
     fn sortdb_ref(&self) -> &SortitionDB {
         self.db.as_ref().expect("BUG: did not instantiate burn DB")
     }
@@ -77,22 +78,29 @@ impl BurnchainController for MocknetController {
             }
         }
     }
-    
+
     fn get_chain_tip(&mut self) -> BurnchainTip {
         match &self.chain_tip {
-            Some(chain_tip) => {
-                chain_tip.clone()
-            },
+            Some(chain_tip) => chain_tip.clone(),
             None => {
                 unreachable!();
             }
         }
     }
-   
-    fn start(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
-        let db = match SortitionDB::connect(&self.config.get_burn_db_file_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
+
+    fn start(
+        &mut self,
+        _ignored_target_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+        let db = match SortitionDB::connect(
+            &self.config.get_burn_db_file_path(),
+            0,
+            &BurnchainHeaderHash([0u8; 32]),
+            get_epoch_time_secs(),
+            true,
+        ) {
             Ok(db) => db,
-            Err(_) => panic!("Error while connecting to burnchain db")
+            Err(_) => panic!("Error while connecting to burnchain db"),
         };
         let block_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn())
             .expect("FATAL: failed to get canonical chain tip");
@@ -105,16 +113,23 @@ impl BurnchainController for MocknetController {
             received_at: Instant::now(),
         };
         self.chain_tip = Some(genesis_state.clone());
-
-        Ok(genesis_state)
+        let block_height = genesis_state.block_snapshot.block_height;
+        Ok((genesis_state, block_height))
     }
 
-    fn submit_operation(&mut self, operation: BlockstackOperationType, _op_signer: &mut BurnchainOpSigner) -> bool {
+    fn submit_operation(
+        &mut self,
+        operation: BlockstackOperationType,
+        _op_signer: &mut BurnchainOpSigner,
+    ) -> bool {
         self.queued_operations.push_back(operation);
         true
     }
 
-    fn sync(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
+    fn sync(
+        &mut self,
+        _ignored_target_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let chain_tip = self.get_chain_tip();
 
         // Simulating mining
@@ -123,7 +138,12 @@ impl BurnchainController for MocknetController {
         let mut ops = vec![];
 
         while let Some(payload) = self.queued_operations.pop_front() {
-            let txid = Txid(Sha256Sum::from_data(format!("{}::{}", next_block_header.block_height, vtxindex).as_bytes()).0);
+            let txid = Txid(
+                Sha256Sum::from_data(
+                    format!("{}::{}", next_block_header.block_height, vtxindex).as_bytes(),
+                )
+                .0,
+            );
             let op = match payload {
                 BlockstackOperationType::LeaderKeyRegister(payload) => {
                     BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
@@ -136,7 +156,7 @@ impl BurnchainController for MocknetController {
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                     })
-                },
+                }
                 BlockstackOperationType::LeaderBlockCommit(payload) => {
                     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
                         block_header_hash: payload.block_header_hash,
@@ -154,7 +174,7 @@ impl BurnchainController for MocknetController {
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                     })
-                },
+                }
                 BlockstackOperationType::UserBurnSupport(payload) => {
                     BlockstackOperationType::UserBurnSupport(UserBurnSupportOp {
                         address: payload.address,
@@ -175,17 +195,27 @@ impl BurnchainController for MocknetController {
             vtxindex += 1;
         }
 
-        // Include txs in a new block   
+        // Include txs in a new block
         let (block_snapshot, state_transition) = {
             match self.db {
                 None => {
                     unreachable!();
-                },
+                }
                 Some(ref mut burn_db) => {
-                    let mut burn_tx = SortitionHandleTx::begin(
-                        burn_db, &chain_tip.block_snapshot.sortition_id).unwrap();
-                    let new_chain_tip = burn_tx.process_block_ops(
-                        &self.burnchain, &chain_tip.block_snapshot, &next_block_header, ops, None, PoxId::stubbed(), None).unwrap();
+                    let mut burn_tx =
+                        SortitionHandleTx::begin(burn_db, &chain_tip.block_snapshot.sortition_id)
+                            .unwrap();
+                    let new_chain_tip = burn_tx
+                        .process_block_ops(
+                            &self.burnchain,
+                            &chain_tip.block_snapshot,
+                            &next_block_header,
+                            ops,
+                            None,
+                            PoxId::stubbed(),
+                            None,
+                        )
+                        .unwrap();
                     burn_tx.commit().unwrap();
                     new_chain_tip
                 }
@@ -194,21 +224,21 @@ impl BurnchainController for MocknetController {
 
         let state_transition = BurnchainStateTransitionOps {
             accepted_ops: state_transition.accepted_ops,
-            consumed_leader_keys: state_transition.consumed_leader_keys
+            consumed_leader_keys: state_transition.consumed_leader_keys,
         };
 
         // Transmit the new state
         let new_state = BurnchainTip {
             block_snapshot,
             state_transition,
-            received_at: Instant::now()
+            received_at: Instant::now(),
         };
         self.chain_tip = Some(new_state.clone());
 
-        Ok(new_state)
+        let block_height = new_state.block_snapshot.block_height;
+        Ok((new_state, block_height))
     }
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, _num_blocks: u64) {}
 }
-

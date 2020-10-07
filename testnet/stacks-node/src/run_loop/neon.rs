@@ -1,17 +1,21 @@
 use std::thread;
 
-use crate::{Config, NeonGenesisNode, BurnchainController, EventDispatcher,
-            BitcoinRegtestController, Keychain, neon_node};
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use crate::{
+    neon_node, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    NeonGenesisNode,
+};
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
+use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
-use stacks::burnchains::bitcoin::{address::{BitcoinAddressType}};
-use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
+use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
 
 use super::RunLoopCallbacks;
 
 use crate::monitoring::start_serving_monitoring_metrics;
+
+use crate::syncctl::PoxSyncWatchdog;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -19,18 +23,17 @@ pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
     blocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>
+    coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
 }
 
 #[cfg(not(test))]
 pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
-    coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>
+    coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
 }
 
 impl RunLoop {
-
     /// Sets up a runloop and node, given a config.
     #[cfg(not(test))]
     pub fn new(config: Config) -> Self {
@@ -63,43 +66,46 @@ impl RunLoop {
     }
 
     #[cfg(not(test))]
-    fn get_blocks_processed_arc(&self) {
-    }
+    fn get_blocks_processed_arc(&self) {}
 
     #[cfg(test)]
     fn bump_blocks_processed(&self) {
-        self.blocks_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.blocks_processed
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     #[cfg(not(test))]
-    fn bump_blocks_processed(&self) {
-    }
+    fn bump_blocks_processed(&self) {}
 
     /// Starts the testnet runloop.
-    /// 
+    ///
     /// This function will block by looping infinitely.
     /// It will start the burnchain (separate thread), set-up a channel in
-    /// charge of coordinating the new blocks coming from the burnchain and 
+    /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, _expected_num_rounds: u64) {
-
-        let (coordinator_receivers, coordinator_senders) = self.coordinator_channels.take()
+        let (coordinator_receivers, coordinator_senders) = self
+            .coordinator_channels
+            .take()
             .expect("Run loop already started, can only start once after initialization.");
 
         // Initialize and start the burnchain.
-        let mut burnchain = BitcoinRegtestController::new(self.config.clone(), Some(coordinator_senders.clone()));
+        let mut burnchain =
+            BitcoinRegtestController::new(self.config.clone(), Some(coordinator_senders.clone()));
+        let pox_constants = burnchain.get_pox_constants();
 
         let is_miner = if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
             let btc_addr = BitcoinAddress::from_bytes(
                 self.config.burnchain.get_bitcoin_network().1,
                 BitcoinAddressType::PublicKeyHash,
-                &Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer()).to_bytes())
-                .unwrap();
+                &Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer())
+                    .to_bytes(),
+            )
+            .unwrap();
             info!("Miner node: checking UTXOs at address: {}", btc_addr);
 
-            let utxos = burnchain.get_utxos(
-                &keychain.generate_op_signer().get_public_key(), 1);
+            let utxos = burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1);
             if utxos.is_none() {
                 error!("Miner node: UTXOs not found. Switching to Follower node. Restart node when you get some UTXOs.");
                 false
@@ -112,8 +118,9 @@ impl RunLoop {
             false
         };
 
-        let _burnchain_tip = match burnchain.start() {
-            Ok(x) => x,
+        let mut target_burnchain_block_height = 1;
+        match burnchain.start(Some(target_burnchain_block_height)) {
+            Ok(_) => {}
             Err(e) => {
                 warn!("Burnchain controller stopped: {}", e);
                 return;
@@ -123,7 +130,13 @@ impl RunLoop {
         let mainnet = false;
         let chainid = neon_node::TESTNET_CHAIN_ID;
         let block_limit = self.config.block_limit.clone();
-        let initial_balances = self.config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
+        let initial_balances = self
+            .config
+            .initial_balances
+            .iter()
+            .map(|e| (e.address.clone(), e.amount))
+            .collect();
+        let burnchain_poll_time = 30; // TODO: this is testnet-specific
 
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
@@ -132,7 +145,11 @@ impl RunLoop {
         }
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
-        let burnchain_config = match Burnchain::new(&self.config.get_burn_db_path(), &self.config.burnchain.chain, "regtest") {
+        let burnchain_config = match Burnchain::new(
+            &self.config.get_burn_db_path(),
+            &self.config.burnchain.chain,
+            "regtest",
+        ) {
             Ok(burnchain) => burnchain,
             Err(e) => {
                 error!("Failed to instantiate burnchain: {}", e);
@@ -140,14 +157,22 @@ impl RunLoop {
             }
         };
         let chainstate_path = self.config.get_chainstate_path();
+        let coordinator_burnchain_config = burnchain_config.clone();
 
         thread::spawn(move || {
-            ChainsCoordinator::run(&chainstate_path, burnchain_config, mainnet, chainid,
-                                   Some(initial_balances),
-                                   block_limit, &mut coordinator_dispatcher,
-                                   coordinator_receivers, |_| {});
-        });        
-        
+            ChainsCoordinator::run(
+                &chainstate_path,
+                coordinator_burnchain_config,
+                mainnet,
+                chainid,
+                Some(initial_balances),
+                block_limit,
+                &mut coordinator_dispatcher,
+                coordinator_receivers,
+                |_| {},
+            );
+        });
+
         let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
@@ -155,9 +180,17 @@ impl RunLoop {
         // setup genesis
         let node = NeonGenesisNode::new(self.config.clone(), event_dispatcher, |_| {});
         let mut node = if is_miner {
-            node.into_initialized_leader_node(burnchain_tip.clone(), self.get_blocks_processed_arc(), coordinator_senders)
+            node.into_initialized_leader_node(
+                burnchain_tip.clone(),
+                self.get_blocks_processed_arc(),
+                coordinator_senders,
+            )
         } else {
-            node.into_initialized_node(burnchain_tip.clone(), self.get_blocks_processed_arc(), coordinator_senders)
+            node.into_initialized_node(
+                burnchain_tip.clone(),
+                self.get_blocks_processed_arc(),
+                coordinator_senders,
+            )
         };
 
         // TODO (hack) instantiate the sortdb in the burnchain
@@ -166,7 +199,7 @@ impl RunLoop {
         // Start the runloop
         info!("Begin run loop");
         self.bump_blocks_processed();
-        
+
         let prometheus_bind = self.config.node.prometheus_bind.clone();
         if let Some(prometheus_bind) = prometheus_bind {
             thread::spawn(move || {
@@ -174,14 +207,37 @@ impl RunLoop {
             });
         }
 
+        let chainstate_path = self.config.get_chainstate_path();
+        let mut pox_watchdog = PoxSyncWatchdog::new(
+            mainnet,
+            chainid,
+            chainstate_path,
+            burnchain_poll_time,
+            self.config.connection_options.timeout,
+        )
+        .unwrap();
+        let mut burnchain_height = 1;
+
+        // prepare to fetch the first reward cycle!
+        target_burnchain_block_height = pox_constants.reward_cycle_length as u64;
+
         loop {
-            burnchain_tip = match burnchain.sync() {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("Burnchain controller stopped: {}", e);
-                    return;
-                }
-            };
+            // wait until it's okay to process the next sortitions
+            let ibd =
+                pox_watchdog.pox_sync_wait(&burnchain_config, &burnchain_tip, burnchain_height);
+
+            let (next_burnchain_tip, next_burnchain_height) =
+                match burnchain.sync(Some(target_burnchain_block_height)) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        warn!("Burnchain controller stopped: {}", e);
+                        return;
+                    }
+                };
+
+            target_burnchain_block_height += pox_constants.reward_cycle_length as u64;
+            burnchain_tip = next_burnchain_tip;
+            burnchain_height = next_burnchain_height;
 
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
@@ -191,7 +247,7 @@ impl RunLoop {
             }
 
             // first, let's process all blocks in (block_height, next_height]
-            for block_to_process in (block_height+1)..(next_height+1) {
+            for block_to_process in (block_height + 1)..(next_height + 1) {
                 let block = {
                     let ic = burnchain.sortdb_ref().index_conn();
                     SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
@@ -201,8 +257,8 @@ impl RunLoop {
                 let sortition_id = &block.sortition_id;
 
                 // Have the node process the new block, that can include, or not, a sortition.
-                node.process_burnchain_state(burnchain.sortdb_mut(), 
-                                             sortition_id);
+                node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
+
                 // Now, tell the relayer to check if it won a sortition during this block,
                 //   and, if so, to process and advertize the block
                 //
@@ -210,17 +266,25 @@ impl RunLoop {
                 if !node.relayer_sortition_notify() {
                     // relayer hung up, exit.
                     error!("Block relayer and miner hung up, exiting.");
-                    return
+                    return;
                 }
-            }
-            // now, let's tell the miner to try and mine.
-            if !node.relayer_issue_tenure() {
-                // relayer hung up, exit.
-                error!("Block relayer and miner hung up, exiting.");
-                return
             }
 
             block_height = next_height;
+            debug!(
+                "Synchronized up to block height {} (chain tip height is {})",
+                block_height, burnchain_height
+            );
+
+            if block_height >= burnchain_height {
+                // at tip. proceed to mine.
+                debug!("Synchronized full burnchain. Proceeding to mine blocks");
+                if !node.relayer_issue_tenure() {
+                    // relayer hung up, exit.
+                    error!("Block relayer and miner hung up, exiting.");
+                    return;
+                }
+            }
         }
     }
 }

@@ -17,8 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use burnchains::*;
 use burnchains::Error as burnchain_error;
+use burnchains::*;
 
 use burnchains::BurnchainBlock;
 
@@ -28,6 +28,7 @@ pub trait BurnHeaderIPC {
 
     fn height(&self) -> u64;
     fn header(&self) -> Self::H;
+    fn header_hash(&self) -> [u8; 32];
 }
 
 pub trait BurnBlockIPC {
@@ -48,15 +49,19 @@ pub trait BurnchainBlockDownloader {
 
 pub trait BurnchainBlockParser {
     type D: BurnchainBlockDownloader + Sync + Send;
-    
-    fn parse(&mut self, block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B) -> Result<BurnchainBlock, burnchain_error>;
+
+    fn parse(
+        &mut self,
+        block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B,
+    ) -> Result<BurnchainBlock, burnchain_error>;
 }
 
 pub trait BurnchainIndexer {
     type P: BurnchainBlockParser + Send + Sync;
 
     fn init(working_dir: &String, network_name: &String) -> Result<Self, burnchain_error>
-        where Self : Sized;
+    where
+        Self: Sized;
     fn connect(&mut self) -> Result<(), burnchain_error>;
 
     fn get_first_block_height(&self) -> u64;
@@ -66,7 +71,11 @@ pub trait BurnchainIndexer {
     fn get_headers_path(&self) -> String;
     fn get_headers_height(&self) -> Result<u64, burnchain_error>;
     fn find_chain_reorg(&mut self) -> Result<u64, burnchain_error>;
-    fn sync_headers(&mut self, start_height: u64, end_height: Option<u64>) -> Result<u64, burnchain_error>;
+    fn sync_headers(
+        &mut self,
+        start_height: u64,
+        end_height: Option<u64>,
+    ) -> Result<u64, burnchain_error>;
     fn drop_headers(&mut self, new_height: u64) -> Result<(), burnchain_error>;
 
     fn read_headers(&self, start_block: u64, end_block: u64) -> Result<Vec<<<<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::H>, burnchain_error>;

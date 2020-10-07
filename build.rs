@@ -10,7 +10,7 @@ fn current_git_hash() -> Option<String> {
 
     if let Ok(commit) = commit {
         if let Ok(commit) = String::from_utf8(commit.stdout) {
-            return Some(commit)
+            return Some(commit);
         }
     }
     None
@@ -18,13 +18,13 @@ fn current_git_hash() -> Option<String> {
 
 fn current_git_branch() -> Option<String> {
     let commit = Command::new("git")
-                         .arg("rev-parse")
-                         .arg("--abbrev-ref")
-                         .arg("HEAD")
-                         .output();
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD")
+        .output();
     if let Ok(commit) = commit {
         if let Ok(commit) = String::from_utf8(commit.stdout) {
-            return Some(commit)
+            return Some(commit);
         }
     }
     None

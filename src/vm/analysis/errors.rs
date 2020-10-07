@@ -1,11 +1,11 @@
-use vm::representations::SymbolicExpression;
-use vm::diagnostic::{Diagnostic, DiagnosableError};
-use vm::types::{TypeSignature, TupleTypeSignature, Value};
-use vm::costs::{ExecutionCost, CostErrors};
 use std::error;
 use std::fmt;
+use vm::costs::{CostErrors, ExecutionCost};
+use vm::diagnostic::{DiagnosableError, Diagnostic};
+use vm::representations::SymbolicExpression;
+use vm::types::{TupleTypeSignature, TypeSignature, Value};
 
-pub type CheckResult <T> = Result<T, CheckError>;
+pub type CheckResult<T> = Result<T, CheckError>;
 
 #[derive(Debug, PartialEq)]
 pub enum CheckErrors {
@@ -155,7 +155,7 @@ pub enum CheckErrors {
     InvalidSecp65k1Signature,
 
     WriteAttemptedInReadOnly,
-    AtBlockClosureMustBeReadOnly
+    AtBlockClosureMustBeReadOnly,
 }
 
 #[derive(Debug, PartialEq)]
@@ -171,7 +171,7 @@ impl CheckError {
         CheckError {
             err,
             expressions: None,
-            diagnostic
+            diagnostic,
         }
     }
 
@@ -199,7 +199,7 @@ impl fmt::Display for CheckErrors {
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.err {
-            _ =>  write!(f, "{}", self.err)
+            _ => write!(f, "{}", self.err),
         }?;
 
         if let Some(ref e) = self.expressions {
@@ -260,20 +260,22 @@ pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), Ch
     }
 }
 
-fn formatted_expected_types(expected_types: & Vec<TypeSignature>) -> String {
+fn formatted_expected_types(expected_types: &Vec<TypeSignature>) -> String {
     let mut expected_types_joined = format!("'{}'", expected_types[0]);
 
     if expected_types.len() > 2 {
-        for expected_type in expected_types[1..expected_types.len()-1].into_iter() {
+        for expected_type in expected_types[1..expected_types.len() - 1].into_iter() {
             expected_types_joined.push_str(&format!(", '{}'", expected_type));
         }
     }
-    expected_types_joined.push_str(&format!(" or '{}'", expected_types[expected_types.len()-1]));
+    expected_types_joined.push_str(&format!(
+        " or '{}'",
+        expected_types[expected_types.len() - 1]
+    ));
     expected_types_joined
 }
 
 impl DiagnosableError for CheckErrors {
-
     fn message(&self) -> String {
         match &self {
             CheckErrors::ExpectedLiteral => "expected a literal argument".into(),
@@ -386,11 +388,19 @@ impl DiagnosableError for CheckErrors {
 
     fn suggestion(&self) -> Option<String> {
         match &self {
-            CheckErrors::BadSyntaxBinding => Some(format!("binding syntax example: ((supply int) (ttl int))")),
-            CheckErrors::BadLetSyntax => Some(format!("'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)")),
-            CheckErrors::TraitReferenceUnknown(_) => Some(format!("traits should be either defined, with define-trait, or imported, with use-trait.")),
-            CheckErrors::NoSuchBlockInfoProperty(_) => Some(format!("properties available: time, header-hash, burnchain-header-hash, vrf-seed")),
-            _ => None
+            CheckErrors::BadSyntaxBinding => {
+                Some(format!("binding syntax example: ((supply int) (ttl int))"))
+            }
+            CheckErrors::BadLetSyntax => Some(format!(
+                "'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)"
+            )),
+            CheckErrors::TraitReferenceUnknown(_) => Some(format!(
+                "traits should be either defined, with define-trait, or imported, with use-trait."
+            )),
+            CheckErrors::NoSuchBlockInfoProperty(_) => Some(format!(
+                "properties available: time, header-hash, burnchain-header-hash, vrf-seed"
+            )),
+            _ => None,
         }
     }
 }
