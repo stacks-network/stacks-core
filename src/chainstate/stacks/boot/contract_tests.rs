@@ -358,7 +358,7 @@ fn delegation_tests() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 22)".to_string()
         );
 
         // try to stack more than [0] has!
@@ -443,7 +443,7 @@ fn delegation_tests() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 23)".to_string()
         );
 
         // And USER_KEYS[0] is already stacking...
@@ -481,7 +481,7 @@ fn delegation_tests() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 21)".to_string()
         );
 
         //  but for just one block will be fine
