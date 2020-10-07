@@ -183,7 +183,7 @@ impl STXBalance {
     pub fn get_locked_balance_at_block(&self, block_height: u64) -> (u128, u64) {
         match self.has_locked_tokens_unlockable(block_height) {
             true => (0, 0),
-            false => (self.amount_locked, self.unlock_height)
+            false => (self.amount_locked, self.unlock_height),
         }
     }
 
