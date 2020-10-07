@@ -347,7 +347,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(3 * USTX_PER_HOLDER),
@@ -366,7 +366,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(2 * USTX_PER_HOLDER),
@@ -385,7 +385,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
@@ -432,7 +432,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[1]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
@@ -451,7 +451,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[0]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
@@ -470,7 +470,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[2]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
@@ -489,7 +489,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[2]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
@@ -592,7 +592,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[3]).into(),
                     Value::UInt(*MIN_THRESHOLD),
@@ -702,7 +702,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[1]).into(),
                     Value::UInt(*MIN_THRESHOLD),
@@ -726,7 +726,7 @@ fn delegation_tests() {
                 (&USER_KEYS[4]).into(),
                 POX_CONTRACT.clone(),
                 "revoke-delegate-stx",
-                &symbols_from_values(vec![(&delegator).into()])
+                &[]
             )
             .unwrap()
             .0,
@@ -739,7 +739,7 @@ fn delegation_tests() {
                 (&USER_KEYS[4]).into(),
                 POX_CONTRACT.clone(),
                 "revoke-delegate-stx",
-                &symbols_from_values(vec![(&delegator).into()])
+                &[]
             )
             .unwrap()
             .0
@@ -751,7 +751,7 @@ fn delegation_tests() {
             env.execute_transaction(
                 (&delegator).into(),
                 POX_CONTRACT.clone(),
-                "delegator-stack-stx",
+                "delegate-stack-stx",
                 &symbols_from_values(vec![
                     (&USER_KEYS[4]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),

@@ -71,7 +71,7 @@
     ((amount-ustx uint)              ;; how many uSTX delegated?
      (delegated-to principal)        ;; who are we delegating?
      (until-burn-ht (optional uint)) ;; how long does the delegation last?
-     ;; does the delegator _need_ to use a specific
+     ;; does the delegate _need_ to use a specific
      ;;   pox recipient address?
      (pox-addr (optional { version: (buff 1),
                            hashbytes: (buff 20) }))))
@@ -458,22 +458,22 @@
       (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))
 )
 
-(define-public (revoke-delegate-stx (delegator principal))
+(define-public (revoke-delegate-stx)
   (begin
     ;; must be called directly by the tx-sender or by an allowed contract-caller
     (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
     (ok (map-delete delegation-state { stacker: tx-sender }))))
 
-;; Delegate to `delegator` the ability to stack from a given address.
-;;  This method _does not_ lock the funds, rather, it allows the delegator
+;; Delegate to `delegate-to` the ability to stack from a given address.
+;;  This method _does not_ lock the funds, rather, it allows the delegate
 ;;  to issue the stacking lock.
 ;; The caller specifies:
-;;   * amount-ustx: the total amount of ustx the delegator may be allowed to lock
+;;   * amount-ustx: the total amount of ustx the delegate may be allowed to lock
 ;;   * until-burn-ht: an optional burn height at which this delegation expiration
 ;;   * pox-addr: an optional address to which any rewards *must* be sent
 (define-public (delegate-stx (amount-ustx uint)
-                             (delegator principal)
+                             (delegate-to principal)
                              (until-burn-ht (optional uint))
                              (pox-addr (optional { version: (buff 1),
                                                    hashbytes: (buff 20) })))
@@ -494,14 +494,14 @@
       (map-set delegation-state
         { stacker: tx-sender }
         { amount-ustx: amount-ustx,
-          delegated-to: delegator,
+          delegated-to: delegate-to,
           until-burn-ht: until-burn-ht,
           pox-addr: pox-addr })
 
       (ok true)))
 
 ;; Commit partially stacked STX.
-;;   This allows a stacker/delegator to lock fewer STX than the minimal threshold in multiple transactions,
+;;   This allows a stacker/delegate to lock fewer STX than the minimal threshold in multiple transactions,
 ;;   so long as: 1. The pox-addr is the same.
 ;;               2. This "commit" transaction is called _before_ the PoX anchor block.
 ;;   This ensures that each entry in the reward set returned to the stacks-node is greater than the threshold,
@@ -533,12 +533,12 @@
       (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
       (ok true))))
 
-;; As a delegator, stack the given principal's STX using partial-stacked-by-cycle
-;; Once the delegator has stacked > minimum, the delegator should call stack-aggregation-commit
-(define-public (delegator-stack-stx (stacker principal)
-                                    (amount-ustx uint)
-                                    (pox-addr { version: (buff 1), hashbytes: (buff 20) })
-                                    (lock-period uint))
+;; As a delegate, stack the given principal's STX using partial-stacked-by-cycle
+;; Once the delegate has stacked > minimum, the delegate should call stack-aggregation-commit
+(define-public (delegate-stack-stx (stacker principal)
+                                   (amount-ustx uint)
+                                   (pox-addr { version: (buff 1), hashbytes: (buff 20) })
+                                   (lock-period uint))
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
           (unlock-burn-height (reward-cycle-to-burn-height (+ (current-pox-reward-cycle) u1 lock-period))))
