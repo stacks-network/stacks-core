@@ -36,8 +36,8 @@ use vm::costs::ExecutionCost;
 
 use util::db::Error as db_error;
 use util::db::{
-    query_count, query_row, query_row_columns, query_rows, DBConn, FromColumn, FromRow,
-    query_row_panic
+    query_count, query_row, query_row_columns, query_row_panic, query_rows, DBConn, FromColumn,
+    FromRow,
 };
 
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -279,8 +279,10 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1".to_string();
-        query_row_panic(conn, &sql, &[&index_block_hash], || "FATAL: multiple rows for the same block hash".to_string())
-            .map_err(Error::DBError)
+        query_row_panic(conn, &sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })
+        .map_err(Error::DBError)
     }
 
     /// Get an ancestor block header

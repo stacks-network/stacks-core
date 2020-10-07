@@ -1,7 +1,5 @@
 use std::collections::VecDeque;
-use std::convert::{
-    TryInto, TryFrom
-};
+use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
 
 use burnchains::{
@@ -14,14 +12,18 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    db::{ClarityTx, StacksChainState, StacksHeaderInfo},
     boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS,
+    db::{ClarityTx, StacksChainState, StacksHeaderInfo},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
 use monitoring::increment_stx_blocks_processed_counter;
 use util::db::Error as DBError;
-use vm::{costs::ExecutionCost, Value, types::{PrincipalData, QualifiedContractIdentifier}};
+use vm::{
+    costs::ExecutionCost,
+    types::{PrincipalData, QualifiedContractIdentifier},
+    Value,
+};
 
 pub mod comm;
 use chainstate::stacks::index::MarfTrieId;
@@ -169,16 +171,21 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 
         let liquid_ustx = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
             chainstate.headers_db(),
-            block_id)?
-            .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
-            .total_liquid_ustx;
+            block_id,
+        )?
+        .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
+        .total_liquid_ustx;
 
         let threshold = StacksChainState::get_reward_threshold(
             &burnchain.pox_constants,
             &registered_addrs,
-            liquid_ustx);
+            liquid_ustx,
+        );
 
-        Ok(StacksChainState::make_reward_set(threshold, registered_addrs))
+        Ok(StacksChainState::make_reward_set(
+            threshold,
+            registered_addrs,
+        ))
     }
 }
 
@@ -212,21 +219,27 @@ impl<'a, T: BlockEventDispatcher>
             initial_balances,
             |clarity_tx| {
                 let burnchain = burnchain.clone();
-                let contract = QualifiedContractIdentifier::parse(&format!("{}.pox", STACKS_BOOT_CODE_CONTRACT_ADDRESS))
-                    .expect("Failed to construct boot code contract address");
+                let contract = QualifiedContractIdentifier::parse(&format!(
+                    "{}.pox",
+                    STACKS_BOOT_CODE_CONTRACT_ADDRESS
+                ))
+                .expect("Failed to construct boot code contract address");
                 let sender = PrincipalData::from(contract.clone());
-                
+
                 clarity_tx.connection().as_transaction(|conn| {
                     conn.run_contract_call(
                         &sender,
                         &contract,
                         "set-burnchain-parameters",
-                        &[Value::UInt(burnchain.first_block_height as u128),
-                          Value::UInt(burnchain.pox_constants.prepare_length as u128),
-                          Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
-                          Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128)],
-                        |_,_| false)
-                        .expect("Failed to set burnchain parameters in PoX contract");
+                        &[
+                            Value::UInt(burnchain.first_block_height as u128),
+                            Value::UInt(burnchain.pox_constants.prepare_length as u128),
+                            Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
+                            Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
+                        ],
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX contract");
                 });
                 boot_block_exec(clarity_tx)
             },

@@ -100,8 +100,11 @@ impl RunLoop {
             .expect("Run loop already started, can only start once after initialization.");
 
         // Initialize and start the burnchain.
-        let mut burnchain =
-            BitcoinRegtestController::with_burnchain(self.config.clone(), Some(coordinator_senders.clone()), burnchain_opt);
+        let mut burnchain = BitcoinRegtestController::with_burnchain(
+            self.config.clone(),
+            Some(coordinator_senders.clone()),
+            burnchain_opt,
+        );
         let pox_constants = burnchain.get_pox_constants();
 
         let is_miner = if self.config.node.miner {
@@ -178,7 +181,12 @@ impl RunLoop {
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
         // setup genesis
-        let node = NeonGenesisNode::new(self.config.clone(), event_dispatcher, burnchain_config.clone(), |_| {});
+        let node = NeonGenesisNode::new(
+            self.config.clone(),
+            event_dispatcher,
+            burnchain_config.clone(),
+            |_| {},
+        );
         let mut node = if is_miner {
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),
@@ -214,7 +222,7 @@ impl RunLoop {
             chainstate_path,
             burnchain_poll_time,
             self.config.connection_options.timeout,
-            POX_SYNC_WAIT_MS
+            POX_SYNC_WAIT_MS,
         )
         .unwrap();
         let mut burnchain_height = 1;

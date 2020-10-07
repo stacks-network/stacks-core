@@ -24,14 +24,10 @@ use chainstate::stacks::StacksBlockHeader;
 
 use address::AddressHashMode;
 use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::{
-    Address, PoxConstants
-};
+use burnchains::{Address, PoxConstants};
 
-use core::{
-    POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX
-};
 use chainstate::burn::db::sortdb::SortitionDB;
+use core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 
 use vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
@@ -47,9 +43,9 @@ use vm::representations::ContractName;
 use util::hash::Hash160;
 
 use std::boxed::Box;
+use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use std::cmp;
 
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS: &'static str = "ST000000000000000000002AMW42H";
 
@@ -194,22 +190,29 @@ impl StacksChainState {
     ///   are repeated floor(stacked_amt / threshold) times.
     /// If an address appears in `addresses` multiple times, then the address's associated amounts
     ///   are summed.
-    pub fn make_reward_set(threshold: u128, mut addresses: Vec<(StacksAddress, u128)>) -> Vec<StacksAddress> {
+    pub fn make_reward_set(
+        threshold: u128,
+        mut addresses: Vec<(StacksAddress, u128)>,
+    ) -> Vec<StacksAddress> {
         let mut reward_set = vec![];
         // the way that we sum addresses relies on sorting.
         addresses.sort_by_key(|k| k.0.bytes.0);
         while let Some((address, mut stacked_amt)) = addresses.pop() {
             // peak at the next address in the set, and see if we need to sum
             while addresses.last().map(|x| &x.0) == Some(&address) {
-                let (_, additional_amt) = addresses.pop()
+                let (_, additional_amt) = addresses
+                    .pop()
                     .expect("BUG: first() returned some, but pop() is none.");
-                stacked_amt = stacked_amt.checked_add(additional_amt)
+                stacked_amt = stacked_amt
+                    .checked_add(additional_amt)
                     .expect("CORRUPTION: Stacker stacked > u128 max amount");
             }
             let slots_taken = u32::try_from(stacked_amt / threshold)
                 .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
-            info!("Slots taken by {} = {}, on stacked_amt = {}",
-                  &address, slots_taken, stacked_amt);
+            info!(
+                "Slots taken by {} = {}, on stacked_amt = {}",
+                &address, slots_taken, stacked_amt
+            );
             for _i in 0..slots_taken {
                 reward_set.push(address.clone());
             }
@@ -217,12 +220,19 @@ impl StacksChainState {
         reward_set
     }
 
-    pub fn get_reward_threshold(pox_settings: &PoxConstants, addresses: &[(StacksAddress, u128)], liquid_ustx: u128) -> u128 {
+    pub fn get_reward_threshold(
+        pox_settings: &PoxConstants,
+        addresses: &[(StacksAddress, u128)],
+        liquid_ustx: u128,
+    ) -> u128 {
         let participation = addresses
             .iter()
             .fold(0, |agg, (_, stacked_amt)| agg + stacked_amt);
 
-        assert!(participation <= liquid_ustx, "CORRUPTION: More stacking participation than liquid STX");
+        assert!(
+            participation <= liquid_ustx,
+            "CORRUPTION: More stacking participation than liquid STX"
+        );
 
         let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
 
@@ -234,7 +244,10 @@ impl StacksChainState {
             remainder => POX_THRESHOLD_STEPS_USTX - remainder,
         };
         let threshold = threshold_precise + ceil_amount;
-        info!("PoX participation threshold is {}, from {}", threshold, threshold_precise);
+        info!(
+            "PoX participation threshold is {}, from {}",
+            threshold, threshold_precise
+        );
         threshold
     }
 
@@ -338,9 +351,9 @@ pub mod test {
 
     use util::*;
 
+    use core::*;
     use vm::contracts::Contract;
     use vm::types::*;
-    use core::*;
 
     use std::convert::From;
     use std::fs;
@@ -350,11 +363,28 @@ pub mod test {
     #[test]
     fn make_reward_set_units() {
         let threshold = 1_000;
-        let addresses = vec![(StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(), 1500),
-                             (StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(), 500),
-                             (StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(), 1500),
-                             (StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(), 400)];
-        assert_eq!(StacksChainState::make_reward_set(threshold, addresses).len(), 3);
+        let addresses = vec![
+            (
+                StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
+                1500,
+            ),
+            (
+                StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+                500,
+            ),
+            (
+                StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
+                1500,
+            ),
+            (
+                StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+                400,
+            ),
+        ];
+        assert_eq!(
+            StacksChainState::make_reward_set(threshold, addresses).len(),
+            3
+        );
     }
 
     #[test]
@@ -362,41 +392,69 @@ pub mod test {
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
-        assert_eq!(StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[], liquid),
-                   POX_THRESHOLD_STEPS_USTX);
-        assert_eq!(StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[(rand_addr(), liquid)], liquid),
-                   POX_THRESHOLD_STEPS_USTX);
+        assert_eq!(
+            StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[], liquid),
+            POX_THRESHOLD_STEPS_USTX
+        );
+        assert_eq!(
+            StacksChainState::get_reward_threshold(
+                &PoxConstants::new(1000, 1, 1, 1),
+                &[(rand_addr(), liquid)],
+                liquid
+            ),
+            POX_THRESHOLD_STEPS_USTX
+        );
 
         let liquid = 200_000_000 * MICROSTACKS_PER_STACKS as u128;
         // with zero participation, should scale to 25% of liquid
-        assert_eq!(StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[], liquid),
-                   50_000 * MICROSTACKS_PER_STACKS as u128);
+        assert_eq!(
+            StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[], liquid),
+            50_000 * MICROSTACKS_PER_STACKS as u128
+        );
         // should be the same at 25% participation
-        assert_eq!(StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[(rand_addr(), liquid / 4)], liquid),
-                   50_000 * MICROSTACKS_PER_STACKS as u128);
+        assert_eq!(
+            StacksChainState::get_reward_threshold(
+                &PoxConstants::new(1000, 1, 1, 1),
+                &[(rand_addr(), liquid / 4)],
+                liquid
+            ),
+            50_000 * MICROSTACKS_PER_STACKS as u128
+        );
         // but not at 30% participation
-        assert_eq!(StacksChainState::get_reward_threshold(
-            &PoxConstants::new(1000, 1, 1, 1),
-            &[(rand_addr(), liquid / 4),
-              (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))],
-            liquid),
-                   60_000 * MICROSTACKS_PER_STACKS as u128);
+        assert_eq!(
+            StacksChainState::get_reward_threshold(
+                &PoxConstants::new(1000, 1, 1, 1),
+                &[
+                    (rand_addr(), liquid / 4),
+                    (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))
+                ],
+                liquid
+            ),
+            60_000 * MICROSTACKS_PER_STACKS as u128
+        );
 
         // bump by just a little bit, should go to the next threshold step
-        assert_eq!(StacksChainState::get_reward_threshold(
-            &PoxConstants::new(1000, 1, 1, 1),
-            &[(rand_addr(), liquid / 4),
-              (rand_addr(), (MICROSTACKS_PER_STACKS as u128))],
-            liquid),
-                   60_000 * MICROSTACKS_PER_STACKS as u128);
+        assert_eq!(
+            StacksChainState::get_reward_threshold(
+                &PoxConstants::new(1000, 1, 1, 1),
+                &[
+                    (rand_addr(), liquid / 4),
+                    (rand_addr(), (MICROSTACKS_PER_STACKS as u128))
+                ],
+                liquid
+            ),
+            60_000 * MICROSTACKS_PER_STACKS as u128
+        );
 
-                // bump by just a little bit, should go to the next threshold step
-        assert_eq!(StacksChainState::get_reward_threshold(
-            &PoxConstants::new(1000, 1, 1, 1),
-            &[(rand_addr(), liquid)],
-            liquid),
-                   200_000 * MICROSTACKS_PER_STACKS as u128);
-
+        // bump by just a little bit, should go to the next threshold step
+        assert_eq!(
+            StacksChainState::get_reward_threshold(
+                &PoxConstants::new(1000, 1, 1, 1),
+                &[(rand_addr(), liquid)],
+                liquid
+            ),
+            200_000 * MICROSTACKS_PER_STACKS as u128
+        );
     }
 
     fn rand_addr() -> StacksAddress {
@@ -849,7 +907,8 @@ pub mod test {
         block_id: &StacksBlockId,
     ) -> Result<Vec<(StacksAddress, u128)>, Error> {
         let burn_block_height = get_par_burn_block_height(state, block_id);
-        state.get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
+        state
+            .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
             .and_then(|mut addrs| {
                 addrs.sort_by_key(|k| k.0.bytes.0);
                 Ok(addrs)

@@ -42,7 +42,7 @@ pub struct PoxSyncWatchdog {
     /// chainstate handle
     chainstate: StacksChainState,
     /// ms to sleep on waits
-    wait_ms: u64
+    wait_ms: u64,
 }
 
 impl PoxSyncWatchdog {
@@ -78,7 +78,7 @@ impl PoxSyncWatchdog {
             steady_state_burnchain_sync_interval: burnchain_poll_time,
             steady_state_resync_ts: 0,
             chainstate: chainstate,
-            wait_ms
+            wait_ms,
         })
     }
 
