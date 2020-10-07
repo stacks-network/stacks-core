@@ -53,6 +53,13 @@
 (define-constant name-preorder-claimability-ttl u10)
 (define-constant name-grace-period-duration u5)
 
+(define-constant zonefiles-inv-page-size u1000)
+(define-data-var zonefiles-inv-index-cursor uint u0)
+(define-data-var zonefiles-inv-page-cursor uint u0)
+(define-map zonefiles-inv 
+    ((page uint) (index uint)) 
+    ((zonefile-hash (buff 20))))
+
 ;; Price tables
 (define-constant namespace-prices-tiers (list
   u96000 
@@ -93,10 +100,6 @@
 (define-map name-preorders
   ((hashed-salted-fqn (buff 20)) (buyer principal))
   ((created-at uint) (claimed bool) (stx-burned uint)))
-
-(define-map zonefiles
-  ((name (buff 16)) (namespace (buff 19)))
-  ((content (buff 40960)) (updated-at uint)))
 
 (define-private (min (a uint) (b uint))
   (if (<= a b) a b))
@@ -274,18 +277,35 @@
                                            (registered-at (optional uint)) 
                                            (imported-at (optional uint)) 
                                            (revoked-at (optional uint)) 
-                                           (zonefile-content (buff 40960)))
-  (begin
-    (map-set name-properties
-      ((namespace namespace) (name name))
-      ((registered-at registered-at)
-      (imported-at imported-at)
-      (revoked-at revoked-at)
-      (zonefile-hash (hash160 zonefile-content))))
-    (map-set zonefiles
-      ((namespace namespace) (name name))
-      ((updated-at block-height)
-       (content zonefile-content)))))
+                                           (zonefile-hash (buff 20)))
+  (let 
+    ((current-page (var-get zonefiles-inv-page-cursor))
+    (current-index (var-get zonefiles-inv-index-cursor)))
+    (let 
+      ((next-page (if (is-eq (+ current-index u1) zonefiles-inv-page-size)
+        (+ current-page u1)
+        current-page))
+      (next-index (mod (+ current-index u1) zonefiles-inv-page-size)))
+      ;; Emit event used as a system hinter
+      (print { 
+        namespace: namespace,
+        name: name,
+        zonefile-hash: zonefile-hash,
+        page: next-page,
+        index: next-index })
+      ;; Update zonefiles-inv
+      (map-set zonefiles-inv
+        ((page next-page) (index next-index))
+        ((zonefile-hash zonefile-hash)))
+      ;; Update cursors
+      (var-set zonefiles-inv-page-cursor next-page)
+      (var-set zonefiles-inv-index-cursor next-index)
+      (map-set name-properties
+        ((namespace namespace) (name name))
+        ((registered-at registered-at)
+          (imported-at imported-at)
+          (revoked-at revoked-at)
+          (zonefile-hash zonefile-hash))))))
 
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER
@@ -417,7 +437,7 @@
 ;; both an owner and some off-chain state. This step is optional; Namespace creators are not required to import names.
 (define-public (name-import (namespace (buff 19))
                             (name (buff 16))
-                            (zonefile-content (buff 40960)))
+                            (zonefile-hash (buff 20)))
   (let (
     (namespace-props (unwrap!
       (map-get? namespaces ((namespace namespace)))
@@ -462,7 +482,7 @@
         none
         (some block-height) ;; Set imported-at
         none
-        zonefile-content)
+        zonefile-hash)
       (ok true))))
 
 ;; NAMESPACE_READY
@@ -545,7 +565,7 @@
 (define-public (name-register (namespace (buff 19))
                               (name (buff 16))
                               (salt (buff 20))
-                              (zonefile-content (buff 40960)))
+                              (zonefile-hash (buff 20)))
   (let (
     (hashed-salted-fqn (hash160 (concat (concat (concat name 0x2e) namespace) salt)))
     (name-currently-owned (map-get? owner-name ((owner contract-caller)))))
@@ -622,12 +642,7 @@
         ((registered-at (some block-height))
         (imported-at none)
         (revoked-at none)
-        (zonefile-hash (hash160 zonefile-content))))
-      ;; Import the zonefile
-      (map-set zonefiles
-        ((namespace namespace) (name name))
-        ((updated-at block-height)
-        (content zonefile-content)))
+        (zonefile-hash zonefile-hash)))
       (ok true))))
 
 ;; NAME_UPDATE
@@ -636,7 +651,7 @@
 ;; For example, you would do this if you want to deploy your own Gaia hub and want other people to read from it.
 (define-public (name-update (namespace (buff 19))
                             (name (buff 16))
-                            (zonefile-content (buff 40960)))
+                            (zonefile-hash (buff 20)))
   (let (
     (owner (unwrap!
       (nft-get-owner? names (tuple (name name) (namespace namespace)))
@@ -667,7 +682,7 @@
       (get registered-at name-props)
       (get imported-at name-props)
       none
-      zonefile-content)
+      zonefile-hash)
     (ok true)))
 
 ;; NAME_TRANSFER
@@ -679,7 +694,7 @@
 (define-public (name-transfer (namespace (buff 19))
                               (name (buff 16))
                               (new-owner principal)
-                              (zonefile-content (optional (buff 40960))))
+                              (zonefile-hash (optional (buff 20))))
   (let (
     (current-owned-name (map-get? owner-name ((owner new-owner))))
     (namespace-props (unwrap!
@@ -738,9 +753,9 @@
           (get registered-at name-props)
           (get imported-at name-props)
           none
-          (if (is-none zonefile-content)
-            0x00
-            (unwrap! zonefile-content (err err-panic))))
+          (if (is-none zonefile-hash)
+            0x00 ;; todo(ludo): probably something to update
+            (unwrap! zonefile-hash (err err-panic))))
       (ok true))))
 
 ;; NAME_REVOKE
@@ -802,7 +817,7 @@
                              (name (buff 16))
                              (stx-to-burn uint)
                              (new-owner (optional principal))
-                             (zonefile-content (optional (buff 40960))))
+                             (zonefile-hash (optional (buff 20))))
   (let (
     (namespace-props (unwrap!
       (map-get? namespaces ((namespace namespace)))
@@ -863,7 +878,7 @@
               (err err-name-could-not-be-transfered))
             (ok true)))))
     ;; Update the zonefile, if any.
-    (if (is-none zonefile-content)
+    (if (is-none zonefile-hash)
       (map-set name-properties
         ((namespace namespace) (name name))
         ((registered-at (some block-height))
@@ -872,11 +887,11 @@
          (zonefile-hash (get zonefile-hash name-props))))
       (update-zonefile-and-props
               namespace 
-              name  
+              name
               (some block-height)
               none
               none
-              (unwrap! zonefile-content (err err-panic))))  
+              (unwrap! zonefile-hash (err err-panic))))  
     (ok true)))
 
 ;; Additionals public methods
@@ -919,10 +934,7 @@
     (namespace-props (unwrap! 
       (map-get? namespaces ((namespace namespace))) 
       (err err-namespace-not-found)))
-    (is-lease-expired (is-name-lease-expired? namespace name))
-    (zonefile-content (unwrap!
-      (get content (map-get? zonefiles ((namespace namespace) (name name))))
-      (err err-zonefile-not-found))))
+    (is-lease-expired (is-name-lease-expired? namespace name)))
     ;; The namespace must be launched
     (asserts!
       (is-some (get launched-at namespace-props))
@@ -939,12 +951,8 @@
     (asserts!
       (is-none (get revoked-at name-props))
       (err err-name-revoked))
-    ;; The zonefile hash and the zonefile must match
-    (asserts!
-      (is-eq (hash160 zonefile-content) (get zonefile-hash name-props))
-      (err err-name-not-resolvable))
     ;; Get the zonefile
-    (ok zonefile-content)))
+    (ok (get zonefile-hash name-props))))
 
 ;; (begin
 ;;   (ft-mint? stx u10000000000 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)
