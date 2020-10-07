@@ -2,19 +2,19 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
 };
-use stacks::burnchains::{Address, PublicKey, PoxConstants};
+use stacks::burnchains::{Address, PoxConstants, PublicKey};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
     StacksPublicKey, StacksTransaction,
 };
+use stacks::core;
 use stacks::net::StacksMessageCodec;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
-use stacks::core;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
@@ -725,7 +725,6 @@ fn pox_integration_test() {
             .to_vec(),
     );
 
-
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     let total_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
@@ -755,7 +754,6 @@ fn pox_integration_test() {
         .start_bitcoind()
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
-
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -945,7 +943,6 @@ fn pox_integration_test() {
         panic!("");
     }
 
-
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _one_ transaction from the microblock
     //  only set that got mined (since the block before this one was empty, a microblock can
@@ -984,22 +981,28 @@ fn pox_integration_test() {
     }
 
     // we should have received _three_ Bitcoin commitments, because our commitment was 3 * threshold
-    let utxos = btc_regtest_controller
-        .get_all_utxos(&pox_pubkey);
+    let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
-    assert_eq!(utxos.len(), 3, "Should have received three outputs during PoX reward cycle");
+    assert_eq!(
+        utxos.len(),
+        3,
+        "Should have received three outputs during PoX reward cycle"
+    );
 
     // we should have received _three_ Bitcoin commitments to pox_2_pubkey, because our commitment was 3 * threshold
     //   note: that if the reward set "summing" isn't implemented, this recipient would only have received _2_ slots,
     //         because each `stack-stx` call only received enough to get 1 slot individually.
-    let utxos = btc_regtest_controller
-        .get_all_utxos(&pox_2_pubkey);
+    let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
-    assert_eq!(utxos.len(), 3, "Should have received three outputs during PoX reward cycle");
+    assert_eq!(
+        utxos.len(),
+        3,
+        "Should have received three outputs during PoX reward cycle"
+    );
 
-    // okay, the threshold for participation should be 
+    // okay, the threshold for participation should be
 
     channel.stop_chains_coordinator();
 }

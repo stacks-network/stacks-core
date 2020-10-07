@@ -63,7 +63,11 @@ impl BitcoinRegtestController {
         BitcoinRegtestController::with_burnchain(config, coordinator_channel, None)
     }
 
-    pub fn with_burnchain(config: Config, coordinator_channel: Option<CoordinatorChannels>, burnchain_config: Option<Burnchain>) -> Self {
+    pub fn with_burnchain(
+        config: Config,
+        coordinator_channel: Option<CoordinatorChannels>,
+        burnchain_config: Option<Burnchain>,
+    ) -> Self {
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
 
@@ -103,7 +107,7 @@ impl BitcoinRegtestController {
             db: None,
             burnchain_db: None,
             chain_tip: None,
-            burnchain_config
+            burnchain_config,
         }
     }
 
@@ -133,7 +137,7 @@ impl BitcoinRegtestController {
             db: None,
             burnchain_db: None,
             chain_tip: None,
-            burnchain_config: None
+            burnchain_config: None,
         }
     }
 

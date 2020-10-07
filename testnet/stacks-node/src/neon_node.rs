@@ -85,7 +85,7 @@ pub struct NeonGenesisNode {
     pub config: Config,
     keychain: Keychain,
     event_dispatcher: EventDispatcher,
-    burnchain: Burnchain
+    burnchain: Burnchain,
 }
 
 #[cfg(test)]
@@ -597,7 +597,7 @@ impl InitializedNeonNode {
         miner: bool,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
-        burnchain: Burnchain
+        burnchain: Burnchain,
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -1113,7 +1113,12 @@ impl InitializedNeonNode {
 
 impl NeonGenesisNode {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, mut event_dispatcher: EventDispatcher, burnchain: Burnchain, boot_block_exec: F) -> Self
+    pub fn new<F>(
+        config: Config,
+        mut event_dispatcher: EventDispatcher,
+        burnchain: Burnchain,
+        boot_block_exec: F,
+    ) -> Self
     where
         F: FnOnce(&mut ClarityTx) -> (),
     {
@@ -1147,7 +1152,7 @@ impl NeonGenesisNode {
             keychain,
             config,
             event_dispatcher,
-            burnchain
+            burnchain,
         }
     }
 
@@ -1169,7 +1174,7 @@ impl NeonGenesisNode {
             true,
             blocks_processed,
             coord_comms,
-            self.burnchain
+            self.burnchain,
         )
     }
 
@@ -1191,7 +1196,7 @@ impl NeonGenesisNode {
             false,
             blocks_processed,
             coord_comms,
-            self.burnchain
+            self.burnchain,
         )
     }
 }
