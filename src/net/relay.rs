@@ -2458,14 +2458,14 @@ mod test {
             );
         })
     }
-    
+
     #[test]
     #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound() {
         // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable
         test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true)
     }
-    
+
     #[test]
     #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound() {

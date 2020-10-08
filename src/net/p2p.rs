@@ -2692,19 +2692,24 @@ impl PeerNetwork {
         new_blocks: &BlocksData,
     ) -> () {
         let (remote_neighbor_key, remote_is_authenticated) = match self.peers.get(&event_id) {
-            Some(convo) => (
-                convo.to_neighbor_key(),
-                convo.is_authenticated()
-            ),
+            Some(convo) => (convo.to_neighbor_key(), convo.is_authenticated()),
             None => {
-                test_debug!("{:?}: No such neighbor event={}", &self.local_peer, event_id);
+                test_debug!(
+                    "{:?}: No such neighbor event={}",
+                    &self.local_peer,
+                    event_id
+                );
                 return;
             }
         };
 
         if !remote_is_authenticated {
             // drop -- a correct peer will have authenticated before sending this message
-            test_debug!("{:?}: Drop unauthenticated BlocksData from {:?}", &self.local_peer, &remote_neighbor_key);
+            test_debug!(
+                "{:?}: Drop unauthenticated BlocksData from {:?}",
+                &self.local_peer,
+                &remote_neighbor_key
+            );
             return;
         }
 
@@ -2713,7 +2718,9 @@ impl PeerNetwork {
         debug!(
             "{:?}: Process BlocksData from {:?} with {} entries",
             &self.local_peer,
-            outbound_neighbor_key_opt.as_ref().unwrap_or(&remote_neighbor_key),
+            outbound_neighbor_key_opt
+                .as_ref()
+                .unwrap_or(&remote_neighbor_key),
             new_blocks.blocks.len()
         );
 
