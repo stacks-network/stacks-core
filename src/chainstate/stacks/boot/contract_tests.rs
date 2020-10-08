@@ -343,6 +343,7 @@ fn delegation_tests() {
     // let's do some delegated stacking!
     sim.execute_next_block(|env| {
         // try to stack more than [0]'s delegated amount!
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
@@ -352,6 +353,7 @@ fn delegation_tests() {
                     (&USER_KEYS[0]).into(),
                     Value::UInt(3 * USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -371,6 +373,7 @@ fn delegation_tests() {
                     (&USER_KEYS[0]).into(),
                     Value::UInt(2 * USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -390,6 +393,7 @@ fn delegation_tests() {
                     (&USER_KEYS[0]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -437,6 +441,7 @@ fn delegation_tests() {
                     (&USER_KEYS[1]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -456,6 +461,7 @@ fn delegation_tests() {
                     (&USER_KEYS[0]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -475,6 +481,7 @@ fn delegation_tests() {
                     (&USER_KEYS[2]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -494,6 +501,7 @@ fn delegation_tests() {
                     (&USER_KEYS[2]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(1)
                 ])
             )
@@ -597,6 +605,7 @@ fn delegation_tests() {
                     (&USER_KEYS[3]).into(),
                     Value::UInt(*MIN_THRESHOLD),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -707,6 +716,7 @@ fn delegation_tests() {
                     (&USER_KEYS[1]).into(),
                     Value::UInt(*MIN_THRESHOLD),
                     POX_ADDRS[0].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -756,6 +766,7 @@ fn delegation_tests() {
                     (&USER_KEYS[4]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[0].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )

@@ -283,6 +283,9 @@ pub struct PoxConstants {
     /// fraction of liquid STX that must vote to reject PoX for
     /// it to revert to PoB in the next reward cycle
     pub pox_rejection_fraction: u64,
+    /// percentage of liquid STX that must participate for PoX
+    ///  to occur
+    pub pox_participation_threshold_pct: u64,
     _shadow: PhantomData<()>,
 }
 
@@ -300,6 +303,7 @@ impl PoxConstants {
             prepare_length,
             anchor_threshold,
             pox_rejection_fraction,
+            pox_participation_threshold_pct: 5,
             _shadow: PhantomData,
         }
     }
@@ -310,6 +314,14 @@ impl PoxConstants {
 
     pub fn reward_slots(&self) -> u32 {
         self.reward_cycle_length
+    }
+
+    /// is participating_ustx enough to engage in PoX in the next reward cycle?
+    pub fn enough_participation(&self, participating_ustx: u128, liquid_ustx: u128) -> bool {
+        participating_ustx.checked_mul(self.pox_participation_threshold_pct as u128)
+            .expect("OVERFLOW: uSTX overflowed u128") > 
+            liquid_ustx.checked_mul(100)
+            .expect("OVERFLOW: uSTX overflowed u128")
     }
 
     pub fn mainnet_default() -> PoxConstants {

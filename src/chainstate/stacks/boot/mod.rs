@@ -220,11 +220,11 @@ impl StacksChainState {
         reward_set
     }
 
-    pub fn get_reward_threshold(
+    pub fn get_reward_threshold_and_participation(
         pox_settings: &PoxConstants,
         addresses: &[(StacksAddress, u128)],
         liquid_ustx: u128,
-    ) -> u128 {
+    ) -> (u128, u128) {
         let participation = addresses
             .iter()
             .fold(0, |agg, (_, stacked_amt)| agg + stacked_amt);
@@ -248,7 +248,7 @@ impl StacksChainState {
             "PoX participation threshold is {}, from {}",
             threshold, threshold_precise
         );
-        threshold
+        (threshold, participation)
     }
 
     /// Each address will have at least (get-stacking-minimum) tokens.
@@ -393,66 +393,66 @@ pub mod test {
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
         assert_eq!(
-            StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[], liquid),
+            StacksChainState::get_reward_threshold_and_participation(&PoxConstants::new(1000, 1, 1, 1), &[], liquid).0,
             POX_THRESHOLD_STEPS_USTX
         );
         assert_eq!(
-            StacksChainState::get_reward_threshold(
+            StacksChainState::get_reward_threshold_and_participation(
                 &PoxConstants::new(1000, 1, 1, 1),
                 &[(rand_addr(), liquid)],
                 liquid
-            ),
+            ).0,
             POX_THRESHOLD_STEPS_USTX
         );
 
         let liquid = 200_000_000 * MICROSTACKS_PER_STACKS as u128;
         // with zero participation, should scale to 25% of liquid
         assert_eq!(
-            StacksChainState::get_reward_threshold(&PoxConstants::new(1000, 1, 1, 1), &[], liquid),
+            StacksChainState::get_reward_threshold_and_participation(&PoxConstants::new(1000, 1, 1, 1), &[], liquid).0,
             50_000 * MICROSTACKS_PER_STACKS as u128
         );
         // should be the same at 25% participation
         assert_eq!(
-            StacksChainState::get_reward_threshold(
+            StacksChainState::get_reward_threshold_and_participation(
                 &PoxConstants::new(1000, 1, 1, 1),
                 &[(rand_addr(), liquid / 4)],
                 liquid
-            ),
+            ).0,
             50_000 * MICROSTACKS_PER_STACKS as u128
         );
         // but not at 30% participation
         assert_eq!(
-            StacksChainState::get_reward_threshold(
+            StacksChainState::get_reward_threshold_and_participation(
                 &PoxConstants::new(1000, 1, 1, 1),
                 &[
                     (rand_addr(), liquid / 4),
                     (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))
                 ],
                 liquid
-            ),
+            ).0,
             60_000 * MICROSTACKS_PER_STACKS as u128
         );
 
         // bump by just a little bit, should go to the next threshold step
         assert_eq!(
-            StacksChainState::get_reward_threshold(
+            StacksChainState::get_reward_threshold_and_participation(
                 &PoxConstants::new(1000, 1, 1, 1),
                 &[
                     (rand_addr(), liquid / 4),
                     (rand_addr(), (MICROSTACKS_PER_STACKS as u128))
                 ],
                 liquid
-            ),
+            ).0,
             60_000 * MICROSTACKS_PER_STACKS as u128
         );
 
         // bump by just a little bit, should go to the next threshold step
         assert_eq!(
-            StacksChainState::get_reward_threshold(
+            StacksChainState::get_reward_threshold_and_participation(
                 &PoxConstants::new(1000, 1, 1, 1),
                 &[(rand_addr(), liquid)],
                 liquid
-            ),
+            ).0,
             200_000 * MICROSTACKS_PER_STACKS as u128
         );
     }
@@ -680,6 +680,7 @@ pub mod test {
         addr_version: AddressHashMode,
         addr_bytes: Hash160,
         lock_period: u128,
+        burn_ht: u64,
     ) -> StacksTransaction {
         // (define-public (stack-stx (amount-ustx uint)
         //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
@@ -691,6 +692,7 @@ pub mod test {
             vec![
                 Value::UInt(amount),
                 make_pox_addr(addr_version, addr_bytes),
+                Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
             ],
         )
@@ -832,7 +834,7 @@ pub mod test {
 
                 ;; this contract stacks the stx given to it
                 (as-contract
-                    (contract-call? '{}.pox stack-stx amount-ustx pox-addr lock-period))
+                    (contract-call? '{}.pox stack-stx amount-ustx pox-addr burn-block-height lock-period))
             ))
         )
 
@@ -1037,13 +1039,13 @@ pub mod test {
                 ];
 
                 if tenure_id == 1 {
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1, tip.block_height);
                     block_txs.push(alice_lockup_1);
                 }
                 if tenure_id == 2 {
                     let alice_test_tx = make_bare_contract(&alice, 1, 0, "nested-stacker", &format!(
                         "(define-public (nested-stack-stx)
-                            (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
+                            (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u1))", STACKS_BOOT_CODE_CONTRACT_ADDRESS));
 
                     block_txs.push(alice_test_tx);
                 }
@@ -1256,6 +1258,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             12,
+                            tip.block_height
                         );
                         block_txs.push(alice_lockup);
                     }
@@ -1706,6 +1709,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             12,
+                            tip.block_height
                         );
                         block_txs.push(alice_lockup);
 
@@ -1717,6 +1721,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&bob).bytes,
                             12,
+                            tip.block_height
                         );
                         block_txs.push(bob_lockup);
                     }
@@ -1900,11 +1905,11 @@ pub mod test {
                 if tenure_id == 1 {
                     // Alice locks up exactly 12.5% of the liquid STX supply, twice.
                     // Only the first one succeeds.
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
                     block_txs.push(alice_lockup_1);
 
                     // will be rejected
-                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
+                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
                     block_txs.push(alice_lockup_2);
 
                     // let's make some allowances for contract-calls through smart contracts
@@ -1928,7 +1933,7 @@ pub mod test {
                         "(define-data-var test-run bool false)
                          (define-data-var test-result int -1)
                          (let ((result
-                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) u12)))
+                                (contract-call? '{}.pox stack-stx u256000000 (tuple (version 0x00) (hashbytes 0xae1593226f85e49a7eaff5b633ff687695438cc9)) burn-block-height u12)))
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
@@ -1942,7 +1947,7 @@ pub mod test {
                         "(define-data-var test-run bool false)
                          (define-data-var test-result int -1)
                          (let ((result
-                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) u12)))
+                                (contract-call? '{}.pox stack-stx u512000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u12)))
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
@@ -1956,7 +1961,7 @@ pub mod test {
                         "(define-data-var test-run bool false)
                          (define-data-var test-result int -1)
                          (let ((result
-                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version 0x00) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) u12)))
+                                (contract-call? '{}.pox stack-stx u1024000000000 (tuple (version 0x00) (hashbytes 0xfefefefefefefefefefefefefefefefefefefefe)) burn-block-height u12)))
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
@@ -2122,7 +2127,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
-                        );
+                            tip.block_height);
                         block_txs.push(alice_lockup);
                     }
 
@@ -2356,7 +2361,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
-                        );
+                            tip.block_height);
                         block_txs.push(alice_lockup);
 
                         // Bob creates a locking contract
@@ -2383,7 +2388,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
-                        );
+                            tip.block_height);
                         block_txs.push(alice_lockup);
 
                         // Charlie locks up half of his tokens
@@ -2825,7 +2830,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
-                        );
+                            tip.block_height);
                         block_txs.push(alice_lockup);
 
                         let bob_lockup = make_pox_lockup(
@@ -2835,7 +2840,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&bob).bytes,
                             1,
-                        );
+                            tip.block_height);
                         block_txs.push(bob_lockup);
 
                         let charlie_lockup = make_pox_lockup(
@@ -2845,7 +2850,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&charlie).bytes,
                             1,
-                        );
+                            tip.block_height);
                         block_txs.push(charlie_lockup);
 
                         let danielle_lockup = make_pox_lockup(
@@ -2855,7 +2860,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&danielle).bytes,
                             1,
-                        );
+                            tip.block_height);
                         block_txs.push(danielle_lockup);
 
                         let bob_contract = make_pox_lockup_contract(&bob, 1, "do-lockup");
@@ -3251,7 +3256,7 @@ pub mod test {
 
                 if tenure_id == 1 {
                     // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
-                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12);
+                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * 1000000, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
                     block_txs.push(alice_lockup);
 
                     // Bob rejects with exactly 25% of the liquid STX supply (shouldn't affect
@@ -3277,7 +3282,7 @@ pub mod test {
                     //      Note: this behavior is a bug in the miner and block processor: see issue #?
                     let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
                         &format!(
-                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u1 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} u1)) (err 17))) (err 1))",
+                            "(asserts! (not (is-eq (print (contract-call? '{}.pox stack-stx u1 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1)) (err 17))) (err 1))",
                             boot_code_addr()));
 
                     block_txs.push(charlie_stack);

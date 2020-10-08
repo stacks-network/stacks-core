@@ -784,6 +784,8 @@ fn pox_integration_test() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    let sort_height = channel.get_sortitions_processed();
+
     // let's query the miner's account nonce:
 
     eprintln!("Miner account: {}", miner_account);
@@ -817,7 +819,7 @@ fn pox_integration_test() {
     let tx = make_contract_call(
         &spender_sk,
         0,
-        243,
+        260,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -829,6 +831,7 @@ fn pox_integration_test() {
             ))
             .unwrap()
             .unwrap(),
+            Value::UInt(sort_height as u128),
             Value::UInt(3),
         ],
     );
@@ -862,7 +865,7 @@ fn pox_integration_test() {
     let tx = make_contract_call(
         &spender_2_sk,
         0,
-        243,
+        260,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -874,6 +877,7 @@ fn pox_integration_test() {
             ))
             .unwrap()
             .unwrap(),
+            Value::UInt(sort_height as u128),
             Value::UInt(3),
         ],
     );
@@ -904,7 +908,7 @@ fn pox_integration_test() {
     let tx = make_contract_call(
         &spender_3_sk,
         0,
-        243,
+        260,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -916,6 +920,7 @@ fn pox_integration_test() {
             ))
             .unwrap()
             .unwrap(),
+            Value::UInt(sort_height as u128),
             Value::UInt(3),
         ],
     );
