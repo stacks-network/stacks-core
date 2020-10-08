@@ -2231,10 +2231,8 @@ mod test {
         push_message(peer, dest, relay_hints, msg)
     }
 
-    #[test]
-    #[ignore]
-    fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks() {
-        with_timeout(600, || {
+    fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(outbound_test: bool) {
+        with_timeout(600, move || {
             let original_blocks_and_microblocks = RefCell::new(vec![]);
             let blocks_and_microblocks = RefCell::new(vec![]);
             let idx = RefCell::new(0);
@@ -2267,7 +2265,12 @@ mod test {
                     let peer_1 = peer_configs[1].to_neighbor();
 
                     peer_configs[0].add_neighbor(&peer_1);
-                    peer_configs[1].add_neighbor(&peer_0);
+
+                    if outbound_test {
+                        // neighbor relationship is symmetric -- peer 1 has an outbound connection
+                        // to peer 0.
+                        peer_configs[1].add_neighbor(&peer_0);
+                    }
                 },
                 |num_blocks, ref mut peers| {
                     let tip = SortitionDB::get_canonical_burn_chain_tip(
@@ -2454,6 +2457,20 @@ mod test {
                 |_| true,
             );
         })
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound() {
+        // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable
+        test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound() {
+        // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
+        test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false)
     }
 
     fn make_test_smart_contract_transaction(
