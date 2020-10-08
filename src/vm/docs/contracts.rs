@@ -171,8 +171,7 @@ fn produce_docs() -> BTreeMap<String, ContractRef> {
 
             let ecode_names = variable_types
                 .iter()
-                .enumerate()
-                .filter_map(|(ix, (var_name, _))| {
+                .filter_map(|(var_name, _)| {
                     if var_name.starts_with("ERR_") {
                         Some(format!("{}: {}", var_name.as_str(), var_name.as_str()))
                     } else {
@@ -230,6 +229,8 @@ pub fn make_json_boot_contracts_reference() -> String {
 
 #[cfg(test)]
 mod tests {
+    use vm::docs::contracts::make_json_boot_contracts_reference;
+
     #[test]
     fn test_make_boot_contracts_reference() {
         make_json_boot_contracts_reference();
