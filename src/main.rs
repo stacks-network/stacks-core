@@ -347,7 +347,10 @@ fn main() {
     }
 
     if argv[1] == "docgen_boot" {
-        println!("{}", vm::docs::contracts::make_json_boot_contracts_reference());
+        println!(
+            "{}",
+            vm::docs::contracts::make_json_boot_contracts_reference()
+        );
         return;
     }
 

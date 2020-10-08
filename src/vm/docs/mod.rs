@@ -298,8 +298,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
     match function_type {
         FunctionType::Variadic(ref in_type, _) => format!("{}, ...", in_type),
         FunctionType::Fixed(FixedFunction { ref args, .. }) => {
-            let in_types: Vec<String> =
-                args.iter().map(|x| format!("{}", x.signature)).collect();
+            let in_types: Vec<String> = args.iter().map(|x| format!("{}", x.signature)).collect();
             in_types.join(", ")
         }
         FunctionType::UnionArgs(ref in_types, _) => {
@@ -320,21 +319,25 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{}", returns),
         FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
         FunctionType::ArithmeticVariadic
-            | FunctionType::ArithmeticUnary
-            | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+        | FunctionType::ArithmeticUnary
+        | FunctionType::ArithmeticBinary => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
     }
 }
 
 pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Option<String> {
     if let FunctionType::Fixed(FixedFunction { ref args, .. }) = function_type {
-        let in_names: Vec<String> =
-            args.iter().map(|x| format!("{}", x.name.as_str())).collect();
+        let in_names: Vec<String> = args
+            .iter()
+            .map(|x| format!("{}", x.name.as_str()))
+            .collect();
         let arg_examples = in_names.join(" ");
-        Some(format!("({}{}{})",
-                     function_name,
-                     if arg_examples.len() == 0 { "" } else { " " },
-                     arg_examples))
+        Some(format!(
+            "({}{}{})",
+            function_name,
+            if arg_examples.len() == 0 { "" } else { " " },
+            arg_examples
+        ))
     } else {
         None
     }
