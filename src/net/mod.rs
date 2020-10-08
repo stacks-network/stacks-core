@@ -1007,6 +1007,8 @@ pub struct RPCPoxInfoData {
     pub rejection_fraction: u128,
     pub reward_cycle_id: u128,
     pub reward_cycle_length: u128,
+    pub rejection_votes_left_required: u128,
+    pub total_liquid_supply_ustx: u128,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -1056,6 +1058,8 @@ pub struct CallReadOnlyResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountEntryResponse {
     pub balance: String,
+    pub locked: String,
+    pub unlock_height: u64,
     pub nonce: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
