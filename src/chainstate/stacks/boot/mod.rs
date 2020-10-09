@@ -234,6 +234,8 @@ impl StacksChainState {
             "CORRUPTION: More stacking participation than liquid STX"
         );
 
+        // set the lower limit on reward scaling at 25% of liquid_ustx
+        //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
         let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
 
         let reward_slots = pox_settings.reward_slots() as u128;
