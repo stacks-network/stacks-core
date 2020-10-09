@@ -19,12 +19,14 @@ use util::macros::is_big_endian;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 
+use super::ZonefileHash;
+
 pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
 
 const ATLASDB_SETUP: &'static [&'static str] = &[
     r#"
     CREATE TABLE zonefiles(
-        inv_index INTEGER UNIQUE NOT NULL,
+        zonefile_id INTEGER UNIQUE NOT NULL,
         name STRING NOT NULL,
         zonefile_hash TEXT NOT NULL,
         zonefile_content TEXT NOT NULL,
@@ -34,7 +36,14 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         tried_storage TEXT NOT NULL,
         block_height INTEGER NOT NULL );
 
-        PRIMARY KEY(inv_index)
+        PRIMARY KEY(zonefile_id)
+    );"#,
+    r#"
+    CREATE TABLE records(
+        record_id INTEGER UNIQUE NOT NULL,
+        zonefile_id INTEGER NOT NULL,
+
+        PRIMARY KEY(record_id)
     );"#,
     r#"
     CREATE TABLE db_version(version TEXT NOT NULL);
@@ -131,5 +140,12 @@ impl AtlasDB {
         Ok(tx)
     }
 
+    // Read the local peer record
+    pub fn get_zonefiles_hashes_in_range_desc(&self, min: u32, max: u32) -> Result<Vec<ZonefileHash>, db_error> {
+        let qry = "SELECT inv_index, zonefile_hash FROM zonefiles WHERE inv_index >= ?1 AND inv_index < ?2 ORDER BY inv_index DESC".to_string();
+        let args = [&min as &dyn ToSql, &max as &dyn ToSql];
+        let rows = query_rows::<ZonefileHash, _>(&self.conn, &qry, &args)?;
+        Ok(rows)
+    }
 
 }
