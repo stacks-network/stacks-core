@@ -182,10 +182,13 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             liquid_ustx,
         );
 
-        if !burnchain.pox_constants.enough_participation(participation, liquid_ustx) {
+        if !burnchain
+            .pox_constants
+            .enough_participation(participation, liquid_ustx)
+        {
             info!("PoX reward cycle did not have enough participation. Defaulting to burn. participation={}, liquid_ustx={}, burn_height={}",
                   participation, liquid_ustx, current_burn_height);
-            return Ok(vec![])
+            return Ok(vec![]);
         }
 
         Ok(StacksChainState::make_reward_set(

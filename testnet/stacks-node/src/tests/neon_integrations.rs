@@ -759,7 +759,9 @@ fn pox_integration_test() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut burnchain_config = btc_regtest_controller.get_burnchain();
-    burnchain_config.pox_constants = PoxConstants::new(10, 5, 4, 5);
+    let mut pox_constants = PoxConstants::new(10, 5, 4, 5);
+    pox_constants.pox_participation_threshold_pct = 15;
+    burnchain_config.pox_constants = pox_constants;
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -859,6 +861,18 @@ fn pox_integration_test() {
         panic!("");
     }
 
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {}", sort_height);
+
+    // now let's mine until the next reward cycle starts ...
+    while sort_height < 222 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    // let's stack with spender 2 and spender 3...
+
     // now let's have sender_2 and sender_3 stack to pox addr 2 in
     //  two different txs, and make sure that they sum together in the reward set.
 
@@ -948,38 +962,27 @@ fn pox_integration_test() {
         panic!("");
     }
 
-    // now let's mine a couple blocks, and then check the sender's nonce.
-    //  at the end of mining three blocks, there should be _one_ transaction from the microblock
-    //  only set that got mined (since the block before this one was empty, a microblock can
-    //  be added),
-    //  and _two_ transactions from the two anchor blocks that got mined (and processed)
-    //
-    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // this one will contain the sortition from above anchor block,
-    //    which *should* have also confirmed the microblock.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // let's figure out how many micro-only and anchor-only txs got accepted
-    //   by examining our account nonces:
-    let path = format!("{}/v2/accounts/{}?proof=0", &http_origin, spender_addr);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
-    if res.nonce != 1 {
-        assert_eq!(res.nonce, 1, "Spender address nonce should be 1");
+    // mine until the end of the current reward cycle.
+    sort_height = channel.get_sortitions_processed();
+    while sort_height < 229 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
     }
 
-    let mut sort_height = channel.get_sortitions_processed();
-    eprintln!("Sort height: {}", sort_height);
-    // now let's mine until the next reward cycle finishes ...
+    // we should have received _no_ Bitcoin commitments, because the pox participation threshold
+    //   was not met!
+    let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);
+    eprintln!("Got UTXOs: {}", utxos.len());
+    assert_eq!(
+        utxos.len(),
+        0,
+        "Should have received no outputs during PoX reward cycle"
+    );
 
-    while sort_height < 229 {
+    // mine until the end of the next reward cycle,
+    //   the participation threshold now should be met.
+    while sort_height < 239 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);

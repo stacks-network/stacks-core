@@ -229,6 +229,74 @@ impl HeadersDB for TestSimHeadersDB {
 }
 
 #[test]
+fn recency_tests() {
+    let mut sim = ClarityTestSim::new();
+    let delegator = StacksPrivateKey::new();
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_CONTRACT.clone(), &BOOT_CODE_POX_TESTNET)
+            .unwrap()
+    });
+    sim.execute_next_block(|env| {
+        // try to issue a far future stacking tx
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT.clone(),
+                "stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    Value::UInt(3000),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 24)".to_string()
+        );
+        // let's delegate, and check if the delegate can issue a far future
+        //   stacking tx
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(3000),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 24)".to_string()
+        );
+    });
+}
+
+#[test]
 fn delegation_tests() {
     let mut sim = ClarityTestSim::new();
     let delegator = StacksPrivateKey::new();

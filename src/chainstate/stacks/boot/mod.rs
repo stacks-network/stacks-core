@@ -395,7 +395,12 @@ pub mod test {
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(&PoxConstants::new(1000, 1, 1, 1), &[], liquid).0,
+            StacksChainState::get_reward_threshold_and_participation(
+                &PoxConstants::new(1000, 1, 1, 1),
+                &[],
+                liquid
+            )
+            .0,
             POX_THRESHOLD_STEPS_USTX
         );
         assert_eq!(
@@ -403,14 +408,20 @@ pub mod test {
                 &PoxConstants::new(1000, 1, 1, 1),
                 &[(rand_addr(), liquid)],
                 liquid
-            ).0,
+            )
+            .0,
             POX_THRESHOLD_STEPS_USTX
         );
 
         let liquid = 200_000_000 * MICROSTACKS_PER_STACKS as u128;
         // with zero participation, should scale to 25% of liquid
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(&PoxConstants::new(1000, 1, 1, 1), &[], liquid).0,
+            StacksChainState::get_reward_threshold_and_participation(
+                &PoxConstants::new(1000, 1, 1, 1),
+                &[],
+                liquid
+            )
+            .0,
             50_000 * MICROSTACKS_PER_STACKS as u128
         );
         // should be the same at 25% participation
@@ -419,7 +430,8 @@ pub mod test {
                 &PoxConstants::new(1000, 1, 1, 1),
                 &[(rand_addr(), liquid / 4)],
                 liquid
-            ).0,
+            )
+            .0,
             50_000 * MICROSTACKS_PER_STACKS as u128
         );
         // but not at 30% participation
@@ -431,7 +443,8 @@ pub mod test {
                     (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))
                 ],
                 liquid
-            ).0,
+            )
+            .0,
             60_000 * MICROSTACKS_PER_STACKS as u128
         );
 
@@ -444,7 +457,8 @@ pub mod test {
                     (rand_addr(), (MICROSTACKS_PER_STACKS as u128))
                 ],
                 liquid
-            ).0,
+            )
+            .0,
             60_000 * MICROSTACKS_PER_STACKS as u128
         );
 
@@ -454,7 +468,8 @@ pub mod test {
                 &PoxConstants::new(1000, 1, 1, 1),
                 &[(rand_addr(), liquid)],
                 liquid
-            ).0,
+            )
+            .0,
             200_000 * MICROSTACKS_PER_STACKS as u128
         );
     }
@@ -1260,7 +1275,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             12,
-                            tip.block_height
+                            tip.block_height,
                         );
                         block_txs.push(alice_lockup);
                     }
@@ -1711,7 +1726,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             12,
-                            tip.block_height
+                            tip.block_height,
                         );
                         block_txs.push(alice_lockup);
 
@@ -1723,7 +1738,7 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&bob).bytes,
                             12,
-                            tip.block_height
+                            tip.block_height,
                         );
                         block_txs.push(bob_lockup);
                     }
@@ -2129,7 +2144,8 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
-                            tip.block_height);
+                            tip.block_height,
+                        );
                         block_txs.push(alice_lockup);
                     }
 
@@ -2363,7 +2379,8 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
-                            tip.block_height);
+                            tip.block_height,
+                        );
                         block_txs.push(alice_lockup);
 
                         // Bob creates a locking contract
@@ -2390,7 +2407,8 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
-                            tip.block_height);
+                            tip.block_height,
+                        );
                         block_txs.push(alice_lockup);
 
                         // Charlie locks up half of his tokens
@@ -2832,7 +2850,8 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&alice).bytes,
                             1,
-                            tip.block_height);
+                            tip.block_height,
+                        );
                         block_txs.push(alice_lockup);
 
                         let bob_lockup = make_pox_lockup(
@@ -2842,7 +2861,8 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&bob).bytes,
                             1,
-                            tip.block_height);
+                            tip.block_height,
+                        );
                         block_txs.push(bob_lockup);
 
                         let charlie_lockup = make_pox_lockup(
@@ -2852,7 +2872,8 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&charlie).bytes,
                             1,
-                            tip.block_height);
+                            tip.block_height,
+                        );
                         block_txs.push(charlie_lockup);
 
                         let danielle_lockup = make_pox_lockup(
@@ -2862,7 +2883,8 @@ pub mod test {
                             AddressHashMode::SerializeP2PKH,
                             key_to_stacks_addr(&danielle).bytes,
                             1,
-                            tip.block_height);
+                            tip.block_height,
+                        );
                         block_txs.push(danielle_lockup);
 
                         let bob_contract = make_pox_lockup_contract(&bob, 1, "do-lockup");

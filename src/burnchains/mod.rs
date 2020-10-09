@@ -318,10 +318,12 @@ impl PoxConstants {
 
     /// is participating_ustx enough to engage in PoX in the next reward cycle?
     pub fn enough_participation(&self, participating_ustx: u128, liquid_ustx: u128) -> bool {
-        participating_ustx.checked_mul(self.pox_participation_threshold_pct as u128)
-            .expect("OVERFLOW: uSTX overflowed u128") > 
-            liquid_ustx.checked_mul(100)
+        participating_ustx
+            .checked_mul(100)
             .expect("OVERFLOW: uSTX overflowed u128")
+            > liquid_ustx
+                .checked_mul(self.pox_participation_threshold_pct as u128)
+                .expect("OVERFLOW: uSTX overflowed u128")
     }
 
     pub fn mainnet_default() -> PoxConstants {
