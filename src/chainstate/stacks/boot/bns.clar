@@ -307,6 +307,13 @@
           (revoked-at revoked-at)
           (zonefile-hash zonefile-hash))))))
 
+(define-readonly (get-zonefiles-inv-info)
+  (ok { 
+    pages-count: (var-get zonefiles-inv-page-cursor),
+    last-page-len: (var-get zonefiles-inv-index-cursor),
+    page-size: zonefiles-inv-page-size
+  })
+
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER
 ;; This step registers the salted hash of the namespace with BNS nodes, and burns the requisite amount of cryptocurrency.
@@ -330,7 +337,7 @@
     (asserts! (is-eq (len hashed-salted-namespace) u20) (err err-namespace-hash-malformed))
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
-    ;; Burn the tokens - todo(ludo): switch to native STX once available
+    ;; Burn the tokens
     (unwrap! (stx-transfer? stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
     ;; Register the preorder
     (map-set namespace-preorders
@@ -551,7 +558,7 @@
     (asserts! (is-eq (len hashed-salted-fqn) u20) (err err-name-hash-malformed))
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-name-stx-burnt-insufficient))
-    ;; Burn the tokens - todo(ludo): switch to native STX once available
+    ;; Burn the tokens
     (unwrap! (stx-transfer? stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
     ;; Register the pre-order
     (map-set name-preorders
