@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 // Borrowed from Andrew Poelstra's rust-bitcoin library
 /// An iterator that returns pairs of elements
 pub struct Pair<I>

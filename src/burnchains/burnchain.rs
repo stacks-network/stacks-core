@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 use deps;
 use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
 use deps::bitcoin::blockdata::opcodes::Class;
 use deps::bitcoin::blockdata::script::{Builder, Instruction, Script};

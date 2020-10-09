@@ -1,4 +1,3 @@
-
 // This code is derived from the Rust Bitcoin Library.  Copyright notices appear below.
 
 // Rust Bitcoin Library

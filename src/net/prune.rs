@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 use net::p2p::*;
 /// This module contains the logic for pruning client and neighbor connections
 use net::*;

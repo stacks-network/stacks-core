@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 use std::error;
 /// This file contains low-level methods for reading and manipulating Trie node data.
 use std::fmt;

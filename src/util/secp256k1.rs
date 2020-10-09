@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 use secp256k1;
 use secp256k1::constants as LibSecp256k1Constants;
 use secp256k1::recovery::RecoverableSignature as LibSecp256k1RecoverableSignature;
