@@ -1,4 +1,5 @@
 pub mod db;
+pub mod zonefile;
 
 pub use self::db::AtlasDB;
 
