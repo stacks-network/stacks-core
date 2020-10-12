@@ -166,6 +166,7 @@ impl RunLoop {
         let first_burnchain_block_hash = self.config.burnchain.first_block_hash.clone();
         let first_burnchain_block_height = self.config.burnchain.first_block_height;
         let first_burnchain_block_timestamp = self.config.burnchain.first_block_timestamp;
+        let coordinator_burnchain_config = burnchain_config.clone();
 
         thread::spawn(move || {
             let mut boot_data = ChainStateBootData {
