@@ -664,17 +664,17 @@ impl ConversationP2P {
     ) -> Result<bool, net_error> {
         if msg.preamble.network_id != self.network_id {
             // not on our network
-            test_debug!(
-                "wrong network ID: {:x} != {:x}",
-                msg.preamble.network_id,
-                self.network_id
+            debug!(
+                "{:?}: Preamble invalid: wrong network ID: {:x} != {:x}",
+                &self, msg.preamble.network_id, self.network_id
             );
             return Err(net_error::InvalidMessage);
         }
         if (msg.preamble.peer_version & 0xff000000) != (self.version & 0xff000000) {
             // major version mismatch
             test_debug!(
-                "wrong peer version: {:x} != {:x}",
+                "{:?}: Preamble invalid: wrong peer version: {:x} != {:x}",
+                &self,
                 msg.preamble.peer_version,
                 self.version
             );
@@ -687,8 +687,9 @@ impl ConversationP2P {
             != Some(msg.preamble.burn_block_height)
         {
             // invalid message
-            test_debug!(
-                "wrong stable block height: {:?} != {}",
+            debug!(
+                "{:?}: Preamble invalid: wrong stable block height: {:?} != {}",
+                &self,
                 msg.preamble
                     .burn_stable_block_height
                     .checked_add(self.burnchain.stable_confirmations as u64),
@@ -700,13 +701,11 @@ impl ConversationP2P {
         if msg.preamble.burn_stable_block_height
             > chain_view.burn_block_height + MAX_NEIGHBOR_BLOCK_DELAY
         {
-            // this node is too far ahead of us, but otherwise still potentially valid
-            test_debug!(
-                "remote peer is too far ahead of us: {} > {}",
-                msg.preamble.burn_stable_block_height,
-                chain_view.burn_block_height
+            // this node is too far ahead of us for neighbor walks, but otherwise still potentially valid
+            debug!(
+                "{:?}: remote peer is far ahead of us: {} > {}",
+                &self, msg.preamble.burn_stable_block_height, chain_view.burn_block_height
             );
-            return Ok(false);
         }
 
         // must agree on stable burn header hash
@@ -3933,8 +3932,8 @@ mod test {
             &vec![],
         )
         .unwrap();
+
         let mut sortdb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
-        let mut sortdb_2 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
 
@@ -3983,40 +3982,6 @@ mod test {
             assert_eq!(
                 convo_bad.is_preamble_valid(&ping_bad, &chain_view),
                 Err(net_error::InvalidMessage)
-            );
-        }
-
-        // node is too far ahead of us
-        {
-            let mut convo_bad =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-
-            let ping_data = PingData::new();
-
-            let mut chain_view_bad = chain_view.clone();
-            chain_view_bad.burn_stable_block_height +=
-                MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
-            chain_view_bad.burn_block_height +=
-                MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
-
-            let ping_bad = convo_bad
-                .sign_message(
-                    &chain_view_bad,
-                    &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
-                )
-                .unwrap();
-
-            chain_view_bad.burn_stable_block_height -=
-                MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
-            chain_view_bad.burn_block_height -=
-                MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
-
-            db_setup(&mut peerdb_1, &mut sortdb_2, &socketaddr_2, &chain_view_bad);
-
-            assert_eq!(
-                convo_bad.is_preamble_valid(&ping_bad, &chain_view),
-                Ok(false)
             );
         }
 

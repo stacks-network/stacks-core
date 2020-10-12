@@ -1007,6 +1007,8 @@ pub struct RPCPoxInfoData {
     pub rejection_fraction: u128,
     pub reward_cycle_id: u128,
     pub reward_cycle_length: u128,
+    pub rejection_votes_left_required: u128,
+    pub total_liquid_supply_ustx: u128,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -1056,6 +1058,8 @@ pub struct CallReadOnlyResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountEntryResponse {
     pub balance: String,
+    pub locked: String,
+    pub unlock_height: u64,
     pub nonce: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
@@ -1595,8 +1599,8 @@ pub const DENY_MIN_BAN_DURATION: u64 = 2;
 pub struct NetworkResult {
     pub download_pox_id: Option<PoxId>, // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
-    pub blocks: Vec<(ConsensusHash, StacksBlock)>, // blocks we downloaded
-    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>)>, // confiremd microblocks we downloaded
+    pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>, // blocks we downloaded, and time taken
+    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confiremd microblocks we downloaded, and time taken
     pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>, // all transactions pushed to us and their message relay hints
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
@@ -2620,6 +2624,7 @@ pub mod test {
                         &sn.consensus_hash,
                         block,
                         &parent_sn.consensus_hash,
+                        5,
                     )
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };
@@ -2744,6 +2749,7 @@ pub mod test {
                     &mut node.chainstate,
                     consensus_hash,
                     block,
+                    0,
                 )
                 .unwrap();
 

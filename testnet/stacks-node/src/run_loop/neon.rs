@@ -16,6 +16,8 @@ use super::RunLoopCallbacks;
 
 use crate::monitoring::start_serving_monitoring_metrics;
 
+use crate::syncctl::PoxSyncWatchdog;
+
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
 pub struct RunLoop {
@@ -91,6 +93,7 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain =
             BitcoinRegtestController::new(self.config.clone(), Some(coordinator_senders.clone()));
+        let pox_constants = burnchain.get_pox_constants();
 
         let is_miner = if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
@@ -116,8 +119,9 @@ impl RunLoop {
             false
         };
 
-        let _burnchain_tip = match burnchain.start() {
-            Ok(x) => x,
+        let mut target_burnchain_block_height = 1;
+        match burnchain.start(Some(target_burnchain_block_height)) {
+            Ok(_) => {}
             Err(e) => {
                 warn!("Burnchain controller stopped: {}", e);
                 return;
@@ -133,6 +137,7 @@ impl RunLoop {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
+        let burnchain_poll_time = 30; // TODO: this is testnet-specific
 
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
@@ -173,7 +178,7 @@ impl RunLoop {
 
             ChainsCoordinator::run(
                 &chainstate_path,
-                burnchain_config,
+                coordinator_burnchain_config,
                 mainnet,
                 chainid,
                 block_limit,
@@ -217,14 +222,37 @@ impl RunLoop {
             });
         }
 
+        let chainstate_path = self.config.get_chainstate_path();
+        let mut pox_watchdog = PoxSyncWatchdog::new(
+            mainnet,
+            chainid,
+            chainstate_path,
+            burnchain_poll_time,
+            self.config.connection_options.timeout,
+        )
+        .unwrap();
+        let mut burnchain_height = 1;
+
+        // prepare to fetch the first reward cycle!
+        target_burnchain_block_height = pox_constants.reward_cycle_length as u64;
+
         loop {
-            burnchain_tip = match burnchain.sync() {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("Burnchain controller stopped: {}", e);
-                    return;
-                }
-            };
+            // wait until it's okay to process the next sortitions
+            let ibd =
+                pox_watchdog.pox_sync_wait(&burnchain_config, &burnchain_tip, burnchain_height);
+
+            let (next_burnchain_tip, next_burnchain_height) =
+                match burnchain.sync(Some(target_burnchain_block_height)) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        warn!("Burnchain controller stopped: {}", e);
+                        return;
+                    }
+                };
+
+            target_burnchain_block_height += pox_constants.reward_cycle_length as u64;
+            burnchain_tip = next_burnchain_tip;
+            burnchain_height = next_burnchain_height;
 
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
@@ -244,7 +272,8 @@ impl RunLoop {
                 let sortition_id = &block.sortition_id;
 
                 // Have the node process the new block, that can include, or not, a sortition.
-                node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id);
+                node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
+
                 // Now, tell the relayer to check if it won a sortition during this block,
                 //   and, if so, to process and advertize the block
                 //
@@ -255,14 +284,22 @@ impl RunLoop {
                     return;
                 }
             }
-            // now, let's tell the miner to try and mine.
-            if !node.relayer_issue_tenure() {
-                // relayer hung up, exit.
-                error!("Block relayer and miner hung up, exiting.");
-                return;
-            }
 
             block_height = next_height;
+            debug!(
+                "Synchronized up to block height {} (chain tip height is {})",
+                block_height, burnchain_height
+            );
+
+            if block_height >= burnchain_height {
+                // at tip. proceed to mine.
+                debug!("Synchronized full burnchain. Proceeding to mine blocks");
+                if !node.relayer_issue_tenure() {
+                    // relayer hung up, exit.
+                    error!("Block relayer and miner hung up, exiting.");
+                    return;
+                }
+            }
         }
     }
 }

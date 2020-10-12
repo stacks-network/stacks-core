@@ -122,6 +122,7 @@ fn inner_process_tenure(
             consensus_hash,
             &anchored_block,
             &parent_consensus_hash,
+            0,
         )?;
     }
 
@@ -836,12 +837,19 @@ impl InitializedNeonNode {
         bitcoin_controller: &mut BitcoinRegtestController,
     ) -> Option<AssembledAnchorBlock> {
         // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = keychain
-            .generate_proof(
-                &registered_key.vrf_public_key,
-                burn_block.sortition_hash.as_bytes(),
-            )
-            .unwrap();
+        let vrf_proof = match keychain.generate_proof(
+            &registered_key.vrf_public_key,
+            burn_block.sortition_hash.as_bytes(),
+        ) {
+            Some(vrfp) => vrfp,
+            None => {
+                error!(
+                    "Failed to generate proof with {:?}",
+                    &registered_key.vrf_public_key
+                );
+                return None;
+            }
+        };
 
         debug!(
             "Generated VRF Proof: {} over {} with key {}",
@@ -881,7 +889,7 @@ impl InitializedNeonNode {
             // the consensus hash of my Stacks block parent
             let parent_consensus_hash = stacks_tip.consensus_hash.clone();
 
-            // the stacks block I'm mining off of's burn header hash and vtx index:
+            // the stacks block I'm mining off of's burn header hash and vtxindex:
             let parent_snapshot = SortitionDB::get_block_snapshot_consensus(
                 burn_db.conn(),
                 &stacks_tip.consensus_hash,
@@ -1039,6 +1047,7 @@ impl InitializedNeonNode {
         &mut self,
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
+        ibd: bool,
     ) -> (Option<BlockSnapshot>, bool) {
         let mut last_sortitioned_block = None;
         let mut won_sortition = false;
@@ -1059,9 +1068,10 @@ impl InitializedNeonNode {
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
-                    "Received burnchain block #{} including block_commit_op (winning) - {}",
+                    "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height,
-                    op.input.to_testnet_address()
+                    op.input.to_testnet_address(),
+                    &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
                 // Release current registered key if leader won the sortition
@@ -1072,9 +1082,10 @@ impl InitializedNeonNode {
             } else {
                 if self.is_miner {
                     info!(
-                        "Received burnchain block #{} including block_commit_op - {}",
+                        "Received burnchain block #{} including block_commit_op - {} ({})",
                         block_height,
-                        op.input.to_testnet_address()
+                        op.input.to_testnet_address(),
+                        &op.block_header_hash
                     );
                 }
             }
@@ -1083,6 +1094,7 @@ impl InitializedNeonNode {
         let key_registers =
             SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
                 .expect("Unexpected SortitionDB error fetching key registers");
+
         for op in key_registers.into_iter() {
             if self.is_miner {
                 info!(
@@ -1091,12 +1103,15 @@ impl InitializedNeonNode {
                 );
             }
             if op.address == Keychain::address_from_burnchain_signer(&self.burnchain_signer) {
-                // Registered key has been mined
-                self.active_keys.push(RegisteredKey {
-                    vrf_public_key: op.public_key,
-                    block_height: op.block_height as u64,
-                    op_vtxindex: op.vtxindex as u32,
-                });
+                if !ibd {
+                    // not in initial block download, so we're not just replaying an old key.
+                    // Registered key has been mined
+                    self.active_keys.push(RegisteredKey {
+                        vrf_public_key: op.public_key,
+                        block_height: op.block_height as u64,
+                        op_vtxindex: op.vtxindex as u32,
+                    });
+                }
             }
         }
 

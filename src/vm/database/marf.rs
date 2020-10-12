@@ -328,9 +328,13 @@ impl MarfedKV {
         //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
         //    we should probably commit the data to a different table which does not have uniqueness constraints.
         self.side_store.rollback(&self.chain_tip);
-        self.marf
-            .commit_mined(will_move_to)
-            .expect("ERROR: Failed to commit MARF block");
+        let _ = self.marf.commit_mined(will_move_to).map_err(|e| {
+            error!(
+                "Failed to commit to mined MARF block {}: {:?}",
+                &will_move_to, &e
+            );
+            panic!();
+        });
     }
 
     pub fn commit_to(&mut self, final_bhh: &StacksBlockId) {
@@ -338,9 +342,10 @@ impl MarfedKV {
         self.side_store
             .commit_metadata_to(&self.chain_tip, final_bhh);
         self.side_store.commit(&self.chain_tip);
-        self.marf
-            .commit_to(final_bhh)
-            .expect("ERROR: Failed to commit MARF block");
+        let _ = self.marf.commit_to(final_bhh).map_err(|e| {
+            error!("Failed to commit to MARF block {}: {:?}", &final_bhh, &e);
+            panic!();
+        });
     }
 
     pub fn commit_unconfirmed(&mut self) {

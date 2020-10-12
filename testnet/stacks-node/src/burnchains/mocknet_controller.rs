@@ -83,7 +83,10 @@ impl BurnchainController for MocknetController {
         }
     }
 
-    fn start(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
+    fn start(
+        &mut self,
+        _ignored_target_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let db = match SortitionDB::connect(
             &self.config.get_burn_db_file_path(),
             0,
@@ -105,8 +108,8 @@ impl BurnchainController for MocknetController {
             received_at: Instant::now(),
         };
         self.chain_tip = Some(genesis_state.clone());
-
-        Ok(genesis_state)
+        let block_height = genesis_state.block_snapshot.block_height;
+        Ok((genesis_state, block_height))
     }
 
     fn submit_operation(
@@ -118,7 +121,10 @@ impl BurnchainController for MocknetController {
         true
     }
 
-    fn sync(&mut self) -> Result<BurnchainTip, BurnchainControllerError> {
+    fn sync(
+        &mut self,
+        _ignored_target_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         let chain_tip = self.get_chain_tip();
 
         // Simulating mining
@@ -224,7 +230,8 @@ impl BurnchainController for MocknetController {
         };
         self.chain_tip = Some(new_state.clone());
 
-        Ok(new_state)
+        let block_height = new_state.block_snapshot.block_height;
+        Ok((new_state, block_height))
     }
 
     #[cfg(test)]

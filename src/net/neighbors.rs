@@ -541,7 +541,7 @@ impl NeighborWalk {
                                 let res = if neighbor_from_handshake.addr != self.cur_neighbor.addr
                                 {
                                     // somehow, got a handshake from someone that _isn't_ cur_neighbor
-                                    debug!("{:?}: got unsolicited (or bootstrapping) HandshakeAccept from outbound {:?} (expected {:?})",
+                                    debug!("{:?}: got unsolicited (or bootstrapping) HandshakeAccept from outbound {:?} (expected {:?})", 
                                                &self.local_peer,
                                                &neighbor_from_handshake.addr,
                                                &self.cur_neighbor.addr);
@@ -956,7 +956,7 @@ impl NeighborWalk {
             let rh_naddr = naddr.clone(); // used below
             let new_rh = match res {
                 Ok(message) => {
-                    // if the neighbor is still bootstrapping, we're doone
+                    // if the neighbor is still bootstrapping, we're done
                     if message.preamble.burn_stable_block_height + MAX_NEIGHBOR_BLOCK_DELAY
                         < stable_block_height
                     {
@@ -4091,6 +4091,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_step_walk_2_neighbors_rekey() {
         with_timeout(600, || {
             let mut peer_1_config = TestPeerConfig::from_port(32600);

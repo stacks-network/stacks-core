@@ -263,6 +263,23 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128();
 
+        let current_rejection_votes = res
+            .get("current-rejection-votes")
+            .expect(&format!("FATAL: no 'current-rejection-votes'"))
+            .to_owned()
+            .expect_u128();
+
+        let total_liquid_supply_ustx = res
+            .get("total-liquid-supply-ustx")
+            .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
+            .to_owned()
+            .expect_u128();
+
+        let total_required = total_liquid_supply_ustx
+            .checked_div(rejection_fraction)
+            .expect("FATAL: unable to compute total_liquid_supply_ustx/current_rejection_votes");
+        let rejection_votes_left_required = total_required.saturating_sub(current_rejection_votes);
+
         Ok(RPCPoxInfoData {
             contract_id: boot::boot_code_id("pox").to_string(),
             first_burnchain_block_height,
@@ -271,6 +288,8 @@ impl RPCPoxInfoData {
             rejection_fraction,
             reward_cycle_id,
             reward_cycle_length,
+            rejection_votes_left_required,
+            total_liquid_supply_ustx,
         })
     }
 }
@@ -743,16 +762,16 @@ impl ConversationHttp {
                     .unwrap_or_else(|| (0, "".into()));
                 let nonce_proof = if with_proof { Some(nonce_proof) } else { None };
 
-                let balance = format!(
-                    "0x{}",
-                    to_hex(
-                        &balance
-                            .get_available_balance_at_block(block_height)
-                            .to_be_bytes()
-                    )
-                );
+                let unlocked = balance.get_available_balance_at_block(block_height);
+                let (locked, unlock_height) = balance.get_locked_balance_at_block(block_height);
+
+                let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
+                let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
+
                 AccountEntryResponse {
                     balance,
+                    locked,
+                    unlock_height,
                     nonce,
                     balance_proof,
                     nonce_proof,

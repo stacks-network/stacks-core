@@ -40,6 +40,8 @@ use util::macros::is_big_endian;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 
+use util::db::tx_busy_handler;
+
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 
@@ -528,6 +530,7 @@ impl PeerDB {
         let conn =
             Connection::open_with_flags(path, open_flags).map_err(|e| db_error::SqliteError(e))?;
 
+        conn.busy_handler(Some(tx_busy_handler))?;
         let mut db = PeerDB {
             conn: conn,
             readwrite: readwrite,

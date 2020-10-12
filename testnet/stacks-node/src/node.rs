@@ -573,6 +573,7 @@ impl Node {
                     consensus_hash,
                     &anchored_block,
                     &parent_consensus_hash,
+                    0,
                 )
                 .unwrap();
 
