@@ -33,16 +33,6 @@ pub struct RunLoop {
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
 }
 
-#[cfg(not(test))]
-const BURNCHAIN_POLL_TIME: u64 = 30; // TODO: this is testnet-specific
-#[cfg(test)]
-const BURNCHAIN_POLL_TIME: u64 = 1; // TODO: this is testnet-specific
-
-#[cfg(not(test))]
-const POX_SYNC_WAIT_MS: u64 = 1000;
-#[cfg(test)]
-const POX_SYNC_WAIT_MS: u64 = 0;
-
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
     #[cfg(not(test))]
@@ -149,7 +139,6 @@ impl RunLoop {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
-        let burnchain_poll_time = BURNCHAIN_POLL_TIME;
 
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
@@ -220,9 +209,8 @@ impl RunLoop {
             mainnet,
             chainid,
             chainstate_path,
-            burnchain_poll_time,
-            self.config.connection_options.timeout,
-            POX_SYNC_WAIT_MS,
+            self.config.burnchain.poll_time_secs,
+            self.config.node.pox_sync_sample_secs,
         )
         .unwrap();
         let mut burnchain_height = 1;

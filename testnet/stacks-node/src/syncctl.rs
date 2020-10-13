@@ -41,9 +41,9 @@ pub struct PoxSyncWatchdog {
     steady_state_resync_ts: u64,
     /// chainstate handle
     chainstate: StacksChainState,
-    /// ms to sleep on waits
-    wait_ms: u64,
 }
+
+const PER_SAMPLE_WAIT_MS: u64 = 1000;
 
 impl PoxSyncWatchdog {
     pub fn new(
@@ -52,7 +52,6 @@ impl PoxSyncWatchdog {
         chainstate_path: String,
         burnchain_poll_time: u64,
         download_timeout: u64,
-        wait_ms: u64,
     ) -> Result<PoxSyncWatchdog, String> {
         let (chainstate, _) = match StacksChainState::open(mainnet, chain_id, &chainstate_path) {
             Ok(cs) => cs,
@@ -78,7 +77,6 @@ impl PoxSyncWatchdog {
             steady_state_burnchain_sync_interval: burnchain_poll_time,
             steady_state_resync_ts: 0,
             chainstate: chainstate,
-            wait_ms,
         })
     }
 
@@ -354,7 +352,7 @@ impl PoxSyncWatchdog {
                                 &self.max_samples
                             );
                         }
-                        sleep_ms(self.wait_ms);
+                        sleep_ms(PER_SAMPLE_WAIT_MS);
                         continue;
                     }
 
@@ -363,7 +361,7 @@ impl PoxSyncWatchdog {
                     {
                         // still waiting for that first block in this reward cycle
                         debug!("PoX watchdog: Still warming up: waiting until {}s for first Stacks block download (estimated download time: {}s)...", expected_first_block_deadline, self.estimated_block_download_time);
-                        sleep_ms(self.wait_ms);
+                        sleep_ms(PER_SAMPLE_WAIT_MS);
                         continue;
                     }
 
@@ -410,7 +408,7 @@ impl PoxSyncWatchdog {
                     {
                         debug!("PoX watchdog: Still processing blocks; waiting until at least min({},{})s before burnchain synchronization (estimated block-processing time: {}s)", 
                                get_epoch_time_secs() + 1, expected_last_block_deadline, self.estimated_block_process_time);
-                        sleep_ms(self.wait_ms);
+                        sleep_ms(PER_SAMPLE_WAIT_MS);
                         continue;
                     }
 
@@ -422,7 +420,7 @@ impl PoxSyncWatchdog {
                                flat_attachable, flat_processed, &attachable_deviants, &processed_deviants);
 
                         if !flat_attachable || !flat_processed {
-                            sleep_ms(self.wait_ms);
+                            sleep_ms(PER_SAMPLE_WAIT_MS);
                             continue;
                         }
                     } else {
@@ -433,7 +431,7 @@ impl PoxSyncWatchdog {
                                 debug!("PoX watchdog: In steady-state; waiting until at least {} before burnchain synchronization", self.steady_state_resync_ts);
                                 steady_state = true;
                             }
-                            sleep_ms(self.wait_ms);
+                            sleep_ms(PER_SAMPLE_WAIT_MS);
                             continue;
                         }
                     }

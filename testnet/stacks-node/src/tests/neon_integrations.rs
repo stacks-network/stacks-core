@@ -45,6 +45,9 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
         Some(keychain.generate_op_signer().get_public_key().to_hex());
     conf.burnchain.commit_anchor_block_within = 0;
 
+    conf.burnchain.poll_time_secs = 1;
+    conf.node.pox_sync_sample_secs = 1;
+
     let miner_account = keychain.origin_address().unwrap();
 
     (conf, miner_account)
@@ -726,8 +729,6 @@ fn pox_integration_test() {
     );
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-
-    let total_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
