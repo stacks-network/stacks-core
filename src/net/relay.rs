@@ -389,8 +389,7 @@ impl RelayerStats {
         rankings: HashMap<NeighborKey, usize>,
         count: usize,
     ) -> Vec<NeighborKey> {
-        let mut ret = vec![];
-        let mut ret_set = HashSet::new();
+        let mut ret = HashSet::new();
         let mut rng = thread_rng();
 
         let mut norm = rankings.values().fold(0, |t, s| t + s);
@@ -400,8 +399,7 @@ impl RelayerStats {
         if norm <= 1 {
             // there is one or zero options
             if rankings_vec.len() > 0 {
-                ret.push(rankings_vec[0].0.clone());
-                return ret;
+                return vec![rankings_vec[0].0.clone()];
             } else {
                 return vec![];
             }
@@ -423,10 +421,7 @@ impl RelayerStats {
 
                 w += rankings_vec[i].1;
                 if w >= target {
-                    if !ret_set.contains(&rankings_vec[i].0) {
-                        ret.push(rankings_vec[i].0.clone());
-                        ret_set.insert(rankings_vec[i].0.clone());
-                    }
+                    ret.insert(rankings_vec[i].0.clone());
                     sampled += 1;
 
                     // sample without replacement
@@ -439,7 +434,7 @@ impl RelayerStats {
             assert_eq!(l + 1, sampled);
         }
 
-        ret
+        ret.into_iter().collect()
     }
 }
 
