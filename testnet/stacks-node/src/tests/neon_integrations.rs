@@ -759,8 +759,7 @@ fn pox_integration_test() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut burnchain_config = btc_regtest_controller.get_burnchain();
-    let mut pox_constants = PoxConstants::new(10, 5, 4, 5);
-    pox_constants.pox_participation_threshold_pct = 15;
+    let mut pox_constants = PoxConstants::new(10, 5, 4, 5, 15);
     burnchain_config.pox_constants = pox_constants;
 
     btc_regtest_controller.bootstrap_chain(201);

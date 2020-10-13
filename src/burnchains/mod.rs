@@ -295,6 +295,7 @@ impl PoxConstants {
         prepare_length: u32,
         anchor_threshold: u32,
         pox_rejection_fraction: u64,
+        pox_participation_threshold_pct: u64,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
 
@@ -303,13 +304,13 @@ impl PoxConstants {
             prepare_length,
             anchor_threshold,
             pox_rejection_fraction,
-            pox_participation_threshold_pct: 5,
+            pox_participation_threshold_pct,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        PoxConstants::new(10, 5, 3, 25)
+        PoxConstants::new(10, 5, 3, 25, 5)
     }
 
     pub fn reward_slots(&self) -> u32 {
@@ -327,11 +328,11 @@ impl PoxConstants {
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(1000, 240, 192, 25)
+        PoxConstants::new(1000, 240, 192, 25, 5)
     }
 
     pub fn testnet_default() -> PoxConstants {
-        PoxConstants::new(120, 30, 20, 3333333333333333) // total liquid supply is 40000000000000000 µSTX
+        PoxConstants::new(120, 30, 20, 3333333333333333, 5) // total liquid supply is 40000000000000000 µSTX
     }
 }
 
