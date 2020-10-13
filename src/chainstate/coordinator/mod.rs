@@ -176,11 +176,20 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
         .total_liquid_ustx;
 
-        let threshold = StacksChainState::get_reward_threshold(
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
             &burnchain.pox_constants,
             &registered_addrs,
             liquid_ustx,
         );
+
+        if !burnchain
+            .pox_constants
+            .enough_participation(participation, liquid_ustx)
+        {
+            info!("PoX reward cycle did not have enough participation. Defaulting to burn. participation={}, liquid_ustx={}, burn_height={}",
+                  participation, liquid_ustx, current_burn_height);
+            return Ok(vec![]);
+        }
 
         Ok(StacksChainState::make_reward_set(
             threshold,

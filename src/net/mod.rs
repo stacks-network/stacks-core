@@ -2015,7 +2015,7 @@ pub mod test {
                 )
                 .unwrap(),
             );
-            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25);
+            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5);
 
             let spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,

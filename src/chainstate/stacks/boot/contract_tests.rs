@@ -229,6 +229,74 @@ impl HeadersDB for TestSimHeadersDB {
 }
 
 #[test]
+fn recency_tests() {
+    let mut sim = ClarityTestSim::new();
+    let delegator = StacksPrivateKey::new();
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_CONTRACT.clone(), &BOOT_CODE_POX_TESTNET)
+            .unwrap()
+    });
+    sim.execute_next_block(|env| {
+        // try to issue a far future stacking tx
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT.clone(),
+                "stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    Value::UInt(3000),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 24)".to_string()
+        );
+        // let's delegate, and check if the delegate can issue a far future
+        //   stacking tx
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(3000),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 24)".to_string()
+        );
+    });
+}
+
+#[test]
 fn delegation_tests() {
     let mut sim = ClarityTestSim::new();
     let delegator = StacksPrivateKey::new();
@@ -343,6 +411,7 @@ fn delegation_tests() {
     // let's do some delegated stacking!
     sim.execute_next_block(|env| {
         // try to stack more than [0]'s delegated amount!
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
@@ -352,6 +421,7 @@ fn delegation_tests() {
                     (&USER_KEYS[0]).into(),
                     Value::UInt(3 * USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -371,6 +441,7 @@ fn delegation_tests() {
                     (&USER_KEYS[0]).into(),
                     Value::UInt(2 * USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -390,6 +461,7 @@ fn delegation_tests() {
                     (&USER_KEYS[0]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -437,6 +509,7 @@ fn delegation_tests() {
                     (&USER_KEYS[1]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -456,6 +529,7 @@ fn delegation_tests() {
                     (&USER_KEYS[0]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -475,6 +549,7 @@ fn delegation_tests() {
                     (&USER_KEYS[2]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -494,6 +569,7 @@ fn delegation_tests() {
                     (&USER_KEYS[2]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(1)
                 ])
             )
@@ -597,6 +673,7 @@ fn delegation_tests() {
                     (&USER_KEYS[3]).into(),
                     Value::UInt(*MIN_THRESHOLD),
                     POX_ADDRS[1].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -707,6 +784,7 @@ fn delegation_tests() {
                     (&USER_KEYS[1]).into(),
                     Value::UInt(*MIN_THRESHOLD),
                     POX_ADDRS[0].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
@@ -756,6 +834,7 @@ fn delegation_tests() {
                     (&USER_KEYS[4]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[0].clone(),
+                    burn_height.clone(),
                     Value::UInt(2)
                 ])
             )
