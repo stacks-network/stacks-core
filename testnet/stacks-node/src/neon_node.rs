@@ -210,8 +210,8 @@ fn inner_generate_block_commit_op(
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
 
     let commit_outs = if let Some(recipient_set) = recipients {
-        let (addr, _) = recipient_set.recipient;
-        vec![addr]
+        recipient_set.recipients.into_iter()
+            .map(|(recipient, _)| recipient).collect()
     } else {
         vec![]
     };

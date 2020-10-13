@@ -63,7 +63,7 @@ struct ParsedData {
     memo: Vec<u8>,
 }
 
-pub static OUTPUTS_PER_COMMIT: usize = 1;
+pub static OUTPUTS_PER_COMMIT: usize = 5;
 
 impl LeaderBlockCommitOp {
     #[cfg(test)]
@@ -365,7 +365,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
 
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
-    pub recipient: (StacksAddress, u16),
+    pub recipients: Vec<(StacksAddress, u16)>
 }
 
 impl LeaderBlockCommitOp {
@@ -405,19 +405,17 @@ impl LeaderBlockCommitOp {
             let expect_pox_descendant = if self.commit_outs.len() == 0 {
                 false
             } else {
-                if self.commit_outs.len() != 1 {
-                    warn!(
-                        "Invalid block commit: expected {} PoX transfers, but commit has {}",
-                        1,
-                        self.commit_outs.len()
-                    );
-                    return Err(op_error::BlockCommitBadOutputs);
+                if self.commit_outs.len() != reward_set_info.recipients.len() {
+                    warn!("Invalid block commit: expected {} PoX transfers, but commit has {}",
+                          reward_set_info.recipients.len(), self.commit_outs.len());
+                    return Err(op_error::BlockCommitBadOutputs)
                 }
-                let (expected_commit, _) = reward_set_info.recipient;
-                if !self.commit_outs.contains(&expected_commit) {
-                    warn!("Invalid block commit: expected to send funds to {}, but that address is not in the committed output set",
-                          expected_commit);
-                    return Err(op_error::BlockCommitBadOutputs);
+                for (expected_commit, _) in reward_set_info.recipients.iter() {
+                    if !self.commit_outs.contains(expected_commit) {
+                        warn!("Invalid block commit: expected to send funds to {}, but that address is not in the committed output set",
+                              expected_commit);
+                        return Err(op_error::BlockCommitBadOutputs)
+                    }
                 }
                 true
             };
@@ -607,15 +605,65 @@ mod tests {
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([1; 20]),
                 },
-            }],
+            },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([0; 20]) }
+                },
+            ],
         });
 
         let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx)
             .unwrap();
 
-        // should have 1 commit outputs, and a burn
-        assert_eq!(op.commit_outs.len(), 1);
-        assert_eq!(op.burn_fee, 10);
+        // should have 2 commit outputs, and a burn
+        assert_eq!(op.commit_outs.len(), 2);
+        assert_eq!(op.burn_fee, 50);
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 29,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([0; 20]) }
+                },
+            ],
+        });
+
+        // burn amount should have been 30, not 29
+        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
+            op_error::ParseError => {},
+            _ => unreachable!(),
+        };
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             txid: Txid([0; 32]),
@@ -634,15 +682,40 @@ mod tests {
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([1; 20]),
                 },
-            }],
+            },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+            ],
         });
 
         let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx)
             .unwrap();
 
-        // should have 1 commit outputs
-        assert_eq!(op.commit_outs.len(), 1);
-        assert_eq!(op.burn_fee, 13);
+        // should have 5 commit outputs
+        assert_eq!(op.commit_outs.len(), 5);
+        assert_eq!(op.burn_fee, 65);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             txid: Txid([0; 32]),
@@ -654,7 +727,32 @@ mod tests {
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
             }],
-            outputs: vec![],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+            ],
         });
 
         // not enough PoX outputs
@@ -662,6 +760,55 @@ mod tests {
             .unwrap_err()
         {
             op_error::InvalidInput => {}
+            _ => unreachable!(),
+        };
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]), vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([1; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 13,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+            ],
+        });
+
+        // unequal PoX outputs
+        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx).unwrap_err() {
+            op_error::ParseError => {},
             _ => unreachable!(),
         };
 
@@ -682,7 +829,32 @@ mod tests {
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([1; 20]),
                 },
-            }],
+            },
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+                BitcoinTxOutput {
+                    units: 0,
+                    address: BitcoinAddress { addrtype: BitcoinAddressType::PublicKeyHash,
+                                              network_id: BitcoinNetworkType::Mainnet,
+                                              bytes: Hash160([2; 20]) }
+                },
+            ],
         });
 
         // 0 total burn
