@@ -2725,7 +2725,7 @@ impl PeerNetwork {
                         self.walk_deadline =
                             self.connection_opts.walk_interval + get_epoch_time_secs();
 
-                        if self.walk_count > NUM_INITIAL_WALKS
+                        if self.walk_count > self.connection_opts.num_initial_walks
                             && self.prune_deadline < get_epoch_time_secs()
                         {
                             // clean up
@@ -2747,7 +2747,7 @@ impl PeerNetwork {
                         );
 
                         if walk_opt.is_some()
-                            && self.walk_count > NUM_INITIAL_WALKS
+                            && self.walk_count > self.connection_opts.num_initial_walks
                             && walk.walk_step_count >= walk.walk_min_duration
                         {
                             // consider re-setting the walk state, now that we completed a walk.

@@ -208,8 +208,8 @@ impl NeighborStats {
         }
     }
 
-    pub fn add_relayer(&mut self, addr: NeighborAddress, num_bytes: u64) -> () {
-        if let Some(stats) = self.relayed_messages.get_mut(&addr) {
+    pub fn add_relayer(&mut self, addr: &NeighborAddress, num_bytes: u64) -> () {
+        if let Some(stats) = self.relayed_messages.get_mut(addr) {
             stats.num_messages += 1;
             stats.num_bytes += num_bytes;
             stats.last_seen = get_epoch_time_secs();
@@ -219,7 +219,7 @@ impl NeighborStats {
                 num_bytes: num_bytes,
                 last_seen: get_epoch_time_secs(),
             };
-            self.relayed_messages.insert(addr, info);
+            self.relayed_messages.insert(addr.clone(), info);
         }
     }
 
@@ -835,7 +835,7 @@ impl ConversationP2P {
         &mut self,
         msg: StacksMessage,
     ) -> Result<ReplyHandleP2P, net_error> {
-        let _name = msg.get_message_name();
+        let _name = msg.payload.get_message_description();
         let _seq = msg.request_id();
 
         let mut handle = self.connection.make_relay_handle(self.conn_id)?;
@@ -1241,6 +1241,7 @@ impl ConversationP2P {
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
         get_blocks_inv: &GetBlocksInv,
+        connection_opts: &ConnectionOptions,
     ) -> Result<StacksMessageType, net_error> {
         // must not ask for more than a reasonable number of blocks
         if get_blocks_inv.num_blocks == 0
@@ -1367,7 +1368,7 @@ impl ConversationP2P {
         // update cache
         SortitionDB::merge_block_header_cache(header_cache, &block_hashes);
 
-        let blocks_inv_data: BlocksInvData = chainstate
+        let mut blocks_inv_data: BlocksInvData = chainstate
             .get_blocks_inventory(&block_hashes)
             .map_err(|e| net_error::from(e))?;
 
@@ -1375,6 +1376,20 @@ impl ConversationP2P {
             "{:?}: Handled GetBlocksInv. Reply {:?} to request {:?}",
             &local_peer, &blocks_inv_data, get_blocks_inv
         );
+
+        if connection_opts.disable_inv_chat {
+            // never reply that we have blocks
+            test_debug!(
+                "{:?}: Disable inv chat -- pretend like we have nothing",
+                local_peer
+            );
+            for i in 0..blocks_inv_data.block_bitvec.len() {
+                blocks_inv_data.block_bitvec[i] = 0;
+            }
+            for i in 0..blocks_inv_data.microblocks_bitvec.len() {
+                blocks_inv_data.microblocks_bitvec[i] = 0;
+            }
+        }
 
         Ok(StacksMessageType::BlocksInv(blocks_inv_data))
     }
@@ -1399,6 +1414,7 @@ impl ConversationP2P {
             chainstate,
             header_cache,
             get_blocks_inv,
+            &self.connection.options,
         )?;
         self.sign_and_reply(local_peer, burnchain_view, preamble, response)
     }
@@ -1534,7 +1550,7 @@ impl ConversationP2P {
     fn check_relayers_remote(local_peer: &LocalPeer, relayers: &Vec<RelayData>) -> bool {
         let addr = local_peer.to_neighbor_addr();
         for r in relayers.iter() {
-            if r.peer == addr {
+            if r.peer.public_key_hash == addr.public_key_hash {
                 return false;
             }
         }
@@ -1549,24 +1565,27 @@ impl ConversationP2P {
         &mut self,
         local_peer: &LocalPeer,
         preamble: &Preamble,
-        mut relayers: Vec<RelayData>,
+        relayers: &Vec<RelayData>,
     ) -> bool {
-        if !ConversationP2P::check_relayer_cycles(&relayers) {
-            debug!("Message from {:?} contains a cycle", self.to_neighbor_key());
+        if !ConversationP2P::check_relayer_cycles(relayers) {
+            debug!(
+                "Invalid relayers -- message from {:?} contains a cycle",
+                self.to_neighbor_key()
+            );
             return false;
         }
 
-        if !ConversationP2P::check_relayers_remote(local_peer, &relayers) {
+        if !ConversationP2P::check_relayers_remote(local_peer, relayers) {
             debug!(
-                "Message originates from us ({})",
+                "Invalid relayers -- message originates from us ({})",
                 local_peer.to_neighbor_addr()
             );
             return false;
         }
 
-        for relayer in relayers.drain(..) {
+        for relayer in relayers.iter() {
             self.stats
-                .add_relayer(relayer.peer, (preamble.payload_len - 1) as u64);
+                .add_relayer(&relayer.peer, (preamble.payload_len - 1) as u64);
         }
 
         return true;
@@ -1583,7 +1602,8 @@ impl ConversationP2P {
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
-        if !self.process_relayers(local_peer, preamble, relayers) {
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            debug!("Drop pushed blocks -- invalid relayers {:?}", &relayers);
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1619,7 +1639,11 @@ impl ConversationP2P {
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
-        if !self.process_relayers(local_peer, preamble, relayers) {
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            debug!(
+                "Drop pushed microblocks -- invalid relayers {:?}",
+                &relayers
+            );
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1650,7 +1674,11 @@ impl ConversationP2P {
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
 
-        if !self.process_relayers(local_peer, preamble, relayers) {
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            debug!(
+                "Drop pushed transaction -- invalid relayers {:?}",
+                &relayers
+            );
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1797,7 +1825,7 @@ impl ConversationP2P {
                 }
             }
         }
-        debug!("{:?}: received {} bytes", self, total_recved);
+        test_debug!("{:?}: received {} bytes", self, total_recved);
         Ok(total_recved)
     }
 
@@ -1825,7 +1853,7 @@ impl ConversationP2P {
                 }
             }
         }
-        debug!("{:?}: sent {} bytes", self, total_sent);
+        test_debug!("{:?}: sent {} bytes", self, total_sent);
         Ok(total_sent)
     }
 
@@ -2154,7 +2182,8 @@ impl ConversationP2P {
             }
 
             let now = get_epoch_time_secs();
-            let _msgtype = msg.payload.get_message_name().to_owned();
+            let _msgtype = msg.payload.get_message_description().to_owned();
+            let _relayers = format!("{:?}", &msg.relayers);
             let _seq = msg.request_id();
 
             if update_stats {
@@ -2201,7 +2230,10 @@ impl ConversationP2P {
                 self.stats.msgs_rx_unsolicited += 1;
             }
 
-            debug!("{:?}: Received message {}", &self, _msgtype);
+            debug!(
+                "{:?}: Received message {}, relayed by {}",
+                &self, &_msgtype, &_relayers
+            );
 
             // Is there someone else waiting for this message?  If so, pass it along.
             let fulfill_opt = self.connection.fulfill_request(msg);
@@ -4111,10 +4143,10 @@ mod test {
             },
         ];
 
-        assert!(!convo.process_relayers(&local_peer, &msg.preamble, relay_cycles));
-        assert!(!convo.process_relayers(&local_peer, &msg.preamble, self_sent));
+        assert!(!convo.process_relayers(&local_peer, &msg.preamble, &relay_cycles));
+        assert!(!convo.process_relayers(&local_peer, &msg.preamble, &self_sent));
 
-        assert!(convo.process_relayers(&local_peer, &msg.preamble, relayers.clone()));
+        assert!(convo.process_relayers(&local_peer, &msg.preamble, &relayers));
 
         // stats updated
         assert_eq!(convo.stats.relayed_messages.len(), 2);
