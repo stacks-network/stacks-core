@@ -2169,7 +2169,7 @@ mod test {
     fn broadcast_message(
         broadcaster: &mut TestPeer,
         relay_hints: Vec<RelayData>,
-        msg: StacksMessageType
+        msg: StacksMessageType,
     ) -> bool {
         let request = NetworkRequest::Broadcast(relay_hints, msg);
         match broadcaster.network.dispatch_request(request) {
@@ -2209,7 +2209,7 @@ mod test {
         });
         push_message(peer, dest, relay_hints, msg)
     }
-    
+
     fn broadcast_block(
         peer: &mut TestPeer,
         relay_hints: Vec<RelayData>,
@@ -2262,7 +2262,7 @@ mod test {
         });
         push_message(peer, dest, relay_hints, msg)
     }
-    
+
     fn broadcast_microblocks(
         peer: &mut TestPeer,
         relay_hints: Vec<RelayData>,
@@ -2302,17 +2302,13 @@ mod test {
         let msg = StacksMessageType::Transaction(tx);
         push_message(peer, dest, relay_hints, msg)
     }
-    
+
     fn broadcast_transaction(
         peer: &mut TestPeer,
         relay_hints: Vec<RelayData>,
         tx: StacksTransaction,
     ) -> bool {
-        test_debug!(
-            "{:?}: broadcast tx {}",
-            peer.to_neighbor().addr,
-            tx.txid(),
-        );
+        test_debug!("{:?}: broadcast tx {}", peer.to_neighbor().addr, tx.txid(),);
         let msg = StacksMessageType::Transaction(tx);
         broadcast_message(peer, relay_hints, msg)
     }
@@ -2601,7 +2597,13 @@ mod test {
                         },
                     );
 
-                    test_debug!("Nonce of {:?} is {} at {}/{}", &spending_account.origin_address().unwrap(), cur_nonce, consensus_hash, block_hash);
+                    test_debug!(
+                        "Nonce of {:?} is {} at {}/{}",
+                        &spending_account.origin_address().unwrap(),
+                        cur_nonce,
+                        consensus_hash,
+                        block_hash
+                    );
 
                     // spending_account.set_nonce(cur_nonce + 1);
 
@@ -3008,20 +3010,20 @@ mod test {
                         peer_configs[i].connection_opts.inv_sync_interval = 30;
 
                         let max_inflight = peer_configs[i].connection_opts.max_inflight_blocks;
-                        peer_configs[i].connection_opts.max_clients_per_host = ((num_peers + 1) as u64) * max_inflight;
-                        peer_configs[i].connection_opts.soft_max_clients_per_host = ((num_peers + 1) as u64) * max_inflight;
+                        peer_configs[i].connection_opts.max_clients_per_host =
+                            ((num_peers + 1) as u64) * max_inflight;
+                        peer_configs[i].connection_opts.soft_max_clients_per_host =
+                            ((num_peers + 1) as u64) * max_inflight;
                         peer_configs[i].connection_opts.num_neighbors = (num_peers + 1) as u64;
                         peer_configs[i].connection_opts.soft_num_neighbors = (num_peers + 1) as u64;
                     }
 
-                    let initial_balances = vec![
-                        (
-                            PrincipalData::from(
-                                peer_configs[0].spending_account.origin_address().unwrap(),
-                            ),
-                            1000000,
+                    let initial_balances = vec![(
+                        PrincipalData::from(
+                            peer_configs[0].spending_account.origin_address().unwrap(),
                         ),
-                    ];
+                        1000000,
+                    )];
 
                     for i in 0..peer_configs.len() {
                         peer_configs[i].initial_balances = initial_balances.clone();
@@ -3068,7 +3070,7 @@ mod test {
                         let (_, burn_header_hash, consensus_hash) =
                             peers[0].next_burnchain_block(burn_ops.clone());
                         peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-                        
+
                         TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                         for i in 1..peers.len() {
@@ -3085,7 +3087,6 @@ mod test {
                             Some(stacks_block),
                             Some(microblocks),
                         ));
-
                     }
                     *blocks_and_microblocks.borrow_mut() = block_data
                         .clone()
@@ -3120,9 +3121,12 @@ mod test {
                             if let Some(convo) = peers[i].network.peers.get(event_id) {
                                 if convo.is_authenticated() {
                                     if let Some(inv_state) = &peers[i].network.inv_state {
-                                        if let Some(inv_stats) = inv_state.block_stats.get(&peer_0_nk) {
+                                        if let Some(inv_stats) =
+                                            inv_state.block_stats.get(&peer_0_nk)
+                                        {
                                             if inv_stats.inv.num_reward_cycles >= 5 {
-                                                connectivity_n_to_0.insert(peers[i].to_neighbor().addr);
+                                                connectivity_n_to_0
+                                                    .insert(peers[i].to_neighbor().addr);
                                             }
                                         }
                                     }
@@ -3131,8 +3135,14 @@ mod test {
                         }
                     }
 
-                    if connectivity_0_to_n.len() < peers.len() - 1 || connectivity_n_to_0.len() < peers.len() - 1 {
-                        test_debug!("Network not connected: 0 --> N = {}, N --> 0 = {}", connectivity_0_to_n.len(), connectivity_n_to_0.len());
+                    if connectivity_0_to_n.len() < peers.len() - 1
+                        || connectivity_n_to_0.len() < peers.len() - 1
+                    {
+                        test_debug!(
+                            "Network not connected: 0 --> N = {}, N --> 0 = {}",
+                            connectivity_0_to_n.len(),
+                            connectivity_n_to_0.len()
+                        );
                         return;
                     }
 
@@ -3145,16 +3155,30 @@ mod test {
                     if idx > 0 {
                         let mut caught_up = true;
                         for i in 1..peers.len() {
-                            peers[i].with_db_state(|sortdb, chainstate, relayer, mempool| {
-                                let (canonical_consensus_hash, canonical_block_hash) =
-                                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+                            peers[i]
+                                .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                                    let (canonical_consensus_hash, canonical_block_hash) =
+                                        SortitionDB::get_canonical_stacks_chain_tip_hash(
+                                            sortdb.conn(),
+                                        )
+                                        .unwrap();
 
-                                if canonical_consensus_hash != tip_consensus_hash || canonical_block_hash != tip_block.block_hash() {
-                                    debug!("Peer {} is not caught up yet (at {}/{}, need {}/{})", i+1, &canonical_consensus_hash, &canonical_block_hash, &tip_consensus_hash, &tip_block.block_hash());
-                                    caught_up = false;
-                                }
-                                Ok(())
-                            }).unwrap();
+                                    if canonical_consensus_hash != tip_consensus_hash
+                                        || canonical_block_hash != tip_block.block_hash()
+                                    {
+                                        debug!(
+                                            "Peer {} is not caught up yet (at {}/{}, need {}/{})",
+                                            i + 1,
+                                            &canonical_consensus_hash,
+                                            &canonical_block_hash,
+                                            &tip_consensus_hash,
+                                            &tip_block.block_hash()
+                                        );
+                                        caught_up = false;
+                                    }
+                                    Ok(())
+                                })
+                                .unwrap();
                         }
                         if !caught_up {
                             return;
@@ -3183,9 +3207,9 @@ mod test {
                             block.block_hash(),
                             idx
                         );
-                        
+
                         let block_hash = block.block_hash();
-                        
+
                         // create a transaction against the current
                         // (anchored) chain tip
                         let tx = make_test_smart_contract_transaction(
@@ -3199,12 +3223,7 @@ mod test {
                         expected_txs.push(tx.clone());
 
                         // next block
-                        broadcast_block(
-                            &mut peers[0],
-                            vec![],
-                            consensus_hash.clone(),
-                            block,
-                        );
+                        broadcast_block(&mut peers[0], vec![], consensus_hash.clone(), block);
                         broadcast_microblocks(
                             &mut peers[0],
                             vec![],
@@ -3216,12 +3235,7 @@ mod test {
                         // NOTE: first transaction will be dropped since the other nodes haven't
                         // processed the first-ever Stacks block when their relayer code gets
                         // around to considering it.
-                        broadcast_transaction(
-                            &mut peers[0], 
-                            vec![],
-                            tx
-                        );
-
+                        broadcast_transaction(&mut peers[0], vec![], tx);
                     } else {
                         test_debug!("Done pushing data");
                     }
@@ -3242,9 +3256,9 @@ mod test {
 
                     let mut ret = true;
                     for i in 1..peers.len() {
-                        let txs =
-                            MemPoolDB::get_all_txs(peers[1].mempool.as_ref().unwrap().conn()).unwrap();
-                        test_debug!("Peer {} has {} txs", i+1, txs.len());
+                        let txs = MemPoolDB::get_all_txs(peers[1].mempool.as_ref().unwrap().conn())
+                            .unwrap();
+                        test_debug!("Peer {} has {} txs", i + 1, txs.len());
                         ret = ret && txs.len() == sent_txs.borrow().len() - 1;
                     }
                     ret
@@ -3256,7 +3270,8 @@ mod test {
             let expected_txs = sent_txs.into_inner();
 
             for i in 1..peers.len() {
-                let txs = MemPoolDB::get_all_txs(peers[i].mempool.as_ref().unwrap().conn()).unwrap();
+                let txs =
+                    MemPoolDB::get_all_txs(peers[i].mempool.as_ref().unwrap().conn()).unwrap();
                 for tx in txs.iter() {
                     let mut found = false;
                     for expected_tx in expected_txs.iter() {

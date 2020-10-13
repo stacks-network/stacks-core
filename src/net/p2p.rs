@@ -589,7 +589,12 @@ impl PeerNetwork {
                         }
                     }
                     if !do_relay {
-                        debug!("{:?}: Do not broadcast '{}' to {:?}: it has already relayed it", &self.local_peer, message_payload.get_message_description(), &nk);
+                        debug!(
+                            "{:?}: Do not broadcast '{}' to {:?}: it has already relayed it",
+                            &self.local_peer,
+                            message_payload.get_message_description(),
+                            &nk
+                        );
                         continue;
                     }
 
@@ -767,7 +772,6 @@ impl PeerNetwork {
         unique.into_iter().collect::<Vec<NeighborKey>>()
     }
 
-
     /// Sample the available connections to broadcast on.
     /// Up to MAX_BROADCAST_OUTBOUND_PEERS outbound connections will be used.
     /// Up to MAX_BROADCAST_INBOUND_PEERS inbound connections will be used.
@@ -858,11 +862,7 @@ impl PeerNetwork {
         outbound_sample.append(&mut inbound_sample);
         let ret = self.coalesce_neighbors(outbound_sample);
 
-        debug!(
-            "All recipients (out of {}): {:?}",
-            ret.len(),
-            &ret
-        );
+        debug!("All recipients (out of {}): {:?}", ret.len(), &ret);
         Ok(ret)
     }
 
@@ -3489,7 +3489,7 @@ mod test {
             test_debug!("fake endpoint thread joined");
         })
     }
-    
+
     #[test]
     #[ignore]
     fn test_dispatch_requests_connect_and_ban() {
@@ -3505,7 +3505,7 @@ mod test {
                 &p2p.chain_view.burn_block_hash,
                 p2p.chain_view.burn_stable_block_height,
                 &p2p.chain_view.burn_stable_block_hash,
-                StacksMessageType::Ping(PingData::new())
+                StacksMessageType::Ping(PingData::new()),
             );
 
             let mut h = p2p.new_handle(1);

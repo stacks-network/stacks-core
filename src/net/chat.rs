@@ -1376,10 +1376,13 @@ impl ConversationP2P {
             "{:?}: Handled GetBlocksInv. Reply {:?} to request {:?}",
             &local_peer, &blocks_inv_data, get_blocks_inv
         );
-        
+
         if connection_opts.disable_inv_chat {
             // never reply that we have blocks
-            test_debug!("{:?}: Disable inv chat -- pretend like we have nothing", local_peer);
+            test_debug!(
+                "{:?}: Disable inv chat -- pretend like we have nothing",
+                local_peer
+            );
             for i in 0..blocks_inv_data.block_bitvec.len() {
                 blocks_inv_data.block_bitvec[i] = 0;
             }
@@ -1411,7 +1414,7 @@ impl ConversationP2P {
             chainstate,
             header_cache,
             get_blocks_inv,
-            &self.connection.options
+            &self.connection.options,
         )?;
         self.sign_and_reply(local_peer, burnchain_view, preamble, response)
     }
@@ -1565,7 +1568,10 @@ impl ConversationP2P {
         relayers: &Vec<RelayData>,
     ) -> bool {
         if !ConversationP2P::check_relayer_cycles(relayers) {
-            debug!("Invalid relayers -- message from {:?} contains a cycle", self.to_neighbor_key());
+            debug!(
+                "Invalid relayers -- message from {:?} contains a cycle",
+                self.to_neighbor_key()
+            );
             return false;
         }
 
@@ -1634,7 +1640,10 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!("Drop pushed microblocks -- invalid relayers {:?}", &relayers);
+            debug!(
+                "Drop pushed microblocks -- invalid relayers {:?}",
+                &relayers
+            );
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1666,7 +1675,10 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!("Drop pushed transaction -- invalid relayers {:?}", &relayers);
+            debug!(
+                "Drop pushed transaction -- invalid relayers {:?}",
+                &relayers
+            );
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -2218,7 +2230,10 @@ impl ConversationP2P {
                 self.stats.msgs_rx_unsolicited += 1;
             }
 
-            debug!("{:?}: Received message {}, relayed by {}", &self, &_msgtype, &_relayers);
+            debug!(
+                "{:?}: Received message {}, relayed by {}",
+                &self, &_msgtype, &_relayers
+            );
 
             // Is there someone else waiting for this message?  If so, pass it along.
             let fulfill_opt = self.connection.fulfill_request(msg);

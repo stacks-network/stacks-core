@@ -1250,14 +1250,21 @@ impl StacksMessage {
         our_addr: &NeighborAddress,
     ) -> Result<(), net_error> {
         if self.relayers.len() >= MAX_RELAYERS_LEN as usize {
-            warn!("Message {:?} has too many relayers; will not sign", self.payload.get_message_description());
+            warn!(
+                "Message {:?} has too many relayers; will not sign",
+                self.payload.get_message_description()
+            );
             return Err(net_error::InvalidMessage);
         }
 
         // don't sign if signed more than once
         for relayer in &self.relayers {
             if relayer.peer.public_key_hash == our_addr.public_key_hash {
-                warn!("Message {:?} already signed by {}", self.payload.get_message_description(), &our_addr.public_key_hash);
+                warn!(
+                    "Message {:?} already signed by {}",
+                    self.payload.get_message_description(),
+                    &our_addr.public_key_hash
+                );
                 return Err(net_error::InvalidMessage);
             }
         }

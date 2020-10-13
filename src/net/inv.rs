@@ -3020,7 +3020,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts
+                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3075,7 +3075,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts
+                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3131,7 +3131,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts
+                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3185,7 +3185,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts
+                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3224,7 +3224,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts
+                    &network.connection_opts,
                 )
             })
             .unwrap();
