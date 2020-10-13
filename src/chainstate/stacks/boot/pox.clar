@@ -34,7 +34,7 @@
 ;; This function can only be called once, when it boots up
 (define-public (set-burnchain-parameters (first-burn-height uint) (prepare-cycle-length uint) (reward-cycle-length uint) (rejection-fraction uint))
     (begin
-        (asserts! (and is-in-regtest (not (var-get configured))) (err ERR_NOT_ALLOWED))
+        (asserts! (not (var-get configured)) (err ERR_NOT_ALLOWED))
         (var-set first-burnchain-block-height first-burn-height)
         (var-set pox-prepare-cycle-length prepare-cycle-length)
         (var-set pox-reward-cycle-length reward-cycle-length)
