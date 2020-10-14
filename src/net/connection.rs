@@ -51,7 +51,7 @@ use net::MAX_MESSAGE_LEN;
 use net::download::BLOCK_DOWNLOAD_INTERVAL;
 use net::inv::INV_SYNC_INTERVAL;
 use net::neighbors::{
-    NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS, WALK_RETRY_COUNT,
+    NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS, WALK_RETRY_COUNT, WALK_MIN_DURATION, WALK_MAX_DURATION, WALK_RESET_PROB, WALK_RESET_INTERVAL, WALK_STATE_TIMEOUT
 };
 
 use vm::{costs::ExecutionCost, types::BOUND_VALUE_SERIALIZATION_HEX};
@@ -337,6 +337,11 @@ pub struct ConnectionOptions {
     pub walk_retry_count: u64,
     pub walk_interval: u64,
     pub walk_inbound_ratio: u64,
+    pub walk_min_duration: u64,
+    pub walk_max_duration: u64,
+    pub walk_reset_prob: f64,
+    pub walk_reset_interval: u64,
+    pub walk_state_timeout: u64,
     pub inv_sync_interval: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,
@@ -392,6 +397,11 @@ impl std::default::Default for ConnectionOptions {
             walk_retry_count: WALK_RETRY_COUNT,
             walk_interval: NEIGHBOR_WALK_INTERVAL, // how often to do a neighbor walk.
             walk_inbound_ratio: 2, // walk inbound neighbors twice as often as outbound by default
+            walk_min_duration: WALK_MIN_DURATION,
+            walk_max_duration: WALK_MAX_DURATION,
+            walk_reset_prob: WALK_RESET_PROB,
+            walk_reset_interval: WALK_RESET_INTERVAL,
+            walk_state_timeout: WALK_STATE_TIMEOUT,
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
             pingback_timeout: 60,
