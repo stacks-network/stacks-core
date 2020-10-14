@@ -66,6 +66,15 @@ pub const NEIGHBOR_REQUEST_TIMEOUT: u64 = 30; // default number of seconds an ou
 
 pub const NUM_INITIAL_WALKS: u64 = 10; // how many unthrottled walks should we do when this peer starts up
 pub const WALK_RETRY_COUNT: u64 = 10; // how many unthrottled walks should we attempt when the peer starts up
+pub const WALK_MIN_DURATION: u64 = 20; // minimum number of steps a walk will take before we consider a reset
+pub const WALK_MAX_DURATION: u64 = 40; // maximum number of steps a walk will take before we do a hard reset
+pub const WALK_RESET_PROB: f64 = 0.05; // probability of a walk reset in-between the minimum and maximum duration
+pub const WALK_STATE_TIMEOUT: u64 = 60; // how long the walk can remain in a single state before being reset
+
+#[cfg(test)]
+pub const WALK_RESET_INTERVAL: u64 = 60; // how long a walk can last
+#[cfg(not(test))]
+pub const WALK_RESET_INTERVAL: u64 = 600;
 
 #[cfg(test)]
 pub const PRUNE_FREQUENCY: u64 = 0; // how often we should consider pruning neighbors
@@ -312,6 +321,10 @@ pub struct NeighborWalk {
     walk_min_duration: u64, // minimum steps we have to take before reset
     walk_max_duration: u64, // maximum steps we have to take before reset
     walk_reset_prob: f64,   // probability that we do a reset once the minimum duration is met
+    walk_instantiation_time: u64,
+    walk_reset_interval: u64, // how long a walk can last, in wall-clock time
+    walk_state_time: u64,     // when the walk entered this state
+    walk_state_timeout: u64,  // how long the walk can remain in this state
 }
 
 impl NeighborWalk {
@@ -321,6 +334,7 @@ impl NeighborWalk {
         neighbor: &Neighbor,
         outbound: bool,
         pingbacks: HashMap<NeighborAddress, NeighborPingback>,
+        connection_opts: &ConnectionOptions,
     ) -> NeighborWalk {
         NeighborWalk {
             local_peer: local_peer,
@@ -365,9 +379,13 @@ impl NeighborWalk {
             walk_end_time: 0,
 
             walk_step_count: 0,
-            walk_min_duration: 20,
-            walk_max_duration: 40,
-            walk_reset_prob: 0.05,
+            walk_min_duration: connection_opts.walk_min_duration,
+            walk_max_duration: connection_opts.walk_max_duration,
+            walk_reset_prob: connection_opts.walk_reset_prob,
+            walk_instantiation_time: get_epoch_time_secs(),
+            walk_reset_interval: connection_opts.walk_reset_interval,
+            walk_state_time: get_epoch_time_secs(),
+            walk_state_timeout: connection_opts.walk_state_timeout,
         }
     }
 
@@ -391,6 +409,7 @@ impl NeighborWalk {
             &next_neighbor.addr
         );
         self.state = NeighborWalkState::HandshakeBegin;
+        self.walk_state_time = get_epoch_time_secs();
 
         if self.cur_neighbor != next_neighbor {
             // moving on -- clear frontier
@@ -452,13 +471,15 @@ impl NeighborWalk {
     /// (as a separate method for debugging purposes)
     fn set_state(&mut self, new_state: NeighborWalkState) -> () {
         test_debug!(
-            "{:?}: Advance walk state: {:?} --> {:?}",
+            "{:?}: Advance walk state: {:?} --> {:?} (after {} seconds)",
             &self.local_peer,
             &self.state,
-            &new_state
+            &new_state,
+            get_epoch_time_secs().saturating_sub(self.walk_state_time)
         );
         self.state = new_state;
         self.connecting.clear();
+        self.walk_state_time = get_epoch_time_secs()
     }
 
     /// Begin handshaking with our current neighbor
@@ -1803,6 +1824,7 @@ impl PeerNetwork {
             &next_neighbors[0],
             true,
             self.walk_pingbacks.clone(),
+            &self.connection_opts,
         );
 
         debug!(
@@ -1873,6 +1895,7 @@ impl PeerNetwork {
                 &empty_neighbor,
                 false,
                 self.walk_pingbacks.clone(),
+                &self.connection_opts,
             );
 
             debug!(
@@ -1931,6 +1954,7 @@ impl PeerNetwork {
             &empty_neighbor,
             false,
             self.walk_pingbacks.clone(),
+            &self.connection_opts,
         );
 
         debug!(
@@ -1981,6 +2005,14 @@ impl PeerNetwork {
                         return Err(net_error::NoSuchNeighbor);
                     }
 
+                    if network.is_bound(&walk.cur_neighbor.addr) {
+                        debug!(
+                            "{:?}: Walk stepped to our bind address ({:?}).  Will reset instead.",
+                            &walk.local_peer, &walk.cur_neighbor.addr
+                        );
+                        return Err(net_error::NoSuchNeighbor);
+                    }
+
                     let my_addr = walk.cur_neighbor.addr.clone();
                     walk.clear_state();
 
@@ -2000,7 +2032,7 @@ impl PeerNetwork {
                                 .and_then(|handle| Ok(Some(handle)))?
                         }
                         Err(e) => {
-                            info!(
+                            debug!(
                                 "{:?}: Failed to check connection to {:?}: {:?}",
                                 &network.local_peer, &my_addr, &e
                             );
@@ -2522,10 +2554,9 @@ impl PeerNetwork {
                         let next_neighbor_opt = walk.next_neighbor.take();
                         match next_neighbor_opt {
                             Some(next_neighbor) => {
-                                test_debug!(
+                                debug!(
                                     "{:?}: Stepped to {:?}",
-                                    &walk.local_peer,
-                                    &next_neighbor.addr
+                                    &walk.local_peer, &next_neighbor.addr
                                 );
 
                                 walk.reset(next_neighbor, false)
@@ -2589,10 +2620,9 @@ impl PeerNetwork {
         if self.walk.is_none() {
             // alternate between starting walks from inbound and outbound neighbors.
             // fall back to pingbacks-only walks if no options exist.
-            test_debug!(
+            debug!(
                 "{:?}: Begin walk attempt {}",
-                &self.local_peer,
-                self.walk_attempts
+                &self.local_peer, self.walk_attempts
             );
             let walk_res =
                 if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
@@ -2649,11 +2679,25 @@ impl PeerNetwork {
 
         // take as many steps as we can
         let mut walk_state = self.get_walk_state();
-
+        let mut walk_state_timeout = false;
         let mut did_cycle = false;
         let res = loop {
-            let last_walk_state = walk_state;
+            if let Some(ref walk) = self.walk.as_ref() {
+                // a walk times out if it stays in one state for too long
+                walk_state_timeout =
+                    walk.walk_state_time + walk.walk_state_timeout < get_epoch_time_secs();
 
+                if walk_state_timeout {
+                    debug!(
+                        "{:?}: walk has timed out: stayed in state {:?} for more than {} seconds",
+                        &self.local_peer, &walk.state, walk.walk_state_timeout
+                    );
+                    break Ok(None);
+                }
+            }
+
+            // advance to next state
+            let last_walk_state = walk_state;
             debug!("{:?}: walk state is {:?}", &self.local_peer, walk_state);
             let res = match walk_state {
                 NeighborWalkState::HandshakeBegin => {
@@ -2690,21 +2734,28 @@ impl PeerNetwork {
                     .walk_ping_existing_neighbors_begin()
                     .and_then(|_| Ok(None)),
                 NeighborWalkState::ReplacedNeighborsPingFinish => {
-                    did_cycle = true;
-                    test_debug!("{:?}: finish walk {}", &self.local_peer, self.walk_count);
-                    self.walk_ping_existing_neighbors_try_finish()
+                    match self.walk_ping_existing_neighbors_try_finish() {
+                        Ok(Some(x)) => {
+                            debug!("{:?}: finished walk {}", &self.local_peer, self.walk_count);
+                            did_cycle = true;
+                            Ok(Some(x))
+                        }
+                        x => x,
+                    }
                 }
-                _ => {
-                    panic!("Reached invalid walk state {:?}", walk_state);
+                NeighborWalkState::Finished => {
+                    panic!("Walk should never reach the Finished state");
                 }
             };
 
             if did_cycle || res.is_err() {
+                // reached the end of the state-machine
                 break res;
             }
 
             walk_state = self.get_walk_state();
             if walk_state == last_walk_state {
+                // blocked
                 break res;
             }
         };
@@ -2725,6 +2776,13 @@ impl PeerNetwork {
                         self.walk_deadline =
                             self.connection_opts.walk_interval + get_epoch_time_secs();
 
+                        debug!(
+                            "{:?}: walk has completed in {} steps ({} walks total)",
+                            &self.local_peer,
+                            self.walk.as_ref().map(|w| w.walk_step_count).unwrap_or(0),
+                            self.walk_count
+                        );
+
                         if self.walk_count > self.connection_opts.num_initial_walks
                             && self.prune_deadline < get_epoch_time_secs()
                         {
@@ -2736,25 +2794,45 @@ impl PeerNetwork {
                     None => {}
                 }
 
-                // Randomly restart it if we have done enough walks
+                // Randomly restart it if we have done enough walks, or if the current walk has
+                // taken enough steps, or if a timeout has passed
                 let reset = match self.walk {
                     Some(ref mut walk) => {
-                        // finished a walk step.
-                        walk.walk_step_count += 1;
+                        if did_cycle {
+                            // finished a walk pass
+                            walk.walk_step_count += 1;
+                        }
+
                         debug!(
-                            "{:?}: walk has taken {} steps (total of {} walks)",
+                            "{:?}: current walk has taken {} steps (total of {} walks)",
                             &self.local_peer, walk.walk_step_count, self.walk_count
                         );
 
-                        if walk_opt.is_some()
+                        // a walk times out if it takes too many steps, or if a deadline passes
+                        let walk_timed_out = walk.walk_step_count >= walk.walk_max_duration
+                            || walk.walk_instantiation_time + walk.walk_reset_interval
+                                < get_epoch_time_secs();
+
+                        if walk_timed_out {
+                            debug!(
+                                "{:?}: walk has timed out: steps = {}, reset deadline = {} < {}",
+                                &self.local_peer,
+                                walk.walk_step_count,
+                                walk.walk_instantiation_time + walk.walk_reset_interval,
+                                get_epoch_time_secs()
+                            );
+                        }
+
+                        if (walk_opt.is_some()
                             && self.walk_count > self.connection_opts.num_initial_walks
-                            && walk.walk_step_count >= walk.walk_min_duration
+                            && walk.walk_step_count >= walk.walk_min_duration)
+                            || walk_timed_out
+                            || walk_state_timeout
                         {
                             // consider re-setting the walk state, now that we completed a walk.
                             let mut rng = thread_rng();
                             let sample: f64 = rng.gen();
-                            if walk.walk_step_count >= walk.walk_max_duration
-                                || sample < walk.walk_reset_prob
+                            if walk_timed_out || walk_state_timeout || sample < walk.walk_reset_prob
                             {
                                 true
                             } else {
@@ -2770,6 +2848,7 @@ impl PeerNetwork {
                 if reset {
                     debug!("{:?}: random walk restart", &self.local_peer);
                     self.walk = None;
+                    self.walk_resets += 1;
                     done = true; // move onto the next p2p work item
                 }
 
@@ -2811,13 +2890,12 @@ impl PeerNetwork {
                 (done, walk_opt)
             }
             Err(_e) => {
-                test_debug!(
+                debug!(
                     "{:?}: Restarting neighbor walk with new random neighbors: {:?} => {:?}",
-                    &self.local_peer,
-                    walk_state,
-                    &_e
+                    &self.local_peer, walk_state, &_e
                 );
                 self.walk = None;
+                self.walk_resets += 1;
                 (true, None)
             }
         }
@@ -3779,6 +3857,10 @@ mod test {
             peer_1_config.allowed = -1;
             peer_2_config.allowed = -1;
 
+            // short-lived walks...
+            peer_1_config.connection_opts.walk_max_duration = 10;
+            peer_2_config.connection_opts.walk_max_duration = 10;
+
             // peer 1 crawls peer 2, and peer 2 crawls peer 1
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -3789,7 +3871,9 @@ mod test {
             let mut i = 0;
             let mut walk_1_count = 0;
             let mut walk_2_count = 0;
-            while walk_1_count < 20 && walk_2_count < 20 {
+
+            // NOTE: 2x the max walk duration
+            while walk_1_count < 20 || walk_2_count < 20 {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
 
@@ -3889,6 +3973,129 @@ mod test {
                     assert_eq!(p.expire_block, neighbor_1.expire_block);
                 }
             }
+
+            // walks were reset at least once
+            assert!(peer_1.network.walk_count > 0);
+            assert!(peer_2.network.walk_count > 0);
+        })
+    }
+
+    #[test]
+    fn test_step_walk_2_neighbors_state_timeout() {
+        with_timeout(600, || {
+            let mut peer_1_config = TestPeerConfig::from_port(32504);
+            let mut peer_2_config = TestPeerConfig::from_port(32506);
+
+            peer_1_config.allowed = -1;
+            peer_2_config.allowed = -1;
+
+            // short-lived walks...
+            peer_1_config.connection_opts.walk_max_duration = 10;
+            peer_2_config.connection_opts.walk_max_duration = 10;
+
+            peer_1_config.connection_opts.walk_state_timeout = 1;
+            peer_2_config.connection_opts.walk_state_timeout = 1;
+
+            // peer 1 crawls peer 2, and peer 2 crawls peer 1
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
+
+            for _i in 0..10 {
+                let _ = peer_1.step();
+                let _ = peer_2.step();
+
+                let walk_1_count = peer_1.network.walk_total_step_count;
+                let walk_2_count = peer_2.network.walk_total_step_count;
+
+                test_debug!(
+                    "peer 1 took {} walk steps; peer 2 took {} walk steps",
+                    walk_1_count,
+                    walk_2_count
+                );
+
+                sleep_ms(3_000);
+            }
+
+            // state resets trigger walk resets
+            assert!(peer_1.network.walk_resets > 0);
+            assert!(peer_2.network.walk_resets > 0);
+        })
+    }
+
+    #[test]
+    fn test_step_walk_2_neighbors_walk_timeout() {
+        with_timeout(600, || {
+            let mut peer_1_config = TestPeerConfig::from_port(32508);
+            let mut peer_2_config = TestPeerConfig::from_port(32510);
+
+            peer_1_config.allowed = -1;
+            peer_2_config.allowed = -1;
+
+            // short-lived walks...
+            peer_1_config.connection_opts.walk_max_duration = 10;
+            peer_2_config.connection_opts.walk_max_duration = 10;
+
+            peer_1_config.connection_opts.walk_state_timeout = 20;
+            peer_2_config.connection_opts.walk_state_timeout = 20;
+
+            peer_1_config.connection_opts.walk_reset_interval = 10;
+            peer_2_config.connection_opts.walk_reset_interval = 10;
+
+            // peer 1 crawls peer 2, and peer 2 crawls peer 1
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
+
+            let mut i = 0;
+            let mut walk_1_step_count = 0;
+            let mut walk_2_step_count = 0;
+            let mut walk_1_count = 0;
+            let mut walk_2_count = 0;
+
+            while walk_1_step_count < 20 || walk_2_step_count < 20 {
+                let _ = peer_1.step();
+                let _ = peer_2.step();
+
+                walk_1_step_count = peer_1.network.walk_total_step_count;
+                walk_2_step_count = peer_2.network.walk_total_step_count;
+
+                test_debug!(
+                    "peer 1 took {} walk steps; peer 2 took {} walk steps",
+                    walk_1_step_count,
+                    walk_2_step_count
+                );
+
+                if walk_1_count < peer_1.network.walk_count
+                    || walk_2_count < peer_2.network.walk_count
+                {
+                    // force walk to time out
+                    sleep_ms(11_000);
+                }
+
+                walk_1_count = peer_1
+                    .network
+                    .walk
+                    .as_ref()
+                    .map(|w| w.walk_step_count)
+                    .unwrap_or(0);
+                walk_2_count = peer_1
+                    .network
+                    .walk
+                    .as_ref()
+                    .map(|w| w.walk_step_count)
+                    .unwrap_or(0);
+
+                i += 1;
+            }
+
+            // walk timeouts trigger walk resets
+            assert!(peer_1.network.walk_resets > 0);
+            assert!(peer_2.network.walk_resets > 0);
         })
     }
 
@@ -3896,9 +4103,9 @@ mod test {
     #[ignore]
     fn test_step_walk_3_neighbors_inbound() {
         with_timeout(600, || {
-            let mut peer_1_config = TestPeerConfig::from_port(32510);
-            let mut peer_2_config = TestPeerConfig::from_port(32512);
-            let mut peer_3_config = TestPeerConfig::from_port(32514);
+            let mut peer_1_config = TestPeerConfig::from_port(32520);
+            let mut peer_2_config = TestPeerConfig::from_port(32522);
+            let mut peer_3_config = TestPeerConfig::from_port(32524);
 
             peer_1_config.allowed = -1;
             peer_2_config.allowed = -1;

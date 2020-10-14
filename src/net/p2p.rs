@@ -246,6 +246,7 @@ pub struct PeerNetwork {
     pub walk_count: u64,
     pub walk_attempts: u64,
     pub walk_retries: u64,
+    pub walk_resets: u64,
     pub walk_total_step_count: u64,
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
@@ -337,6 +338,7 @@ impl PeerNetwork {
             walk_deadline: 0,
             walk_attempts: 0,
             walk_retries: 0,
+            walk_resets: 0,
             walk_count: 0,
             walk_total_step_count: 0,
             walk_pingbacks: HashMap::new(),
@@ -1131,7 +1133,7 @@ impl PeerNetwork {
     }
 
     /// Is this neighbor key the same as the one that represents our p2p bind address?
-    fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
+    pub fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
         self.bind_nk.network_id == neighbor_key.network_id
             && self.bind_nk.addrbytes == neighbor_key.addrbytes
             && self.bind_nk.port == neighbor_key.port
