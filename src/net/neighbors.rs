@@ -2000,7 +2000,7 @@ impl PeerNetwork {
                                 .and_then(|handle| Ok(Some(handle)))?
                         }
                         Err(e) => {
-                            info!(
+                            debug!(
                                 "{:?}: Failed to check connection to {:?}: {:?}",
                                 &network.local_peer, &my_addr, &e
                             );
