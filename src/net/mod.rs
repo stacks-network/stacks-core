@@ -2927,7 +2927,7 @@ pub mod test {
             ) {
                 Ok(recipients) => {
                     block_commit_op.commit_outs = match recipients {
-                        Some(info) => vec![info.recipient.0],
+                        Some(info) => info.recipients.into_iter().map(|x| x.0).collect(),
                         None => vec![],
                     };
                 }

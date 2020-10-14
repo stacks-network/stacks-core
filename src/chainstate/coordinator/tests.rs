@@ -366,7 +366,11 @@ fn make_genesis_block_with_recipients(
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
-        recipients.recipients.iter().map(|(a, _)| a.clone()).collect()
+        recipients
+            .recipients
+            .iter()
+            .map(|(a, _)| a.clone())
+            .collect()
     } else {
         vec![]
     };
@@ -489,7 +493,11 @@ fn make_stacks_block_with_recipients(
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
-        recipients.recipients.iter().map(|(a, _)| a.clone()).collect()
+        recipients
+            .recipients
+            .iter()
+            .map(|(a, _)| a.clone())
+            .collect()
     } else {
         vec![]
     };
@@ -722,8 +730,10 @@ fn test_sortition_with_reward_set() {
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
     let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
 
-    let reward_set_size = 15;
-    let reward_set: Vec<_> = (0..reward_set_size).map(|_| p2pkh_from(&StacksPrivateKey::new())).collect();
+    let reward_set_size = 10;
+    let reward_set: Vec<_> = (0..reward_set_size)
+        .map(|_| p2pkh_from(&StacksPrivateKey::new()))
+        .collect();
 
     setup_states(&[path], &vrf_keys, &committers);
 
@@ -810,7 +820,11 @@ fn test_sortition_with_reward_set() {
             .unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
             for (addr, _) in next_block_recipients.recipients.iter() {
-                assert!(!reward_recipients.contains(addr), "Reward set should not already contain address {}", addr);
+                assert!(
+                    !reward_recipients.contains(addr),
+                    "Reward set should not already contain address {}",
+                    addr
+                );
                 eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
                 reward_recipients.insert(addr.clone());
             }
@@ -872,11 +886,13 @@ fn test_sortition_with_reward_set() {
             let recipients = if ix % 2 == 0 {
                 vec![(p2pkh_from(miner_wrong_out), 0)]
             } else {
-                (0..OUTPUTS_PER_COMMIT).map(|ix| (p2pkh_from(&StacksPrivateKey::new()), ix as u16)).collect()
+                (0..OUTPUTS_PER_COMMIT)
+                    .map(|ix| (p2pkh_from(&StacksPrivateKey::new()), ix as u16))
+                    .collect()
             };
             let bad_block_recipipients = Some(RewardSetInfo {
                 anchor_block: BlockHeaderHash([0; 32]),
-                recipients
+                recipients,
             });
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,

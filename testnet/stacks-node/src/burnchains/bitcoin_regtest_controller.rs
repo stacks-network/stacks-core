@@ -576,9 +576,16 @@ impl BitcoinRegtestController {
             return None;
         }
 
-        let burned = if payload.commit_outs.len() > 0 {
-            let pox_transfers = payload.commit_outs.len() as u64;
-            let burn_remainder = (OUTPUTS_PER_COMMIT as u64) - pox_transfers;
+        if payload.all_outputs_burn() {
+            // this a whole burn op, so we just use one burn output
+            let burn_address_hash = Hash160([0u8; 20]);
+            let burn_output = BitcoinAddress::to_p2pkh_tx_out(&burn_address_hash, payload.burn_fee);
+            tx.output.push(burn_output)
+        } else {
+            if OUTPUTS_PER_COMMIT != payload.commit_outs.len() {
+                error!("Generated block commit with wrong OUTPUTS_PER_COMMIT");
+                return None;
+            }
             let value_per_transfer = payload.burn_fee / (OUTPUTS_PER_COMMIT as u64);
             if value_per_transfer < 5500 {
                 error!("Total burn fee not enough for number of outputs");
@@ -588,15 +595,6 @@ impl BitcoinRegtestController {
                 tx.output
                     .push(commit_to.to_bitcoin_tx_out(value_per_transfer));
             }
-            value_per_transfer * burn_remainder
-        } else {
-            payload.burn_fee
-        };
-
-        if burned > 0 {
-            let burn_address_hash = Hash160([0u8; 20]);
-            let burn_output = BitcoinAddress::to_p2pkh_tx_out(&burn_address_hash, burned);
-            tx.output.push(burn_output);
         }
 
         self.finalize_tx(&mut tx, payload.burn_fee, utxos, signer)?;

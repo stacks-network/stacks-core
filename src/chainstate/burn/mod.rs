@@ -34,6 +34,7 @@ use burnchains::Txid;
 use util::hash::{to_hex, Hash160};
 use util::vrf::VRFProof;
 
+use rand::seq::index::sample;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -41,9 +42,6 @@ use ripemd160::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;
 use sha2::Sha256;
-use rand::SeedableRng;
-use rand::seq::index::sample;
-use rand_chacha::ChaCha20Rng;
 
 use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
 
@@ -111,6 +109,7 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 #[repr(u8)]
 pub enum Opcodes {
     LeaderBlockCommit = '[' as u8,
+    LeaderBlockCommitTransfer = ']' as u8,
     LeaderKeyRegister = '^' as u8,
     UserBurnSupport = '_' as u8,
 }
@@ -182,16 +181,22 @@ impl SortitionHash {
         SortitionHash(ret)
     }
 
-    /// Choose n indices (without replacement) from the range [0, max).
-    pub fn choose(&self, n: u32, max: u32) -> Vec<u32> {
+    /// Choose two indices (without replacement) from the range [0, max).
+    pub fn choose_two(&self, max: u32) -> Vec<u32> {
         let mut rng = ChaCha20Rng::from_seed(self.0.clone());
-        if n > max {
+        if max < 2 {
             return (0..max).collect();
         }
-        sample(&mut rng, max as usize, n as usize)
-            // returned samples should always be u32, because max is u32.
-            .into_iter().map(|ix| ix.try_into().expect("CORRUPTION: u32-overflow in PoX recipient sample"))
-            .collect()
+        let first = rng.gen_range(0, max);
+        let try_second = rng.gen_range(0, max - 1);
+        let second = if first == try_second {
+            // "swap" try_second with max
+            max - 1
+        } else {
+            try_second
+        };
+
+        vec![first, second]
     }
 
     /// Convert a SortitionHash into a (little-endian) uint256

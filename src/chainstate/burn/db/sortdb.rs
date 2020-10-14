@@ -986,8 +986,7 @@ impl<'a> SortitionHandleTx<'a> {
                     return Ok(None);
                 }
 
-                let chosen_recipients = reward_set_vrf_seed.choose(
-                    OUTPUTS_PER_COMMIT.try_into().expect("BUG: u32 overflow in PoX outputs per commit"),
+                let chosen_recipients = reward_set_vrf_seed.choose_two(
                     reward_set
                         .len()
                         .try_into()
@@ -996,10 +995,13 @@ impl<'a> SortitionHandleTx<'a> {
 
                 Ok(Some(RewardSetInfo {
                     anchor_block: anchor_block.clone(),
-                    recipients: chosen_recipients.into_iter().map(|ix| {
-                        let recipient = reward_set[ix as usize].clone();
-                        (recipient, u16::try_from(ix).unwrap())
-                    }).collect()
+                    recipients: chosen_recipients
+                        .into_iter()
+                        .map(|ix| {
+                            let recipient = reward_set[ix as usize].clone();
+                            (recipient, u16::try_from(ix).unwrap())
+                        })
+                        .collect(),
                 }))
             } else {
                 Ok(None)
@@ -1013,8 +1015,7 @@ impl<'a> SortitionHandleTx<'a> {
                 if reward_set_size == 0 {
                     Ok(None)
                 } else {
-                    let chosen_recipients = reward_set_vrf_seed.choose(OUTPUTS_PER_COMMIT.try_into().expect("BUG: u32 overflow in PoX outputs per commit"),
-                                                                       reward_set_size as u32);
+                    let chosen_recipients = reward_set_vrf_seed.choose_two(reward_set_size as u32);
                     let mut recipients = vec![];
                     for ix in chosen_recipients.into_iter() {
                         let ix = u16::try_from(ix).unwrap();
@@ -1023,7 +1024,8 @@ impl<'a> SortitionHandleTx<'a> {
                     }
                     Ok(Some(RewardSetInfo {
                         anchor_block,
-                        recipients }))
+                        recipients,
+                    }))
                 }
             } else {
                 // no anchor block selected
@@ -3234,8 +3236,12 @@ impl<'a> SortitionHandleTx<'a> {
                     if reward_set.len() > 0 {
                         // if we have a reward set, then we must also have produced a recipient
                         //   info for this block
-                        let mut recipients_to_remove: Vec<_> = recipient_info.unwrap().recipients.iter().map(
-                            |(addr, ix)| (addr.clone(), *ix)).collect();
+                        let mut recipients_to_remove: Vec<_> = recipient_info
+                            .unwrap()
+                            .recipients
+                            .iter()
+                            .map(|(addr, ix)| (addr.clone(), *ix))
+                            .collect();
                         recipients_to_remove.sort_unstable_by(|(_, a), (_, b)| b.cmp(a));
                         // remove from the reward set any consumed addresses in this first reward block
                         for (addr, ix) in recipients_to_remove.iter() {
@@ -3264,26 +3270,30 @@ impl<'a> SortitionHandleTx<'a> {
                 //   update the reward set
                 if let Some(reward_info) = recipient_info {
                     let mut current_len = self.get_reward_set_size()?;
-                    let mut recipient_indexes: Vec<_> = reward_info.recipients.iter().map(|(_, x)| *x).collect();
+                    let mut recipient_indexes: Vec<_> =
+                        reward_info.recipients.iter().map(|(_, x)| *x).collect();
                     let mut remapped_entries = HashMap::new();
                     // sort in decrementing order
                     recipient_indexes.sort_unstable_by(|a, b| b.cmp(a));
                     for index in recipient_indexes.into_iter() {
                         // sanity check
                         if index >= current_len {
-                            unreachable!("Supplied index should never be greater than recipient set size");
+                            unreachable!(
+                                "Supplied index should never be greater than recipient set size"
+                            );
                         } else if index + 1 == current_len {
                             // selected index is the last element: no need to swap, just decrement len
                             current_len -= 1;
                         } else {
                             let replacement = current_len - 1; // if current_len were 0, we would already have panicked.
-                            let replace_with =
-                                if let Some((_prior_ix, replace_with)) = remapped_entries.remove_entry(&replacement) {
-                                    // the entry to swap in was itself swapped, so let's use the new value instead
-                                    replace_with
-                                } else {
-                                    self.get_reward_set_entry(replacement)?
-                                };
+                            let replace_with = if let Some((_prior_ix, replace_with)) =
+                                remapped_entries.remove_entry(&replacement)
+                            {
+                                // the entry to swap in was itself swapped, so let's use the new value instead
+                                replace_with
+                            } else {
+                                self.get_reward_set_entry(replacement)?
+                            };
 
                             // swap and decrement to remove from set
                             remapped_entries.insert(index, replace_with);
@@ -3293,8 +3303,10 @@ impl<'a> SortitionHandleTx<'a> {
                     // store the changes in the new trie
                     keys.push(db_keys::pox_reward_set_size().to_string());
                     values.push(db_keys::reward_set_size_to_string(current_len as usize));
-                    keys.push(db_keys::pox_reward_set_entry(recipient_index));
-                    values.push(recipient.to_string())
+                    for (recipient_index, replace_with) in remapped_entries.into_iter() {
+                        keys.push(db_keys::pox_reward_set_entry(recipient_index));
+                        values.push(replace_with.to_string())
+                    }
                 }
             }
         } else {
