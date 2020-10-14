@@ -116,9 +116,11 @@ pub enum ContractInterfaceAtomType {
     buffer {
         length: u32,
     },
+    #[serde(rename = "string-utf8")]
     string_utf8 {
         length: u32,
     },
+    #[serde(rename = "string-ascii")]
     string_ascii {
         length: u32,
     },
@@ -384,4 +386,28 @@ impl ContractInterface {
     pub fn serialize(&self) -> String {
         serde_json::to_string(self).expect("Failed to serialize contract interface")
     }
+}
+
+#[test]
+fn test_string_rename_ascii() {
+    let arg = ContractInterfaceFunctionArg {
+        name: "test-name".into(),
+        type_f: ContractInterfaceAtomType::string_ascii { length: 32 },
+    };
+    assert_eq!(
+        serde_json::to_string(&arg).unwrap(),
+        "{\"name\":\"test-name\",\"type\":{\"string-ascii\":{\"length\":32}}}"
+    );
+}
+
+#[test]
+fn test_string_rename_utf8() {
+    let arg = ContractInterfaceFunctionArg {
+        name: "test-utf8".into(),
+        type_f: ContractInterfaceAtomType::string_utf8 { length: 32 },
+    };
+    assert_eq!(
+        serde_json::to_string(&arg).unwrap(),
+        "{\"name\":\"test-utf8\",\"type\":{\"string-utf8\":{\"length\":32}}}"
+    );
 }
