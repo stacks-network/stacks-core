@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::Error;
@@ -391,12 +388,13 @@ pub mod test {
 
     #[test]
     fn get_reward_threshold_units() {
+        let test_pox_constants = PoxConstants::new(1000, 1, 1, 1, 5);
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
-                &PoxConstants::new(1000, 1, 1, 1),
+                &test_pox_constants,
                 &[],
                 liquid
             )
@@ -405,7 +403,7 @@ pub mod test {
         );
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
-                &PoxConstants::new(1000, 1, 1, 1),
+                &test_pox_constants,
                 &[(rand_addr(), liquid)],
                 liquid
             )
@@ -417,7 +415,7 @@ pub mod test {
         // with zero participation, should scale to 25% of liquid
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
-                &PoxConstants::new(1000, 1, 1, 1),
+                &test_pox_constants,
                 &[],
                 liquid
             )
@@ -427,7 +425,7 @@ pub mod test {
         // should be the same at 25% participation
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
-                &PoxConstants::new(1000, 1, 1, 1),
+                &test_pox_constants,
                 &[(rand_addr(), liquid / 4)],
                 liquid
             )
@@ -437,7 +435,7 @@ pub mod test {
         // but not at 30% participation
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
-                &PoxConstants::new(1000, 1, 1, 1),
+                &test_pox_constants,
                 &[
                     (rand_addr(), liquid / 4),
                     (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))
@@ -451,7 +449,7 @@ pub mod test {
         // bump by just a little bit, should go to the next threshold step
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
-                &PoxConstants::new(1000, 1, 1, 1),
+                &test_pox_constants,
                 &[
                     (rand_addr(), liquid / 4),
                     (rand_addr(), (MICROSTACKS_PER_STACKS as u128))
@@ -465,7 +463,7 @@ pub mod test {
         // bump by just a little bit, should go to the next threshold step
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
-                &PoxConstants::new(1000, 1, 1, 1),
+                &test_pox_constants,
                 &[(rand_addr(), liquid)],
                 liquid
             )

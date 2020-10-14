@@ -522,7 +522,7 @@ impl BlockDownloader {
                         pending_microblock_requests.insert(block_key, event_id);
                     } else {
                         debug!(
-                            "Event {} ({:?}, {:?} for microblocks built by ({}) failed to connect",
+                            "Event {} ({:?}, {:?} for microblocks built by ({}) failed to connect.  Temporarily blocking URL.",
                             &block_key.neighbor,
                             &block_key.data_url,
                             &block_key.index_block_hash,

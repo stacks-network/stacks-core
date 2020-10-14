@@ -950,10 +950,15 @@ impl InvState {
         self.sync_peers.clear();
         self.sync_peers = peers;
 
-        for peer in self.sync_peers.iter() {
-            if !self.block_stats.contains_key(peer) {
-                self.block_stats.remove(peer);
+        // clear out block_stats for peers we aren't talking to anymore
+        let mut to_remove = HashSet::new();
+        for (nk, _) in self.block_stats.iter() {
+            if !self.sync_peers.contains(&nk) {
+                to_remove.insert(nk.clone());
             }
+        }
+        for nk in to_remove.into_iter() {
+            self.block_stats.remove(&nk);
         }
 
         for (_, stats) in self.block_stats.iter_mut() {
@@ -1275,7 +1280,7 @@ impl PeerNetwork {
         target_pox_reward_cycle: u64,
     ) -> Result<Option<GetPoxInv>, net_error> {
         if target_pox_reward_cycle >= self.pox_id.len() as u64 {
-            debug!("{:?}: target reward cycle for neighbor {:?} is {}, which is higher than our PoX bit vector length {}", &self.local_peer, nk, target_pox_reward_cycle, self.pox_id.len());
+            debug!("{:?}: target reward cycle for neighbor {:?} is {}, which is equal to or higher than our PoX bit vector length {}", &self.local_peer, nk, target_pox_reward_cycle, self.pox_id.len());
             return Ok(None);
         }
 
@@ -2559,7 +2564,7 @@ mod test {
     #[test]
     fn test_inv_merge_pox_inv() {
         let mut burnchain = Burnchain::new("unused", "bitcoin", "regtest").unwrap();
-        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25);
+        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5);
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..32 {
@@ -2577,7 +2582,7 @@ mod test {
     #[test]
     fn test_inv_truncate_pox_inv() {
         let mut burnchain = Burnchain::new("unused", "bitcoin", "regtest").unwrap();
-        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25);
+        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5);
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..5 {
@@ -3015,6 +3020,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
+                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3069,6 +3075,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
+                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3124,6 +3131,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
+                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3177,6 +3185,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
+                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3215,6 +3224,7 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
+                    &network.connection_opts,
                 )
             })
             .unwrap();
