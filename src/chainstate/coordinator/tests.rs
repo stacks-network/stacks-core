@@ -268,7 +268,7 @@ fn make_reward_set_coordinator<'a>(
 
 pub fn get_burnchain(path: &str) -> Burnchain {
     let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
-    b.pox_constants = PoxConstants::new(5, 3, 3, 25);
+    b.pox_constants = PoxConstants::new(5, 3, 3, 25, 5);
     b
 }
 

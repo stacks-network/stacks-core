@@ -53,12 +53,21 @@ pub struct BitcoinRegtestController {
     burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
     use_coordinator: Option<CoordinatorChannels>,
+    burnchain_config: Option<Burnchain>,
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
+        BitcoinRegtestController::with_burnchain(config, coordinator_channel, None)
+    }
+
+    pub fn with_burnchain(
+        config: Config,
+        coordinator_channel: Option<CoordinatorChannels>,
+        burnchain_config: Option<Burnchain>,
+    ) -> Self {
         std::fs::create_dir_all(&config.node.get_burnchain_path())
             .expect("Unable to create workdir");
 
@@ -93,11 +102,12 @@ impl BitcoinRegtestController {
 
         Self {
             use_coordinator: coordinator_channel,
-            config: config,
+            config,
             indexer_config,
             db: None,
             burnchain_db: None,
             chain_tip: None,
+            burnchain_config,
         }
     }
 
@@ -122,22 +132,28 @@ impl BitcoinRegtestController {
 
         Self {
             use_coordinator: None,
-            config: config,
+            config,
             indexer_config,
             db: None,
             burnchain_db: None,
             chain_tip: None,
+            burnchain_config: None,
         }
     }
 
     fn setup_burnchain(&self) -> (Burnchain, BitcoinNetworkType) {
         let (network_name, network_type) = self.config.burnchain.get_bitcoin_network();
-        let working_dir = self.config.get_burn_db_path();
-        match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
-            Ok(burnchain) => (burnchain, network_type),
-            Err(e) => {
-                error!("Failed to instantiate burnchain: {}", e);
-                panic!()
+        match &self.burnchain_config {
+            Some(burnchain) => (burnchain.clone(), network_type),
+            None => {
+                let working_dir = self.config.get_burn_db_path();
+                match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
+                    Ok(burnchain) => (burnchain, network_type),
+                    Err(e) => {
+                        error!("Failed to instantiate burnchain: {}", e);
+                        panic!()
+                    }
+                }
             }
         }
     }
@@ -312,6 +328,90 @@ impl BitcoinRegtestController {
         Ok((burnchain_tip, burnchain_height))
     }
 
+    #[cfg(test)]
+    pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
+        // Configure UTXO filter
+        let pkh = Hash160::from_data(&public_key.to_bytes())
+            .to_bytes()
+            .to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
+        let address =
+            BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
+                .expect("Public key incorrect");
+        let filter_addresses = vec![address.to_b58()];
+        let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
+
+        sleep_ms(1000);
+
+        let min_conf = 0;
+        let max_conf = 9999999;
+        let minimum_amount = ParsedUTXO::sat_to_serialized_btc(1);
+
+        let payload = BitcoinRPCRequest {
+            method: "listunspent".to_string(),
+            params: vec![
+                min_conf.into(),
+                max_conf.into(),
+                filter_addresses.clone().into(),
+                true.into(),
+                json!({ "minimumAmount": minimum_amount }),
+            ],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let mut res = BitcoinRPCRequest::send(&self.config, payload).unwrap();
+        let mut result_vec = vec![];
+
+        if let Some(ref mut object) = res.as_object_mut() {
+            match object.get_mut("result") {
+                Some(serde_json::Value::Array(entries)) => {
+                    while let Some(entry) = entries.pop() {
+                        let parsed_utxo: ParsedUTXO = match serde_json::from_value(entry) {
+                            Ok(utxo) => utxo,
+                            Err(err) => {
+                                warn!("Failed parsing UTXO: {}", err);
+                                continue;
+                            }
+                        };
+                        let amount = match parsed_utxo.get_sat_amount() {
+                            Some(amount) => amount,
+                            None => continue,
+                        };
+
+                        if amount < 1 {
+                            continue;
+                        }
+
+                        let script_pub_key = match parsed_utxo.get_script_pub_key() {
+                            Some(script_pub_key) => script_pub_key,
+                            None => {
+                                continue;
+                            }
+                        };
+
+                        let txid = match parsed_utxo.get_txid() {
+                            Some(amount) => amount,
+                            None => continue,
+                        };
+
+                        result_vec.push(UTXO {
+                            txid,
+                            vout: parsed_utxo.vout,
+                            script_pub_key,
+                            amount,
+                        });
+                    }
+                }
+                _ => {
+                    warn!("Failed to get UTXOs");
+                }
+            }
+        }
+
+        result_vec
+    }
+
     pub fn get_utxos(
         &self,
         public_key: &Secp256k1PublicKey,
@@ -382,7 +482,7 @@ impl BitcoinRegtestController {
 
         let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
         if total_unspent < amount_required {
-            debug!(
+            warn!(
                 "Total unspent {} < {} for {:?}",
                 total_unspent,
                 amount_required,

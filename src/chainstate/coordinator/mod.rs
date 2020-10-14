@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
 
 use burnchains::{
@@ -28,13 +28,18 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
+    boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS,
     db::{ClarityTx, StacksChainState, StacksHeaderInfo},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
 use monitoring::increment_stx_blocks_processed_counter;
 use util::db::Error as DBError;
-use vm::{costs::ExecutionCost, types::PrincipalData};
+use vm::{
+    costs::ExecutionCost,
+    types::{PrincipalData, QualifiedContractIdentifier},
+    Value,
+};
 
 pub mod comm;
 use chainstate::stacks::index::MarfTrieId;
@@ -177,10 +182,35 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<Vec<StacksAddress>, Error> {
-        let res =
+        let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
-        let addresses = res.iter().map(|a| a.0).collect::<Vec<StacksAddress>>();
-        Ok(addresses)
+
+        let liquid_ustx = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+            chainstate.headers_db(),
+            block_id,
+        )?
+        .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
+        .total_liquid_ustx;
+
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            &burnchain.pox_constants,
+            &registered_addrs,
+            liquid_ustx,
+        );
+
+        if !burnchain
+            .pox_constants
+            .enough_participation(participation, liquid_ustx)
+        {
+            info!("PoX reward cycle did not have enough participation. Defaulting to burn. participation={}, liquid_ustx={}, burn_height={}",
+                  participation, liquid_ustx, current_burn_height);
+            return Ok(vec![]);
+        }
+
+        Ok(StacksChainState::make_reward_set(
+            threshold,
+            registered_addrs,
+        ))
     }
 }
 
@@ -212,7 +242,32 @@ impl<'a, T: BlockEventDispatcher>
             stacks_chain_id,
             chain_state_path,
             initial_balances,
-            boot_block_exec,
+            |clarity_tx| {
+                let burnchain = burnchain.clone();
+                let contract = QualifiedContractIdentifier::parse(&format!(
+                    "{}.pox",
+                    STACKS_BOOT_CODE_CONTRACT_ADDRESS
+                ))
+                .expect("Failed to construct boot code contract address");
+                let sender = PrincipalData::from(contract.clone());
+
+                clarity_tx.connection().as_transaction(|conn| {
+                    conn.run_contract_call(
+                        &sender,
+                        &contract,
+                        "set-burnchain-parameters",
+                        &[
+                            Value::UInt(burnchain.first_block_height as u128),
+                            Value::UInt(burnchain.pox_constants.prepare_length as u128),
+                            Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
+                            Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
+                        ],
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX contract");
+                });
+                boot_block_exec(clarity_tx)
+            },
             block_limit,
         )
         .unwrap();

@@ -58,8 +58,18 @@ pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20
 
 pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
+pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
+
 pub const POX_PREPARE_WINDOW_LENGTH: u32 = 240;
 pub const POX_REWARD_CYCLE_LENGTH: u32 = 1000;
+/// The maximum amount that PoX rewards can be scaled by.
+///  That is, if participation is very low, rewards are:
+///      POX_MAXIMAL_SCALING x (rewards with 100% participation)
+///  Set a 4x, this implies the lower bound of participation for scaling
+///   is 25%
+pub const POX_MAXIMAL_SCALING: u128 = 4;
+/// This is the amount that PoX threshold adjustments are stepped by.
+pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u128);
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(

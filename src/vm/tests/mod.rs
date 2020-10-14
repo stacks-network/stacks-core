@@ -109,7 +109,7 @@ pub fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
         .collect()
 }
 
-fn is_committed(v: &Value) -> bool {
+pub fn is_committed(v: &Value) -> bool {
     eprintln!("is_committed?: {}", v);
 
     match v {
@@ -118,7 +118,7 @@ fn is_committed(v: &Value) -> bool {
     }
 }
 
-fn is_err_code(v: &Value, e: u128) -> bool {
+pub fn is_err_code(v: &Value, e: u128) -> bool {
     eprintln!("is_err_code?: {}", v);
     match v {
         Value::Response(ref data) => !data.committed && *data.data == Value::UInt(e),

@@ -556,10 +556,19 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let contract_id = QualifiedContractIdentifier::transient();
 
-            let content: String = friendly_expect(
-                fs::read_to_string(&args[1]),
-                &format!("Error reading file: {}", args[1]),
-            );
+            let content: String = if &args[1] == "-" {
+                let mut buffer = String::new();
+                friendly_expect(
+                    io::stdin().read_to_string(&mut buffer),
+                    "Error reading from stdin.",
+                );
+                buffer
+            } else {
+                friendly_expect(
+                    fs::read_to_string(&args[1]),
+                    &format!("Error reading file: {}", args[1]),
+                )
+            };
 
             let mut ast = friendly_expect(parse(&contract_id, &content), "Failed to parse program");
 

@@ -319,7 +319,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
-        if let Some(result) = self.try_native_function_check(function_name, args) {
+        if let Some(mut result) = self.try_native_function_check(function_name, args) {
+            if let Err(ref mut check_err) = result {
+                check_err.set_expressions(expression);
+            }
             result
         } else {
             let is_function_read_only = self

@@ -232,10 +232,10 @@ impl TransactionPayload {
         }))
     }
 
-    pub fn new_smart_contract(name: &String, contract: &String) -> Option<TransactionPayload> {
+    pub fn new_smart_contract(name: &str, contract: &str) -> Option<TransactionPayload> {
         match (
-            ContractName::try_from((*name).clone()),
-            StacksString::from_string(contract),
+            ContractName::try_from(name.to_string()),
+            StacksString::from_str(contract),
         ) {
             (Ok(s_name), Some(s_body)) => Some(TransactionPayload::SmartContract(
                 TransactionSmartContract {

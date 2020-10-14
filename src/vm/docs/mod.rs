@@ -18,8 +18,10 @@ use vm::analysis::type_checker::natives::SimpleNativeFunction;
 use vm::analysis::type_checker::TypedNativeFunction;
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
-use vm::types::{FixedFunction, FunctionType};
+use vm::types::{FixedFunction, FunctionType, Value};
 use vm::variables::NativeVariables;
+
+pub mod contracts;
 
 #[derive(Serialize)]
 struct ReferenceAPIs {
@@ -308,6 +310,55 @@ const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
 ",
 };
 
+pub fn get_input_type_string(function_type: &FunctionType) -> String {
+    match function_type {
+        FunctionType::Variadic(ref in_type, _) => format!("{}, ...", in_type),
+        FunctionType::Fixed(FixedFunction { ref args, .. }) => {
+            let in_types: Vec<String> = args.iter().map(|x| format!("{}", x.signature)).collect();
+            in_types.join(", ")
+        }
+        FunctionType::UnionArgs(ref in_types, _) => {
+            let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
+            in_types.join(" | ")
+        }
+        FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
+        FunctionType::ArithmeticUnary => "int | uint".to_string(),
+        FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
+            "int, int | uint, uint".to_string()
+        }
+    }
+}
+
+pub fn get_output_type_string(function_type: &FunctionType) -> String {
+    match function_type {
+        FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
+        FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{}", returns),
+        FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
+        FunctionType::ArithmeticVariadic
+        | FunctionType::ArithmeticUnary
+        | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+        FunctionType::ArithmeticComparison => "bool".to_string(),
+    }
+}
+
+pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Option<String> {
+    if let FunctionType::Fixed(FixedFunction { ref args, .. }) = function_type {
+        let in_names: Vec<String> = args
+            .iter()
+            .map(|x| format!("{}", x.name.as_str()))
+            .collect();
+        let arg_examples = in_names.join(" ");
+        Some(format!(
+            "({}{}{})",
+            function_name,
+            if arg_examples.len() == 0 { "" } else { " " },
+            arg_examples
+        ))
+    } else {
+        None
+    }
+}
+
 fn make_for_simple_native(
     api: &SimpleFunctionAPI,
     function: &NativeFunctions,
@@ -317,32 +368,8 @@ fn make_for_simple_native(
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
             TypedNativeFunction::type_native_function(&function)
         {
-            let input_type = match function_type {
-                FunctionType::Variadic(ref in_type, _) => format!("{}, ...", in_type),
-                FunctionType::Fixed(FixedFunction { ref args, .. }) => {
-                    let in_types: Vec<String> =
-                        args.iter().map(|x| format!("{}", x.signature)).collect();
-                    in_types.join(", ")
-                }
-                FunctionType::UnionArgs(ref in_types, _) => {
-                    let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
-                    in_types.join(" | ")
-                }
-                FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
-                FunctionType::ArithmeticUnary => "int | uint".to_string(),
-                FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
-                    "int, int | uint, uint".to_string()
-                }
-            };
-            let output_type = match function_type {
-                FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
-                FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{}", returns),
-                FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
-                FunctionType::ArithmeticVariadic
-                | FunctionType::ArithmeticUnary
-                | FunctionType::ArithmeticBinary => "int | uint".to_string(),
-                FunctionType::ArithmeticComparison => "bool".to_string(),
-            };
+            let input_type = get_input_type_string(&function_type);
+            let output_type = get_output_type_string(&function_type);
             (input_type, output_type)
         } else {
             panic!(

@@ -64,11 +64,11 @@ fn parse_pox_stacking_result(
 /// Handle special cases when calling into the PoX API contract
 fn handle_pox_api_contract_call(
     global_context: &mut GlobalContext,
-    sender_opt: Option<&PrincipalData>,
+    _sender_opt: Option<&PrincipalData>,
     function_name: &str,
     value: &Value,
 ) -> Result<()> {
-    if function_name == "stack-stx" {
+    if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
         debug!(
             "Handle special-case contract-call to {:?} {} (which returned {:?})",
             boot_code_id("pox"),
@@ -76,26 +76,13 @@ fn handle_pox_api_contract_call(
             value
         );
 
-        // sender is required
-        let sender = match sender_opt {
-            None => {
-                return Err(RuntimeErrorType::NoSenderInContext.into());
-            }
-            Some(sender) => (*sender).clone(),
-        };
-
         match parse_pox_stacking_result(value) {
             Ok((stacker, locked_amount, unlock_height)) => {
-                assert_eq!(
-                    stacker, sender,
-                    "BUG: tx-sender is not contract-call origin!"
-                );
-
                 // if this fails, then there's a bug in the contract (since it already does
                 // the necessary checks)
                 match StacksChainState::pox_lock(
                     &mut global_context.database,
-                    &sender,
+                    &stacker,
                     locked_amount,
                     unlock_height as u64,
                 ) {
@@ -112,7 +99,7 @@ fn handle_pox_api_contract_call(
                     Err(e) => {
                         panic!(
                             "FATAL: failed to lock {} from {} until {}: '{:?}'",
-                            locked_amount, sender, unlock_height, &e
+                            locked_amount, stacker, unlock_height, &e
                         );
                     }
                 }

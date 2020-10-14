@@ -343,6 +343,14 @@ fn main() {
         return;
     }
 
+    if argv[1] == "docgen_boot" {
+        println!(
+            "{}",
+            vm::docs::contracts::make_json_boot_contracts_reference()
+        );
+        return;
+    }
+
     if argv[1] == "local" {
         clarity::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
         return;

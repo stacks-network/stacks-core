@@ -83,15 +83,18 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, _expected_num_rounds: u64) {
+    pub fn start(&mut self, _expected_num_rounds: u64, burnchain_opt: Option<Burnchain>) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
         // Initialize and start the burnchain.
-        let mut burnchain =
-            BitcoinRegtestController::new(self.config.clone(), Some(coordinator_senders.clone()));
+        let mut burnchain = BitcoinRegtestController::with_burnchain(
+            self.config.clone(),
+            Some(coordinator_senders.clone()),
+            burnchain_opt,
+        );
         let pox_constants = burnchain.get_pox_constants();
 
         let is_miner = if self.config.node.miner {
@@ -136,7 +139,6 @@ impl RunLoop {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
-        let burnchain_poll_time = 30; // TODO: this is testnet-specific
 
         // setup dispatcher
         let mut event_dispatcher = EventDispatcher::new();
@@ -145,17 +147,7 @@ impl RunLoop {
         }
 
         let mut coordinator_dispatcher = event_dispatcher.clone();
-        let burnchain_config = match Burnchain::new(
-            &self.config.get_burn_db_path(),
-            &self.config.burnchain.chain,
-            "regtest",
-        ) {
-            Ok(burnchain) => burnchain,
-            Err(e) => {
-                error!("Failed to instantiate burnchain: {}", e);
-                panic!()
-            }
-        };
+        let burnchain_config = burnchain.get_burnchain();
         let chainstate_path = self.config.get_chainstate_path();
         let coordinator_burnchain_config = burnchain_config.clone();
 
@@ -178,7 +170,12 @@ impl RunLoop {
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
         // setup genesis
-        let node = NeonGenesisNode::new(self.config.clone(), event_dispatcher, |_| {});
+        let node = NeonGenesisNode::new(
+            self.config.clone(),
+            event_dispatcher,
+            burnchain_config.clone(),
+            |_| {},
+        );
         let mut node = if is_miner {
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),
@@ -212,8 +209,8 @@ impl RunLoop {
             mainnet,
             chainid,
             chainstate_path,
-            burnchain_poll_time,
-            self.config.connection_options.timeout,
+            self.config.burnchain.poll_time_secs,
+            self.config.node.pox_sync_sample_secs,
         )
         .unwrap();
         let mut burnchain_height = 1;

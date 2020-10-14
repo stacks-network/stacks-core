@@ -4295,6 +4295,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_step_walk_2_neighbors_rekey() {
         with_timeout(600, || {
             let mut peer_1_config = TestPeerConfig::from_port(32600);

@@ -200,7 +200,7 @@ impl CheckError {
         self.expressions.replace(vec![expr.clone()]);
     }
 
-    pub fn set_expressions(&mut self, exprs: Vec<SymbolicExpression>) {
+    pub fn set_expressions(&mut self, exprs: &[SymbolicExpression]) {
         self.diagnostic.spans = exprs.iter().map(|e| e.span.clone()).collect();
         self.expressions.replace(exprs.clone().to_vec());
     }
