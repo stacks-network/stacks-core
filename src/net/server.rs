@@ -31,6 +31,7 @@ use std::sync::mpsc::SendError;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 
+use net::atlas::AtlasDB;
 use net::connection::*;
 use net::db::*;
 use net::http::*;
@@ -437,6 +438,7 @@ impl HttpPeer {
         peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         event_id: usize,
@@ -511,6 +513,7 @@ impl HttpPeer {
             peers,
             sortdb,
             peerdb,
+            atlasdb,
             chainstate,
             mempool,
             handler_args,
@@ -589,6 +592,7 @@ impl HttpPeer {
         peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_args: &RPCHandlerArgs,
@@ -619,6 +623,7 @@ impl HttpPeer {
                         peers,
                         sortdb,
                         peerdb,
+                        atlasdb,
                         chainstate,
                         mempool,
                         *event_id,
@@ -686,6 +691,7 @@ impl HttpPeer {
         p2p_peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         mut poll_state: NetworkPollState,
@@ -706,6 +712,7 @@ impl HttpPeer {
             p2p_peers,
             sortdb,
             peerdb,
+            atlasdb,
             chainstate,
             mempool,
             handler_args,

@@ -55,8 +55,8 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
-use net::{GetNameResponse, PostZonefileResponse};
-use net::atlas::BNS_NAME_REGEX;
+use net::{GetNameResponse, GetZonefileResponse, GetZonefilesInvResponse, PostZonefileResponse};
+use net::atlas::{BNS_NAME_REGEX, Attachment};
 use burnchains::{Address, Txid};
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
@@ -65,6 +65,7 @@ use chainstate::stacks::{
 
 use util::hash::hex_bytes;
 use util::hash::to_hex;
+use util::hash::Hash160;
 use util::log;
 use util::retry::BoundReader;
 use util::retry::RetryReader;
@@ -128,12 +129,19 @@ lazy_static! {
     ))
     .unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
+    static ref PATH_GET_ZONEFILE: Regex = Regex::new(&format!(
+        r#"^/v2/names/(?P<name>{})/zonefile$"#,
+        *BNS_NAME_REGEX
+    ))
+    .unwrap();
+    static ref PATH_POST_ZONEFILE: Regex = Regex::new("^/v2/zonefiles$").unwrap();
+    static ref PATH_GET_ZONEFILES_INV: Regex = Regex::new("^/v2/zonefiles/inv$").unwrap();
     static ref PATH_GET_NAME: Regex = Regex::new(&format!(
         r#"^/v2/names/(?P<name>{})$"#,
         *BNS_NAME_REGEX
     ))
     .unwrap();
-    static ref PATH_POST_ZONEFILE: Regex = Regex::new("^/v2/zonefiles$").unwrap();
+
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
@@ -1507,10 +1515,20 @@ impl HttpRequestType {
                 &HttpRequestType::parse_get_name,
             ),
             (
+                "GET",
+                &PATH_GET_ZONEFILE,
+                &HttpRequestType::parse_get_zonefile,
+            ),
+            (
                 "POST",
                 &PATH_POST_ZONEFILE,
                 &HttpRequestType::parse_post_zonefile,
             ),
+            (
+                "GET",
+                &PATH_GET_ZONEFILES_INV,
+                &HttpRequestType::parse_get_zonefiles_inv,
+            )
         ];
 
         // use url::Url to parse path and query string
@@ -2078,10 +2096,108 @@ impl HttpRequestType {
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
         _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+
+        if preamble.get_content_length() == 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected non-zero-length body for PostZonefile"
+                    .to_string(),
+            ));
+        }
+
+        // content-type must be given, and must be application/json
+        match preamble.content_type {
+            None => {
+                return Err(net_error::DeserializeError(
+                    "Missing Content-Type for transaction".to_string(),
+                ));
+            }
+            Some(ref c) => {
+                if *c != HttpContentType::JSON {
+                    return Err(net_error::DeserializeError(
+                        "Wrong Content-Type for transaction; expected application/json"
+                            .to_string(),
+                    ));
+                }
+            }
+        };
+
+        let attachment: Attachment = serde_json::from_reader(fd)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse attachment".into()))?;
+        
+        if !attachment.is_hash_valid() {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: hash invalid"
+                    .to_string(),
+            ));
+        }
+
+        Ok(HttpRequestType::PostZonefile(
+            HttpRequestMetadata::from_preamble(preamble),
+            attachment))
+    }
+
+    fn parse_get_zonefile<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        query: Option<&str>,
         _fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
-        Ok(HttpRequestType::PostZonefile(
-            HttpRequestMetadata::from_preamble(preamble)))
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body".to_string(),
+            ));
+        }
+
+        let name = captures["name"].to_string();
+
+        let tip = HttpRequestType::get_chain_tip_query(query);
+
+        Ok(HttpRequestType::GetZonefile(
+            HttpRequestMetadata::from_preamble(preamble),
+            name,
+            tip))
+    }
+
+    fn parse_get_zonefiles_inv<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body".to_string(),
+            ));
+        }
+
+        let mut tip = None;
+        let mut page_index = 0;
+        
+        if let Some(query) = query {
+            for (key, value) in form_urlencoded::parse(query.as_bytes()) {
+                if key == "tip" {
+                    tip = match StacksBlockId::from_hex(&value) {
+                        Ok(tip) => Some(tip),
+                        _ => None
+                    };
+
+                } else if key == "page_index" {
+                    page_index = match value.parse::<u32>() {
+                        Ok(page_index) => page_index,
+                        _ => 0,
+                    };
+                }
+            }    
+        }
+
+        Ok(HttpRequestType::GetZonefilesInv(
+            HttpRequestMetadata::from_preamble(preamble),
+            tip,
+            page_index))
     }
 
     fn parse_get_name<R: Read>(
@@ -2139,6 +2255,8 @@ impl HttpRequestType {
             HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetName(ref md, ..) => md,
+            HttpRequestType::GetZonefilesInv(ref md, ..) => md,
+            HttpRequestType::GetZonefile(ref md, ..) => md,
             HttpRequestType::PostZonefile(ref md, ..) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
@@ -2163,6 +2281,8 @@ impl HttpRequestType {
             HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetName(ref mut md, ..) => md,
+            HttpRequestType::GetZonefilesInv(ref mut md, ..) => md,
+            HttpRequestType::GetZonefile(ref mut md, ..) => md,
             HttpRequestType::PostZonefile(ref mut md, ..) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
@@ -2260,6 +2380,7 @@ impl HttpRequestType {
                 HttpRequestType::make_query_string(tip_opt.as_ref(), true)
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
+            HttpRequestType::GetZonefilesInv(_md, ..) => "/v2/zonefiles/inv".to_string(),
             HttpRequestType::PostZonefile(_md, ..) => "/v2/zonefiles".to_string(),
             HttpRequestType::GetName(
                 _,
@@ -2267,6 +2388,15 @@ impl HttpRequestType {
                 tip_opt,
             ) => format!(
                 "/v2/names/{}{}",
+                name.as_str(),
+                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+            ),
+            HttpRequestType::GetZonefile(
+                _,
+                name,
+                tip_opt,
+            ) => format!(
+                "/v2/names/{}/zonefile{}",
                 name.as_str(),
                 HttpRequestType::make_query_string(tip_opt.as_ref(), true)
             ),
@@ -2661,7 +2791,9 @@ impl HttpResponseType {
                 &HttpResponseType::parse_call_read_only,
             ),
             (&PATH_GET_NAME, &HttpResponseType::parse_get_name),
+            (&PATH_GET_ZONEFILE, &HttpResponseType::parse_get_zonefile),
             (&PATH_POST_ZONEFILE, &HttpResponseType::parse_post_zonefile),
+            (&PATH_GET_ZONEFILES_INV, &HttpResponseType::parse_get_zonefiles_inv),
         ];
 
         // use url::Url to parse path and query string
@@ -2919,9 +3051,6 @@ impl HttpResponseType {
         ))
     }
 
-    // (&PATH_GET_NAME, &HttpResponseType::parse_get_name),
-    // (&PATH_POST_ZONEFILE, &HttpResponseType::parse_post_zonefile),
-
     fn parse_get_name<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -2932,6 +3061,37 @@ impl HttpResponseType {
         let res = GetNameResponse {};
 
         Ok(HttpResponseType::GetName(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            res,
+        ))
+    }
+
+    fn parse_get_zonefile<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let res = GetZonefileResponse {};
+
+        Ok(HttpResponseType::GetZonefile(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            res,
+        ))
+    }
+
+    fn parse_get_zonefiles_inv<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let res = GetZonefilesInvResponse {
+            inventory: vec![]
+        };
+        Ok(HttpResponseType::GetZonefilesInv(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             res,
         ))
@@ -3028,6 +3188,8 @@ impl HttpResponseType {
             HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
             HttpResponseType::GetName(ref md, _) => md,
             HttpResponseType::PostZonefile(ref md, _) => md,
+            HttpResponseType::GetZonefile(ref md, _) => md,
+            HttpResponseType::GetZonefilesInv(ref md, _) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
@@ -3145,6 +3307,14 @@ impl HttpResponseType {
                 HttpResponseType::send_json(protocol, md, fd, name_data)?;
             }
             HttpResponseType::PostZonefile(ref md, ref zonefile_data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
+            }
+            HttpResponseType::GetZonefile(ref md, ref zonefile_data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
+            }
+            HttpResponseType::GetZonefilesInv(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
             }
@@ -3333,6 +3503,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpRequestType::GetName(..) => "HTTP(GetName)",
                 HttpRequestType::PostZonefile(..) => "HTTP(PostZonefile)",
+                HttpRequestType::GetZonefile(..) => "HTTP(GetZonefile)",
+                HttpRequestType::GetZonefilesInv(..) => "HTTP(GetZonefilesInv)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
             },
@@ -3345,6 +3517,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpResponseType::GetName(ref md, _) => "HTTP(GetName)",
                 HttpResponseType::PostZonefile(ref md, _) => "HTTP(PostZonefile)",
+                HttpResponseType::GetZonefile(ref md, _) => "HTTP(GetZonefile)",
+                HttpResponseType::GetZonefilesInv(ref md, _) => "HTTP(GetZonefilesInv)",
                 HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::PoxInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::Neighbors(_, _) => "HTTP(Neighbors)",
@@ -3354,8 +3528,6 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",
                 HttpResponseType::MicroblockHash(_, _) => "HTTP(Microblock)",
-                HttpResponseType::GetName(..) => "HTTP(GetName)",
-                HttpResponseType::PostZonefile(..) => "HTTP(PostZonefile)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
                     "HTTP(400)"

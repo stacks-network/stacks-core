@@ -50,9 +50,10 @@ use net::StacksMessageType;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse};
+use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetZonefilesInvResponse, PostZonefileResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
+use net::atlas::{AtlasDB, BNSContractReader, Attachment};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
@@ -522,6 +523,60 @@ impl ConversationHttp {
                 response.send(http, fd)
             }
         }
+    }
+
+    fn handle_getzonefilesinv<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        atlasdb: &AtlasDB,
+        chainstate: &mut StacksChainState,
+        tip: &StacksBlockId,
+        page_index: u32,
+        options: &ConnectionOptions,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        match BNSContractReader::get_zonefiles_hashes_at_page_index(page_index, sortdb, chainstate, tip, options) {
+            Ok(zonefiles_hashes_inv) => {
+
+                let compact_inventory = zonefiles_hashes_inv.compute_compact_inventory(atlasdb);
+
+                let content = GetZonefilesInvResponse {
+                    inventory: compact_inventory
+                };
+
+                let response = HttpResponseType::GetZonefilesInv(response_metadata, content);
+                response.send(http, fd)
+            }
+            Err(e) => {
+                warn!("Failed to get peer info {:?}: {:?}", req, &e);
+                let response = HttpResponseType::ServerError(
+                    response_metadata,
+                    "Failed to query peer info".to_string(),
+                );
+                response.send(http, fd)
+            }
+        }
+    }
+
+    fn handle_postzonefile<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        atlasdb: &mut AtlasDB,
+        chainstate: &mut StacksChainState,
+        attachment: Attachment,
+        options: &ConnectionOptions,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        atlasdb.insert_unprocessed_attachment(attachment);
+        
+        let content = PostZonefileResponse {};
+
+        let response = HttpResponseType::PostZonefile(response_metadata, content);
+        response.send(http, fd)
     }
 
     /// Handle a GET neighbors
@@ -1178,6 +1233,7 @@ impl ConversationHttp {
         peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
@@ -1456,8 +1512,43 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::PostZonefile(ref _md) => {
+            HttpRequestType::PostZonefile(ref _md, ref attachment) => {
+                ConversationHttp::handle_postzonefile(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    atlasdb,
+                    chainstate,
+                    attachment.clone(),
+                    &self.connection.options,
+                )?;
+                None
+            }
+            HttpRequestType::GetZonefile(ref _md, ref name, ref tip_opt) => {
                 // todo(ludo): implement
+                None
+            }
+            HttpRequestType::GetZonefilesInv(ref _md, ref tip_opt, page_index) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_opt.as_ref(),
+                    sortdb,
+                    chainstate,
+                )? {
+                    ConversationHttp::handle_getzonefilesinv(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        sortdb,
+                        atlasdb,
+                        chainstate,
+                        &tip,
+                        page_index,
+                        &self.connection.options,
+                    )?;
+                }
                 None
             }
             HttpRequestType::GetName(ref _md, ref name, ref tip_opt) => {
@@ -1768,6 +1859,7 @@ impl ConversationHttp {
         peers: &PeerMap,
         sortdb: &SortitionDB,
         peerdb: &PeerDB,
+        atlasdb: &mut AtlasDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_args: &RPCHandlerArgs,
@@ -1801,6 +1893,7 @@ impl ConversationHttp {
                         peers,
                         sortdb,
                         peerdb,
+                        atlasdb,
                         chainstate,
                         mempool,
                         handler_args,

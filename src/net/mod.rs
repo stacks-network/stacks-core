@@ -113,6 +113,8 @@ use vm::clarity::Error as clarity_error;
 
 use self::dns::*;
 
+use net::atlas::Attachment;
+
 use core::POX_REWARD_CYCLE_LENGTH;
 
 #[derive(Debug)]
@@ -1104,6 +1106,15 @@ pub struct GetNameResponse {
 pub struct PostZonefileResponse {
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetZonefileResponse {
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetZonefilesInvResponse {
+    inventory: Vec<u8>
+}
+
 /// Request ID to use or expect from non-Stacks HTTP clients.
 /// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
 /// to be this value.  This is needed to support fetching immutables like block and microblock data
@@ -1227,7 +1238,9 @@ pub enum HttpRequestType {
     ),
     OptionsPreflight(HttpRequestMetadata, String),
     GetName(HttpRequestMetadata, String, Option<StacksBlockId>),
-    PostZonefile(HttpRequestMetadata),
+    GetZonefile(HttpRequestMetadata, String, Option<StacksBlockId>),
+    GetZonefilesInv(HttpRequestMetadata, Option<StacksBlockId>, u32),
+    PostZonefile(HttpRequestMetadata, Attachment),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1318,6 +1331,8 @@ pub enum HttpResponseType {
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
     GetName(HttpResponseMetadata, GetNameResponse),
+    GetZonefile(HttpResponseMetadata, GetZonefileResponse),
+    GetZonefilesInv(HttpResponseMetadata, GetZonefilesInvResponse),
     PostZonefile(HttpResponseMetadata, PostZonefileResponse),
     OptionsPreflight(HttpResponseMetadata),
     // peer-given error responses
