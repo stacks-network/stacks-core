@@ -585,9 +585,10 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
                 # check if the required number of blocks have been mined since threshold crossed
                 if (block_height - threshold_block_id == v2_upgrade_signal_import_threshold):
                     # emit parsable log entry and export datafile
-                    log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_height))
-                    db_state.set_v2_import_block_reached(block_height)
-                    db_state.perform_v2_upgrade_datafile_export(consensus_hash)
+                    export_block_id = db_state.get_current_block()
+                    log.warn('[v2-upgrade] import threshold reached at block: {}'.format(export_block_id))
+                    db_state.set_v2_import_block_reached(export_block_id)
+                    db_state.perform_v2_upgrade_datafile_export(export_block_id)
                     log.warn('[v2-upgrade] migration datafile export successful')
 
         else:

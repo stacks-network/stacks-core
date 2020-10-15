@@ -571,7 +571,7 @@ def fast_sync_inspect_snapshot( snapshot_path ):
     return info
 
 
-def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLIC_KEYS, num_required=len(config.FAST_SYNC_PUBLIC_KEYS), verbose=False):
+def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLIC_KEYS, num_required=len(config.FAST_SYNC_PUBLIC_KEYS), verbose=False, delete_file=True):
     """
     Fast sync import.
     Verify the given fast-sync file from @import_path using @public_key, and then 
@@ -597,11 +597,19 @@ def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLI
         logerr("No such directory {}".format(working_dir))
         return False
 
-    # go get it 
-    import_path = fast_sync_fetch(working_dir, import_url)
+    import_path = None
+    try:
+        if os.path.exists(import_url):
+            import_path = import_url
+    except:
+        pass
+
     if import_path is None:
-        logerr("Failed to fetch {}".format(import_url))
-        return False
+        # go get it 
+        import_path = fast_sync_fetch(working_dir, import_url)
+        if import_path is None:
+            logerr("Failed to fetch {}".format(import_url))
+            return False
 
     # format: <signed bz2 payload> <sigb64> <sigb64 length (8 bytes hex)> ... <num signatures>
     file_size = 0
@@ -612,44 +620,44 @@ def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLI
         log.exception(e)
         return False
 
-    num_signatures = 0
-    ptr = file_size
-    signatures = []
+    if num_required > 0:
+        num_signatures = 0
+        ptr = file_size
+        signatures = []
+        with open(import_path, 'r') as f:
+            info = fast_sync_inspect( f )
+            if 'error' in info:
+                logerr("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
+                return False
 
-    with open(import_path, 'r') as f:
-        info = fast_sync_inspect( f )
-        if 'error' in info:
-            logerr("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
-            return False
+            signatures = info['signatures']
+            ptr = info['payload_size']
 
-        signatures = info['signatures']
-        ptr = info['payload_size']
-
-        # get the hash of the file 
-        hash_hex = get_file_hash(f, hashlib.sha256, fd_len=ptr)
-        
-        # validate signatures over the hash
-        logmsg("Verify {} bytes".format(ptr))
-        key_idx = 0
-        num_match = 0
-        for next_pubkey in public_keys:
-            for sigb64 in signatures:
-                valid = verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
-                if valid:
-                    num_match += 1
-                    if num_match >= num_required:
-                        break
+            # get the hash of the file 
+            hash_hex = get_file_hash(f, hashlib.sha256, fd_len=ptr)
+            
+            # validate signatures over the hash
+            logmsg("Verify {} bytes".format(ptr))
+            key_idx = 0
+            num_match = 0
+            for next_pubkey in public_keys:
+                for sigb64 in signatures:
+                    valid = verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
+                    if valid:
+                        num_match += 1
+                        if num_match >= num_required:
+                            break
+                        
+                        logmsg("Public key {} matches {} ({})".format(next_pubkey, sigb64, hash_hex))
+                        signatures.remove(sigb64)
                     
-                    logmsg("Public key {} matches {} ({})".format(next_pubkey, sigb64, hash_hex))
-                    signatures.remove(sigb64)
-                
-                else:
-                    logmsg("Public key {} does NOT match {} ({})".format(next_pubkey, sigb64, hash_hex))
+                    else:
+                        logmsg("Public key {} does NOT match {} ({})".format(next_pubkey, sigb64, hash_hex))
 
-        # enough signatures?
-        if num_match < num_required:
-            logerr("Not enough signatures match (required {}, found {})".format(num_required, num_match))
-            return False
+            # enough signatures?
+            if num_match < num_required:
+                logerr("Not enough signatures match (required {}, found {})".format(num_required, num_match))
+                return False
 
     # decompress
     import_path = os.path.abspath(import_path)
@@ -668,7 +676,8 @@ def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLI
     logmsg("Restored to {}".format(working_dir))
 
     try:
-        os.unlink(import_path)
+        if delete_file:
+            os.unlink(import_path)
     except:
         pass
 

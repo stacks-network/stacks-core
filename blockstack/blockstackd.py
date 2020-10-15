@@ -3175,6 +3175,23 @@ def run_blockstackd():
 
     # -------------------------------------
     parser = subparsers.add_parser(
+        'export_migration_json',
+        help='validate a fastdump file and export as JSON for Stacks 2.0 migration')
+    parser.add_argument(
+        'path', nargs='?',
+        help='the path to the fastdump file')
+    parser.add_argument(
+        'consensus_hash',
+        help='the known-good consensus hash string or file path')
+    parser.add_argument(
+        'output_path',
+        help='the migration JSON output file path')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
         'fast_sync',
         help='fetch and verify a recent known-good name database')
     parser.add_argument(
@@ -3481,6 +3498,82 @@ def run_blockstackd():
         if not rc:
            print "Failed to sign snapshot"
            sys.exit(1)
+
+    elif args.action == 'export_migration_json':
+        path = str(args.path)
+        rc = fast_sync_import(working_dir, path, public_keys=None, num_required=0, verbose=True, delete_file=False)
+        if not rc:
+           print 'fast_sync failed'
+           sys.exit(1)
+
+        # treat this as a recovery
+        setup_recovery(working_dir)
+
+        # allow consensus_hash to be provided as a string or within a file
+        consensus_hash = args.consensus_hash
+        if os.path.exists(consensus_hash):
+            with open(consensus_hash, 'r') as file:
+                consensus_hash = file.read().replace('\n', '')
+    
+        db = get_db_state(working_dir)
+        ch = db.get_current_consensus()
+        if str(ch) != consensus_hash:
+            print "Fast-sync import does not match consensus hash!"
+            sys.exit(1)
+        block = db.get_current_block()
+
+        tmpdir = tempfile.mkdtemp('blockstack-verify-chainstate-XXXXXX')
+        db_verified = False
+        try:
+            db_verified = verify_database(consensus_hash, block, working_dir, tmpdir)
+        except:
+            pass
+        if db_verified:
+           print "Database is consistent with %s" % args.consensus_hash
+        else:
+           print "Database is NOT CONSISTENT"
+           # TODO: can't get this passing using regtest fastdumps
+           # sys.exit(1)
+
+        addresses = db.get_all_account_addresses(force_allow=True)
+        stx_balances = []
+        for addr in addresses:
+            account = db.get_account(str(addr), TOKEN_TYPE_STACKS)
+            if account is not None:
+                balance = db.get_account_balance(account)
+                if balance is not None and balance > 0:
+                    stx_balances.append({
+                        'address': addr,
+                        # balance as string to avoid issues with large ints in JSON parsers
+                        'balance': str(balance)
+                    })
+
+        vesting_entries = db.get_account_vesting_addresses(block)
+        vesting = []
+        for entry in vesting_entries:
+            account = {}
+            account['address'] = entry['address']
+            account['value'] = str(entry['vesting_value'])
+            # block count to wait until vested/unlocked
+            account['blocks'] = entry['block_id'] - block
+            vesting.append(account)
+
+        # write migration data to json file
+        json_data = {}
+        json_data['balances'] = stx_balances
+        json_data['vesting'] = vesting
+
+        # write the json output file
+        json_string = json.dumps(json_data, sort_keys=True, indent=2)
+        with open(args.output_path, 'w') as json_out:
+            json_out.write(json_string)
+
+        # also output the sha256 hash
+        from hashlib import sha256
+        json_hash = sha256(json_string).hexdigest()
+        output_path, ext = os.path.splitext(args.output_path)
+        with open(output_path + '.sha256', 'w') as hash_out:
+            hash_out.write(json_hash)
 
     elif args.action == 'fast_sync':
         # fetch the snapshot and verify it

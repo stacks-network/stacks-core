@@ -955,12 +955,12 @@ class BlockstackDB(virtualchain.StateEngine):
         return namedb_get_account_history(cur, address, offset=offset, count=count)
 
 
-    def get_all_account_addresses(self):
+    def get_all_account_addresses(self, force_allow=False):
         """
         TESTING ONLY
         Get all account addresses
         """
-        assert BLOCKSTACK_TEST, 'BUG: this method can only be accessed in test mode'
+        assert BLOCKSTACK_TEST or force_allow, 'BUG: this method can only be accessed in test mode'
         cur = self.db.cursor()
         return namedb_get_all_account_addresses(cur)
 
@@ -1157,7 +1157,7 @@ class BlockstackDB(virtualchain.StateEngine):
         """
         namedb_set_v2_import_block_reached(self.db, block_id)
 
-    def perform_v2_upgrade_datafile_export( self, consensus_hash ):
+    def perform_v2_upgrade_datafile_export( self, block_id ):
         """
         Export a datafile used for the v2 upgrade. 
         Does nothing if the `v2_migration_export` config option is not enabled.
@@ -1168,10 +1168,10 @@ class BlockstackDB(virtualchain.StateEngine):
         export_file_path = os.path.join( self.working_dir, 'v2_migration_data.tar.bz2')
         consensus_hash_file_path = os.path.join( self.working_dir, 'v2_migration_data.consensus_hash.txt')
         if os.path.exists(export_file_path):
-            log.warning('v2_migration_data already exists')
+            log.warning('v2_migration_data already exists at {}'.format(export_file_path))
             return
 
-        block_id = self.get_current_block()
+        consensus_hash = self.get_consensus_at(block_id)
 
         # override backup frequency to force a backup _now_
         # note: the `make_backup` function subtracts 1 from the given block ID
@@ -1187,6 +1187,11 @@ class BlockstackDB(virtualchain.StateEngine):
                 f.write(consensus_hash)
         else:
             raise Exception('failed to export v2 datafile')
+
+    def get_account_vesting_addresses( self, min_block_id ):
+        cur = self.db.cursor()
+        vesting = namedb_get_account_vesting_addresses(cur, "STACKS", min_block_id)
+        return vesting
 
     def get_names_in_namespace( self, namespace_id, offset=None, count=None ):
         """

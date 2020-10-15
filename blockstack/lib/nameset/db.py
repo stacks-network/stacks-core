@@ -531,6 +531,20 @@ def namedb_replace_genesis(path, genesis_block):
     return con
 
 
+def namedb_get_account_vesting_addresses(cur, token_type, min_block_id):
+    """
+    Get a list of all accounts with vesting tokens occuring after the given
+    block height
+    """
+    sql = 'SELECT * from account_vesting WHERE type = ? AND block_id > ? ORDER BY block_id DESC;'
+    args = (token_type,min_block_id)
+
+    rows = namedb_query_execute(cur, sql, args)
+    vesting_rows = []
+    for rowdata in rows:
+        vesting_rows.append(rowdata)
+    return vesting_rows
+
 def namedb_get_account_vesting(cur, address, token_type):
     """
     Get the history of an account's tokens.
