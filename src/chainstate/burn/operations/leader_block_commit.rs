@@ -439,8 +439,11 @@ impl LeaderBlockCommitOp {
                     prior_is_burn && addr.is_burn()
                 });
 
-            if self.all_outputs_burn() && recipient_set_all_burns {
-                // pass
+            if recipient_set_all_burns {
+                if !self.all_outputs_burn() {
+                    warn!("Invalid block commit: recipient set should be all burns");
+                    return Err(op_error::BlockCommitBadOutputs);
+                }
             } else {
                 let expect_pox_descendant = if self.all_outputs_burn() {
                     false

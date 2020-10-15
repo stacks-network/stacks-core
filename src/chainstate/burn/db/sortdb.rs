@@ -986,6 +986,10 @@ impl<'a> SortitionHandleTx<'a> {
                     return Ok(None);
                 }
 
+                if OUTPUTS_PER_COMMIT != 2 {
+                    unreachable!("BUG: PoX reward address selection only implemented for OUTPUTS_PER_COMMIT = 2");
+                }
+
                 let chosen_recipients = reward_set_vrf_seed.choose_two(
                     reward_set
                         .len()
