@@ -570,9 +570,7 @@ impl Burnchain {
                     }
                 }
             }
-            x if x == Opcodes::LeaderBlockCommit as u8
-                || x == Opcodes::LeaderBlockCommitTransfer as u8 =>
-            {
+            x if x == Opcodes::LeaderBlockCommit as u8 => {
                 match LeaderBlockCommitOp::from_tx(block_header, burn_tx) {
                     Ok(op) => Some(BlockstackOperationType::LeaderBlockCommit(op)),
                     Err(e) => {

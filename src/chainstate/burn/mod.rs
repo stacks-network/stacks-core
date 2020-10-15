@@ -109,7 +109,6 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 #[repr(u8)]
 pub enum Opcodes {
     LeaderBlockCommit = '[' as u8,
-    LeaderBlockCommitTransfer = ']' as u8,
     LeaderKeyRegister = '^' as u8,
     UserBurnSupport = '_' as u8,
 }
