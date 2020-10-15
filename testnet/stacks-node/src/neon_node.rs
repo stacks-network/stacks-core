@@ -150,7 +150,7 @@ fn inner_process_tenure(
         SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn())?;
 
     let canonical_tip = StacksBlockId::new(&canonical_consensus_hash, &canonical_block_hash);
-    debug!("Reload unconfirmed state {}/{}", &canonical_consensus_hash, &canonical_block_hash);
+    debug!("Reload unconfirmed state {}/{} => {}", &canonical_consensus_hash, &canonical_block_hash, canonical_tip);
     chain_state.reload_unconfirmed_state(&burn_db.index_conn(), canonical_tip)?;
 
     Ok(true)
@@ -779,6 +779,11 @@ impl InitializedNeonNode {
 
                 // TOTO(psq): try using `wait_for_stacks_blocks_processed` instead?  except this code is more precise
                 // TODO(psq): consider moving this to a separate function `wait_for_block` or similar
+
+                // TODO(psq): save block waiting for
+                // - block height, burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash
+                // => then update with planned stacks block hash
+                // - available blocks vector bit?  or log block arrival separately, regardless of whether they are being rejected
 
                 while !done {
                     has_block = burnchain_tip.winning_stacks_block_hash == BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap() || match StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, &burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash) {
