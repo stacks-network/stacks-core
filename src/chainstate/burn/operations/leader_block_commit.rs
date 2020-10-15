@@ -241,7 +241,9 @@ impl LeaderBlockCommitOp {
         let (commit_outs, burn_fee) = if !expects_pox_outputs {
             // this is a single output _burn_ commitment.
             if !outputs[0].address.is_burn() {
-                warn!("Invalid tx: should be a burn commitment, but address is not the burn address");
+                warn!(
+                    "Invalid tx: should be a burn commitment, but address is not the burn address"
+                );
                 return Err(op_error::InvalidInput);
             }
             // mock the commit_outs to burn outputs.
@@ -311,9 +313,11 @@ impl LeaderBlockCommitOp {
 
     /// are all the outputs for this block commit burns?
     pub fn all_outputs_burn(&self) -> bool {
-        self.commit_outs.iter().fold(true, |previous_is_burn, output_addr| {
-            previous_is_burn && output_addr.is_burn()
-        })
+        self.commit_outs
+            .iter()
+            .fold(true, |previous_is_burn, output_addr| {
+                previous_is_burn && output_addr.is_burn()
+            })
     }
 }
 
@@ -384,7 +388,8 @@ impl RewardSetInfo {
             outs
         } else {
             (0..OUTPUTS_PER_COMMIT)
-                .map(|_| StacksAddress::burn_address(mainnet)).collect()
+                .map(|_| StacksAddress::burn_address(mainnet))
+                .collect()
         }
     }
 }
@@ -427,8 +432,12 @@ impl LeaderBlockCommitOp {
             // first, handle a corner case:
             //    all of the commitment outputs are _burns_
             //    _and_ the reward set chose two burn addresses as reward addresses.
-            let recipient_set_all_burns = reward_set_info.recipients.iter()
-                .fold(true, |prior_is_burn, (addr, _)| prior_is_burn && addr.is_burn());
+            let recipient_set_all_burns = reward_set_info
+                .recipients
+                .iter()
+                .fold(true, |prior_is_burn, (addr, _)| {
+                    prior_is_burn && addr.is_burn()
+                });
 
             if self.all_outputs_burn() && recipient_set_all_burns {
                 // pass
@@ -777,16 +786,14 @@ mod tests {
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
             }],
-            outputs: vec![
-                BitcoinTxOutput {
-                    units: 13,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
-                        network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([1; 20]),
-                    },
+            outputs: vec![BitcoinTxOutput {
+                units: 13,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
                 },
-            ],
+            }],
         });
 
         // not enough PoX outputs
