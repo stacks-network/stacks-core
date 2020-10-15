@@ -18,7 +18,6 @@ use std::collections::VecDeque;
 use std::thread;
 use std::time::Duration;
 use std::convert::{TryFrom, TryInto};
-use std::time::Duration;
 
 use burnchains::{
     db::{BurnchainBlockData, BurnchainDB},
