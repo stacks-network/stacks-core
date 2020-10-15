@@ -307,12 +307,12 @@
           (revoked-at revoked-at)
           (zonefile-hash zonefile-hash))))))
 
-(define-readonly (get-zonefiles-inv-info)
+(define-read-only (get-zonefiles-inv-info)
   (ok { 
     pages-count: (var-get zonefiles-inv-page-cursor),
     last-page-len: (var-get zonefiles-inv-index-cursor),
     page-size: zonefiles-inv-page-size
-  })
+  }))
 
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER
