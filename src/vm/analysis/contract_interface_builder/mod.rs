@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{BTreeMap, BTreeSet};
 use vm::analysis::types::ContractAnalysis;
 use vm::types::{FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature};
@@ -100,9 +116,11 @@ pub enum ContractInterfaceAtomType {
     buffer {
         length: u32,
     },
+    #[serde(rename = "string-utf8")]
     string_utf8 {
         length: u32,
     },
+    #[serde(rename = "string-ascii")]
     string_ascii {
         length: u32,
     },
@@ -368,4 +386,28 @@ impl ContractInterface {
     pub fn serialize(&self) -> String {
         serde_json::to_string(self).expect("Failed to serialize contract interface")
     }
+}
+
+#[test]
+fn test_string_rename_ascii() {
+    let arg = ContractInterfaceFunctionArg {
+        name: "test-name".into(),
+        type_f: ContractInterfaceAtomType::string_ascii { length: 32 },
+    };
+    assert_eq!(
+        serde_json::to_string(&arg).unwrap(),
+        "{\"name\":\"test-name\",\"type\":{\"string-ascii\":{\"length\":32}}}"
+    );
+}
+
+#[test]
+fn test_string_rename_utf8() {
+    let arg = ContractInterfaceFunctionArg {
+        name: "test-utf8".into(),
+        type_f: ContractInterfaceAtomType::string_utf8 { length: 32 },
+    };
+    assert_eq!(
+        serde_json::to_string(&arg).unwrap(),
+        "{\"name\":\"test-utf8\",\"type\":{\"string-utf8\":{\"length\":32}}}"
+    );
 }

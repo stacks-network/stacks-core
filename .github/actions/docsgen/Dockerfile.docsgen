@@ -4,13 +4,15 @@ WORKDIR /src
 
 COPY . .
 
-RUN apt-get update && apt-get install -y git
+RUN apt-get update && apt-get install -y git jq
 
 RUN cargo build
 
 RUN mkdir /out
 
-RUN /src/target/debug/blockstack-core docgen > /out/clarity-reference.json
+RUN /src/target/debug/blockstack-core docgen | jq . > /out/clarity-reference.json
+RUN /src/target/debug/blockstack-core docgen_boot | jq . > /out/boot-contracts-reference.json
 
 FROM scratch AS export-stage
 COPY --from=build /out/clarity-reference.json /
+COPY --from=build /out/boot-contracts-reference.json /

@@ -1,0 +1,847 @@
+use std::collections::{HashMap, VecDeque};
+use std::convert::TryFrom;
+
+use vm::contracts::Contract;
+use vm::errors::{
+    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
+    RuntimeErrorType,
+};
+use vm::types::{
+    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+    TupleTypeSignature, TypeSignature, Value, NONE,
+};
+
+use std::convert::TryInto;
+
+use burnchains::BurnchainHeaderHash;
+use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
+use chainstate::stacks::boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS;
+use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
+use chainstate::stacks::index::proofs::TrieMerkleProof;
+use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::*;
+
+use util::db::{DBConn, FromRow};
+use util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use vm::contexts::OwnedEnvironment;
+use vm::costs::CostOverflowingMath;
+use vm::database::*;
+use vm::representations::SymbolicExpression;
+
+use util::hash::to_hex;
+use vm::eval;
+use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
+
+use core::{
+    FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_HEIGHT, FIRST_BURNCHAIN_BLOCK_TIMESTAMP,
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
+};
+
+const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
+const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
+const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
+const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+
+const USTX_PER_HOLDER: u128 = 1_000_000;
+
+lazy_static! {
+    static ref BOOT_CODE_POX_MAINNET: String =
+        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
+    static ref BOOT_CODE_POX_TESTNET: String =
+        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
+    static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
+        &FIRST_BURNCHAIN_CONSENSUS_HASH,
+        &FIRST_STACKS_BLOCK_HASH
+    );
+    static ref POX_CONTRACT: QualifiedContractIdentifier =
+        QualifiedContractIdentifier::parse(&format!("{}.pox", STACKS_BOOT_CODE_CONTRACT_ADDRESS))
+            .unwrap();
+    static ref USER_KEYS: Vec<StacksPrivateKey> =
+        (0..50).map(|_| StacksPrivateKey::new()).collect();
+    static ref POX_ADDRS: Vec<Value> = (0..50u64)
+        .map(|ix| execute(&format!(
+            "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
+            &to_hex(&ix.to_le_bytes())
+        )))
+        .collect();
+    static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
+    static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
+}
+
+impl From<&StacksPrivateKey> for StandardPrincipalData {
+    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
+        let stacks_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(o)],
+        )
+        .unwrap();
+        StandardPrincipalData::from(stacks_addr)
+    }
+}
+
+impl From<&StacksPrivateKey> for Value {
+    fn from(o: &StacksPrivateKey) -> Value {
+        Value::from(StandardPrincipalData::from(o))
+    }
+}
+
+struct ClarityTestSim {
+    marf: MarfedKV,
+    height: u64,
+}
+
+struct TestSimHeadersDB {
+    height: u64,
+}
+
+impl ClarityTestSim {
+    pub fn new() -> ClarityTestSim {
+        let mut marf = MarfedKV::temporary();
+        marf.begin(
+            &StacksBlockId::sentinel(),
+            &StacksBlockId(test_sim_height_to_hash(0)),
+        );
+        {
+            marf.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+                .initialize();
+
+            let mut owned_env =
+                OwnedEnvironment::new(marf.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+
+            for user_key in USER_KEYS.iter() {
+                owned_env.stx_faucet(
+                    &StandardPrincipalData::from(user_key).into(),
+                    USTX_PER_HOLDER,
+                );
+            }
+        }
+        marf.test_commit();
+
+        ClarityTestSim { marf, height: 0 }
+    }
+
+    pub fn execute_next_block<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut OwnedEnvironment) -> R,
+    {
+        self.marf.begin(
+            &StacksBlockId(test_sim_height_to_hash(self.height)),
+            &StacksBlockId(test_sim_height_to_hash(self.height + 1)),
+        );
+
+        let r = {
+            let headers_db = TestSimHeadersDB {
+                height: self.height + 1,
+            };
+            let mut owned_env =
+                OwnedEnvironment::new(self.marf.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
+            f(&mut owned_env)
+        };
+
+        self.marf.test_commit();
+        self.height += 1;
+
+        r
+    }
+}
+
+fn test_sim_height_to_hash(burn_height: u64) -> [u8; 32] {
+    let mut out = [0; 32];
+    out[0..8].copy_from_slice(&burn_height.to_le_bytes());
+    out
+}
+
+fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
+    if &in_bytes[8..] != &[0; 24] {
+        None
+    } else {
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(&in_bytes[0..8]);
+        Some(u64::from_le_bytes(bytes))
+    }
+}
+
+impl HeadersDB for TestSimHeadersDB {
+    fn get_burn_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BurnchainHeaderHash> {
+        if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
+            Some(FIRST_BURNCHAIN_BLOCK_HASH)
+        } else {
+            self.get_burn_block_height_for_block(id_bhh)?;
+            Some(BurnchainHeaderHash(id_bhh.0.clone()))
+        }
+    }
+
+    fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+        None
+    }
+
+    fn get_stacks_block_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BlockHeaderHash> {
+        if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
+            Some(FIRST_STACKS_BLOCK_HASH)
+        } else {
+            self.get_burn_block_height_for_block(id_bhh)?;
+            Some(BlockHeaderHash(id_bhh.0.clone()))
+        }
+    }
+
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
+            Some(FIRST_BURNCHAIN_BLOCK_TIMESTAMP)
+        } else {
+            let burn_block_height = self.get_burn_block_height_for_block(id_bhh)? as u64;
+            Some(
+                FIRST_BURNCHAIN_BLOCK_TIMESTAMP + burn_block_height
+                    - FIRST_BURNCHAIN_BLOCK_HEIGHT as u64,
+            )
+        }
+    }
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
+            Some(FIRST_BURNCHAIN_BLOCK_HEIGHT)
+        } else {
+            let input_height = test_sim_hash_to_height(&id_bhh.0)?;
+            if input_height > self.height {
+                eprintln!("{} > {}", input_height, self.height);
+                None
+            } else {
+                Some(
+                    (FIRST_BURNCHAIN_BLOCK_HEIGHT as u64 + input_height)
+                        .try_into()
+                        .unwrap(),
+                )
+            }
+        }
+    }
+    fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        None
+    }
+    fn get_total_liquid_ustx(&self, _id_bhh: &StacksBlockId) -> u128 {
+        *LIQUID_SUPPLY
+    }
+}
+
+#[test]
+fn recency_tests() {
+    let mut sim = ClarityTestSim::new();
+    let delegator = StacksPrivateKey::new();
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_CONTRACT.clone(), &BOOT_CODE_POX_TESTNET)
+            .unwrap()
+    });
+    sim.execute_next_block(|env| {
+        // try to issue a far future stacking tx
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT.clone(),
+                "stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    Value::UInt(3000),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 24)".to_string()
+        );
+        // let's delegate, and check if the delegate can issue a far future
+        //   stacking tx
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(3000),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 24)".to_string()
+        );
+    });
+}
+
+#[test]
+fn delegation_tests() {
+    let mut sim = ClarityTestSim::new();
+    let delegator = StacksPrivateKey::new();
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_CONTRACT.clone(), &BOOT_CODE_POX_TESTNET)
+            .unwrap()
+    });
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+
+        // already delegating...
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::error(Value::Int(20)).unwrap()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::some(POX_ADDRS[0].clone()).unwrap()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[2]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::some(Value::UInt(300)).unwrap(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[3]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[4]).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+    });
+    // let's do some delegated stacking!
+    sim.execute_next_block(|env| {
+        // try to stack more than [0]'s delegated amount!
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(3 * USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 22)".to_string()
+        );
+
+        // try to stack more than [0] has!
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 1)".to_string()
+        );
+
+        // let's stack less than the threshold
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(*MIN_THRESHOLD - 1),
+                Value::UInt(360)
+            ))
+        );
+
+        assert_eq!(
+            env.eval_read_only(
+                &POX_CONTRACT,
+                &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[0]))
+            )
+            .unwrap()
+            .0,
+            Value::UInt(USTX_PER_HOLDER - *MIN_THRESHOLD + 1)
+        );
+
+        // try to commit our partial stacking...
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 11)".to_string()
+        );
+        // not enough! we need to stack more...
+        //   but POX_ADDR[1] cannot be used for USER_KEYS[1]...
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 23)".to_string()
+        );
+
+        // And USER_KEYS[0] is already stacking...
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 3)".to_string()
+        );
+
+        // USER_KEYS[2] won't want to stack past the delegation expiration...
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[2]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 21)".to_string()
+        );
+
+        //  but for just one block will be fine
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[2]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(1)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[2]),
+                Value::UInt(*MIN_THRESHOLD - 1),
+                Value::UInt(240)
+            ))
+        );
+
+        assert_eq!(
+            env.eval_read_only(
+                &POX_CONTRACT,
+                &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[2]))
+            )
+            .unwrap()
+            .0,
+            Value::UInt(USTX_PER_HOLDER - *MIN_THRESHOLD + 1)
+        );
+
+        assert_eq!(
+            env.eval_read_only(
+                &POX_CONTRACT,
+                &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[0]))
+            )
+            .unwrap()
+            .0,
+            Value::UInt(USTX_PER_HOLDER - *MIN_THRESHOLD + 1)
+        );
+
+        assert_eq!(
+            env.eval_read_only(
+                &POX_CONTRACT,
+                &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[1]))
+            )
+            .unwrap()
+            .0,
+            Value::UInt(USTX_PER_HOLDER)
+        );
+
+        // try to commit our partial stacking again!
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string()
+        );
+
+        assert_eq!(
+            env.eval_read_only(&POX_CONTRACT, "(get-reward-set-size u1)")
+                .unwrap()
+                .0
+                .to_string(),
+            "u1"
+        );
+        assert_eq!(
+            env.eval_read_only(&POX_CONTRACT, "(get-reward-set-pox-address u1 u0)")
+                .unwrap()
+                .0,
+            execute(&format!(
+                "(some {{ pox-addr: {}, total-ustx: {} }})",
+                &POX_ADDRS[1],
+                &Value::UInt(2 * (*MIN_THRESHOLD - 1))
+            ))
+        );
+
+        // can we double commit? I don't think so!
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 4)".to_string()
+        );
+
+        // okay, let's try some more delegation situations...
+        // 1. we already locked user[0] up for round 2, so let's add some more stacks for round 2 from
+        //    user[3]. in the process, this will add more stacks for lockup in round 1, so lets commit
+        //    that as well.
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[3]).into(),
+                    Value::UInt(*MIN_THRESHOLD),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[3]),
+                Value::UInt(*MIN_THRESHOLD),
+                Value::UInt(360)
+            ))
+        );
+
+        assert_eq!(
+            env.eval_read_only(
+                &POX_CONTRACT,
+                &format!("(stx-get-balance '{})", &Value::from(&USER_KEYS[3]))
+            )
+            .unwrap()
+            .0,
+            Value::UInt(USTX_PER_HOLDER - *MIN_THRESHOLD)
+        );
+
+        // let's commit to round 2 now.
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(2)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string()
+        );
+
+        // and we can commit to round 1 again as well!
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string()
+        );
+
+        // check reward sets for round 2 and round 1...
+
+        assert_eq!(
+            env.eval_read_only(&POX_CONTRACT, "(get-reward-set-size u2)")
+                .unwrap()
+                .0
+                .to_string(),
+            "u1"
+        );
+        assert_eq!(
+            env.eval_read_only(&POX_CONTRACT, "(get-reward-set-pox-address u2 u0)")
+                .unwrap()
+                .0,
+            execute(&format!(
+                "(some {{ pox-addr: {}, total-ustx: {} }})",
+                &POX_ADDRS[1],
+                &Value::UInt(2 * (*MIN_THRESHOLD) - 1)
+            ))
+        );
+
+        assert_eq!(
+            env.eval_read_only(&POX_CONTRACT, "(get-reward-set-size u1)")
+                .unwrap()
+                .0
+                .to_string(),
+            "u2"
+        );
+        assert_eq!(
+            env.eval_read_only(&POX_CONTRACT, "(get-reward-set-pox-address u1 u0)")
+                .unwrap()
+                .0,
+            execute(&format!(
+                "(some {{ pox-addr: {}, total-ustx: {} }})",
+                &POX_ADDRS[1],
+                &Value::UInt(2 * (*MIN_THRESHOLD - 1))
+            ))
+        );
+        assert_eq!(
+            env.eval_read_only(&POX_CONTRACT, "(get-reward-set-pox-address u1 u1)")
+                .unwrap()
+                .0,
+            execute(&format!(
+                "(some {{ pox-addr: {}, total-ustx: {} }})",
+                &POX_ADDRS[1],
+                &Value::UInt(*MIN_THRESHOLD)
+            ))
+        );
+
+        // 2. lets make sure we can lock up for user[1] so long as it goes to pox[0].
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    Value::UInt(*MIN_THRESHOLD),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(*MIN_THRESHOLD),
+                Value::UInt(360)
+            ))
+        );
+
+        // 3. lets try to lock up user[4], but do some revocation first.
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[4]).into(),
+                POX_CONTRACT.clone(),
+                "revoke-delegate-stx",
+                &[]
+            )
+            .unwrap()
+            .0,
+            Value::okay_true()
+        );
+
+        // will run a second time, but return false
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[4]).into(),
+                POX_CONTRACT.clone(),
+                "revoke-delegate-stx",
+                &[]
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok false)".to_string()
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                POX_CONTRACT.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[4]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string()
+        );
+    });
+}

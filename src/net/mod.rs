@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod asn;
 pub mod chat;
@@ -1040,6 +1037,8 @@ pub struct RPCPoxInfoData {
     pub rejection_fraction: u128,
     pub reward_cycle_id: u128,
     pub reward_cycle_length: u128,
+    pub rejection_votes_left_required: u128,
+    pub total_liquid_supply_ustx: u128,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -1089,6 +1088,8 @@ pub struct CallReadOnlyResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountEntryResponse {
     pub balance: String,
+    pub locked: String,
+    pub unlock_height: u64,
     pub nonce: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
@@ -1658,8 +1659,8 @@ pub const DENY_MIN_BAN_DURATION: u64 = 2;
 pub struct NetworkResult {
     pub download_pox_id: Option<PoxId>, // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
-    pub blocks: Vec<(ConsensusHash, StacksBlock)>, // blocks we downloaded
-    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>)>, // confiremd microblocks we downloaded
+    pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>, // blocks we downloaded, and time taken
+    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confiremd microblocks we downloaded, and time taken
     pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>, // all transactions pushed to us and their message relay hints
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
@@ -2074,7 +2075,7 @@ pub mod test {
                 )
                 .unwrap(),
             );
-            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25);
+            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5);
 
             let spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,
@@ -2652,6 +2653,7 @@ pub mod test {
                         &sn.consensus_hash,
                         block,
                         &parent_sn.consensus_hash,
+                        5,
                     )
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };
@@ -2776,6 +2778,7 @@ pub mod test {
                     &mut node.chainstate,
                     consensus_hash,
                     block,
+                    0,
                 )
                 .unwrap();
 

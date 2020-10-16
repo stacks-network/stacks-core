@@ -355,6 +355,9 @@ impl Config {
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
                     prometheus_bind: node.prometheus_bind,
+                    pox_sync_sample_secs: node
+                        .pox_sync_sample_secs
+                        .unwrap_or(default_node_config.pox_sync_sample_secs),
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -412,6 +415,9 @@ impl Config {
                         .burnchain_op_tx_fee
                         .unwrap_or(default_burnchain_config.burnchain_op_tx_fee),
                     process_exit_at_block_height: burnchain.process_exit_at_block_height,
+                    poll_time_secs: burnchain
+                        .poll_time_secs
+                        .unwrap_or(default_burnchain_config.poll_time_secs),
                 }
             }
             None => default_burnchain_config,
@@ -724,6 +730,7 @@ pub struct BurnchainConfig {
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: u64,
     pub process_exit_at_block_height: Option<u64>,
+    pub poll_time_secs: u64,
 }
 
 impl BurnchainConfig {
@@ -746,6 +753,7 @@ impl BurnchainConfig {
             local_mining_public_key: None,
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
+            poll_time_secs: 30, // TODO: this is a testnet specific value.
         }
     }
 
@@ -796,6 +804,7 @@ pub struct BurnchainConfigFile {
     pub local_mining_public_key: Option<String>,
     pub burnchain_op_tx_fee: Option<u64>,
     pub process_exit_at_block_height: Option<u64>,
+    pub poll_time_secs: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -813,6 +822,7 @@ pub struct NodeConfig {
     pub mine_microblocks: bool,
     pub wait_time_for_microblocks: u64,
     pub prometheus_bind: Option<String>,
+    pub pox_sync_sample_secs: u64,
 }
 
 impl NodeConfig {
@@ -846,6 +856,7 @@ impl NodeConfig {
             mine_microblocks: false,
             wait_time_for_microblocks: 15000,
             prometheus_bind: None,
+            pox_sync_sample_secs: 30,
         }
     }
 
@@ -944,6 +955,7 @@ pub struct NodeConfigFile {
     pub mine_microblocks: Option<bool>,
     pub wait_time_for_microblocks: Option<u64>,
     pub prometheus_bind: Option<String>,
+    pub pox_sync_sample_secs: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default)]

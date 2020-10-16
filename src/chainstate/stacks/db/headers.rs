@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use rusqlite::{types::ToSql, OptionalExtension, Row};
 
@@ -36,7 +33,8 @@ use vm::costs::ExecutionCost;
 
 use util::db::Error as db_error;
 use util::db::{
-    query_count, query_row, query_row_columns, query_rows, DBConn, FromColumn, FromRow,
+    query_count, query_row, query_row_columns, query_row_panic, query_rows, DBConn, FromColumn,
+    FromRow,
 };
 
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -278,14 +276,10 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1".to_string();
-        let mut rows = query_rows::<StacksHeaderInfo, _>(conn, &sql, &[&index_block_hash])
-            .map_err(Error::DBError)?;
-        let cnt = rows.len();
-        if cnt > 1 {
-            unreachable!("FATAL: multiple rows for the same block hash") // should be unreachable, since index_block_hash is unique
-        }
-
-        Ok(rows.pop())
+        query_row_panic(conn, &sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })
+        .map_err(Error::DBError)
     }
 
     /// Get an ancestor block header

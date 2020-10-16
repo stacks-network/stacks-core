@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::mem;
 
@@ -211,8 +208,8 @@ impl NeighborStats {
         }
     }
 
-    pub fn add_relayer(&mut self, addr: NeighborAddress, num_bytes: u64) -> () {
-        if let Some(stats) = self.relayed_messages.get_mut(&addr) {
+    pub fn add_relayer(&mut self, addr: &NeighborAddress, num_bytes: u64) -> () {
+        if let Some(stats) = self.relayed_messages.get_mut(addr) {
             stats.num_messages += 1;
             stats.num_bytes += num_bytes;
             stats.last_seen = get_epoch_time_secs();
@@ -222,7 +219,7 @@ impl NeighborStats {
                 num_bytes: num_bytes,
                 last_seen: get_epoch_time_secs(),
             };
-            self.relayed_messages.insert(addr, info);
+            self.relayed_messages.insert(addr.clone(), info);
         }
     }
 
@@ -664,17 +661,17 @@ impl ConversationP2P {
     ) -> Result<bool, net_error> {
         if msg.preamble.network_id != self.network_id {
             // not on our network
-            test_debug!(
-                "wrong network ID: {:x} != {:x}",
-                msg.preamble.network_id,
-                self.network_id
+            debug!(
+                "{:?}: Preamble invalid: wrong network ID: {:x} != {:x}",
+                &self, msg.preamble.network_id, self.network_id
             );
             return Err(net_error::InvalidMessage);
         }
         if (msg.preamble.peer_version & 0xff000000) != (self.version & 0xff000000) {
             // major version mismatch
             test_debug!(
-                "wrong peer version: {:x} != {:x}",
+                "{:?}: Preamble invalid: wrong peer version: {:x} != {:x}",
+                &self,
                 msg.preamble.peer_version,
                 self.version
             );
@@ -687,8 +684,9 @@ impl ConversationP2P {
             != Some(msg.preamble.burn_block_height)
         {
             // invalid message
-            test_debug!(
-                "wrong stable block height: {:?} != {}",
+            debug!(
+                "{:?}: Preamble invalid: wrong stable block height: {:?} != {}",
+                &self,
                 msg.preamble
                     .burn_stable_block_height
                     .checked_add(self.burnchain.stable_confirmations as u64),
@@ -700,13 +698,11 @@ impl ConversationP2P {
         if msg.preamble.burn_stable_block_height
             > chain_view.burn_block_height + MAX_NEIGHBOR_BLOCK_DELAY
         {
-            // this node is too far ahead of us, but otherwise still potentially valid
-            test_debug!(
-                "remote peer is too far ahead of us: {} > {}",
-                msg.preamble.burn_stable_block_height,
-                chain_view.burn_block_height
+            // this node is too far ahead of us for neighbor walks, but otherwise still potentially valid
+            debug!(
+                "{:?}: remote peer is far ahead of us: {} > {}",
+                &self, msg.preamble.burn_stable_block_height, chain_view.burn_block_height
             );
-            return Ok(false);
         }
 
         // must agree on stable burn header hash
@@ -839,7 +835,7 @@ impl ConversationP2P {
         &mut self,
         msg: StacksMessage,
     ) -> Result<ReplyHandleP2P, net_error> {
-        let _name = msg.get_message_name();
+        let _name = msg.payload.get_message_description();
         let _seq = msg.request_id();
 
         let mut handle = self.connection.make_relay_handle(self.conn_id)?;
@@ -1245,6 +1241,7 @@ impl ConversationP2P {
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
         get_blocks_inv: &GetBlocksInv,
+        connection_opts: &ConnectionOptions,
     ) -> Result<StacksMessageType, net_error> {
         // must not ask for more than a reasonable number of blocks
         if get_blocks_inv.num_blocks == 0
@@ -1371,7 +1368,7 @@ impl ConversationP2P {
         // update cache
         SortitionDB::merge_block_header_cache(header_cache, &block_hashes);
 
-        let blocks_inv_data: BlocksInvData = chainstate
+        let mut blocks_inv_data: BlocksInvData = chainstate
             .get_blocks_inventory(&block_hashes)
             .map_err(|e| net_error::from(e))?;
 
@@ -1379,6 +1376,20 @@ impl ConversationP2P {
             "{:?}: Handled GetBlocksInv. Reply {:?} to request {:?}",
             &local_peer, &blocks_inv_data, get_blocks_inv
         );
+
+        if connection_opts.disable_inv_chat {
+            // never reply that we have blocks
+            test_debug!(
+                "{:?}: Disable inv chat -- pretend like we have nothing",
+                local_peer
+            );
+            for i in 0..blocks_inv_data.block_bitvec.len() {
+                blocks_inv_data.block_bitvec[i] = 0;
+            }
+            for i in 0..blocks_inv_data.microblocks_bitvec.len() {
+                blocks_inv_data.microblocks_bitvec[i] = 0;
+            }
+        }
 
         Ok(StacksMessageType::BlocksInv(blocks_inv_data))
     }
@@ -1403,6 +1414,7 @@ impl ConversationP2P {
             chainstate,
             header_cache,
             get_blocks_inv,
+            &self.connection.options,
         )?;
         self.sign_and_reply(local_peer, burnchain_view, preamble, response)
     }
@@ -1538,7 +1550,7 @@ impl ConversationP2P {
     fn check_relayers_remote(local_peer: &LocalPeer, relayers: &Vec<RelayData>) -> bool {
         let addr = local_peer.to_neighbor_addr();
         for r in relayers.iter() {
-            if r.peer == addr {
+            if r.peer.public_key_hash == addr.public_key_hash {
                 return false;
             }
         }
@@ -1553,24 +1565,27 @@ impl ConversationP2P {
         &mut self,
         local_peer: &LocalPeer,
         preamble: &Preamble,
-        mut relayers: Vec<RelayData>,
+        relayers: &Vec<RelayData>,
     ) -> bool {
-        if !ConversationP2P::check_relayer_cycles(&relayers) {
-            debug!("Message from {:?} contains a cycle", self.to_neighbor_key());
+        if !ConversationP2P::check_relayer_cycles(relayers) {
+            debug!(
+                "Invalid relayers -- message from {:?} contains a cycle",
+                self.to_neighbor_key()
+            );
             return false;
         }
 
-        if !ConversationP2P::check_relayers_remote(local_peer, &relayers) {
+        if !ConversationP2P::check_relayers_remote(local_peer, relayers) {
             debug!(
-                "Message originates from us ({})",
+                "Invalid relayers -- message originates from us ({})",
                 local_peer.to_neighbor_addr()
             );
             return false;
         }
 
-        for relayer in relayers.drain(..) {
+        for relayer in relayers.iter() {
             self.stats
-                .add_relayer(relayer.peer, (preamble.payload_len - 1) as u64);
+                .add_relayer(&relayer.peer, (preamble.payload_len - 1) as u64);
         }
 
         return true;
@@ -1587,7 +1602,8 @@ impl ConversationP2P {
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
-        if !self.process_relayers(local_peer, preamble, relayers) {
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            debug!("Drop pushed blocks -- invalid relayers {:?}", &relayers);
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1623,7 +1639,11 @@ impl ConversationP2P {
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
-        if !self.process_relayers(local_peer, preamble, relayers) {
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            debug!(
+                "Drop pushed microblocks -- invalid relayers {:?}",
+                &relayers
+            );
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1654,7 +1674,11 @@ impl ConversationP2P {
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
 
-        if !self.process_relayers(local_peer, preamble, relayers) {
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            debug!(
+                "Drop pushed transaction -- invalid relayers {:?}",
+                &relayers
+            );
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1801,7 +1825,7 @@ impl ConversationP2P {
                 }
             }
         }
-        debug!("{:?}: received {} bytes", self, total_recved);
+        test_debug!("{:?}: received {} bytes", self, total_recved);
         Ok(total_recved)
     }
 
@@ -1829,7 +1853,7 @@ impl ConversationP2P {
                 }
             }
         }
-        debug!("{:?}: sent {} bytes", self, total_sent);
+        test_debug!("{:?}: sent {} bytes", self, total_sent);
         Ok(total_sent)
     }
 
@@ -2158,7 +2182,8 @@ impl ConversationP2P {
             }
 
             let now = get_epoch_time_secs();
-            let _msgtype = msg.payload.get_message_name().to_owned();
+            let _msgtype = msg.payload.get_message_description().to_owned();
+            let _relayers = format!("{:?}", &msg.relayers);
             let _seq = msg.request_id();
 
             if update_stats {
@@ -2205,7 +2230,10 @@ impl ConversationP2P {
                 self.stats.msgs_rx_unsolicited += 1;
             }
 
-            debug!("{:?}: Received message {}", &self, _msgtype);
+            debug!(
+                "{:?}: Received message {}, relayed by {}",
+                &self, &_msgtype, &_relayers
+            );
 
             // Is there someone else waiting for this message?  If so, pass it along.
             let fulfill_opt = self.connection.fulfill_request(msg);
@@ -3912,8 +3940,8 @@ mod test {
             &vec![],
         )
         .unwrap();
+
         let mut sortdb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
-        let mut sortdb_2 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
 
@@ -3962,40 +3990,6 @@ mod test {
             assert_eq!(
                 convo_bad.is_preamble_valid(&ping_bad, &chain_view),
                 Err(net_error::InvalidMessage)
-            );
-        }
-
-        // node is too far ahead of us
-        {
-            let mut convo_bad =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-
-            let ping_data = PingData::new();
-
-            let mut chain_view_bad = chain_view.clone();
-            chain_view_bad.burn_stable_block_height +=
-                MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
-            chain_view_bad.burn_block_height +=
-                MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
-
-            let ping_bad = convo_bad
-                .sign_message(
-                    &chain_view_bad,
-                    &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
-                )
-                .unwrap();
-
-            chain_view_bad.burn_stable_block_height -=
-                MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
-            chain_view_bad.burn_block_height -=
-                MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
-
-            db_setup(&mut peerdb_1, &mut sortdb_2, &socketaddr_2, &chain_view_bad);
-
-            assert_eq!(
-                convo_bad.is_preamble_valid(&ping_bad, &chain_view),
-                Ok(false)
             );
         }
 
@@ -4149,10 +4143,10 @@ mod test {
             },
         ];
 
-        assert!(!convo.process_relayers(&local_peer, &msg.preamble, relay_cycles));
-        assert!(!convo.process_relayers(&local_peer, &msg.preamble, self_sent));
+        assert!(!convo.process_relayers(&local_peer, &msg.preamble, &relay_cycles));
+        assert!(!convo.process_relayers(&local_peer, &msg.preamble, &self_sent));
 
-        assert!(convo.process_relayers(&local_peer, &msg.preamble, relayers.clone()));
+        assert!(convo.process_relayers(&local_peer, &msg.preamble, &relayers));
 
         // stats updated
         assert_eq!(convo.stats.relayed_messages.len(), 2);
