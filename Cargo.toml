@@ -61,7 +61,6 @@ integer-sqrt = "0.1.3"
 slog = "2.5.2"
 slog-term = "2.6.0"
 slog-json = "2.3.0"
-slog-async = "2.5.0"
 
 [dependencies.serde_json]
 version = "1.0"
