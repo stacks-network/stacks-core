@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::path::PathBuf;
 
 use burnchains::BurnchainHeaderHash;
@@ -328,9 +344,13 @@ impl MarfedKV {
         //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
         //    we should probably commit the data to a different table which does not have uniqueness constraints.
         self.side_store.rollback(&self.chain_tip);
-        self.marf
-            .commit_mined(will_move_to)
-            .expect("ERROR: Failed to commit MARF block");
+        let _ = self.marf.commit_mined(will_move_to).map_err(|e| {
+            error!(
+                "Failed to commit to mined MARF block {}: {:?}",
+                &will_move_to, &e
+            );
+            panic!();
+        });
     }
 
     pub fn commit_to(&mut self, final_bhh: &StacksBlockId) {
@@ -338,9 +358,10 @@ impl MarfedKV {
         self.side_store
             .commit_metadata_to(&self.chain_tip, final_bhh);
         self.side_store.commit(&self.chain_tip);
-        self.marf
-            .commit_to(final_bhh)
-            .expect("ERROR: Failed to commit MARF block");
+        let _ = self.marf.commit_to(final_bhh).map_err(|e| {
+            error!("Failed to commit to MARF block {}: {:?}", &final_bhh, &e);
+            panic!();
+        });
     }
 
     pub fn commit_unconfirmed(&mut self) {

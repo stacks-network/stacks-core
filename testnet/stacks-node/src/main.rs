@@ -26,6 +26,7 @@ pub mod neon_node;
 pub mod node;
 pub mod operations;
 pub mod run_loop;
+pub mod syncctl;
 pub mod tenure;
 
 pub use self::burnchains::{
@@ -141,7 +142,7 @@ fn main() {
         || conf.burnchain.mode == "xenon"
     {
         let mut run_loop = neon::RunLoop::new(conf);
-        run_loop.start(num_round);
+        run_loop.start(num_round, None);
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }

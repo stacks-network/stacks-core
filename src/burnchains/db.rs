@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use rusqlite::{
     types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
 };
@@ -12,7 +28,10 @@ use chainstate::burn::operations::BlockstackOperationType;
 
 use chainstate::stacks::index::MarfTrieId;
 
-use util::db::{query_row, query_rows, u64_to_sql, Error as DBError, FromColumn, FromRow};
+use util::db::{
+    query_row, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql, Error as DBError,
+    FromColumn, FromRow,
+};
 
 pub struct BurnchainDB {
     conn: Connection,
@@ -185,10 +204,12 @@ impl BurnchainDB {
             }
         };
 
-        let mut db = BurnchainDB {
-            conn: Connection::open_with_flags(path, open_flags)
-                .expect(&format!("FAILED to open: {}", path)),
-        };
+        let conn = Connection::open_with_flags(path, open_flags)
+            .expect(&format!("FAILED to open: {}", path));
+
+        conn.busy_handler(Some(tx_busy_handler))?;
+
+        let mut db = BurnchainDB { conn };
 
         if create_flag {
             let db_tx = db.tx_begin()?;
@@ -216,14 +237,14 @@ impl BurnchainDB {
             OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = Connection::open_with_flags(path, open_flags)?;
+        conn.busy_handler(Some(tx_busy_handler))?;
 
         Ok(BurnchainDB { conn })
     }
 
     fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
-        Ok(BurnchainDBTransaction {
-            sql_tx: self.conn.transaction()?,
-        })
+        let sql_tx = tx_begin_immediate(&mut self.conn)?;
+        Ok(BurnchainDBTransaction { sql_tx: sql_tx })
     }
 
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {

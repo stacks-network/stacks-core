@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use chainstate::burn::operations::leader_block_commit::*;
 use chainstate::burn::operations::*;
 use chainstate::coordinator::{Error as CoordError, *};
@@ -252,7 +268,7 @@ fn make_reward_set_coordinator<'a>(
 
 pub fn get_burnchain(path: &str) -> Burnchain {
     let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
-    b.pox_constants = PoxConstants::new(5, 3, 3, 25);
+    b.pox_constants = PoxConstants::new(5, 3, 3, 25, 5);
     b
 }
 
@@ -1782,6 +1798,7 @@ fn preprocess_block(
             &my_sortition.consensus_hash,
             &block,
             &parent_consensus_hash,
+            5,
         )
         .unwrap();
 }

@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod bitcoin;
@@ -283,6 +280,9 @@ pub struct PoxConstants {
     /// fraction of liquid STX that must vote to reject PoX for
     /// it to revert to PoB in the next reward cycle
     pub pox_rejection_fraction: u64,
+    /// percentage of liquid STX that must participate for PoX
+    ///  to occur
+    pub pox_participation_threshold_pct: u64,
     _shadow: PhantomData<()>,
 }
 
@@ -292,6 +292,7 @@ impl PoxConstants {
         prepare_length: u32,
         anchor_threshold: u32,
         pox_rejection_fraction: u64,
+        pox_participation_threshold_pct: u64,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
 
@@ -300,20 +301,35 @@ impl PoxConstants {
             prepare_length,
             anchor_threshold,
             pox_rejection_fraction,
+            pox_participation_threshold_pct,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        PoxConstants::new(10, 5, 3, 25)
+        PoxConstants::new(10, 5, 3, 25, 5)
+    }
+
+    pub fn reward_slots(&self) -> u32 {
+        self.reward_cycle_length
+    }
+
+    /// is participating_ustx enough to engage in PoX in the next reward cycle?
+    pub fn enough_participation(&self, participating_ustx: u128, liquid_ustx: u128) -> bool {
+        participating_ustx
+            .checked_mul(100)
+            .expect("OVERFLOW: uSTX overflowed u128")
+            > liquid_ustx
+                .checked_mul(self.pox_participation_threshold_pct as u128)
+                .expect("OVERFLOW: uSTX overflowed u128")
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(1000, 240, 192, 25)
+        PoxConstants::new(1000, 240, 192, 25, 5)
     }
 
     pub fn testnet_default() -> PoxConstants {
-        PoxConstants::new(120, 30, 20, 3333333333333333) // total liquid supply is 40000000000000000 µSTX
+        PoxConstants::new(120, 30, 20, 3333333333333333, 5) // total liquid supply is 40000000000000000 µSTX
     }
 }
 

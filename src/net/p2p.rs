@@ -1,21 +1,19 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
 use std::mem;
 
 use net::asn::ASEntry4;
@@ -229,7 +227,7 @@ pub struct PeerNetwork {
     handles: VecDeque<NetworkHandleServer>,
 
     // network I/O
-    network: Option<NetworkState>,
+    pub network: Option<NetworkState>,
     p2p_network_handle: usize,
     http_network_handle: usize,
 
@@ -248,6 +246,7 @@ pub struct PeerNetwork {
     pub walk_count: u64,
     pub walk_attempts: u64,
     pub walk_retries: u64,
+    pub walk_resets: u64,
     pub walk_total_step_count: u64,
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
@@ -339,6 +338,7 @@ impl PeerNetwork {
             walk_deadline: 0,
             walk_attempts: 0,
             walk_retries: 0,
+            walk_resets: 0,
             walk_count: 0,
             walk_total_step_count: 0,
             walk_pingbacks: HashMap::new(),
@@ -569,15 +569,37 @@ impl PeerNetwork {
         message_payload: StacksMessageType,
     ) -> () {
         debug!(
-            "{:?}: Will broadcast '{}' to up to {} neighbors",
+            "{:?}: Will broadcast '{}' to up to {} neighbors; relayed by {:?}",
             &self.local_peer,
             message_payload.get_message_description(),
-            neighbor_keys.len()
+            neighbor_keys.len(),
+            &relay_hints
         );
         for nk in neighbor_keys.drain(..) {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
                 if let Some(convo) = self.peers.get_mut(&event_id) {
+                    // safety check -- don't send to someone who has already been a relayer
+                    let mut do_relay = true;
+                    if let Some(pubkey) = convo.ref_public_key() {
+                        let pubkey_hash = Hash160::from_data(&pubkey.to_bytes());
+                        for rhint in relay_hints.iter() {
+                            if rhint.peer.public_key_hash == pubkey_hash {
+                                do_relay = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !do_relay {
+                        debug!(
+                            "{:?}: Do not broadcast '{}' to {:?}: it has already relayed it",
+                            &self.local_peer,
+                            message_payload.get_message_description(),
+                            &nk
+                        );
+                        continue;
+                    }
+
                     match convo.sign_and_forward(
                         &self.local_peer,
                         &self.chain_view,
@@ -725,11 +747,40 @@ impl PeerNetwork {
         Ok(next_event_id)
     }
 
+    /// Given a list of neighbors keys, find the _set_ of neighbor keys that represent unique
+    /// connections.  This is used by the broadcast logic to ensure that we only send a message to
+    /// a peer once, even if we have both an inbound and outbound connection to it.
+    fn coalesce_neighbors(&self, neighbors: Vec<NeighborKey>) -> Vec<NeighborKey> {
+        let mut seen = HashSet::new();
+        let mut unique = HashSet::new();
+        for nk in neighbors.into_iter() {
+            if seen.contains(&nk) {
+                continue;
+            }
+
+            unique.insert(nk.clone());
+
+            // don't include its reciprocal connection
+            if let Some(event_id) = self.events.get(&nk) {
+                if let Some(other_event_id) = self.find_reciprocal_event(*event_id) {
+                    if let Some(other_convo) = self.peers.get(&other_event_id) {
+                        let other_nk = other_convo.to_neighbor_key();
+                        seen.insert(other_nk);
+                        seen.insert(nk);
+                    }
+                }
+            }
+        }
+        unique.into_iter().collect::<Vec<NeighborKey>>()
+    }
+
     /// Sample the available connections to broadcast on.
     /// Up to MAX_BROADCAST_OUTBOUND_PEERS outbound connections will be used.
     /// Up to MAX_BROADCAST_INBOUND_PEERS inbound connections will be used.
     /// The outbound will be sampled according to their AS distribution
-    /// The inbound will be sampled according to how rarely they send duplicate messages
+    /// The inbound will be sampled according to how rarely they send duplicate messages.
+    /// The final set of message recipients will be coalesced -- if we have an inbound and outbound
+    /// connection to the same neighbor, only one connection will be used.
     fn sample_broadcast_peers<R: RelayPayload>(
         &self,
         relay_hints: &Vec<RelayData>,
@@ -740,6 +791,9 @@ impl PeerNetwork {
         let mut inbound_neighbors = vec![];
 
         for (_, convo) in self.peers.iter() {
+            if !convo.is_authenticated() {
+                continue;
+            }
             let nk = convo.to_neighbor_key();
             if convo.is_outbound() {
                 outbound_neighbors.push(nk);
@@ -757,24 +811,25 @@ impl PeerNetwork {
             RELAY_DUPLICATE_INFERENCE_WARMUP,
         );
 
+        let mut relay_pubkhs = HashSet::new();
+        for rhint in relay_hints {
+            relay_pubkhs.insert(rhint.peer.public_key_hash.clone());
+        }
+
         // don't send a message to anyone who sent this message to us
         for (_, convo) in self.peers.iter() {
             if let Some(pubkey) = convo.ref_public_key() {
                 let pubkey_hash = Hash160::from_data(&pubkey.to_bytes());
-                for rhint in relay_hints {
-                    if rhint.peer.public_key_hash == pubkey_hash {
-                        // don't send to this peer
-                        let nk = convo.to_neighbor_key();
-
-                        test_debug!(
-                            "{:?}: Do not forward {} to {:?}, since it already saw this message",
-                            &self.local_peer,
-                            payload.get_id(),
-                            &nk
-                        );
-                        outbound_dist.remove(&nk);
-                        inbound_dist.remove(&nk);
-                    }
+                if relay_pubkhs.contains(&pubkey_hash) {
+                    let nk = convo.to_neighbor_key();
+                    debug!(
+                        "{:?}: Do not forward {} to {:?}, since it already saw this message",
+                        &self.local_peer,
+                        payload.get_id(),
+                        &nk
+                    );
+                    outbound_dist.remove(&nk);
+                    inbound_dist.remove(&nk);
                 }
             }
         }
@@ -807,18 +862,21 @@ impl PeerNetwork {
         );
 
         outbound_sample.append(&mut inbound_sample);
-        Ok(outbound_sample)
+        let ret = self.coalesce_neighbors(outbound_sample);
+
+        debug!("All recipients (out of {}): {:?}", ret.len(), &ret);
+        Ok(ret)
     }
 
     /// Dispatch a single request from another thread.
-    fn dispatch_request(&mut self, request: NetworkRequest) -> Result<(), net_error> {
+    pub fn dispatch_request(&mut self, request: NetworkRequest) -> Result<(), net_error> {
         match request {
             NetworkRequest::Ban(neighbor_keys) => {
                 for neighbor_key in neighbor_keys.iter() {
-                    test_debug!("Request to ban {:?}", neighbor_key);
+                    debug!("Request to ban {:?}", neighbor_key);
                     match self.events.get(neighbor_key) {
                         Some(event_id) => {
-                            test_debug!("Will ban {:?} (event {})", neighbor_key, event_id);
+                            debug!("Will ban {:?} (event {})", neighbor_key, event_id);
                             self.bans.insert(*event_id);
                         }
                         None => {}
@@ -1075,7 +1133,7 @@ impl PeerNetwork {
     }
 
     /// Is this neighbor key the same as the one that represents our p2p bind address?
-    fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
+    pub fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
         self.bind_nk.network_id == neighbor_key.network_id
             && self.bind_nk.addrbytes == neighbor_key.addrbytes
             && self.bind_nk.port == neighbor_key.port
@@ -2261,14 +2319,14 @@ impl PeerNetwork {
             let mut block_set = HashSet::new();
             let mut microblock_set = HashSet::new();
 
-            for (_, block) in network_result.blocks.iter() {
+            for (_, block, _) in network_result.blocks.iter() {
                 if block_set.contains(&block.block_hash()) {
                     test_debug!("Duplicate block {}", block.block_hash());
                 }
                 block_set.insert(block.block_hash());
             }
 
-            for (_, mblocks) in network_result.confirmed_microblocks.iter() {
+            for (_, mblocks, _) in network_result.confirmed_microblocks.iter() {
                 for mblock in mblocks.iter() {
                     if microblock_set.contains(&mblock.block_hash()) {
                         test_debug!("Duplicate microblock {}", mblock.block_hash());
@@ -2680,7 +2738,10 @@ impl PeerNetwork {
     }
 
     /// Handle unsolicited BlocksData.
-    /// Don't (yet) validate the data, but do update our inv for the peer that sent it.
+    /// Don't (yet) validate the data, but do update our inv for the peer that sent it, if we have
+    /// an outbound connection to that peer.  Accept the blocks data either way if it corresponds
+    /// to a winning sortition -- this will cause the blocks data to be fed into the relayer, which
+    /// will then decide whether or not it needs to be stored and/or forwarded.
     /// Mask errors.
     fn handle_unsolicited_BlocksData(
         &mut self,
@@ -2688,17 +2749,36 @@ impl PeerNetwork {
         event_id: usize,
         new_blocks: &BlocksData,
     ) -> () {
-        let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
-            Some(onk) => onk,
+        let (remote_neighbor_key, remote_is_authenticated) = match self.peers.get(&event_id) {
+            Some(convo) => (convo.to_neighbor_key(), convo.is_authenticated()),
             None => {
+                test_debug!(
+                    "{:?}: No such neighbor event={}",
+                    &self.local_peer,
+                    event_id
+                );
                 return;
             }
         };
 
+        if !remote_is_authenticated {
+            // drop -- a correct peer will have authenticated before sending this message
+            test_debug!(
+                "{:?}: Drop unauthenticated BlocksData from {:?}",
+                &self.local_peer,
+                &remote_neighbor_key
+            );
+            return;
+        }
+
+        let outbound_neighbor_key_opt = self.find_outbound_neighbor(event_id);
+
         debug!(
             "{:?}: Process BlocksData from {:?} with {} entries",
             &self.local_peer,
-            outbound_neighbor_key,
+            outbound_neighbor_key_opt
+                .as_ref()
+                .unwrap_or(&remote_neighbor_key),
             new_blocks.blocks.len()
         );
 
@@ -2711,25 +2791,26 @@ impl PeerNetwork {
                         continue;
                     }
                     Err(e) => {
-                        warn!(
-                            "Failed to query block snapshot for {}: {:?}",
-                            consensus_hash, &e
+                        info!(
+                            "{:?}: Failed to query block snapshot for {}: {:?}",
+                            &self.local_peer, consensus_hash, &e
                         );
                         continue;
                     }
                 };
 
             if !sn.pox_valid {
-                warn!(
-                    "Failed to query snapshot for {}: not on valid PoX fork",
-                    consensus_hash
+                info!(
+                    "{:?}: Failed to query snapshot for {}: not on the valid PoX fork",
+                    &self.local_peer, consensus_hash
                 );
                 continue;
             }
 
             if sn.winning_stacks_block_hash != block.block_hash() {
                 info!(
-                    "Ignoring block {} -- winning block was {} (sortition: {})",
+                    "{:?}: Ignoring block {} -- winning block was {} (sortition: {})",
+                    &self.local_peer,
                     block.block_hash(),
                     sn.winning_stacks_block_hash,
                     sn.sortition
@@ -2737,13 +2818,17 @@ impl PeerNetwork {
                 continue;
             }
 
-            self.handle_unsolicited_inv_update(
-                sortdb,
-                event_id,
-                &outbound_neighbor_key,
-                &sn.consensus_hash,
-                false,
-            );
+            // only bother updating the inventory for this event's peer if we have an outbound
+            // connection to it.
+            if let Some(outbound_neighbor_key) = outbound_neighbor_key_opt.as_ref() {
+                self.handle_unsolicited_inv_update(
+                    sortdb,
+                    event_id,
+                    &outbound_neighbor_key,
+                    &sn.consensus_hash,
+                    false,
+                );
+            }
         }
     }
 
@@ -3159,6 +3244,9 @@ mod test {
     use util::sleep_ms;
     use util::test::*;
 
+    use chainstate::stacks::test::*;
+    use chainstate::stacks::*;
+
     use rand;
     use rand::RngCore;
 
@@ -3412,7 +3500,7 @@ mod test {
 
             let mut p2p = make_test_p2p_network(&vec![]);
 
-            let ping = StacksMessage::new(
+            let txn = StacksMessage::new(
                 p2p.peer_version,
                 p2p.local_peer.network_id,
                 p2p.chain_view.burn_block_height,
