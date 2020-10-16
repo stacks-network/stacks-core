@@ -14,13 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use slog::{Drain, Logger, FnValue, Record, KV, BorrowedKV, OwnedKVList};
-use slog_term::{Decorator, Serializer, RecordDecorator};
+use slog::{BorrowedKV, Drain, FnValue, Logger, OwnedKVList, Record, KV};
+use slog_term::{CountingWriter, Decorator, RecordDecorator, Serializer};
 use std::env;
-use std::sync::Mutex;
 use std::io;
-use std::time::{SystemTime, Duration};
+use std::io::Write;
+use std::sync::Mutex;
 use std::thread;
+use std::time::{Duration, SystemTime};
 
 lazy_static! {
     pub static ref LOGGER: Logger = make_logger();
@@ -30,15 +31,22 @@ struct TermFormat<D: Decorator> {
     decorator: D,
 }
 
-fn print_msg_header(rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
+fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
     rd.start_level()?;
     write!(rd, "{}", record.level().as_short_str())?;
     rd.start_whitespace()?;
     write!(rd, " ")?;
 
     rd.start_timestamp()?;
-    let elapsed = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::from_secs(0));
-    write!(rd, "[{:5}.{:06}]", elapsed.as_secs(), elapsed.subsec_nanos()/1000)?;
+    let elapsed = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or(Duration::from_secs(0));
+    write!(
+        rd,
+        "[{:5}.{:06}]",
+        elapsed.as_secs(),
+        elapsed.subsec_nanos() / 1000
+    )?;
     write!(rd, " ")?;
     write!(rd, "[{}:{}]", record.file(), record.line())?;
     write!(rd, " ")?;
@@ -48,8 +56,9 @@ fn print_msg_header(rd: &mut dyn RecordDecorator, record: &Record) -> io::Result
     write!(rd, " ")?;
 
     rd.start_msg()?;
-    write!(rd, "{}", record.msg())?;
-    Ok(false)
+    let mut count_rd = CountingWriter::new(&mut rd);
+    write!(count_rd, "{}", record.msg())?;
+    Ok(count_rd.count() != 0)
 }
 
 impl<D: Decorator> Drain for TermFormat<D> {
@@ -68,14 +77,9 @@ impl<D: Decorator> TermFormat<D> {
 
     fn format_full(&self, record: &Record, values: &OwnedKVList) -> io::Result<()> {
         self.decorator.with_record(record, values, |decorator| {
-            let comma_needed =
-                print_msg_header(decorator, record)?;
+            let comma_needed = print_msg_header(decorator, record)?;
             {
-                let mut serializer = Serializer::new(
-                    decorator,
-                    comma_needed,
-                    true
-                );
+                let mut serializer = Serializer::new(decorator, comma_needed, true);
 
                 record.kv().serialize(record, &mut serializer)?;
 
@@ -94,24 +98,32 @@ impl<D: Decorator> TermFormat<D> {
     }
 }
 
+#[cfg(feature = "slog_json")]
+fn make_json_logger() -> Logger {
+    let def_keys = o!("file" => FnValue(move |info| {
+                          info.file()
+                      }),
+                      "line" => FnValue(move |info| {
+                          info.line()
+                      }),
+                      "thread" => FnValue(move |_| {
+                          format!("{:?}", thread::current().id())
+                      }),
+    );
+
+    let drain = Mutex::new(slog_json::Json::default(std::io::stderr())).map(slog::Fuse);
+    let filtered_drain = slog::LevelFilter::new(drain, get_loglevel()).fuse();
+    slog::Logger::root(filtered_drain, def_keys)
+}
+
+#[cfg(not(feature = "slog_json"))]
+fn make_json_logger() -> Logger {
+    panic!("Tried to construct JSON logger, but stacks-blockchain built without slog_json feature enabled.")
+}
+
 fn make_logger() -> Logger {
     if env::var("BLOCKSTACK_LOG_JSON") == Ok("1".into()) {
-        let def_keys = o!("file" =>
-                          FnValue(move |info| {
-                              info.file()
-                          }),
-                          "line" => FnValue(move |info| {
-                              info.line()
-                          }),
-                          "thread" =>
-                          FnValue(move |_| {
-                              format!("{:?}", thread::current().id())
-                          }),
-        );
-
-        let drain = Mutex::new(slog_json::Json::default(std::io::stderr())).map(slog::Fuse);
-        let filtered_drain = slog::LevelFilter::new(drain, get_loglevel()).fuse();
-        slog::Logger::root(filtered_drain, def_keys)
+        make_json_logger()
     } else {
         let plain = slog_term::PlainSyncDecorator::new(std::io::stdout());
         let drain = TermFormat::new(plain);
