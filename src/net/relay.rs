@@ -1430,7 +1430,7 @@ impl PeerNetwork {
     }
 
     /// Announce blocks that we have to a subset of inbound and outbound peers.
-    /// * Outbound peers recieve announcements for blocks that we know they don't have, based on
+    /// * Outbound peers receive announcements for blocks that we know they don't have, based on
     /// the inv state we synchronized from them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
     /// don't track their inventory state.
@@ -1464,7 +1464,7 @@ impl PeerNetwork {
     }
 
     /// Announce confirmed microblocks that we have to a subset of inbound and outbound peers.
-    /// * Outbound peers recieve announcements for confirmed microblocks that we know they don't have, based on
+    /// * Outbound peers receive announcements for confirmed microblocks that we know they don't have, based on
     /// the inv state we synchronized from them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
     /// don't track their inventory state.
