@@ -528,6 +528,8 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
+            debug!("Include tx {}", tx.txid());
+
             // save
             self.txs.push(tx.clone());
             self.total_anchored_fees += fee;
@@ -668,8 +670,9 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {}, parent block {}, state root = {}",
+            "Miner: mined anchored block {} with {} txs, parent block {}, state root = {}",
             block.block_hash(),
+            block.txs.len(),
             &self.header.parent_block,
             state_root_hash
         );
@@ -861,7 +864,7 @@ impl StacksBlockBuilder {
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {
-                    test_debug!("Included {}", &tx.txid());
+                    debug!("Included {}", &tx.txid());
                 }
                 Err(Error::BlockTooBigError) => {
                     // done mining -- our execution budget is exceeded.
