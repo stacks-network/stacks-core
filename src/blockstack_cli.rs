@@ -43,7 +43,9 @@ use std::io::Read;
 use std::{env, fs, io};
 
 use blockstack_lib::address::b58;
-use blockstack_lib::burnchains::bitcoin::address::{ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG};
+use blockstack_lib::burnchains::bitcoin::address::{
+    ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 const TESTNET_CHAIN_ID: u32 = 0x80000000;
 const MAINNET_CHAIN_ID: u32 = 0x00000001;
@@ -482,20 +484,19 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
         return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
     }
 
-    let sk = StacksPrivateKey::from_hex(&args[0])
-        .expect("Failed to load private key");
+    let sk = StacksPrivateKey::from_hex(&args[0]).expect("Failed to load private key");
 
     let pk = StacksPublicKey::from_private(&sk);
     let c32_version = match version {
         TransactionVersion::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
         TransactionVersion::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
-    
+
     let b58_version = match version {
         TransactionVersion::Mainnet => ADDRESS_VERSION_MAINNET_SINGLESIG,
-        TransactionVersion::Testnet => ADDRESS_VERSION_TESTNET_SINGLESIG
+        TransactionVersion::Testnet => ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
-    
+
     let stx_address = StacksAddress::from_public_keys(
         c32_version,
         &AddressHashMode::SerializeP2PKH,
@@ -503,7 +504,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
         &vec![pk.clone()],
     )
     .expect("Failed to generate address from public key");
-    
+
     let mut b58_addr_slice = [0u8; 21];
     b58_addr_slice[0] = b58_version;
     b58_addr_slice[1..].copy_from_slice(&stx_address.bytes.0);
@@ -513,8 +514,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
     \"STX\": \"{}\",
     \"BTC\": \"{}\"
 }}",
-    &stx_address,
-    &b58_address_string
+        &stx_address, &b58_address_string
     ))
 }
 
@@ -813,7 +813,7 @@ mod test {
     fn simple_addresses() {
         let addr_args = [
             "addresses",
-            "2945c6be8758994652a498f0445d534d0fadb0b2025b37c72297b059ebf887ed01"
+            "2945c6be8758994652a498f0445d534d0fadb0b2025b37c72297b059ebf887ed01",
         ];
 
         let result = main_handler(to_string_vec(&addr_args)).unwrap();
@@ -823,7 +823,7 @@ mod test {
         let addr_args = [
             "--testnet",
             "addresses",
-            "2945c6be8758994652a498f0445d534d0fadb0b2025b37c72297b059ebf887ed01"
+            "2945c6be8758994652a498f0445d534d0fadb0b2025b37c72297b059ebf887ed01",
         ];
 
         let result = main_handler(to_string_vec(&addr_args)).unwrap();

@@ -657,7 +657,7 @@ impl NeighborAddress {
         NeighborAddress {
             addrbytes: n.addr.addrbytes.clone(),
             port: n.addr.port,
-            public_key_hash: Hash160::from_node_public_key(&n.public_key)
+            public_key_hash: Hash160::from_node_public_key(&n.public_key),
         }
     }
 }

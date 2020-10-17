@@ -2,11 +2,11 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use crate::config::HELIUM_BLOCK_LIMIT;
 use crate::run_loop::RegisteredKey;
 
+use std::cmp;
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
-use std::cmp;
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, PublicKey, Txid};
@@ -422,7 +422,7 @@ fn spawn_miner_relayer(
                             my_burn_hash: mined_burn_hash,
                             consumed_execution,
                             bytes_so_far,
-                            attempt: _
+                            attempt: _,
                         } = last_mined_block;
                         if mined_block.block_hash() == block_header_hash
                             && burn_hash == mined_burn_hash
@@ -572,7 +572,7 @@ fn spawn_miner_relayer(
                         &mut mem_pool,
                         burn_fee_cap,
                         &mut bitcoin_controller,
-                        &last_mined_blocks
+                        &last_mined_blocks,
                     );
                     if let Some(last_mined_block) = last_mined_block_opt {
                         last_mined_blocks.push(last_mined_block);
@@ -836,7 +836,7 @@ impl InitializedNeonNode {
         mem_pool: &mut MemPoolDB,
         burn_fee_cap: u64,
         bitcoin_controller: &mut BitcoinRegtestController,
-        last_mined_blocks: &Vec<AssembledAnchorBlock>
+        last_mined_blocks: &Vec<AssembledAnchorBlock>,
     ) -> Option<AssembledAnchorBlock> {
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = match keychain.generate_proof(
@@ -972,8 +972,9 @@ impl InitializedNeonNode {
             let mut best_attempt = 1;
             for prev_block in last_mined_blocks.iter() {
                 if prev_block.parent_consensus_hash == parent_consensus_hash
-                   && prev_block.my_burn_hash == burn_block.burn_header_hash
-                   && prev_block.anchored_block.header.parent_block == stacks_parent_header.anchored_header.block_hash()
+                    && prev_block.my_burn_hash == burn_block.burn_header_hash
+                    && prev_block.anchored_block.header.parent_block
+                        == stacks_parent_header.anchored_header.block_hash()
                 {
                     // the chain tip hasn't changed since we attempted to build a block.  Use what we
                     // already have.
@@ -982,8 +983,7 @@ impl InitializedNeonNode {
                            prev_block.my_burn_hash, parent_block_burn_height);
 
                     return None;
-                }
-                else {
+                } else {
                     best_attempt = cmp::max(best_attempt, prev_block.attempt + 1);
                 }
             }
@@ -1059,7 +1059,7 @@ impl InitializedNeonNode {
             consumed_execution,
             anchored_block,
             bytes_so_far,
-            attempt
+            attempt,
         })
     }
 

@@ -185,9 +185,9 @@ impl LocalPeer {
         NeighborAddress {
             addrbytes: self.addrbytes.clone(),
             port: self.port,
-            public_key_hash: Hash160::from_node_public_key(
-                &StacksPublicKey::from_private(&self.private_key),
-            ),
+            public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                &self.private_key,
+            )),
         }
     }
 }
@@ -256,7 +256,8 @@ impl FromRow<Neighbor> for Neighbor {
         let network_id: u32 = row.get("network_id");
         let addrbytes: PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
         let port: u16 = row.get("port");
-        let mut public_key: Secp256k1PublicKey = Secp256k1PublicKey::from_column(row, "public_key")?;
+        let mut public_key: Secp256k1PublicKey =
+            Secp256k1PublicKey::from_column(row, "public_key")?;
         let expire_block_height = u64::from_column(row, "expire_block_height")?;
         let last_contact_time = u64::from_column(row, "last_contact_time")?;
         let asn: u32 = row.get("asn");

@@ -778,11 +778,10 @@ impl NeighborWalk {
                     StacksMessageType::Neighbors(ref data) => {
                         debug!(
                             "{:?}: Got Neighbors from {:?}: {:?}",
-                            &self.local_peer,
-                            &self.cur_neighbor.addr,
-                            data.neighbors
+                            &self.local_peer, &self.cur_neighbor.addr, data.neighbors
                         );
-                        let neighbors = NeighborWalk::filter_sensible_neighbors(data.neighbors.clone());
+                        let neighbors =
+                            NeighborWalk::filter_sensible_neighbors(data.neighbors.clone());
                         let (mut found, to_resolve) = NeighborWalk::lookup_stale_neighbors(
                             network.peerdb.conn(),
                             message.preamble.network_id,
@@ -1175,9 +1174,9 @@ impl NeighborWalk {
                                     "{:?}: Got Neighbors from {:?}: {:?}",
                                     &self.local_peer, &nkey, &data.neighbors
                                 );
-                                let neighbors = NeighborWalk::filter_sensible_neighbors(data.neighbors.clone());
-                                self.resolved_getneighbors_neighbors
-                                    .insert(nkey, neighbors);
+                                let neighbors =
+                                    NeighborWalk::filter_sensible_neighbors(data.neighbors.clone());
+                                self.resolved_getneighbors_neighbors.insert(nkey, neighbors);
                             }
                             StacksMessageType::Nack(ref data) => {
                                 // not broken; likely because it hasn't gotten to processing our
@@ -1473,8 +1472,9 @@ impl NeighborWalk {
                                 debug!("{:?}: received HandshakeAccept from peer {:?}; now known to be routable from us", &self.local_peer, &message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port));
 
                                 // must have the same key; otherwise don't add
-                                let neighbor_pubkey_hash =
-                                    Hash160::from_node_public_key_buffer(&data.handshake.node_public_key);
+                                let neighbor_pubkey_hash = Hash160::from_node_public_key_buffer(
+                                    &data.handshake.node_public_key,
+                                );
                                 if neighbor_pubkey_hash != naddr.public_key_hash {
                                     debug!("{:?}: Neighbor {:?} had an unexpected pubkey hash: expected {:?} != {:?}",
                                            &self.local_peer, &message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port), &naddr.public_key_hash, &neighbor_pubkey_hash);
@@ -2011,7 +2011,9 @@ impl PeerNetwork {
                 None => {
                     // if cur_neighbor is _us_, then grab a different neighbor and try again
                     if Hash160::from_node_public_key(&walk.cur_neighbor.public_key)
-                        == Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(&network.local_peer.private_key))
+                        == Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
+                            &network.local_peer.private_key,
+                        ))
                     {
                         debug!(
                             "{:?}: Walk stepped to ourselves.  Will reset instead.",
@@ -2044,7 +2046,8 @@ impl PeerNetwork {
                     walk.clear_state();
 
                     let cur_pubkh = Hash160::from_node_public_key(&walk.cur_neighbor.public_key);
-                    let res = match network.can_register_peer_with_pubkey(&cur_addr, true, &cur_pubkh)
+                    let res = match network
+                        .can_register_peer_with_pubkey(&cur_addr, true, &cur_pubkh)
                     {
                         Ok(_) => network.walk_connect_and_handshake(walk, &cur_addr)?,
                         Err(net_error::AlreadyConnected(event_id, handshake_nk)) => {
@@ -2057,8 +2060,7 @@ impl PeerNetwork {
                                     debug!("{:?}: Already connected to {:?} on inbound event {} (address {:?}). Try to establish outbound connection to {:?} {:?}.",
                                            &network.local_peer, &cur_addr, &event_id, &handshake_nk, &cur_pubkh, &cur_addr);
                                     network.walk_connect_and_handshake(walk, &cur_addr)?
-                                }
-                                else {
+                                } else {
                                     debug!(
                                         "{:?}: Already connected to {:?} on event {} (address: {:?})",
                                         &network.local_peer, &cur_addr, &event_id, &handshake_nk
@@ -2067,10 +2069,12 @@ impl PeerNetwork {
                                         .walk_handshake(walk, &handshake_nk)
                                         .and_then(|handle| Ok(Some(handle)))?
                                 }
-                            }
-                            else {
+                            } else {
                                 // should never be reachable
-                                unreachable!("AlreadyConnected error on event {} has no conversation", event_id);
+                                unreachable!(
+                                    "AlreadyConnected error on event {} has no conversation",
+                                    event_id
+                                );
                             }
                         }
                         Err(e) => {
@@ -2121,8 +2125,7 @@ impl PeerNetwork {
                 None => {
                     debug!(
                         "{:?}: send GetNeighbors to {:?}",
-                        &walk.local_peer,
-                        &walk.cur_neighbor.addr
+                        &walk.local_peer, &walk.cur_neighbor.addr
                     );
 
                     let msg = network
@@ -2202,10 +2205,13 @@ impl PeerNetwork {
     /// Start handshaking with our neighbors' neighbors.
     pub fn walk_neighbor_handshakes_begin(&mut self) -> Result<bool, net_error> {
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
-            let my_pubkey_hash = Hash160::from_node_public_key(
-                &Secp256k1PublicKey::from_private(&walk.local_peer.private_key)
+            let my_pubkey_hash = Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
+                &walk.local_peer.private_key,
+            ));
+            debug!(
+                "{:?}: my public key hash is {}",
+                &walk.local_peer, &my_pubkey_hash
             );
-            debug!("{:?}: my public key hash is {}", &walk.local_peer, &my_pubkey_hash);
             let pending_neighbor_addrs = walk.pending_neighbor_addrs.take();
 
             let res = match pending_neighbor_addrs {
@@ -2226,7 +2232,10 @@ impl PeerNetwork {
                     for na in neighbor_addrs {
                         // don't talk to myself if we're listed as a neighbor of this
                         // remote peer.
-                        debug!("{:?}: {} =?= {} the world wonders", &network.local_peer, &my_pubkey_hash, &na.public_key_hash);
+                        debug!(
+                            "{:?}: {} =?= {} the world wonders",
+                            &network.local_peer, &my_pubkey_hash, &na.public_key_hash
+                        );
                         if na.public_key_hash == my_pubkey_hash {
                             test_debug!("{:?}: skip handshaking with myself", &network.local_peer);
                             continue;

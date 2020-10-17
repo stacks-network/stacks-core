@@ -211,7 +211,7 @@ impl RunLoop {
             chainstate_path,
             self.config.burnchain.poll_time_secs,
             self.config.connection_options.timeout,
-            self.config.node.pox_sync_sample_secs
+            self.config.node.pox_sync_sample_secs,
         )
         .unwrap();
         let mut burnchain_height = 1;
@@ -274,7 +274,10 @@ impl RunLoop {
 
             if block_height >= burnchain_height {
                 // at tip. proceed to mine.
-                debug!("Synchronized full burnchain up to height {}. Proceeding to mine blocks", block_height);
+                debug!(
+                    "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                    block_height
+                );
                 if !node.relayer_issue_tenure() {
                     // relayer hung up, exit.
                     error!("Block relayer and miner hung up, exiting.");

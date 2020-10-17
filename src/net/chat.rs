@@ -4116,9 +4116,9 @@ mod test {
             peer: NeighborAddress {
                 addrbytes: local_peer.addrbytes.clone(),
                 port: local_peer.port,
-                public_key_hash: Hash160::from_node_public_key(
-                    &StacksPublicKey::from_private(&local_peer.private_key)
-                ),
+                public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                    &local_peer.private_key,
+                )),
             },
             seq: 789,
         }];

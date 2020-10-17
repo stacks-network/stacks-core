@@ -212,7 +212,7 @@ pub enum Error {
     /// view of state is stale (e.g. from the sortition db)
     StaleView,
     /// Tried to connect to myself
-    ConnectionCycle
+    ConnectionCycle,
 }
 
 /// Enum for passing data for ClientErrors
@@ -350,7 +350,7 @@ impl error::Error for Error {
             Error::MARFError(ref e) => Some(e),
             Error::CoordinatorClosed => None,
             Error::StaleView => None,
-            Error::ConnectionCycle => None
+            Error::ConnectionCycle => None,
         }
     }
 }
