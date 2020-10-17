@@ -116,6 +116,7 @@ pub struct NetworkHandle {
 
 /// Internal handle for receiving requests from a NetworkHandle.
 /// This is the 'other end' of a NetworkHandle inside the peer network struct.
+#[derive(Debug)]
 struct NetworkHandleServer {
     chan_in: Receiver<NetworkRequest>,
 }
@@ -205,6 +206,7 @@ pub enum PeerNetworkWorkState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
+#[derive(Debug)]
 pub struct PeerNetwork {
     pub local_peer: LocalPeer,
     pub peer_version: u32,

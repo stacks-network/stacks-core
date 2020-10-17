@@ -53,6 +53,7 @@ use util::get_epoch_time_secs;
 
 use core::mempool::*;
 
+#[derive(Debug)]
 pub struct HttpPeer {
     pub network_id: u32,
     pub chain_view: BurnchainView,

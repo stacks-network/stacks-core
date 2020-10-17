@@ -164,6 +164,7 @@ pub enum BlockDownloaderState {
     Done,
 }
 
+#[derive(Debug)]
 pub struct BlockDownloader {
     state: BlockDownloaderState,
     pox_id: PoxId,

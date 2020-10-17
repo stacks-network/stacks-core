@@ -57,6 +57,7 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
     "#
 ];
 
+#[derive(Debug)]
 pub struct AtlasDB {
     pub conn: Connection,
     pub readwrite: bool,

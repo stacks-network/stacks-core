@@ -895,6 +895,7 @@ impl NeighborBlockStats {
     }
 }
 
+#[derive(Debug)]
 pub struct InvState {
     /// Peers that we are currently synchronizing with.
     pub sync_peers: HashSet<NeighborKey>,
