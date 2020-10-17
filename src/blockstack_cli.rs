@@ -42,6 +42,9 @@ use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};
 
+use blockstack_lib::address::b58;
+use blockstack_lib::burnchains::bitcoin::address::{ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG};
+
 const TESTNET_CHAIN_ID: u32 = 0x80000000;
 const MAINNET_CHAIN_ID: u32 = 0x00000001;
 
@@ -56,6 +59,7 @@ This CLI has these methods:
   contract-call    used to generate and sign a contract-call transaction
   generate-sk      used to generate a secret key for transaction signing
   token-transfer   used to generate and sign a transfer transaction
+  addresses        used to get both Bitcoin and Stacks addresses from a private key
 
 For usage information on those methods, call `blockstack-cli [method] -h`
 
@@ -103,6 +107,12 @@ const GENERATE_USAGE: &str = "blockstack-cli (options) generate-sk
 
 This method generates a secret key, outputting the hex encoding of the
 secret key, the corresponding public key, and the corresponding P2PKH Stacks address.";
+
+const ADDRESSES_USAGE: &str = "blockstack-cli (options) addresses [secret-key-hex]
+
+The addresses command calculates both the Bitcoin and Stacks addresses from a secret key.
+If successful, this command outputs both the Bitcoin and Stacks addresses to stdout, formatted
+as JSON, and exits with code 0";
 
 #[derive(Debug)]
 enum CliError {
@@ -467,6 +477,47 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
     ))
 }
 
+fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+        return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
+    }
+
+    let sk = StacksPrivateKey::from_hex(&args[0])
+        .expect("Failed to load private key");
+
+    let pk = StacksPublicKey::from_private(&sk);
+    let c32_version = match version {
+        TransactionVersion::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        TransactionVersion::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    };
+    
+    let b58_version = match version {
+        TransactionVersion::Mainnet => ADDRESS_VERSION_MAINNET_SINGLESIG,
+        TransactionVersion::Testnet => ADDRESS_VERSION_TESTNET_SINGLESIG
+    };
+    
+    let stx_address = StacksAddress::from_public_keys(
+        c32_version,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![pk.clone()],
+    )
+    .expect("Failed to generate address from public key");
+    
+    let mut b58_addr_slice = [0u8; 21];
+    b58_addr_slice[0] = b58_version;
+    b58_addr_slice[1..].copy_from_slice(&stx_address.bytes.0);
+    let b58_address_string = b58::check_encode_slice(&b58_addr_slice);
+    Ok(format!(
+        "{{
+    \"STX\": \"{}\",
+    \"BTC\": \"{}\"
+}}",
+    &stx_address,
+    &b58_address_string
+    ))
+}
+
 fn main() {
     log::set_loglevel(log::LOG_DEBUG).unwrap();
     let mut argv: Vec<String> = env::args().collect();
@@ -504,6 +555,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
             "publish" => handle_contract_publish(args, tx_version, chain_id),
             "token-transfer" => handle_token_transfer(args, tx_version, chain_id),
             "generate-sk" => generate_secret_key(args, tx_version),
+            "addresses" => get_addresses(args, tx_version),
             _ => Err(CliError::Usage),
         }
     } else {
@@ -755,5 +807,27 @@ mod test {
             format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
                 .contains("deserialize")
         );
+    }
+
+    #[test]
+    fn simple_addresses() {
+        let addr_args = [
+            "addresses",
+            "2945c6be8758994652a498f0445d534d0fadb0b2025b37c72297b059ebf887ed01"
+        ];
+
+        let result = main_handler(to_string_vec(&addr_args)).unwrap();
+        assert!(result.contains("SP36T883PDD2EK4PHVTA5GFHC8NQW6558XG7YX1GD"));
+        assert!(result.contains("1KkL94EPD3mz7RFCZPmRBy3KjbWZ4qo58E"));
+
+        let addr_args = [
+            "--testnet",
+            "addresses",
+            "2945c6be8758994652a498f0445d534d0fadb0b2025b37c72297b059ebf887ed01"
+        ];
+
+        let result = main_handler(to_string_vec(&addr_args)).unwrap();
+        assert!(result.contains("mzGHS7KN25DEtXipGxjo1tFebb7Fw5aAkp"));
+        assert!(result.contains("ST36T883PDD2EK4PHVTA5GFHC8NQW6558XJQX6Q3K"));
     }
 }
