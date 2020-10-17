@@ -54,6 +54,7 @@ pub struct BitcoinRegtestController {
     chain_tip: Option<BurnchainTip>,
     use_coordinator: Option<CoordinatorChannels>,
     burnchain_config: Option<Burnchain>,
+    last_utxos: Vec<UTXO>
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -108,6 +109,7 @@ impl BitcoinRegtestController {
             burnchain_db: None,
             chain_tip: None,
             burnchain_config,
+            last_utxos: vec![]
         }
     }
 
@@ -138,6 +140,7 @@ impl BitcoinRegtestController {
             burnchain_db: None,
             chain_tip: None,
             burnchain_config: None,
+            last_utxos: vec![]
         }
     }
 
@@ -498,10 +501,11 @@ impl BitcoinRegtestController {
         &mut self,
         payload: LeaderKeyRegisterOp,
         signer: &mut BurnchainOpSigner,
+        attempt: u64
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, DUST_UTXO_LIMIT)?;
+        let (mut tx, utxos) = self.prepare_tx(&public_key, DUST_UTXO_LIMIT, attempt)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -529,7 +533,7 @@ impl BitcoinRegtestController {
 
         tx.output.push(identifier_output);
 
-        self.finalize_tx(&mut tx, DUST_UTXO_LIMIT, utxos, signer)?;
+        self.finalize_tx(&mut tx, DUST_UTXO_LIMIT, utxos, signer, attempt)?;
 
         increment_btc_ops_sent_counter();
 
@@ -545,10 +549,11 @@ impl BitcoinRegtestController {
         &mut self,
         payload: LeaderBlockCommitOp,
         signer: &mut BurnchainOpSigner,
+        attempt: u64
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, payload.burn_fee)?;
+        let (mut tx, utxos) = self.prepare_tx(&public_key, payload.burn_fee, attempt)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -599,7 +604,7 @@ impl BitcoinRegtestController {
             tx.output.push(burn_output);
         }
 
-        self.finalize_tx(&mut tx, payload.burn_fee, utxos, signer)?;
+        self.finalize_tx(&mut tx, payload.burn_fee, utxos, signer, attempt)?;
 
         increment_btc_ops_sent_counter();
 
@@ -612,21 +617,31 @@ impl BitcoinRegtestController {
     }
 
     fn prepare_tx(
-        &self,
+        &mut self,
         public_key: &Secp256k1PublicKey,
         ops_fee: u64,
+        attempt: u64
     ) -> Option<(Transaction, Vec<UTXO>)> {
         let tx_fee = self.config.burnchain.burnchain_op_tx_fee;
         let amount_required = tx_fee + ops_fee;
 
-        // Fetch some UTXOs
-        let utxos = match self.get_utxos(&public_key, amount_required) {
-            Some(utxos) => utxos,
-            None => {
-                debug!("No UTXOs for {}", &public_key.to_hex());
-                return None;
+        let utxos =
+            if attempt > 1 && self.last_utxos.len() > 0 {
+                // in RBF, you have to consume the same UTXOs
+                self.last_utxos.clone()
             }
-        };
+            else {
+                // Fetch some UTXOs
+                let new_utxos = match self.get_utxos(&public_key, amount_required) {
+                    Some(utxos) => utxos,
+                    None => {
+                        debug!("No UTXOs for {}", &public_key.to_hex());
+                        return None;
+                    }
+                };
+                self.last_utxos = new_utxos.clone();
+                new_utxos
+            };
 
         let mut inputs = vec![];
 
@@ -639,7 +654,7 @@ impl BitcoinRegtestController {
             let input = TxIn {
                 previous_output,
                 script_sig: Script::new(),
-                sequence: 0xFFFFFFFF,
+                sequence: 0xFFFFFFFD,       // allow RBF
                 witness: vec![],
             };
 
@@ -663,8 +678,11 @@ impl BitcoinRegtestController {
         total_spent: u64,
         utxos: Vec<UTXO>,
         signer: &mut BurnchainOpSigner,
+        attempt: u64
     ) -> Option<()> {
-        let tx_fee = self.config.burnchain.burnchain_op_tx_fee;
+        // TODO: crude RBF -- total tx fee and tx fee per vbyte must both be greater than they were
+        // before.
+        let tx_fee = self.config.burnchain.burnchain_op_tx_fee + attempt * DUST_UTXO_LIMIT;
 
         // Append the change output
         let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
@@ -717,6 +735,7 @@ impl BitcoinRegtestController {
         &mut self,
         _payload: UserBurnSupportOp,
         _signer: &mut BurnchainOpSigner,
+        _attempt: u64
     ) -> Option<Transaction> {
         unimplemented!()
     }
@@ -887,16 +906,17 @@ impl BurnchainController for BitcoinRegtestController {
         &mut self,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
+        attempt: u64
     ) -> bool {
         let transaction = match operation {
             BlockstackOperationType::LeaderBlockCommit(payload) => {
-                self.build_leader_block_commit_tx(payload, op_signer)
+                self.build_leader_block_commit_tx(payload, op_signer, attempt)
             }
             BlockstackOperationType::LeaderKeyRegister(payload) => {
-                self.build_leader_key_register_tx(payload, op_signer)
+                self.build_leader_key_register_tx(payload, op_signer, attempt)
             }
             BlockstackOperationType::UserBurnSupport(payload) => {
-                self.build_user_burn_support_tx(payload, op_signer)
+                self.build_user_burn_support_tx(payload, op_signer, attempt)
             }
         };
 
@@ -972,6 +992,7 @@ pub struct ParsedUTXO {
     safe: bool,
 }
 
+#[derive(Clone)]
 pub struct UTXO {
     txid: Sha256dHash,
     vout: u32,
