@@ -398,9 +398,8 @@ mod test {
         let mut last_block: Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
-            let microblock_pubkeyhash = Hash160::from_node_public_key(
-                &StacksPublicKey::from_private(&microblock_privkey)
-            );
+            let microblock_pubkeyhash =
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
             let tip =
@@ -627,9 +626,8 @@ mod test {
         let mut last_block: Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
             let microblock_privkey = StacksPrivateKey::new();
-            let microblock_pubkeyhash = Hash160::from_node_public_key(
-                &StacksPublicKey::from_private(&microblock_privkey)
-            );
+            let microblock_pubkeyhash =
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
             let tip =
