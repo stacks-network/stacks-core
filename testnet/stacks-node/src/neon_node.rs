@@ -9,7 +9,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, PublicKey, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -575,9 +575,12 @@ fn spawn_miner_relayer(
                         &last_mined_blocks,
                     );
                     if let Some(last_mined_block) = last_mined_block_opt {
+                        if last_mined_blocks.len() == 0 {
+                            // (for testing) only bump once per epoch
+                            bump_processed_counter(&blocks_processed);
+                        }
                         last_mined_blocks.push(last_mined_block);
                     }
-                    bump_processed_counter(&blocks_processed);
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
                     debug!("Relayer: Register key");
@@ -838,34 +841,6 @@ impl InitializedNeonNode {
         bitcoin_controller: &mut BitcoinRegtestController,
         last_mined_blocks: &Vec<AssembledAnchorBlock>,
     ) -> Option<AssembledAnchorBlock> {
-        // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = match keychain.generate_proof(
-            &registered_key.vrf_public_key,
-            burn_block.sortition_hash.as_bytes(),
-        ) {
-            Some(vrfp) => vrfp,
-            None => {
-                error!(
-                    "Failed to generate proof with {:?}",
-                    &registered_key.vrf_public_key
-                );
-                return None;
-            }
-        };
-
-        debug!(
-            "Generated VRF Proof: {} over {} with key {}",
-            vrf_proof.to_hex(),
-            &burn_block.sortition_hash,
-            &registered_key.vrf_public_key.to_hex()
-        );
-
-        // Generates a new secret key for signing the trail of microblocks
-        // of the upcoming tenure.
-        let microblock_secret_key = keychain.rotate_microblock_keypair();
-        let mblock_pubkey_hash =
-            Hash160::from_data(&StacksPublicKey::from_private(&microblock_secret_key).to_bytes());
-
         let (
             stacks_parent_header,
             parent_consensus_hash,
@@ -978,9 +953,9 @@ impl InitializedNeonNode {
                 {
                     // the chain tip hasn't changed since we attempted to build a block.  Use what we
                     // already have.
-                    debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} in {} at burn height {})",
+                    debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {})",
                            &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
-                           prev_block.my_burn_hash, parent_block_burn_height);
+                           prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
 
                     return None;
                 } else {
@@ -989,6 +964,33 @@ impl InitializedNeonNode {
             }
             best_attempt
         };
+
+        // Generates a proof out of the sortition hash provided in the params.
+        let vrf_proof = match keychain.generate_proof(
+            &registered_key.vrf_public_key,
+            burn_block.sortition_hash.as_bytes(),
+        ) {
+            Some(vrfp) => vrfp,
+            None => {
+                error!(
+                    "Failed to generate proof with {:?}",
+                    &registered_key.vrf_public_key
+                );
+                return None;
+            }
+        };
+
+        debug!(
+            "Generated VRF Proof: {} over {} with key {}",
+            vrf_proof.to_hex(),
+            &burn_block.sortition_hash,
+            &registered_key.vrf_public_key.to_hex()
+        );
+
+        // Generates a new secret key for signing the trail of microblocks
+        // of the upcoming tenure.
+        let microblock_secret_key = keychain.rotate_microblock_keypair();
+        let mblock_pubkey_hash = Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
         let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
