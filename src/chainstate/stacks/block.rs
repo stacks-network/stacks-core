@@ -712,7 +712,11 @@ impl StacksMicroblockHeader {
 
         let mut pubk =
             StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature).map_err(|_ve| {
-                test_debug!("Failed to verify signature: failed to recover public key from {:?}: {:?}", &self.signature, &_ve);
+                test_debug!(
+                    "Failed to verify signature: failed to recover public key from {:?}: {:?}",
+                    &self.signature,
+                    &_ve
+                );
                 net_error::VerifyingError(
                     "Failed to verify signature: failed to recover public key".to_string(),
                 )
@@ -728,7 +732,10 @@ impl StacksMicroblockHeader {
         let pubkh = self.check_recover_pubkey()?;
 
         if pubkh != *pubk_hash {
-            test_debug!("Failed to verify signature: public key did not recover to hash {}", &pubkh.to_hex());
+            test_debug!(
+                "Failed to verify signature: public key did not recover to hash {}",
+                &pubkh.to_hex()
+            );
             return Err(net_error::VerifyingError(format!(
                 "Failed to verify signature: public key not recover to expected hash {}",
                 pubkh.to_hex()

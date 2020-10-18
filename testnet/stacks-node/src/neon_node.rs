@@ -990,7 +990,8 @@ impl InitializedNeonNode {
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
         let microblock_secret_key = keychain.rotate_microblock_keypair();
-        let mblock_pubkey_hash = Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
+        let mblock_pubkey_hash =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
         let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
