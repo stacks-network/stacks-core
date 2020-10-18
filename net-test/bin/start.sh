@@ -1,8 +1,5 @@
 #!/bin/bash
 
-MODE="$1"
-set -uo pipefail
-
 BITCOIN_LOGFILE="/mnt/bitcoin.log"
 BITCOIN_NEON_CONTROLLER_LOGFILE="/mnt/bitcoin-neon-controller.log"
 STACKS_MASTER_LOGFILE="/mnt/stacks-node-master.log"
@@ -23,14 +20,25 @@ STACKS_MASTER_PUBLIC_IP="127.0.0.1"
 
 FAUCET_PORT=8080
 
-if [ -f "./config.sh" ]; then
-   source ./config.sh
-fi
-
-function exit_error() {
+exit_error() {
    printf "$1" >&2
    exit 1
 }
+
+for cmd in bitcoind bitcoin-cli bitcoin-neon-controller stacks-node blockstack-cli date jq grep sed kill cat curl faucet.sh seq; do
+   which $cmd 2>&1 >/dev/null || exit_error "Missing \"$cmd\""
+done
+
+if [ $(echo ${BASH_VERSION} | cut -d '.' -f 1) -lt 4 ]; then
+   exit_error "This script requires Bash 4.x or higher"
+fi
+
+MODE="$1"
+set -uo pipefail
+
+if [ -f "./config.sh" ]; then
+   source ./config.sh
+fi
 
 function log() {
    printf "%s" "$1" >&2
@@ -41,11 +49,11 @@ function logln() {
 }
 
 start_bitcoind() {
-   logln "Setting up Bitcoind..."
+   logln "Setting up bitcoind..."
    test -f "$BITCOIN_CONF".in || exit_error "No such file or directory: $BITCOIN_CONF"
-   mkdir -p "$BITCOIN_DATA_DIR" || exit_error "Failed to create Bitcoin data directory $BITCOIN_DATA_DIR"
+   mkdir -p "$BITCOIN_DATA_DIR" || exit_error "Failed to create bitcoin data directory $BITCOIN_DATA_DIR"
 
-   log "  Generating Bitcoind config file..."
+   log "  Generating bitcoind config file..."
    sed -r \
      -e "s!@@BITCOIN_DATA_DIR@@!$BITCOIN_DATA_DIR!g" \
      "$BITCOIN_CONF".in \
@@ -70,10 +78,10 @@ start_bitcoind() {
 }
 
 start_bitcoind_controller() {
-   logln "Setting up Bitcoind controller..."
+   logln "Setting up bitcoind controller..."
    test -f "$BITCOIN_CONTROLLER_CONF".in || exit_error "No such file or directory: $BITCOIN_CONTROLLER_CONF.in"
 
-   log "  Generating Bitcoind controller config file..."
+   log "  Generating bitcoind controller config file..."
    local NOW="$(date +%s)"
    sed -r \
     -e "s/@@BITCOIN_NEON_CONTROLLER_GENESIS_TIMESTAMP@@/$NOW/g" \
@@ -98,7 +106,7 @@ start_bitcoind_controller() {
 }
 
 start_faucet() {
-   logln "Setting up Bitcoin faucet..."
+   logln "Setting up bitcoin faucet..."
    test -f "$BITCOIN_CONTROLLER_CONF" || exit_error "No such file or directory: $BITCOIN_CONTROLLER_CONF"
    test -f "$BITCOIN_CONF" || exit_error "No such file or directory: $BITCOIN_CONF"
 
@@ -127,7 +135,7 @@ start_faucet() {
 
    logln "ok"
 
-   log "Starting Bitcoin faucet..."
+   log "Starting bitcoin faucet..."
    faucet.sh "$FAUCET_PORT" "$BITCOIN_CONF" >"$FAUCET_LOGFILE" 2>&1 &
    local FAUCET_PID=$!
    logln "PID $FAUCET_PID"
@@ -280,10 +288,6 @@ usage() {
 if [ -z "$MODE" ]; then
    usage
 fi
-
-for cmd in bitcoind bitcoin-cli bitcoin-neon-controller stacks-node blockstack-cli date jq grep sed kill cat curl faucet.sh seq; do
-   which $cmd 2>&1 >/dev/null || exit_error "Missing \"$cmd\""
-done
 
 BITCOIN_PID=0
 BITCOIN_NEON_CONTROLLER_PID=0
