@@ -118,7 +118,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         miner_key: &Secp256k1PrivateKey,
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
-            Hash160::from_data(&StacksPublicKey::from_private(miner_key).to_bytes());
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
         if txs_to_broadcast.len() == 0 {
             return Err(Error::NoTransactionsToMine);
         }
@@ -386,7 +386,7 @@ impl StacksBlockBuilder {
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
             miner_id,
@@ -442,7 +442,7 @@ impl StacksBlockBuilder {
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         let mut builder = StacksBlockBuilder::first_pubkey_hash(
             miner_id,
