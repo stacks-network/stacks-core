@@ -8,12 +8,20 @@ FAUCET_AMOUNT="1.0"
 MODE="$1"
 BITCOIN_CONF="$2"
 
-set -uo pipefail
-
 exit_error() {
-   printf >&2 "$1"
+   printf "$1" >&2
    exit 1
 }
+
+for cmd in ncat bitcoin-cli egrep grep tr dd sed cut date; do
+   which $cmd >/dev/null 2>&1 || exit_error "Missing command: $cmd"
+done
+
+if [ $(echo ${BASH_VERSION} | cut -d '.' -f 1) -lt 4 ]; then
+   exit_error "This script requires Bash 4.x or higher"
+fi
+
+set -uo pipefail
 
 log() {
    printf >&2 "%s\n" "$1"
@@ -283,12 +291,9 @@ elif [ "$MODE" = "parse" ]; then
    exit 0
 fi
 
+# $MODE will be the port number in this usage path
 if ! [[ $MODE =~ ^[0-9]+$ ]]; then
    usage
 fi
 
-for cmd in ncat bitcoin-cli egrep grep tr dd sed cut date; do
-   which $cmd >/dev/null 2>&1 || exit_error "Missing command: $cmd"
-done
-
-exec ncat -k -l -p $MODE -c "bash $0 serve \"$BITCOIN_CONF\""
+exec ncat -k -l -p "$MODE" -c "$BASH \"$0\" serve \"$BITCOIN_CONF\""
