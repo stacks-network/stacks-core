@@ -1287,7 +1287,7 @@ mod test {
         };
 
         let pubk = StacksPublicKey::from_private(&privk);
-        let pubkh = Hash160::from_node_public_key(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         mblock_header.sign(&privk).unwrap();
         mblock_header.verify(&pubkh).unwrap();

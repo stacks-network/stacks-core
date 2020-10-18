@@ -4869,7 +4869,7 @@ pub mod test {
         };
 
         let mblock_pubkey_hash =
-            Hash160::from_node_public_key(&StacksPublicKey::from_private(mblock_key).to_bytes());
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(mblock_key));
         let mut block = StacksBlock::from_parent(
             &parent_header,
             &parent_microblock_header,
