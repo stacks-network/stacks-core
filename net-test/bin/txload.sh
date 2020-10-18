@@ -4,13 +4,21 @@ FEE_RATE=300
 MAX_CHAINING=5
 CONFIRMATIONS=1
 
-# grab fd 3 for curl
-exec 3>&1
-
 exit_error() {
    printf "$1"
    exit 1
 }
+
+for CMD in cut grep egrep sed blockstack-cli curl; do
+   which "$CMD" >/dev/null 2>&1 || exit_error "Missing command $CMD"
+done
+
+if [ $(echo ${BASH_VERSION} | cut -d '.' -f 1) -lt 4 ]; then
+   exit_error "This script requires Bash 4.x or higher"
+fi
+
+# grab fd 3 for curl
+exec 3>&1
 
 usage() {
    exit_error "$0 <private-key-hex> <stacks-url> <num-txs>\n"
