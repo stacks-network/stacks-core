@@ -24,13 +24,15 @@ extern crate blockstack_lib;
 use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::chainstate::stacks::{
-    StacksAddress, StacksBlock, StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
-    TokenTransferMemo, TransactionAuth, TransactionContractCall, TransactionPayload,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    StacksAddress, StacksBlock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionContractCall,
+    TransactionPayload, TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
-use blockstack_lib::util::{hash::hex_bytes, hash::to_hex, log, strings::StacksString, retry::LogReader};
+use blockstack_lib::util::{
+    hash::hex_bytes, hash::to_hex, log, retry::LogReader, strings::StacksString,
+};
 use blockstack_lib::vm;
 use blockstack_lib::vm::{
     errors::{Error as ClarityError, RuntimeErrorType},
@@ -116,7 +118,8 @@ The addresses command calculates both the Bitcoin and Stacks addresses from a se
 If successful, this command outputs both the Bitcoin and Stacks addresses to stdout, formatted
 as JSON, and exits with code 0";
 
-const DECODE_TRANSACTION_USAGE: &str = "blockstack-cli (options) decode-tx [transaction-hex-or-stdin]
+const DECODE_TRANSACTION_USAGE: &str =
+    "blockstack-cli (options) decode-tx [transaction-hex-or-stdin]
 
 The decode-tx command decodes a serialized Stacks transaction and prints it to stdout as JSON.
 The transaction, if given, must be a hex string.  Alternatively, you may pass - instead, and the
@@ -532,29 +535,29 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
 
 fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
-        return Err(CliError::Message(format!("Usage: {}\n", DECODE_TRANSACTION_USAGE)));
+        return Err(CliError::Message(format!(
+            "Usage: {}\n",
+            DECODE_TRANSACTION_USAGE
+        )));
     }
 
-    let tx_str =
-        if args[0] == "-" {
-            // read from stdin
-            let mut tx_str = Vec::new();
-            io::stdin().read_to_end(&mut tx_str).expect("Failed to read transaction from stdin");
-            tx_str
-        }
-        else {
-            // given as a command-line arg
-            hex_bytes(&args[0].clone())
-                .expect("Failed to decode transaction: must be a hex string")
-        };
+    let tx_str = if args[0] == "-" {
+        // read from stdin
+        let mut tx_str = Vec::new();
+        io::stdin()
+            .read_to_end(&mut tx_str)
+            .expect("Failed to read transaction from stdin");
+        tx_str
+    } else {
+        // given as a command-line arg
+        hex_bytes(&args[0].clone()).expect("Failed to decode transaction: must be a hex string")
+    };
 
     let mut cursor = io::Cursor::new(&tx_str);
     let mut debug_cursor = LogReader::from_reader(&mut cursor);
 
     match StacksTransaction::consensus_deserialize(&mut debug_cursor) {
-        Ok(tx) => {
-            Ok(serde_json::to_string(&tx).expect("Failed to serialize transaction to JSON"))
-        },
+        Ok(tx) => Ok(serde_json::to_string(&tx).expect("Failed to serialize transaction to JSON")),
         Err(e) => {
             let mut ret = String::new();
             ret.push_str(&format!("Failed to decode transaction: {:?}\n", &e));
@@ -570,28 +573,28 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
 
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
-        return Err(CliError::Message(format!("Usage: {}\n", DECODE_BLOCK_USAGE)));
+        return Err(CliError::Message(format!(
+            "Usage: {}\n",
+            DECODE_BLOCK_USAGE
+        )));
     }
-    let block_data =
-        if args[0] == "-" {
-            // read from stdin
-            let mut block_str = Vec::new();
-            io::stdin().read_to_end(&mut block_str).expect("Failed to read block from stdin");
-            block_str
-        }
-        else {
-            // given as a command-line arg
-            hex_bytes(&args[0].clone())
-                .expect("Failed to decode block: must be a hex string")
-        };
+    let block_data = if args[0] == "-" {
+        // read from stdin
+        let mut block_str = Vec::new();
+        io::stdin()
+            .read_to_end(&mut block_str)
+            .expect("Failed to read block from stdin");
+        block_str
+    } else {
+        // given as a command-line arg
+        hex_bytes(&args[0].clone()).expect("Failed to decode block: must be a hex string")
+    };
 
     let mut cursor = io::Cursor::new(&block_data);
     let mut debug_cursor = LogReader::from_reader(&mut cursor);
 
     match StacksBlock::consensus_deserialize(&mut debug_cursor) {
-        Ok(block) => {
-            Ok(serde_json::to_string(&block).expect("Failed to serialize block to JSON"))
-        },
+        Ok(block) => Ok(serde_json::to_string(&block).expect("Failed to serialize block to JSON")),
         Err(e) => {
             let mut ret = String::new();
             ret.push_str(&format!("Failed to decode block: {:?}\n", &e));
