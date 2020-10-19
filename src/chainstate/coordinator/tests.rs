@@ -977,7 +977,7 @@ fn test_sortition_with_burner_reward_set() {
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
     let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
 
-    let reward_set_size = 10;
+    let reward_set_size = 9;
     let mut reward_set: Vec<_> = (0..reward_set_size - 1)
         .map(|_| StacksAddress::burn_address(false))
         .collect();
