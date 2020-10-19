@@ -1207,10 +1207,6 @@ impl PeerNetwork {
         let my_pubkey_hash = Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
             &self.local_peer.private_key,
         ));
-        debug!(
-            "{:?}: my public key hash is {}",
-            &self.local_peer, &my_pubkey_hash
-        );
         if pubkh == &my_pubkey_hash {
             return Err(net_error::ConnectionCycle);
         }
@@ -1218,10 +1214,6 @@ impl PeerNetwork {
         self.can_register_peer(nk, outbound).and_then(|_| {
             let other_events = self.get_pubkey_events(pubkh);
             if other_events.len() > 0 {
-                debug!(
-                    "{:?}: events with public key {} for {:?}: {:?}",
-                    &self.local_peer, pubkh, nk, &other_events
-                );
                 for event_id in other_events.into_iter() {
                     if let Some(convo) = self.peers.get(&event_id) {
                         // only care if we're trying to connect in the same direction
