@@ -722,8 +722,6 @@ impl StacksMicroblockHeader {
                 )
             })?;
 
-        debug!("Recovered {:?} from {:?}", &pubk.to_hex(), &self.signature);
-
         pubk.set_compressed(true);
         Ok(StacksBlockHeader::pubkey_hash(&pubk))
     }
@@ -737,7 +735,7 @@ impl StacksMicroblockHeader {
                 &pubkh.to_hex()
             );
             return Err(net_error::VerifyingError(format!(
-                "Failed to verify signature: public key not recover to expected hash {}",
+                "Failed to verify signature: public key did not recover to expected hash {}",
                 pubkh.to_hex()
             )));
         }
