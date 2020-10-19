@@ -2232,10 +2232,6 @@ impl PeerNetwork {
                     for na in neighbor_addrs {
                         // don't talk to myself if we're listed as a neighbor of this
                         // remote peer.
-                        debug!(
-                            "{:?}: {} =?= {} the world wonders",
-                            &network.local_peer, &my_pubkey_hash, &na.public_key_hash
-                        );
                         if na.public_key_hash == my_pubkey_hash {
                             test_debug!("{:?}: skip handshaking with myself", &network.local_peer);
                             continue;
