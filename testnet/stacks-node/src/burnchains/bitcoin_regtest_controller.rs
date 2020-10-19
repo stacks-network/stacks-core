@@ -56,7 +56,7 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     last_utxos: Vec<UTXO>,
     last_tx_len: u64,
-    min_relay_fee: u64,     // satoshis/byte
+    min_relay_fee: u64, // satoshis/byte
 }
 
 const DUST_UTXO_LIMIT: u64 = 5500;
@@ -113,7 +113,7 @@ impl BitcoinRegtestController {
             burnchain_config,
             last_utxos: vec![],
             last_tx_len: 0,
-            min_relay_fee: 1024     // TODO: learn from bitcoind
+            min_relay_fee: 1024, // TODO: learn from bitcoind
         }
     }
 
@@ -146,7 +146,7 @@ impl BitcoinRegtestController {
             burnchain_config: None,
             last_utxos: vec![],
             last_tx_len: 0,
-            min_relay_fee: 1024     // TODO: learn from bitcoind
+            min_relay_fee: 1024, // TODO: learn from bitcoind
         }
     }
 
@@ -671,9 +671,10 @@ impl BitcoinRegtestController {
         utxos.sort_by(|u1, u2| u1.amount.cmp(&u2.amount));
         utxos.reverse();
 
-        // RBF 
-        let tx_fee = self.config.burnchain.burnchain_op_tx_fee + (attempt * self.last_tx_len * self.min_relay_fee);
-        
+        // RBF
+        let tx_fee = self.config.burnchain.burnchain_op_tx_fee
+            + (attempt * self.last_tx_len * self.min_relay_fee);
+
         let public_key = signer.get_public_key();
         let mut total_consumed = 0;
 
@@ -687,7 +688,7 @@ impl BitcoinRegtestController {
                 break;
             }
         }
-        
+
         // Append the change output
         let change_address_hash = Hash160::from_data(&public_key.to_bytes());
         if total_consumed < total_spent + tx_fee {
@@ -710,7 +711,7 @@ impl BitcoinRegtestController {
             let input = TxIn {
                 previous_output: OutPoint {
                     txid: utxo.txid,
-                    vout: utxo.vout
+                    vout: utxo.vout,
                 },
                 script_sig: Script::new(),
                 sequence: 0xFFFFFFFD, // allow RBF
@@ -738,7 +739,7 @@ impl BitcoinRegtestController {
                 .push_slice(&public_key.to_bytes())
                 .into_script();
         }
-        
+
         signer.dispose();
 
         // remember how long the transaction is, in case we need to RBF
@@ -1296,7 +1297,7 @@ impl BitcoinRPCRequest {
                 }
             }
         })?;
-       
+
         let status = response.status();
 
         let (res, buffer) = async_std::task::block_on(async move {
@@ -1305,14 +1306,15 @@ impl BitcoinRPCRequest {
             let res = body.read_to_end(&mut buffer).await;
             (res, buffer)
         });
-        
+
         if !status.is_success() {
             return Err(RPCError::Network(format!(
                 "Bitcoin RPC: status({}) != success, body is '{:?}'",
                 status,
                 match serde_json::from_slice::<serde_json::Value>(&buffer[..]) {
                     Ok(v) => v,
-                    Err(_e) => serde_json::from_str("\"(unparseable)\"").expect("Failed to parse JSON literal")
+                    Err(_e) => serde_json::from_str("\"(unparseable)\"")
+                        .expect("Failed to parse JSON literal"),
                 }
             )));
         }
