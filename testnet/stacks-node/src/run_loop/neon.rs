@@ -272,8 +272,8 @@ impl RunLoop {
                 );
             }
 
-            if block_height >= burnchain_height {
-                // at tip. proceed to mine.
+            if block_height >= burnchain_height && !ibd {
+                // at tip, and not downloading. proceed to mine.
                 debug!(
                     "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
                     block_height
