@@ -73,6 +73,7 @@ impl LeaderBlockCommitOp {
         input: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_height: block_height,
             new_seed: new_seed.clone(),
             key_block_ptr: paired_key.block_height as u32,
@@ -104,6 +105,7 @@ impl LeaderBlockCommitOp {
         input: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
+            sunset_burn: 0,
             new_seed: new_seed.clone(),
             key_block_ptr: key_block_ptr,
             key_vtxindex: key_vtxindex,
@@ -234,6 +236,17 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
+        // check if this transaction provided a sunset burn
+        let sunset_burn = if let Some(sunset_burn_output) = outputs.get(OUTPUTS_PER_COMMIT) {
+            if sunset_burn_output.address.is_burn() {
+                sunset_burn_output.amount
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
         let mut commit_outs = vec![];
         let mut pox_fee = None;
         for (ix, output) in outputs.into_iter().enumerate() {
@@ -280,6 +293,7 @@ impl LeaderBlockCommitOp {
             memo: data.memo,
 
             commit_outs,
+            sunset_burn,
             burn_fee,
             input: inputs[0].clone(),
 
@@ -911,6 +925,7 @@ mod tests {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370718039300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
                 opstr: "69645b2222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333340414243505160616263707180".to_string(),
                 result: Some(LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
                     parent_block_ptr: 0x40414243,
@@ -1133,6 +1148,7 @@ mod tests {
 
         // consumes leader_key_1
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -1287,6 +1303,7 @@ mod tests {
             CheckFixture {
                 // reject -- predates start block
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1334,6 +1351,7 @@ mod tests {
             CheckFixture {
                 // reject -- no such leader key
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1381,6 +1399,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1428,6 +1447,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist in a different block
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1475,6 +1495,7 @@ mod tests {
             CheckFixture {
                 // reject -- tx input does not match any leader keys
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1522,6 +1543,7 @@ mod tests {
             CheckFixture {
                 // reject -- fee is 0
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1569,6 +1591,7 @@ mod tests {
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1616,6 +1639,7 @@ mod tests {
             CheckFixture {
                 // accept -- builds directly off of genesis block and consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",

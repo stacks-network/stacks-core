@@ -152,6 +152,8 @@ pub struct LeaderBlockCommitOp {
 
     /// PoX/Burn outputs
     pub commit_outs: Vec<StacksAddress>,
+    /// how much sunset burn this block performed
+    pub sunset_burn: u64,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID

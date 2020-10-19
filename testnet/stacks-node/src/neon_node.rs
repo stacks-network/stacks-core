@@ -212,6 +212,7 @@ fn inner_generate_block_commit_op(
     let commit_outs = RewardSetInfo::into_commit_outs(recipients, false);
 
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+        sunset_burn: 0,
         block_header_hash,
         burn_fee,
         input,

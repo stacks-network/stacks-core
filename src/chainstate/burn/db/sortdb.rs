@@ -229,6 +229,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let memo_hex: String = row.get("memo");
         let burn_fee_str: String = row.get("burn_fee");
         let input_json: String = row.get("input");
+        let sunset_burn_str: String = row.get("sunset_burn");
 
         let commit_outs = serde_json::from_value(row.get("commit_outs"))
             .expect("Unparseable value stored to database");
@@ -242,7 +243,11 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
         let burn_fee = burn_fee_str
             .parse::<u64>()
-            .map_err(|_e| db_error::ParseError)?;
+            .expect("DB Corruption: Sunset burn is not parseable as u64");
+
+        let sunset_burn = sunset_burn_str
+            .parse::<u64>()
+            .expect("DB Corruption: Sunset burn is not parseable as u64");
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
@@ -256,6 +261,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             burn_fee,
             input,
             commit_outs,
+            sunset_burn,
             txid,
             vtxindex,
             block_height,
@@ -412,6 +418,7 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         memo TEXT,
         commit_outs TEXT,
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
+        sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers
         input TEXT NOT NULL,        -- must match `address` in leader_keys
 
         PRIMARY KEY(txid,sortition_id),
@@ -3038,9 +3045,6 @@ impl<'a> SortitionHandleTx<'a> {
         let tx_input_str = serde_json::to_string(&block_commit.input)
             .map_err(|e| db_error::SerializationError(e))?;
 
-        // represent burn fee as TEXT
-        let burn_fee_str = format!("{}", block_commit.burn_fee);
-
         let args: &[&dyn ToSql] = &[
             &block_commit.txid,
             &block_commit.vtxindex,
@@ -3053,14 +3057,15 @@ impl<'a> SortitionHandleTx<'a> {
             &block_commit.key_block_ptr,
             &block_commit.key_vtxindex,
             &to_hex(&block_commit.memo[..]),
-            &burn_fee_str,
+            &block_commit.burn_fee.to_string(),
             &tx_input_str,
             sort_id,
             &serde_json::to_value(&block_commit.commit_outs).unwrap(),
+            &block_commit.sunset_burn.to_string(),
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", args)?;
 
         Ok(())
     }
@@ -3649,6 +3654,7 @@ mod tests {
         };
 
         let block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -4434,6 +4440,7 @@ mod tests {
         };
 
         let block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),

@@ -376,6 +376,7 @@ fn make_genesis_block_with_recipients(
     };
 
     let commit_op = LeaderBlockCommitOp {
+        sunset_burn: 0,
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input: BurnchainSigner {
@@ -503,6 +504,7 @@ fn make_stacks_block_with_recipients(
     };
 
     let commit_op = LeaderBlockCommitOp {
+        sunset_burn: 0,
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input: BurnchainSigner {
