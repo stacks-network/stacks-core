@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Yup, it's a faucet HTTP server written in bash.  This is what my life has come to.
 

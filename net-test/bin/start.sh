@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 BITCOIN_LOGFILE="/mnt/bitcoin.log"
 BITCOIN_NEON_CONTROLLER_LOGFILE="/mnt/bitcoin-neon-controller.log"

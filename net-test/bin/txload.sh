@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 FEE_RATE=300
 MAX_CHAINING=5
