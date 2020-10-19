@@ -396,6 +396,20 @@ impl VRFProof {
     }
 }
 
+impl serde::Serialize for VRFProof {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let inst = self.to_hex();
+        s.serialize_str(&inst)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for VRFProof {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<VRFProof, D::Error> {
+        let inst_str = String::deserialize(d)?;
+        VRFProof::from_hex(&inst_str).ok_or(serde::de::Error::custom(Error::InvalidDataError))
+    }
+}
+
 pub struct VRF {}
 
 impl VRF {
