@@ -2133,6 +2133,9 @@ impl HttpRequestType {
             ));
         }
 
+                // curl --header "Content-Type: application/json" --request POST --data '{"content":"xyz","content_hash":"xyz"}' http://127.0.0.1:20443/v2/zonefiles
+        println!("Attachment: {:?}", attachment);
+
         Ok(HttpRequestType::PostZonefile(
             HttpRequestMetadata::from_preamble(preamble),
             attachment))
@@ -3089,7 +3092,8 @@ impl HttpResponseType {
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
         let res = GetZonefilesInvResponse {
-            inventory: vec![]
+            inventory: vec![], // todo(ludo)
+            pages_indexes: vec![],
         };
         Ok(HttpResponseType::GetZonefilesInv(
             HttpResponseMetadata::from_preamble(request_version, preamble),

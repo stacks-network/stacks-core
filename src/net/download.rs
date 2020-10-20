@@ -33,6 +33,10 @@ use net::Neighbor;
 use net::NeighborKey;
 use net::PeerAddress;
 use std::hash::{Hash, Hasher};
+use net::atlas::{Attachment, BNSContractReader};
+use net::atlas::inv::{NeighborAttachmentStats, InvAttachmentWorkState};
+
+use net::inv::NodeStatus;
 
 use net::codec::*;
 use net::dns::*;
@@ -161,6 +165,10 @@ pub enum BlockDownloaderState {
     GetBlocksFinish,
     GetMicroblocksBegin,
     GetMicroblocksFinish,
+    GetAttachmentsInvBegin,
+    GetAttachmentsInvFinish,
+    GetAttachmentsBegin,
+    GetAttachmentsFinish,
     Done,
 }
 
@@ -206,8 +214,13 @@ pub struct BlockDownloader {
     /// The key for each of these is the sortition height and _index_ block hash.
     getblock_requests: HashMap<BlockRequestKey, usize>,
     getmicroblocks_requests: HashMap<BlockRequestKey, usize>,
+    getattachmentsinv_requests: HashMap<BlockRequestKey, usize>,
+    getattachments_requests: HashMap<BlockRequestKey, usize>,
+
     blocks: HashMap<BlockRequestKey, StacksBlock>,
     microblocks: HashMap<BlockRequestKey, Vec<StacksMicroblock>>,
+    attachment_invs: HashMap<NeighborKey, GetZonefilesInvResponse>,
+    attachments: HashMap<BlockRequestKey, GetZonefileResponse>,
 
     /// statistics on peers' data-plane endpoints
     dead_peers: Vec<usize>,
@@ -256,8 +269,12 @@ impl BlockDownloader {
 
             getblock_requests: HashMap::new(),
             getmicroblocks_requests: HashMap::new(),
+            getattachmentsinv_requests: HashMap::new(),
+            getattachments_requests: HashMap::new(),
             blocks: HashMap::new(),
             microblocks: HashMap::new(),
+            attachment_invs: HashMap::new(),
+            attachments: HashMap::new(),
 
             dead_peers: vec![],
             broken_peers: vec![],
@@ -279,10 +296,14 @@ impl BlockDownloader {
 
         self.getblock_requests.clear();
         self.getmicroblocks_requests.clear();
+        self.getattachmentsinv_requests.clear();
+        self.getattachments_requests.clear();
         self.blocks_to_try.clear();
         self.microblocks_to_try.clear();
         self.blocks.clear();
         self.microblocks.clear();
+        self.attachment_invs.clear();
+        self.attachments.clear();
 
         self.dead_peers.clear();
         self.broken_peers.clear();
@@ -589,7 +610,7 @@ impl BlockDownloader {
 
         // are we done?
         if pending_microblock_requests.len() == 0 {
-            self.state = BlockDownloaderState::Done;
+            self.state = BlockDownloaderState::GetAttachmentsInvBegin;
             return Ok(true);
         }
 
@@ -774,6 +795,178 @@ impl BlockDownloader {
             &neighbors
         );
         Ok(neighbors)
+    }
+
+    pub fn getattachmentsinv_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+        assert_eq!(self.state, BlockDownloaderState::GetAttachmentsInvBegin);
+
+        self.getattachmentsinv_requests = requests;
+        self.state = BlockDownloaderState::GetAttachmentsInvFinish;
+    }
+
+    pub fn getattachmentsinv_try_finish(&mut self, http: &mut HttpPeer) -> Result<bool, net_error> {
+        assert_eq!(self.state, BlockDownloaderState::GetAttachmentsInvFinish);
+
+        // requests that are still pending
+        let mut pending_attachment_requests = HashMap::new();
+
+        for (request_key, event_id) in self.getattachmentsinv_requests.drain() {
+            match http.get_conversation(event_id) {
+                None => {
+                    if http.is_connecting(event_id) {
+                        debug!(
+                            "Event {} ({:?}, {:?} for block {} is not connected yet",
+                            event_id,
+                            &request_key.neighbor,
+                            &request_key.data_url,
+                            &request_key.index_block_hash
+                        );
+                        pending_attachment_requests.insert(request_key, event_id);
+                    } else {
+                        debug!("Event {} ({:?}, {:?} for block {} failed to connect. Temporarily blocking URL", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
+                        self.dead_peers.push(event_id);
+
+                        // don't try this again for a while
+                        self.blocked_urls.insert(
+                            request_key.data_url,
+                            get_epoch_time_secs() + BLOCK_DOWNLOAD_BAN_URL,
+                        );
+                    }
+                }
+                Some(ref mut convo) => {
+                    match convo.try_get_response() {
+                        None => {
+                            // still waiting
+                            debug!("Event {} ({:?}, {:?} for block {}) is still waiting for a response", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
+                            pending_attachment_requests.insert(request_key, event_id);
+                        }
+                        Some(http_response) => match http_response {
+                            HttpResponseType::GetZonefilesInv(_md, response) => {
+                                println!("Got attachment_inv {:?}", response);
+                                self.attachment_invs.insert(request_key.neighbor, response);
+                            }
+                            // TODO: redirect?
+                            HttpResponseType::NotFound(_, _) => {
+                                // remote peer didn't have the block
+                                info!("Remote neighbor {:?} ({:?}) does not actually have block {} indexed at {} ({})", &request_key.neighbor, &request_key.data_url, request_key.sortition_height, &request_key.index_block_hash, &request_key.consensus_hash);
+
+                                // the fact that we asked this peer means that it's block inv indicated
+                                // it was present, so the absence is the mark of a broken peer
+                                self.broken_peers.push(event_id);
+                                self.broken_neighbors.push(request_key.neighbor.clone());
+                            }
+                            _ => {
+                                // wrong message response
+                                info!(
+                                    "Got bad HTTP response from {:?}: {:?}",
+                                    &request_key.data_url, &http_response
+                                );
+                                self.broken_peers.push(event_id);
+                                self.broken_neighbors.push(request_key.neighbor.clone());
+                            }
+                        },
+                    }
+                }
+            }
+        }
+
+        // are we done?
+        if pending_attachment_requests.len() == 0 {
+            self.state = BlockDownloaderState::GetAttachmentsBegin;
+            return Ok(true)
+        }
+
+        // still have more to go
+        for (request_key, event_id) in pending_attachment_requests.drain() {
+            self.getattachmentsinv_requests.insert(request_key, event_id);
+        }
+        return Ok(false);
+    }
+
+    pub fn getattachments_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+        assert_eq!(self.state, BlockDownloaderState::GetAttachmentsBegin);
+
+        self.getattachments_requests = requests;
+        self.state = BlockDownloaderState::GetAttachmentsFinish;
+    }
+
+    pub fn getattachments_try_finish(&mut self, http: &mut HttpPeer) -> Result<bool, net_error> {
+        assert_eq!(self.state, BlockDownloaderState::GetAttachmentsFinish);
+
+        // requests that are still pending
+        let mut pending_attachment_requests = HashMap::new();
+
+        for (request_key, event_id) in self.getattachments_requests.drain() {
+            match http.get_conversation(event_id) {
+                None => {
+                    if http.is_connecting(event_id) {
+                        debug!(
+                            "Event {} ({:?}, {:?} for block {} is not connected yet",
+                            event_id,
+                            &request_key.neighbor,
+                            &request_key.data_url,
+                            &request_key.index_block_hash
+                        );
+                        pending_attachment_requests.insert(request_key, event_id);
+                    } else {
+                        debug!("Event {} ({:?}, {:?} for block {} failed to connect. Temporarily blocking URL", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
+                        self.dead_peers.push(event_id);
+
+                        // don't try this again for a while
+                        self.blocked_urls.insert(
+                            request_key.data_url,
+                            get_epoch_time_secs() + BLOCK_DOWNLOAD_BAN_URL,
+                        );
+                    }
+                }
+                Some(ref mut convo) => {
+                    match convo.try_get_response() {
+                        None => {
+                            // still waiting
+                            debug!("Event {} ({:?}, {:?} for block {}) is still waiting for a response", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
+                            pending_attachment_requests.insert(request_key, event_id);
+                        }
+                        Some(http_response) => match http_response {
+                            HttpResponseType::GetZonefile(_md, response) => {
+                                println!("Got attachment {:?}", response);
+                                self.attachments.insert(request_key, response);
+                            }
+                            // TODO: redirect?
+                            HttpResponseType::NotFound(_, _) => {
+                                // remote peer didn't have the block
+                                info!("Remote neighbor {:?} ({:?}) does not actually have block {} indexed at {} ({})", &request_key.neighbor, &request_key.data_url, request_key.sortition_height, &request_key.index_block_hash, &request_key.consensus_hash);
+
+                                // the fact that we asked this peer means that it's block inv indicated
+                                // it was present, so the absence is the mark of a broken peer
+                                self.broken_peers.push(event_id);
+                                self.broken_neighbors.push(request_key.neighbor.clone());
+                            }
+                            _ => {
+                                // wrong message response
+                                info!(
+                                    "Got bad HTTP response from {:?}: {:?}",
+                                    &request_key.data_url, &http_response
+                                );
+                                self.broken_peers.push(event_id);
+                                self.broken_neighbors.push(request_key.neighbor.clone());
+                            }
+                        },
+                    }
+                }
+            }
+        }
+
+        // are we done?
+        if pending_attachment_requests.len() == 0 {
+            self.state = BlockDownloaderState::Done;
+            return Ok(true)
+        }
+
+        // still have more to go
+        for (request_key, event_id) in pending_attachment_requests.drain() {
+            self.getattachments_requests.insert(request_key, event_id);
+        }
+        return Ok(false);
     }
 
     /// Clear out broken peers that told us they had blocks, but didn't serve them.
@@ -1009,7 +1202,7 @@ impl PeerNetwork {
         );
 
         let mut availability =
-            PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
+            PeerNetwork::with_inv_states(self, |network, inv_state, _| {
                 BlockDownloader::get_block_availability(
                     inv_state,
                     sortdb,
@@ -1325,10 +1518,10 @@ impl PeerNetwork {
     }
 
     /// Prioritize block requests -- ask for the rarest blocks first
-    fn prioritize_requests(requests: &HashMap<u64, VecDeque<BlockRequestKey>>) -> Vec<u64> {
+    fn prioritize_requests<T: Copy>(requests: &HashMap<T, VecDeque<BlockRequestKey>>) -> Vec<T> {
         let mut ordered = vec![];
-        for (block_height, requests) in requests.iter() {
-            ordered.push((*block_height, requests.len()));
+        for (key, requests) in requests.iter() {
+            ordered.push((*key, requests.len()));
         }
         ordered.sort_by(|(_, ref l1), (_, ref l2)| l1.cmp(l2));
         ordered.iter().map(|(ref h, _)| *h).collect()
@@ -1761,7 +1954,7 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
+            let mut priority = PeerNetwork::prioritize_requests::<u64>(&downloader.blocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
@@ -1814,7 +2007,7 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
+            let mut priority = PeerNetwork::prioritize_requests::<u64>(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
@@ -1873,6 +2066,7 @@ impl PeerNetwork {
             Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
+            // todo(ludo)
         ),
         net_error,
     > {
@@ -2093,6 +2287,299 @@ impl PeerNetwork {
         })
     }
 
+
+    pub fn block_getattachmentsinv_begin(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState
+    ) -> Result<bool, net_error> {
+        println!(">>>> block_getattachmentsinv_begin");
+
+        let (consensus_hash, anchor_block_hash) = match chainstate.get_stacks_chain_tip(sortdb)? {
+            Some(tip) => (tip.consensus_hash, tip.anchored_block_hash.clone()),
+            None => {
+                // todo(ludo)
+                return Ok(false)
+            }
+        };
+
+        let tip = StacksBlockHeader::make_index_block_hash(
+            &consensus_hash,
+            &anchor_block_hash,
+        );
+
+        let expected_inventory = match BNSContractReader::get_attachments_inventory(sortdb, chainstate, &tip) {
+            Ok(attachments_inv) => attachments_inv,
+            Err(_) => {
+                // todo(ludo)
+                return Ok(false)
+            }
+        };
+
+        let local_inventory = expected_inventory.get_missing_attachments_inventory(&self.atlasdb);
+
+        PeerNetwork::with_downloader_state(self, |network, downloader| {
+
+            PeerNetwork::with_inv_states(network, |network, _, attachment_inv_state| {
+
+                attachment_inv_state.expected_inventory = Some(expected_inventory);
+                attachment_inv_state.local_inventory = Some(local_inventory);
+
+                let mut requests = HashMap::new();
+                let peers = network.sync_peers.clone();
+                let page_index = 0; // todo(ludo)
+                for nk in peers {
+                    let mut stats = match attachment_inv_state.attachments_stats.get_mut(&nk) {
+                        Some(stats) => stats,
+                        None => {
+                            // todo(ludo)
+                            continue;
+                        }
+                    };
+                    match stats.state {
+                        InvAttachmentWorkState::GetAttachmentsInvBegin => {},
+                        _ => continue // todo(ludo)
+                    };
+
+                    let data_url = match network.get_data_url(&nk) {
+                        Some(url) => url,
+                        None => {
+                            continue;
+                        }
+                    };
+                    if data_url.len() == 0 {
+                        // peer doesn't yet know its public IP address, and isn't given a data URL
+                        // directly
+                        continue;
+                    }
+    
+                    let prev_blocked = if let Some(deadline) = downloader.blocked_urls.get(&data_url) {
+                        if get_epoch_time_secs() < *deadline {
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+    
+                    if prev_blocked {
+                        continue;
+                    }
+        
+                    // todo(ludo): turn into trait
+                    let request_key = BlockRequestKey::new(
+                        nk,
+                        data_url,
+                        consensus_hash,
+                        anchor_block_hash,
+                        tip,
+                        None,
+                       0,
+                    );
+                    let mut request_keys = VecDeque::new();
+                    request_keys.push_front(request_key);
+
+
+                    match PeerNetwork::begin_request(
+                        network,
+                        &downloader.dns_lookups,
+                        "anchored block",
+                        &mut request_keys,
+                        chainstate,
+                        |peerhost, index_block_hash| {
+                            HttpRequestType::GetZonefilesInv(
+                                HttpRequestMetadata::from_host(peerhost),
+                                Some(index_block_hash),
+                                page_index
+                            )
+                        },
+                    ) {
+                        Some((key, handle)) => {
+                            requests.insert(key.clone(), handle);
+                            stats.state = InvAttachmentWorkState::GetAttachmentsInvFinish;
+                        }
+                        None => {}
+                    };
+                }
+                
+                downloader.getattachmentsinv_begin(requests);
+                Ok(true)
+            })
+        })
+    }
+    
+    pub fn block_getattachmentsinv_try_finish(
+        &mut self,
+        sortdb: &SortitionDB,
+    ) -> Result<bool, net_error> {
+        PeerNetwork::with_downloader_state(self, |network, downloader| {
+            println!(">>>> block_getattachmentsinv_try_finish");
+            downloader.getattachmentsinv_try_finish(&mut network.http);
+            Ok(true)
+        })
+    }
+
+    pub fn block_getattachments_begin(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState
+    ) -> Result<bool, net_error> {
+        PeerNetwork::with_downloader_state(self, |network, downloader| {
+            PeerNetwork::with_inv_states(network, |network, _, attachment_inv_state| {
+                let mut requests = HashMap::new();
+                let local_inventory = match attachment_inv_state.local_inventory {
+                    Some(ref inv) => inv,
+                    None => {
+                        // todo(ludo)
+                        return Ok(false)
+                    }
+                };
+
+                let expected_inventory = match attachment_inv_state.expected_inventory {
+                    Some(ref inv) => inv,
+                    None => {
+                        // todo(ludo)
+                        return Ok(false)
+                    }
+                };
+
+
+
+                // todo(ludo) be smarter than that, we already have the tip
+                let (consensus_hash, anchor_block_hash) = match chainstate.get_stacks_chain_tip(sortdb)? {
+                    Some(tip) => (tip.consensus_hash, tip.anchored_block_hash.clone()),
+                    None => {
+                        // todo(ludo)
+                        return Ok(false)
+                    }
+                };
+                let tip = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &anchor_block_hash,
+                );        
+
+                let peers = network.sync_peers.clone();
+                let mut attachments_sources = HashMap::new();
+                for (page_index, missing_indexes) in local_inventory.indexes.iter() {
+                    
+                    for attachment_index in missing_indexes {
+                        let mut candidates = VecDeque::new();
+                        for nk in peers.iter() {  // todo(ludo) we can probably use a more appropriate itertor
+                            let stats = match attachment_inv_state.attachments_stats.get_mut(&nk) {
+                                Some(stats) => stats,
+                                None => {
+                                    // todo(ludo)
+                                    continue;
+                                }
+                            };
+        
+                            let peer_response = match downloader.attachment_invs.get(&nk) {
+                                Some(response) => response,
+                                None => {
+                                    // todo(ludo)
+                                    continue;
+                                }
+                            };
+    
+                            if true { // todo(ludo) peer has missing attachment on missing page - bit masks shenanigans
+
+                                // todo(ludo) deduplicate code
+                                let data_url = match network.get_data_url(&nk) {
+                                    Some(url) => url,
+                                    None => {
+                                        continue;
+                                    }
+                                };
+                                if data_url.len() == 0 {
+                                    // peer doesn't yet know its public IP address, and isn't given a data URL
+                                    // directly
+                                    continue;
+                                }
+                
+                                let prev_blocked = if let Some(deadline) = downloader.blocked_urls.get(&data_url) {
+                                    if get_epoch_time_secs() < *deadline {
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                };
+                
+                                if prev_blocked {
+                                    continue;
+                                }
+            
+                                let request_key = BlockRequestKey::new(
+                                    nk.clone(),
+                                    data_url,
+                                    consensus_hash,
+                                    anchor_block_hash,
+                                    tip,
+                                    None,
+                                   0,
+                                );
+                                candidates.push_front(request_key);
+                            }
+                        }
+    
+                        attachments_sources.insert((*page_index, *attachment_index), candidates);
+                    }
+                } 
+
+                let ordered_indexes = PeerNetwork::prioritize_requests::<(u32, u32)>(&attachments_sources);
+                
+                for (page_index, entry_index) in ordered_indexes {
+                    let mut request_keys = attachments_sources.get_mut(&(page_index, entry_index)).unwrap(); // todo(ludo)
+                    
+                    let attachment_hash = match expected_inventory.get_expected_attachment_hash(page_index, entry_index) {
+                        Some(hash) => hash,
+                        None => {
+                            // todo(ludo)
+                            continue;
+                        }
+                    };
+
+                    match PeerNetwork::begin_request(
+                        network,
+                        &downloader.dns_lookups,
+                        "get attachment",
+                        &mut request_keys,
+                        chainstate,
+                        |peerhost, index_block_hash| {
+                            HttpRequestType::GetZonefile(
+                                HttpRequestMetadata::from_host(peerhost),
+                                attachment_hash.clone(),
+                                Some(index_block_hash),
+                            )
+                        },
+                    ) {
+                        Some((key, handle)) => {
+                            requests.insert(key.clone(), handle);
+                        }
+                        None => {
+                            // todo(ludo)
+                        }
+                    };
+                }
+
+                println!(">>>> block_getattachments_begin");
+
+                downloader.getattachments_begin(requests);
+                Ok(true)
+            })
+        })
+    }
+
+    pub fn block_getattachments_try_finish(&mut self) -> Result<bool, net_error> {
+        PeerNetwork::with_downloader_state(self, |network, downloader| {
+            println!(">>>> block_getattachments_try_finish");
+            downloader.getattachments_try_finish(&mut network.http);
+            Ok(true)
+        })
+    }
+
     /// Initialize the downloader
     pub fn init_block_downloader(&mut self) -> () {
         self.block_downloader = Some(BlockDownloader::new(
@@ -2197,6 +2684,18 @@ impl PeerNetwork {
                 }
                 BlockDownloaderState::GetMicroblocksFinish => {
                     self.block_getmicroblocks_try_finish()?;
+                }
+                BlockDownloaderState::GetAttachmentsInvBegin => {
+                    self.block_getattachmentsinv_begin(sortdb, chainstate)?;
+                }
+                BlockDownloaderState::GetAttachmentsInvFinish => {
+                    self.block_getattachmentsinv_try_finish(sortdb)?;
+                }
+                BlockDownloaderState::GetAttachmentsBegin => {
+                    self.block_getattachments_begin(sortdb, chainstate)?;
+                }
+                BlockDownloaderState::GetAttachmentsFinish => {
+                    self.block_getattachments_try_finish()?;
                 }
                 BlockDownloaderState::Done => {
                     // did a pass.

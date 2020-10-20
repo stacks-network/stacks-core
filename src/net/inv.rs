@@ -34,6 +34,8 @@ use net::connection::ReplyHandleP2P;
 use net::GetBlocksInv;
 use net::StacksMessage;
 use net::StacksP2P;
+use net::download::BlockDownloader;
+use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats, InvAttachmentWorkState};
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
@@ -897,9 +899,6 @@ impl NeighborBlockStats {
 
 #[derive(Debug)]
 pub struct InvState {
-    /// Peers that we are currently synchronizing with.
-    pub sync_peers: HashSet<NeighborKey>,
-
     /// Accumulated knowledge of which peers have which blocks.
     /// Kept separately from p2p conversations so they persist
     /// beyond connection resets (since they can be expensive
@@ -909,7 +908,7 @@ pub struct InvState {
     /// How long is a request allowed to take?
     request_timeout: u64,
     /// First burn block height
-    first_block_height: u64,
+    pub first_block_height: u64,
 
     /// Last time we learned about new blocks
     pub last_change_at: u64,
@@ -928,10 +927,8 @@ impl InvState {
         first_block_height: u64,
         request_timeout: u64,
         sync_interval: u64,
-        initial_peers: HashSet<NeighborKey>,
     ) -> InvState {
         InvState {
-            sync_peers: initial_peers,
 
             block_stats: HashMap::new(),
 
@@ -944,41 +941,6 @@ impl InvState {
             hint_learned_data: false,
             hint_do_full_rescan: true,
             last_rescanned_at: 0,
-        }
-    }
-
-    pub fn reset_sync_peers(&mut self, peers: HashSet<NeighborKey>) -> () {
-        self.sync_peers.clear();
-        self.sync_peers = peers;
-
-        // clear out block_stats for peers we aren't talking to anymore
-        let mut to_remove = HashSet::new();
-        for (nk, _) in self.block_stats.iter() {
-            if !self.sync_peers.contains(&nk) {
-                to_remove.insert(nk.clone());
-            }
-        }
-        for nk in to_remove.into_iter() {
-            self.block_stats.remove(&nk);
-        }
-
-        for (_, stats) in self.block_stats.iter_mut() {
-            if stats.status != NodeStatus::Online {
-                stats.status = NodeStatus::Online;
-            }
-            stats.done = false;
-            stats.learned_data = false;
-        }
-
-        for peer in self.sync_peers.iter() {
-            if let Some(stats) = self.block_stats.get_mut(peer) {
-                stats.reset_pox_scan(0);
-            } else {
-                self.block_stats.insert(
-                    peer.clone(),
-                    NeighborBlockStats::new(peer.clone(), self.first_block_height),
-                );
-            }
         }
     }
 
@@ -1013,25 +975,6 @@ impl InvState {
         match self.block_stats.get(nk) {
             Some(stats) => stats.inv.num_blocks(),
             _ => 0,
-        }
-    }
-
-    /// Cull broken peers and purge their stats
-    pub fn cull_bad_peers(&mut self) {
-        let mut bad_peers = HashSet::new();
-        for (nk, stats) in self.block_stats.iter() {
-            if stats.status == NodeStatus::Broken || stats.status == NodeStatus::Dead {
-                debug!(
-                    "Peer {:?} has node status {:?}; culling...",
-                    nk, &stats.status
-                );
-                self.sync_peers.remove(nk);
-                bad_peers.insert(nk.clone());
-            }
-        }
-
-        for bad_peer in bad_peers.into_iter() {
-            self.block_stats.remove(&bad_peer);
         }
     }
 
@@ -1608,6 +1551,24 @@ impl PeerNetwork {
         }
     }
 
+    // /// Make the next GetBlocksInv for a peer
+    // fn make_next_getattachmentsinv(
+    //     &self,
+    //     sortdb: &SortitionDB,
+    //     nk: &NeighborKey,
+    //     stats: &NeighborBlockStats,
+    // ) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
+    //     if stats.block_reward_cycle < stats.inv.num_reward_cycles {
+    //         self.make_getblocksinv(sortdb, nk, stats, stats.block_reward_cycle)
+    //             .and_then(|getblocksinv_opt| {
+    //                 Ok(getblocksinv_opt
+    //                     .map(|getblocksinv| (stats.block_reward_cycle, getblocksinv)))
+    //             })
+    //     } else {
+    //         Ok(None)
+    //     }
+    // }
+
     /// Start requesting the next batch of PoX inventories
     fn inv_getpoxinv_begin(
         &mut self,
@@ -1960,7 +1921,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
     ) -> Result<(bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
-        PeerNetwork::with_inv_state(self, |network, inv_state| {
+        PeerNetwork::with_inv_states(self, |network, inv_state, attachment_inv_state| {
             let mut all_done = true;
 
             if !inv_state.hint_do_full_rescan
@@ -2020,7 +1981,7 @@ impl PeerNetwork {
 
             if all_done {
                 let new_sync_peers = network.get_outbound_sync_peers();
-                let broken_peers = inv_state.get_broken_peers();
+                let broken_peers = inv_state.get_broken_peers(); // todo(ludo) there could be something funky here
                 let dead_peers = inv_state.get_dead_peers();
 
                 if !inv_state.hint_learned_data && inv_state.block_stats.len() > 0 {
@@ -2044,8 +2005,8 @@ impl PeerNetwork {
                     );
                 }
 
-                inv_state.cull_bad_peers();
-                inv_state.reset_sync_peers(new_sync_peers);
+                network.cull_bad_peers(inv_state, attachment_inv_state); // todo(ludo): fix pattern instead?
+                network.reset_sync_peers(new_sync_peers, inv_state, attachment_inv_state);
 
                 Ok((true, broken_peers, dead_peers))
             } else {
@@ -2054,19 +2015,28 @@ impl PeerNetwork {
         })
     }
 
-    pub fn with_inv_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
+    pub fn with_inv_states<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut InvState) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork, &mut InvState, &mut AttachmentInvState) -> Result<R, net_error>,
     {
         let mut inv_state = network.inv_state.take();
+        let mut attachment_inv_state = network.attachments_inv_state.take();
+
         let res = match inv_state {
+            Some(ref mut invs) => match attachment_inv_state {
+                Some(ref mut attachment_invs) => handler(network, invs, attachment_invs),
+                None => {
+                    debug!("{:?}: attachment inv state not connected", &network.local_peer);
+                    Err(net_error::NotConnected)
+                }
+            }
             None => {
                 test_debug!("{:?}: inv state not connected", &network.local_peer);
                 Err(net_error::NotConnected)
             }
-            Some(ref mut invs) => handler(network, invs),
         };
         network.inv_state = inv_state;
+        network.attachments_inv_state = attachment_inv_state;
         res
     }
 
@@ -2109,11 +2079,17 @@ impl PeerNetwork {
             &self.local_peer,
             cur_neighbors.len()
         );
+        self.sync_peers = cur_neighbors.clone();
+
         self.inv_state = Some(InvState::new(
             sortdb.first_block_height,
             self.connection_opts.timeout,
             self.connection_opts.inv_sync_interval,
-            cur_neighbors,
+        ));
+
+        self.attachments_inv_state = Some(AttachmentInvState::new(
+            self.connection_opts.timeout,
+            self.connection_opts.inv_sync_interval,
         ));
     }
 }

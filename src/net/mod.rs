@@ -1113,6 +1113,7 @@ pub struct GetZonefileResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetZonefilesInvResponse {
+    pages_indexes: Vec<u32>,
     inventory: Vec<u8>
 }
 

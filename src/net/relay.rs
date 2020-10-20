@@ -1267,7 +1267,7 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
     ) -> Result<(Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         let outbound_recipients_set =
-            PeerNetwork::with_inv_state(self, |ref mut _network, ref mut inv_state| {
+            PeerNetwork::with_inv_states(self, |_network, inv_state, _| {
                 let mut recipients = HashSet::new();
                 for (neighbor, stats) in inv_state.block_stats.iter() {
                     for (_, (block_height, _)) in available.iter() {
@@ -1369,7 +1369,7 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
         microblocks: bool,
     ) -> Result<(), net_error> {
-        let wanted = PeerNetwork::with_inv_state(self, |ref mut _network, ref mut inv_state| {
+        let wanted = PeerNetwork::with_inv_states(self, |_network, inv_state, _| {
             let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
@@ -1496,6 +1496,39 @@ impl PeerNetwork {
         }
         Ok(())
     }
+
+    /// Announce zonefiles that we have to a subset of inbound and outbound peers.
+    /// * Outbound peers receive announcements for zonefiles that we know they don't have, based on
+    /// the inv state we synchronized from them.
+    /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
+    /// don't track their inventory state.
+    pub fn advertize_zonefiles(&mut self) -> Result<(), net_error> {
+        // todo(ludo): implement
+        // let (mut outbound_recipients, mut inbound_recipients) =
+        //     self.find_block_recipients(&availability_data)?;
+        // for recipient in outbound_recipients.drain(..) {
+        //     debug!(
+        //         "{:?}: Advertize {} confirmed microblock streams to outbound peer {}",
+        //         &self.local_peer,
+        //         availability_data.len(),
+        //         &recipient
+        //     );
+        //     self.advertize_to_outbound_peer(&recipient, &availability_data, true)?;
+        // }
+        // for recipient in inbound_recipients.drain(..) {
+        //     debug!(
+        //         "{:?}: Advertize {} confirmed microblock streams to inbound peer {}",
+        //         &self.local_peer,
+        //         availability_data.len(),
+        //         &recipient
+        //     );
+        //     self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| {
+        //         StacksMessageType::MicroblocksAvailable(payload)
+        //     })?;
+        // }
+        Ok(())
+    }
+
 
     /// Update accounting information for relayed messages from a network result.
     /// This influences selecting next-hop neighbors to get data from us.

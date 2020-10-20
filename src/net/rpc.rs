@@ -562,6 +562,7 @@ impl ConversationHttp {
                 let compact_inventory = zonefiles_hashes_inv.compute_compact_inventory(atlasdb);
 
                 let content = GetZonefilesInvResponse {
+                    pages_indexes: vec![page_index], // todo(ludo)
                     inventory: compact_inventory
                 };
 
@@ -1556,6 +1557,7 @@ impl ConversationHttp {
                     sortdb,
                     chainstate,
                 )? {
+                    println!("GET /v2/zonefiles/inv!");
                     ConversationHttp::handle_getzonefilesinv(
                         &mut self.connection.protocol,
                         &mut reply,

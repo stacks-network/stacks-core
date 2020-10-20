@@ -1,6 +1,7 @@
 pub mod db;
 pub mod bns;
 pub mod zonefile;
+pub mod inv;
 
 pub use self::bns::BNSContractReader;
 pub use self::db::AtlasDB;
@@ -43,6 +44,7 @@ impl Attachment {
         true
     }
 }
+
 
 
 #[cfg(test)]
