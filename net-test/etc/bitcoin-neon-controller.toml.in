@@ -1,0 +1,30 @@
+[neon]
+rpc_bind = "0.0.0.0:28443"
+block_time = 30000
+miner_address = "mmNe3BjtYa8ZWtpQxfpsE8aWKgHh77LYTT"
+faucet_address = "n3k15aVS4rEWhVYn4YfAFjD8Em5mmsducg"
+bitcoind_rpc_host = "127.0.0.1:18443"
+bitcoind_rpc_user = "blockstack"
+bitcoind_rpc_pass = "blockstacksystem"
+genesis_timestamp = @@BITCOIN_NEON_CONTROLLER_GENESIS_TIMESTAMP@@
+whitelisted_rpc_calls = [
+    "listunspent",
+    "importaddress",
+    "sendrawtransaction",
+    "getrawtransaction",
+    "scantxoutset",
+    "getrawmempool",
+]
+
+# Faucet:
+# Private Key          b20fea233f7718d956d2c5ed71889836ec872fec7d1de2068f19f40faf297f3001
+# Public Key           02327e09dc18fee1d51fe2b19b487e01eba4e6adcb325bf102213fce7bbdcde6bd
+# Address              n3k15aVS4rEWhVYn4YfAFjD8Em5mmsducg
+# Format               p2pkh
+# Network              testnet
+# Compressed           true
+
+# NOTE: the miner_address is the address of the Stacks master node's mining private key ("seed")
+
+# NOTE: the following lines are meant to be grep'ed by the node runner:
+# WIF cTYqAVPS7uJTAcxyzkXWjmRGoCjkPcb38wZVRjyXov1RiRDWPQj3

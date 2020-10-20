@@ -52,6 +52,7 @@ impl PoxSyncWatchdog {
         chainstate_path: String,
         burnchain_poll_time: u64,
         download_timeout: u64,
+        max_samples: u64,
     ) -> Result<PoxSyncWatchdog, String> {
         let (chainstate, _) = match StacksChainState::open(mainnet, chain_id, &chainstate_path) {
             Ok(cs) => cs,
@@ -68,7 +69,7 @@ impl PoxSyncWatchdog {
             new_processed_blocks: VecDeque::new(),
             last_attachable_query: 0,
             last_processed_query: 0,
-            max_samples: download_timeout, // sample once per second for however long we expect a timeout to be
+            max_samples: max_samples,
             max_staging: 10,
             watch_start_ts: 0,
             last_block_processed_ts: 0,
@@ -433,6 +434,12 @@ impl PoxSyncWatchdog {
                             }
                             sleep_ms(PER_SAMPLE_WAIT_MS);
                             continue;
+                        } else {
+                            // steady state
+                            if !steady_state {
+                                debug!("PoX watchdog: In steady-state, but ready burnchain synchronization as of {}", self.steady_state_resync_ts);
+                                steady_state = true;
+                            }
                         }
                     }
                 }

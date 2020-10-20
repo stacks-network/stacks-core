@@ -53,7 +53,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@neon.blockstack.org:20444".to_string()),
+            bootstrap_node: Some("038dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aa@neon.blockstack.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -489,7 +489,7 @@ impl Config {
                 let ip_addr = match opts.public_ip_address {
                     Some(public_ip_address) => {
                         let addr = public_ip_address.parse::<SocketAddr>().unwrap();
-                        println!("addr.parse {:?}", addr);
+                        debug!("addr.parse {:?}", addr);
                         Some((PeerAddress::from_socketaddr(&addr), addr.port()))
                     }
                     None => None,
@@ -748,7 +748,7 @@ impl BurnchainConfig {
             local_mining_public_key: None,
             burnchain_op_tx_fee: MINIMUM_DUST_FEE,
             process_exit_at_block_height: None,
-            poll_time_secs: 30, // TODO: this is a testnet specific value.
+            poll_time_secs: 10, // TODO: this is a testnet specific value.
         }
     }
 
@@ -849,7 +849,7 @@ impl NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             mine_microblocks: false,
-            wait_time_for_microblocks: 15000,
+            wait_time_for_microblocks: 5000,
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
         }
@@ -868,6 +868,9 @@ impl NodeConfig {
             let comps: Vec<&str> = bootstrap_node.split("@").collect();
             match comps[..] {
                 [public_key, peer_addr] => {
+                    let mut pubk = Secp256k1PublicKey::from_hex(public_key).unwrap();
+                    pubk.set_compressed(true);
+
                     let mut addrs_iter = peer_addr.to_socket_addrs().unwrap();
                     let sock_addr = addrs_iter.next().unwrap();
                     let neighbor = Neighbor {
@@ -877,7 +880,7 @@ impl NodeConfig {
                             addrbytes: PeerAddress::from_socketaddr(&sock_addr),
                             port: sock_addr.port(),
                         },
-                        public_key: Secp256k1PublicKey::from_hex(public_key).unwrap(),
+                        public_key: pubk,
                         expire_block: 99999,
                         last_contact_time: 0,
                         allowed: 0,

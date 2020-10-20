@@ -211,6 +211,8 @@ pub enum Error {
     CoordinatorClosed,
     /// view of state is stale (e.g. from the sortition db)
     StaleView,
+    /// Tried to connect to myself
+    ConnectionCycle,
 }
 
 /// Enum for passing data for ClientErrors
@@ -291,6 +293,7 @@ impl fmt::Display for Error {
             Error::ClientError(ref e) => write!(f, "ClientError: {}", e),
             Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
             Error::StaleView => write!(f, "State view is stale"),
+            Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
         }
     }
 }
@@ -347,6 +350,7 @@ impl error::Error for Error {
             Error::MARFError(ref e) => Some(e),
             Error::CoordinatorClosed => None,
             Error::StaleView => None,
+            Error::ConnectionCycle => None,
         }
     }
 }

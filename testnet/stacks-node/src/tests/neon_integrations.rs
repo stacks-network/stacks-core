@@ -2,7 +2,7 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
 };
-use stacks::burnchains::{Address, PoxConstants, PublicKey};
+use stacks::burnchains::{Address, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
@@ -180,7 +180,7 @@ fn find_microblock_privkey(
     let mut keychain = Keychain::default(conf.node.seed.clone());
     for _ in 0..max_tries {
         let privk = keychain.rotate_microblock_keypair();
-        let pubkh = Hash160::from_data(&StacksPublicKey::from_private(&privk).to_bytes());
+        let pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&privk));
         if pubkh == *pubkey_hash {
             return Some(privk);
         }
@@ -716,14 +716,14 @@ fn pox_integration_test() {
     )
     .unwrap();
     let pox_pubkey_hash = bytes_to_hex(
-        &Hash160::from_data(&pox_pubkey.to_bytes())
+        &Hash160::from_node_public_key(&pox_pubkey)
             .to_bytes()
             .to_vec(),
     );
 
     let pox_2_pubkey = Secp256k1PublicKey::from_private(&StacksPrivateKey::new());
     let pox_2_pubkey_hash = bytes_to_hex(
-        &Hash160::from_data(&pox_2_pubkey.to_bytes())
+        &Hash160::from_node_public_key(&pox_2_pubkey)
             .to_bytes()
             .to_vec(),
     );

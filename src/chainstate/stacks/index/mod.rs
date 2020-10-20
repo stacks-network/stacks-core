@@ -46,6 +46,7 @@ pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
 impl_array_hexstring_fmt!(TrieHash);
 impl_byte_array_newtype!(TrieHash, u8, 32);
+impl_byte_array_serde!(TrieHash);
 pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
 /// Structure that holds the actual data in a MARF leaf node.
