@@ -2799,7 +2799,6 @@ impl SortitionDB {
     }
 
     /// Get a block snapshot for a winning block hash in a given burn chain fork.
-    #[cfg(test)]
     pub fn get_block_snapshot_for_winning_stacks_block(
         ic: &SortitionDBConn,
         tip: &SortitionId,

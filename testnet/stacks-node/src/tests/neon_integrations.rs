@@ -491,6 +491,28 @@ fn microblock_integration_test() {
             assert_eq!(&parent_index_hash, previous_index_hash);
         }
 
+        // make sure we have a burn_block_hash, burn_block_height and miner_txid
+
+        eprintln!("{}", block);
+
+        let _burn_block_hash = block
+            .get("burn_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap();
+
+        let _burn_block_height = block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap();
+
+        let _miner_txid = block
+            .get("miner_txid")
+            .unwrap()
+            .as_str()
+            .unwrap();
+
         prior = Some(my_index_hash);
     }
 
