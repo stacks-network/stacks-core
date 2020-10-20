@@ -56,7 +56,7 @@ use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     UserBurnSupportOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
@@ -554,6 +554,7 @@ impl Burnchain {
     pub fn classify_transaction(
         block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
+        sunset_end_ht: u64
     ) -> Option<BlockstackOperationType> {
         match burn_tx.opcode() {
             x if x == Opcodes::LeaderKeyRegister as u8 => {
@@ -571,7 +572,7 @@ impl Burnchain {
                 }
             }
             x if x == Opcodes::LeaderBlockCommit as u8 => {
-                match LeaderBlockCommitOp::from_tx(block_header, burn_tx) {
+                match LeaderBlockCommitOp::from_tx(block_header, burn_tx, sunset_end_ht) {
                     Ok(op) => Some(BlockstackOperationType::LeaderBlockCommit(op)),
                     Err(e) => {
                         warn!(
@@ -714,6 +715,7 @@ impl Burnchain {
     pub fn process_block(
         burnchain_db: &mut BurnchainDB,
         block: &BurnchainBlock,
+        sunset_end_ht: u64
     ) -> Result<BurnchainBlockHeader, burnchain_error> {
         debug!(
             "Process block {} {}",
@@ -721,7 +723,7 @@ impl Burnchain {
             &block.block_hash()
         );
 
-        let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
+        let _blockstack_txs = burnchain_db.store_new_burnchain_block(&block, sunset_end_ht)?;
 
         let header = block.header();
 
@@ -743,7 +745,7 @@ impl Burnchain {
         );
 
         let header = block.header();
-        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block)?;
+        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block, 0)?;
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
@@ -1167,6 +1169,7 @@ impl Burnchain {
                 Ok(())
             });
 
+        let sunset_end = self.pox_constants.sunset_end;
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::spawn(move || {
                 let mut last_processed = burn_chain_tip;
@@ -1178,7 +1181,7 @@ impl Burnchain {
                     }
 
                     let insert_start = get_epoch_time_ms();
-                    last_processed = Burnchain::process_block(&mut burnchain_db, &burnchain_block)?;
+                    last_processed = Burnchain::process_block(&mut burnchain_db, &burnchain_block, sunset_end)?;
                     if !coord_comm.announce_new_burn_block() {
                         return Err(burnchain_error::CoordinatorClosed);
                     }
@@ -1271,7 +1274,7 @@ pub mod tests {
     use util::log;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
         UserBurnSupportOp,
     };
 

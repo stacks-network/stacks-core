@@ -25,7 +25,7 @@ use chainstate::burn::Opcodes;
 use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
-    parse_u16_from_be, parse_u32_from_be, BlockstackOperation, BlockstackOperationType,
+    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType,
     LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
@@ -213,16 +213,14 @@ impl StacksMessageCodec for UserBurnSupportOp {
     }
 }
 
-impl BlockstackOperation for UserBurnSupportOp {
-    fn from_tx(
+impl UserBurnSupportOp {
+    pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
     ) -> Result<UserBurnSupportOp, op_error> {
         UserBurnSupportOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
-}
 
-impl UserBurnSupportOp {
     pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
 
@@ -298,7 +296,7 @@ mod tests {
     use burnchains::bitcoin::keys::BitcoinPublicKey;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
         UserBurnSupportOp,
     };
 

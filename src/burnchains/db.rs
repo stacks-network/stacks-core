@@ -276,6 +276,7 @@ impl BurnchainDB {
     fn get_blockstack_transactions(
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
+        sunset_end_ht: u64,
     ) -> Vec<BlockstackOperationType> {
         debug!(
             "Extract Blockstack transactions from block {} {}",
@@ -285,16 +286,17 @@ impl BurnchainDB {
         block
             .txs()
             .iter()
-            .filter_map(|tx| Burnchain::classify_transaction(block_header, &tx))
+            .filter_map(|tx| Burnchain::classify_transaction(block_header, &tx, sunset_end_ht))
             .collect()
     }
 
     pub fn store_new_burnchain_block(
         &mut self,
         block: &BurnchainBlock,
+        sunset_end_ht: u64,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
-        let mut blockstack_ops = BurnchainDB::get_blockstack_transactions(block, &header);
+        let mut blockstack_ops = BurnchainDB::get_blockstack_transactions(block, &header, sunset_end_ht);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         let db_tx = self.tx_begin()?;
@@ -372,7 +374,7 @@ mod tests {
             485,
         ));
         let ops = burnchain_db
-            .store_new_burnchain_block(&canonical_block)
+            .store_new_burnchain_block(&canonical_block, 1000)
             .unwrap();
         assert_eq!(ops.len(), 0);
 
@@ -410,7 +412,7 @@ mod tests {
         ));
 
         let ops = burnchain_db
-            .store_new_burnchain_block(&non_canonical_block)
+            .store_new_burnchain_block(&non_canonical_block, 1000)
             .unwrap();
         assert_eq!(ops.len(), expected_ops.len());
         for op in ops.iter() {

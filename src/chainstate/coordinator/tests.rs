@@ -818,7 +818,7 @@ fn test_sortition_with_reward_set() {
             reward_recipients.clear();
         }
         let next_block_recipients = get_rw_sortdb(path)
-            .test_get_next_block_recipients(reward_cycle_info.as_ref())
+            .test_get_next_block_recipients(reward_cycle_info.as_ref(), 5000)
             .unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
             for (addr, _) in next_block_recipients.recipients.iter() {
@@ -1063,7 +1063,7 @@ fn test_sortition_with_burner_reward_set() {
             reward_recipients.clear();
         }
         let next_block_recipients = get_rw_sortdb(path)
-            .test_get_next_block_recipients(reward_cycle_info.as_ref())
+            .test_get_next_block_recipients(reward_cycle_info.as_ref(), 5000)
             .unwrap();
         if let Some(ref next_block_recipients) = next_block_recipients {
             for (addr, _) in next_block_recipients.recipients.iter() {

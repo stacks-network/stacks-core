@@ -1067,7 +1067,7 @@ pub mod test {
     use address::*;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
         UserBurnSupportOp,
     };
     use chainstate::burn::*;

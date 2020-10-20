@@ -27,7 +27,7 @@ use core::*;
 use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     UserBurnSupportOp,
 };
 use chainstate::burn::{BlockHeaderHash, BlockSnapshot};

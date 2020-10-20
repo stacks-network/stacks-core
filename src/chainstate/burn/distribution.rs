@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use chainstate::burn::operations::{
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     UserBurnSupportOp,
 };
 
@@ -311,7 +311,7 @@ mod tests {
     use burnchains::PublicKey;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
         UserBurnSupportOp,
     };
 

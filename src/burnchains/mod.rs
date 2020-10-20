@@ -24,7 +24,7 @@ use std::default::Default;
 use std::error;
 use std::fmt;
 use std::io;
-
+use std::convert::TryFrom;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -284,6 +284,10 @@ pub struct PoxConstants {
     /// percentage of liquid STX that must participate for PoX
     ///  to occur
     pub pox_participation_threshold_pct: u64,
+    /// last+1 block height of sunset phase
+    pub sunset_end: u64,
+    /// first block height of sunset phase
+    pub sunset_start: u64,
     _shadow: PhantomData<()>,
 }
 
@@ -303,6 +307,7 @@ impl PoxConstants {
             anchor_threshold,
             pox_rejection_fraction,
             pox_participation_threshold_pct,
+            sunset_end: 5000,
             _shadow: PhantomData,
         }
     }
@@ -313,6 +318,20 @@ impl PoxConstants {
 
     pub fn reward_slots(&self) -> u32 {
         self.reward_cycle_length * (OUTPUTS_PER_COMMIT as u32)
+    }
+
+    /// the expected sunset burn is:
+    ///   burn_fee * ((burn_height - sunset_start) / sunset_end)
+    pub fn expected_sunset_burn(&self, burn_height: u64, burn_fee: u64) -> u64 {
+        if burn_height < self.sunset_start || burn_height >= self.sunset_end {
+            return 0
+        }
+
+        // use u128 to any possibilities of overflowing in the calculation here.
+        let expected_u128 = (burn_fee as u128) * ((burn_height - self.sunset_start) as u128) / self.sunset_end as u128;
+        u64::try_from(expected_u128)
+            // should never be possible, because sunset_burn is <= burn_fee, which is a u64
+            .expect("Overflowed u64 in calculating expected sunset_burn");
     }
 
     /// is participating_ustx enough to engage in PoX in the next reward cycle?

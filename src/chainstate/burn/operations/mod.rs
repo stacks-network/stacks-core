@@ -193,15 +193,6 @@ pub struct UserBurnSupportOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of burnchain block with this tx
 }
 
-pub trait BlockstackOperation {
-    fn from_tx(
-        block_header: &BurnchainBlockHeader,
-        tx: &BurnchainTransaction,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),

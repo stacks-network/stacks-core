@@ -49,7 +49,7 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     UserBurnSupportOp,
 };
 
@@ -2353,7 +2353,11 @@ impl SortitionDB {
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
         let reward_set_info =
-            sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?;
+            if burn_header.block_height >= burnchain.pox_constants.sunset_end {
+                None
+            } else {
+                sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?
+            };
 
         let new_snapshot = sortition_db_handle.process_block_txs(
             &parent_snapshot,
@@ -2376,15 +2380,17 @@ impl SortitionDB {
     pub fn test_get_next_block_recipients(
         &mut self,
         next_pox_info: Option<&RewardCycleInfo>,
+        sunset_ht: u64
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
-        self.get_next_block_recipients(&parent_snapshot, next_pox_info)
+        self.get_next_block_recipients(&parent_snapshot, next_pox_info, sunset_ht)
     }
 
     pub fn get_next_block_recipients(
         &mut self,
         parent_snapshot: &BlockSnapshot,
         next_pox_info: Option<&RewardCycleInfo>,
+        sunset_end_ht: u64
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let reward_set_vrf_hash = parent_snapshot
             .sortition_hash
@@ -2392,7 +2398,11 @@ impl SortitionDB {
 
         let mut sortition_db_handle =
             SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
-        sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info)
+        if parent_snapshot.block_height + 1 >= sunset_end_ht {
+            Ok(None)
+        } else {
+            sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info)
+        }
     }
 
     pub fn is_stacks_block_in_sortition_set(
@@ -3463,7 +3473,7 @@ mod tests {
     use util::get_epoch_time_secs;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
         UserBurnSupportOp,
     };
 
