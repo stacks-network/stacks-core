@@ -61,7 +61,7 @@ start_bitcoind() {
    logln "ok"
    
    log "Starting bitcoind..."
-   bitcoind -conf="$BITCOIN_CONF" >"$BITCOIN_LOGFILE" 2>&1 &
+   bitcoind -fallbackfee=0.0002 -conf="$BITCOIN_CONF" >"$BITCOIN_LOGFILE" 2>&1 &
    local BITCOIN_PID=$!
    logln "PID $BITCOIN_PID"
 
