@@ -2,7 +2,6 @@
 rpc_bind = "0.0.0.0:21443"
 p2p_bind = "0.0.0.0:21444"
 bootstrap_node = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77@@@STACKS_MASTER_IP@@:20444"
-# bootstrap_node = "03ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd2@@@STACKS_MASTER_IP@@:20444"
 seed = "@@STACKS_MINER_SEED@@"
 miner = true
 working_dir = "@@STACKS_CHAINSTATE_DIR@@"
