@@ -495,23 +495,11 @@ fn microblock_integration_test() {
 
         eprintln!("{}", block);
 
-        let _burn_block_hash = block
-            .get("burn_block_hash")
-            .unwrap()
-            .as_str()
-            .unwrap();
+        let _burn_block_hash = block.get("burn_block_hash").unwrap().as_str().unwrap();
 
-        let _burn_block_height = block
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap();
+        let _burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
 
-        let _miner_txid = block
-            .get("miner_txid")
-            .unwrap()
-            .as_str()
-            .unwrap();
+        let _miner_txid = block.get("miner_txid").unwrap().as_str().unwrap();
 
         prior = Some(my_index_hash);
     }

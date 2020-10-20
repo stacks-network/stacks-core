@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use burnchains::{
     db::{BurnchainBlockData, BurnchainDB},
-    Txid, Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError,
+    Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError, Txid,
 };
 use chainstate::burn::{
     db::sortdb::{PoxId, SortitionDB, SortitionId},
@@ -107,7 +107,7 @@ pub trait BlockEventDispatcher {
         metadata: StacksHeaderInfo,
         receipts: Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
-        winner_txid: Txid
+        winner_txid: Txid,
     );
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
@@ -581,8 +581,8 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         "FAIL: could not find data for the canonical sortition {}",
                         canonical_sortition_tip
                     ));
-                    let new_canonical_stacks_block = new_canonical_block_snapshot
-                        .get_canonical_stacks_block_id();
+                    let new_canonical_stacks_block =
+                        new_canonical_block_snapshot.get_canonical_stacks_block_id();
                     self.canonical_chain_tip = Some(new_canonical_stacks_block);
                     debug!("Bump blocks processed");
                     self.notifier.notify_stacks_block_processed();
@@ -590,12 +590,15 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     let block_hash = block_receipt.header.anchored_header.block_hash();
 
                     if let Some(dispatcher) = self.dispatcher {
-                        let metadata = &block_receipt.header;                        
+                        let metadata = &block_receipt.header;
                         let winner_txid = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                            &self.sortition_db.index_conn(), canonical_sortition_tip, &block_hash)
-                            .expect("FAIL: could not find block snapshot for winning block hash")
-                            .expect("FAIL: could not find block snapshot for winning block hash")
-                            .winning_block_txid;
+                            &self.sortition_db.index_conn(),
+                            canonical_sortition_tip,
+                            &block_hash,
+                        )
+                        .expect("FAIL: could not find block snapshot for winning block hash")
+                        .expect("FAIL: could not find block snapshot for winning block hash")
+                        .winning_block_txid;
 
                         let block: StacksBlock = {
                             let block_path = StacksChainState::get_block_path(
@@ -617,7 +620,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             block_receipt.header,
                             block_receipt.tx_receipts,
                             &parent,
-                            winner_txid
+                            winner_txid,
                         );
                     }
 

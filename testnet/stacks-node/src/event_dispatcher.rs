@@ -265,7 +265,12 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_chain_tip(&self, chain_tip: &ChainTip, parent_index_hash: &StacksBlockId, winner_txid: Txid) {
+    pub fn process_chain_tip(
+        &self,
+        chain_tip: &ChainTip,
+        parent_index_hash: &StacksBlockId,
+        winner_txid: Txid,
+    ) {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
             .iter()
@@ -351,7 +356,7 @@ impl EventDispatcher {
                 chain_tip,
                 parent_index_hash,
                 boot_receipts,
-                &winner_txid
+                &winner_txid,
             );
         }
     }
