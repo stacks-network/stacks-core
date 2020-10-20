@@ -434,6 +434,12 @@ impl PoxSyncWatchdog {
                             }
                             sleep_ms(PER_SAMPLE_WAIT_MS);
                             continue;
+                        } else {
+                            // steady state
+                            if !steady_state {
+                                debug!("PoX watchdog: In steady-state, but ready burnchain synchronization as of {}", self.steady_state_resync_ts);
+                                steady_state = true;
+                            }
                         }
                     }
                 }

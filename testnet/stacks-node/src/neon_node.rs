@@ -560,7 +560,10 @@ fn spawn_miner_relayer(
                     last_mined_blocks.clear();
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
-                    debug!("Relayer: Run tenure");
+                    debug!(
+                        "Relayer: Run tenure at height {} ({})",
+                        last_burn_block.block_height, &last_burn_block.burn_header_hash
+                    );
                     let last_mined_block_opt = InitializedNeonNode::relayer_run_tenure(
                         &config,
                         registered_key,
@@ -902,6 +905,15 @@ impl InitializedNeonNode {
                         return None;
                     }
                 };
+
+            // don't mine off of an old burnchain block
+            let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
+                .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+
+            if burn_chain_tip.consensus_hash != burn_block.consensus_hash {
+                debug!("New canonical burn chain tip detected: {} ({}) > {} ({}). Will not try to mine.", burn_chain_tip.consensus_hash, burn_chain_tip.block_height, &burn_block.consensus_hash, &burn_block.block_height);
+                return None;
+            }
 
             debug!("Mining tenure's last consensus hash: {} (height {} hash {}), stacks tip consensus hash: {} (height {} hash {})",
                        &burn_block.consensus_hash, burn_block.block_height, &burn_block.burn_header_hash,

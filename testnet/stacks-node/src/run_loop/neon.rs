@@ -1,5 +1,3 @@
-use std::thread;
-
 use crate::{
     neon_node, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
     NeonGenesisNode,
@@ -10,6 +8,8 @@ use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
+use std::cmp;
+use std::thread;
 
 use super::RunLoopCallbacks;
 
@@ -233,7 +233,15 @@ impl RunLoop {
                     }
                 };
 
-            target_burnchain_block_height += pox_constants.reward_cycle_length as u64;
+            target_burnchain_block_height = cmp::min(
+                target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
+                burnchain_height + 1,
+            );
+            debug!(
+                "Downloaded burnchain blocks up to height {}; new target height is {}",
+                next_burnchain_height, target_burnchain_block_height
+            );
+
             burnchain_tip = next_burnchain_tip;
             burnchain_height = next_burnchain_height;
 
@@ -267,7 +275,7 @@ impl RunLoop {
 
                 block_height = next_height;
                 debug!(
-                    "Synchronized up to block height {} (chain tip height is {})",
+                    "Synchronized burnchain up to block height {} (chain tip height is {})",
                     block_height, burnchain_height
                 );
             }
