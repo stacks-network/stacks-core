@@ -43,6 +43,7 @@ http_401() {
 http_500() {
    local ERR="$1"
    local ERR_LEN=${#ERR}
+   log "500 error: ${ERR}"
    printf "HTTP/1.0 500 Internal Server error\r\nContent-Length: $ERR_LEN\r\nContent-Type: text/plain\r\n\r\n$ERR"
 }
 
