@@ -316,7 +316,7 @@ impl RPCNeighborsInfo {
             .map(|n| {
                 RPCNeighbor::from_neighbor_key_and_pubkh(
                     n.addr.clone(),
-                    Hash160::from_data(&n.public_key.to_bytes()),
+                    Hash160::from_node_public_key(&n.public_key),
                     true,
                 )
             })
@@ -2187,7 +2187,7 @@ mod test {
         .unwrap();
         let microblock_privkey = StacksPrivateKey::new();
         let microblock_pubkeyhash =
-            Hash160::from_data(&StacksPublicKey::from_private(&microblock_privkey).to_bytes());
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
         let addr1 = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,

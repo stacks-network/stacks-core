@@ -142,12 +142,7 @@ impl StacksMessageCodec for StacksBlockHeader {
 
 impl StacksBlockHeader {
     pub fn pubkey_hash(pubk: &StacksPublicKey) -> Hash160 {
-        let pubkey_buf = StacksPublicKeyBuffer::from_public_key(pubk);
-        let mut bytes = vec![];
-        pubkey_buf
-            .consensus_serialize(&mut bytes)
-            .expect("BUG: failed to serialize public key to a vec");
-        Hash160::from_data(&bytes[..])
+        Hash160::from_node_public_key(pubk)
     }
 
     pub fn genesis_block_header() -> StacksBlockHeader {
@@ -717,6 +712,11 @@ impl StacksMicroblockHeader {
 
         let mut pubk =
             StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature).map_err(|_ve| {
+                test_debug!(
+                    "Failed to verify signature: failed to recover public key from {:?}: {:?}",
+                    &self.signature,
+                    &_ve
+                );
                 net_error::VerifyingError(
                     "Failed to verify signature: failed to recover public key".to_string(),
                 )
@@ -730,8 +730,12 @@ impl StacksMicroblockHeader {
         let pubkh = self.check_recover_pubkey()?;
 
         if pubkh != *pubk_hash {
+            test_debug!(
+                "Failed to verify signature: public key did not recover to hash {}",
+                &pubkh.to_hex()
+            );
             return Err(net_error::VerifyingError(format!(
-                "Failed to verify signature: public key {} did not recover to expected hash",
+                "Failed to verify signature: public key did not recover to expected hash {}",
                 pubkh.to_hex()
             )));
         }
@@ -1281,7 +1285,7 @@ mod test {
         };
 
         let pubk = StacksPublicKey::from_private(&privk);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         mblock_header.sign(&privk).unwrap();
         mblock_header.verify(&pubkh).unwrap();

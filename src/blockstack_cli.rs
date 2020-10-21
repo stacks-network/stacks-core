@@ -24,13 +24,15 @@ extern crate blockstack_lib;
 use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::chainstate::stacks::{
-    StacksAddress, StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
-    TokenTransferMemo, TransactionAuth, TransactionContractCall, TransactionPayload,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    StacksAddress, StacksBlock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionContractCall,
+    TransactionPayload, TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
-use blockstack_lib::util::{hash::hex_bytes, hash::to_hex, log, strings::StacksString};
+use blockstack_lib::util::{
+    hash::hex_bytes, hash::to_hex, log, retry::LogReader, strings::StacksString,
+};
 use blockstack_lib::vm;
 use blockstack_lib::vm::{
     errors::{Error as ClarityError, RuntimeErrorType},
@@ -41,6 +43,11 @@ use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};
+
+use blockstack_lib::address::b58;
+use blockstack_lib::burnchains::bitcoin::address::{
+    ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 const TESTNET_CHAIN_ID: u32 = 0x80000000;
 const MAINNET_CHAIN_ID: u32 = 0x00000001;
@@ -56,6 +63,7 @@ This CLI has these methods:
   contract-call    used to generate and sign a contract-call transaction
   generate-sk      used to generate a secret key for transaction signing
   token-transfer   used to generate and sign a transfer transaction
+  addresses        used to get both Bitcoin and Stacks addresses from a private key
 
 For usage information on those methods, call `blockstack-cli [method] -h`
 
@@ -103,6 +111,25 @@ const GENERATE_USAGE: &str = "blockstack-cli (options) generate-sk
 
 This method generates a secret key, outputting the hex encoding of the
 secret key, the corresponding public key, and the corresponding P2PKH Stacks address.";
+
+const ADDRESSES_USAGE: &str = "blockstack-cli (options) addresses [secret-key-hex]
+
+The addresses command calculates both the Bitcoin and Stacks addresses from a secret key.
+If successful, this command outputs both the Bitcoin and Stacks addresses to stdout, formatted
+as JSON, and exits with code 0";
+
+const DECODE_TRANSACTION_USAGE: &str =
+    "blockstack-cli (options) decode-tx [transaction-hex-or-stdin]
+
+The decode-tx command decodes a serialized Stacks transaction and prints it to stdout as JSON.
+The transaction, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+raw binary transaction will be read from stdin";
+
+const DECODE_BLOCK_USAGE: &str = "blockstack-cli (options) decode-block [block-path-or-stdin]
+
+The decode-tx command decodes a serialized Stacks block and prints it to stdout as JSON.
+The block, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+raw binary block will be read from stdin";
 
 #[derive(Debug)]
 enum CliError {
@@ -467,6 +494,120 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
     ))
 }
 
+fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+        return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
+    }
+
+    let sk = StacksPrivateKey::from_hex(&args[0]).expect("Failed to load private key");
+
+    let pk = StacksPublicKey::from_private(&sk);
+    let c32_version = match version {
+        TransactionVersion::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        TransactionVersion::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    };
+
+    let b58_version = match version {
+        TransactionVersion::Mainnet => ADDRESS_VERSION_MAINNET_SINGLESIG,
+        TransactionVersion::Testnet => ADDRESS_VERSION_TESTNET_SINGLESIG,
+    };
+
+    let stx_address = StacksAddress::from_public_keys(
+        c32_version,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![pk.clone()],
+    )
+    .expect("Failed to generate address from public key");
+
+    let mut b58_addr_slice = [0u8; 21];
+    b58_addr_slice[0] = b58_version;
+    b58_addr_slice[1..].copy_from_slice(&stx_address.bytes.0);
+    let b58_address_string = b58::check_encode_slice(&b58_addr_slice);
+    Ok(format!(
+        "{{
+    \"STX\": \"{}\",
+    \"BTC\": \"{}\"
+}}",
+        &stx_address, &b58_address_string
+    ))
+}
+
+fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
+    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+        return Err(CliError::Message(format!(
+            "Usage: {}\n",
+            DECODE_TRANSACTION_USAGE
+        )));
+    }
+
+    let tx_str = if args[0] == "-" {
+        // read from stdin
+        let mut tx_str = Vec::new();
+        io::stdin()
+            .read_to_end(&mut tx_str)
+            .expect("Failed to read transaction from stdin");
+        tx_str
+    } else {
+        // given as a command-line arg
+        hex_bytes(&args[0].clone()).expect("Failed to decode transaction: must be a hex string")
+    };
+
+    let mut cursor = io::Cursor::new(&tx_str);
+    let mut debug_cursor = LogReader::from_reader(&mut cursor);
+
+    match StacksTransaction::consensus_deserialize(&mut debug_cursor) {
+        Ok(tx) => Ok(serde_json::to_string(&tx).expect("Failed to serialize transaction to JSON")),
+        Err(e) => {
+            let mut ret = String::new();
+            ret.push_str(&format!("Failed to decode transaction: {:?}\n", &e));
+            ret.push_str("Bytes consumed:\n");
+            for buf in debug_cursor.log().iter() {
+                ret.push_str(&format!("   {}", to_hex(buf)));
+            }
+            ret.push_str("\n");
+            Ok(ret)
+        }
+    }
+}
+
+fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
+    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+        return Err(CliError::Message(format!(
+            "Usage: {}\n",
+            DECODE_BLOCK_USAGE
+        )));
+    }
+    let block_data = if args[0] == "-" {
+        // read from stdin
+        let mut block_str = Vec::new();
+        io::stdin()
+            .read_to_end(&mut block_str)
+            .expect("Failed to read block from stdin");
+        block_str
+    } else {
+        // given as a command-line arg
+        hex_bytes(&args[0].clone()).expect("Failed to decode block: must be a hex string")
+    };
+
+    let mut cursor = io::Cursor::new(&block_data);
+    let mut debug_cursor = LogReader::from_reader(&mut cursor);
+
+    match StacksBlock::consensus_deserialize(&mut debug_cursor) {
+        Ok(block) => Ok(serde_json::to_string(&block).expect("Failed to serialize block to JSON")),
+        Err(e) => {
+            let mut ret = String::new();
+            ret.push_str(&format!("Failed to decode block: {:?}\n", &e));
+            ret.push_str("Bytes consumed:\n");
+            for buf in debug_cursor.log().iter() {
+                ret.push_str(&format!("   {}", to_hex(buf)));
+            }
+            ret.push_str("\n");
+            Ok(ret)
+        }
+    }
+}
+
 fn main() {
     log::set_loglevel(log::LOG_DEBUG).unwrap();
     let mut argv: Vec<String> = env::args().collect();
@@ -504,6 +645,9 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
             "publish" => handle_contract_publish(args, tx_version, chain_id),
             "token-transfer" => handle_token_transfer(args, tx_version, chain_id),
             "generate-sk" => generate_secret_key(args, tx_version),
+            "addresses" => get_addresses(args, tx_version),
+            "decode-tx" => decode_transaction(args, tx_version),
+            "decode-block" => decode_block(args, tx_version),
             _ => Err(CliError::Usage),
         }
     } else {
@@ -755,5 +899,49 @@ mod test {
             format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
                 .contains("deserialize")
         );
+    }
+
+    #[test]
+    fn simple_addresses() {
+        let addr_args = [
+            "addresses",
+            "2945c6be8758994652a498f0445d534d0fadb0b2025b37c72297b059ebf887ed01",
+        ];
+
+        let result = main_handler(to_string_vec(&addr_args)).unwrap();
+        assert!(result.contains("SP36T883PDD2EK4PHVTA5GFHC8NQW6558XG7YX1GD"));
+        assert!(result.contains("1KkL94EPD3mz7RFCZPmRBy3KjbWZ4qo58E"));
+
+        let addr_args = [
+            "--testnet",
+            "addresses",
+            "2945c6be8758994652a498f0445d534d0fadb0b2025b37c72297b059ebf887ed01",
+        ];
+
+        let result = main_handler(to_string_vec(&addr_args)).unwrap();
+        assert!(result.contains("mzGHS7KN25DEtXipGxjo1tFebb7Fw5aAkp"));
+        assert!(result.contains("ST36T883PDD2EK4PHVTA5GFHC8NQW6558XJQX6Q3K"));
+    }
+
+    #[test]
+    fn simple_decode_tx() {
+        let tx_args = [
+            "decode-tx",
+            "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f"
+        ];
+
+        let result = main_handler(to_string_vec(&tx_args)).unwrap();
+        eprintln!("result:\n{}", result);
+    }
+
+    #[test]
+    fn simple_decode_block() {
+        let block_args = [
+            "decode-block",
+            "000000000000395f800000000000000179cb51f6bbd6d90cb257616e77a495919667c3772dd08ea7c4f5c372739490bc91da6609c5c95c96f612dbc8cab2f7a0d8bfb83abdb630167579ccc36b66c03c1d0d250cd3b3615c03afcdaef313dbd30d3d5b0fd10ed5acbc35d042abfba66cdfc32881c5a665ad9685a2eb6e0c131fb400000000000000000000000000000000000000000000000000000000000000000000e87f28593f66d77ae3c57abd4e5ae0e632b837b2596be14c2b2572cd4d0015229976eb5c4a5b08816b31f485513d2e6501f6cd29ee240a2c4056b1f7cc32c2e118ef6499e0fcc575da75fca8cc409e5c884eb3450000000180800000000400403e2ff80a8a8ecacfb827dcf6adddd21fdd4c3c000000000000017800000000000000000000f3f497268f8a12e318f96ba4f1ad3ed2485e87cefe75b88bf735bb1bbb7db754746e6a244ba869183a2ab73002c6465936b7d9b059ffc5a94488bee7b5afb33c010200000000040000000000000000000000000000000000000000000000000000000000000000",
+        ];
+
+        let result = main_handler(to_string_vec(&block_args)).unwrap();
+        eprintln!("result:\n{}", result);
     }
 }

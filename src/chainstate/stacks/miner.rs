@@ -118,7 +118,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         miner_key: &Secp256k1PrivateKey,
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
-            Hash160::from_data(&StacksPublicKey::from_private(miner_key).to_bytes());
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
         if txs_to_broadcast.len() == 0 {
             return Err(Error::NoTransactionsToMine);
         }
@@ -386,7 +386,7 @@ impl StacksBlockBuilder {
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
             miner_id,
@@ -442,7 +442,7 @@ impl StacksBlockBuilder {
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         let mut builder = StacksBlockBuilder::first_pubkey_hash(
             miner_id,
@@ -527,6 +527,8 @@ impl StacksBlockBuilder {
                     }
                     _ => e,
                 })?;
+
+            debug!("Include tx {}", tx.txid());
 
             // save
             self.txs.push(tx.clone());
@@ -668,8 +670,9 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {}, parent block {}, state root = {}",
+            "Miner: mined anchored block {} with {} txs, parent block {}, state root = {}",
             block.block_hash(),
+            block.txs.len(),
             &self.header.parent_block,
             state_root_hash
         );
@@ -861,7 +864,7 @@ impl StacksBlockBuilder {
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {
-                    test_debug!("Included {}", &tx.txid());
+                    debug!("Included {}", &tx.txid());
                 }
                 Err(Error::BlockTooBigError) => {
                     // done mining -- our execution budget is exceeded.

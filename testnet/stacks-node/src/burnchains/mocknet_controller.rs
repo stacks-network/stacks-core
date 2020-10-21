@@ -121,6 +121,7 @@ impl BurnchainController for MocknetController {
         &mut self,
         operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
+        _attempt: u64,
     ) -> bool {
         self.queued_operations.push_back(operation);
         true

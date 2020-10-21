@@ -359,7 +359,7 @@ impl Node {
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash;
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
-        burnchain_controller.submit_operation(key_reg_op, &mut op_signer);
+        burnchain_controller.submit_operation(key_reg_op, &mut op_signer, 1);
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -521,7 +521,7 @@ impl Node {
             );
 
             let mut op_signer = self.keychain.generate_op_signer();
-            burnchain_controller.submit_operation(op, &mut op_signer);
+            burnchain_controller.submit_operation(op, &mut op_signer, 1);
         }
     }
 

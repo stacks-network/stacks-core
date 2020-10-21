@@ -560,7 +560,7 @@ impl ConversationP2P {
 
     pub fn to_neighbor_address(&self) -> NeighborAddress {
         let pubkh = if let Some(ref pubk) = self.ref_public_key() {
-            Hash160::from_data(&pubk.to_bytes())
+            Hash160::from_node_public_key(pubk)
         } else {
             Hash160([0u8; 20])
         };
@@ -574,7 +574,7 @@ impl ConversationP2P {
 
     pub fn to_handshake_neighbor_address(&self) -> NeighborAddress {
         let pubkh = if let Some(ref pubk) = self.ref_public_key() {
-            Hash160::from_data(&pubk.to_bytes())
+            Hash160::from_node_public_key(pubk)
         } else {
             Hash160([0u8; 20])
         };
@@ -600,7 +600,7 @@ impl ConversationP2P {
 
     pub fn get_public_key_hash(&self) -> Option<Hash160> {
         self.ref_public_key()
-            .map(|pubk| Hash160::from_data(&pubk.to_bytes()))
+            .map(|pubk| Hash160::from_node_public_key(pubk))
     }
 
     pub fn ref_public_key(&self) -> Option<&StacksPublicKey> {
@@ -980,7 +980,7 @@ impl ConversationP2P {
         let cur_pubk_opt = self.connection.get_public_key();
         if let Some(cur_pubk) = cur_pubk_opt {
             if pubk != cur_pubk {
-                test_debug!(
+                debug!(
                     "{:?}: Upgrade key {:?} to {:?} expires {:?}",
                     &self,
                     &to_hex(&cur_pubk.to_bytes_compressed()),
@@ -4116,9 +4116,9 @@ mod test {
             peer: NeighborAddress {
                 addrbytes: local_peer.addrbytes.clone(),
                 port: local_peer.port,
-                public_key_hash: Hash160::from_data(
-                    &StacksPublicKey::from_private(&local_peer.private_key).to_bytes(),
-                ),
+                public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                    &local_peer.private_key,
+                )),
             },
             seq: 789,
         }];
