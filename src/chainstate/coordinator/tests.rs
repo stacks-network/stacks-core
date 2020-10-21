@@ -228,6 +228,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _metadata: StacksHeaderInfo,
         _receipts: Vec<StacksTransactionReceipt>,
         _parent: &StacksBlockId,
+        _winner_txid: Txid,
     ) {
         assert!(
             false,

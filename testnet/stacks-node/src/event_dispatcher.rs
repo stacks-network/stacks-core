@@ -173,6 +173,7 @@ impl EventObserver {
         chain_tip: &ChainTip,
         parent_index_hash: &StacksBlockId,
         boot_receipts: Option<&Vec<StacksTransactionReceipt>>,
+        winner_txid: &Txid,
     ) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -201,6 +202,9 @@ impl EventObserver {
         let payload = json!({
             "block_hash": format!("0x{}", chain_tip.block.block_hash()),
             "block_height": chain_tip.metadata.block_height,
+            "burn_block_hash": format!("0x{}", chain_tip.metadata.burn_header_hash),
+            "burn_block_height": chain_tip.metadata.burn_header_height,
+            "miner_txid": format!("0x{}", winner_txid),
             "burn_block_time": chain_tip.metadata.burn_header_timestamp,
             "index_block_hash": format!("0x{}", chain_tip.metadata.index_block_hash()),
             "parent_block_hash": format!("0x{}", chain_tip.block.header.parent_block),
@@ -233,13 +237,14 @@ impl BlockEventDispatcher for EventDispatcher {
         metadata: StacksHeaderInfo,
         receipts: Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
+        winner_txid: Txid,
     ) {
         let chain_tip = ChainTip {
             metadata,
             block,
             receipts,
         };
-        self.process_chain_tip(&chain_tip, parent)
+        self.process_chain_tip(&chain_tip, parent, winner_txid)
     }
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
@@ -260,7 +265,12 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_chain_tip(&self, chain_tip: &ChainTip, parent_index_hash: &StacksBlockId) {
+    pub fn process_chain_tip(
+        &self,
+        chain_tip: &ChainTip,
+        parent_index_hash: &StacksBlockId,
+        winner_txid: Txid,
+    ) {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
             .iter()
@@ -346,6 +356,7 @@ impl EventDispatcher {
                 chain_tip,
                 parent_index_hash,
                 boot_receipts,
+                &winner_txid,
             );
         }
     }
