@@ -207,14 +207,13 @@ fn inner_generate_block_commit_op(
     parent_burnchain_height: u32,
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
-    recipients: Option<RewardSetInfo>,
+    commit_outs: Vec<StacksAddress>,
+    sunset_burn: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
 
-    let commit_outs = RewardSetInfo::into_commit_outs(recipients, false);
-
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-        sunset_burn: 0,
+        sunset_burn,
         block_header_hash,
         burn_fee,
         input,
@@ -1048,6 +1047,16 @@ impl InitializedNeonNode {
                 return None;
             }
         };
+
+        let sunset_burn = burnchain.pox_constants.expected_sunset_burn(
+            burn_block.block_height + 1, burn_fee_cap);
+
+        let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end {
+            RewardSetInfo::into_commit_outs(recipients, false)
+        } else {
+            vec![StacksAddress::burn_address(false)]
+        };
+
         // let's commit
         let op = inner_generate_block_commit_op(
             keychain.get_burnchain_signer(),
@@ -1059,7 +1068,8 @@ impl InitializedNeonNode {
                 .expect("Could not convert parent block height into u32"),
             parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof),
-            recipients,
+            commit_outs,
+            sunset_burn
         );
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer, attempt);

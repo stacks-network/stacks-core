@@ -745,7 +745,7 @@ mod tests {
                     address: BitcoinAddress {
                         addrtype: BitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([1; 20]),
+                        bytes: Hash160([0; 20]),
                     },
                 },
                 BitcoinTxOutput {
