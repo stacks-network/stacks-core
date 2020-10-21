@@ -60,6 +60,9 @@ pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
 pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
 
+pub const POX_SUNSET_START: u64 = (FIRST_BURNCHAIN_BLOCK_HEIGHT as u64) + 100_000;
+pub const POX_SUNSET_END: u64 = POX_SUNSET_START + 400_000;
+
 pub const POX_PREPARE_WINDOW_LENGTH: u32 = 240;
 pub const POX_REWARD_CYCLE_LENGTH: u32 = 1000;
 /// The maximum amount that PoX rewards can be scaled by.

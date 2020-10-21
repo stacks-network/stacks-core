@@ -685,6 +685,97 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_sunset_end() {
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+            ],
+        });
+
+        let err = LeaderBlockCommitOp::parse_from_tx(16843022, &BurnchainHeaderHash([0; 32]), &tx, 16843022)
+            .unwrap_err();
+
+        assert!(if let op_error::BlockCommitBadOutputs = err { true } else { false }); 
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+            ],
+        });
+
+        let op = LeaderBlockCommitOp::parse_from_tx(16843022, &BurnchainHeaderHash([0; 32]), &tx, 16843022)
+            .unwrap();
+
+        assert_eq!(op.commit_outs.len(), 1);
+        assert!(op.commit_outs[0].is_burn());
+        assert_eq!(op.burn_fee, 10);
+    }
+
+    #[test]
     fn test_parse_pox_commits() {
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             txid: Txid([0; 32]),
@@ -730,6 +821,8 @@ mod tests {
         // should have 2 commit outputs, summing to 20 burned units
         assert_eq!(op.commit_outs.len(), 2);
         assert_eq!(op.burn_fee, 20);
+        // the third output, because it's a burn, should have counted as a sunset_burn
+        assert_eq!(op.sunset_burn, 30);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             txid: Txid([0; 32]),
@@ -829,6 +922,8 @@ mod tests {
         // should have 2 commit outputs
         assert_eq!(op.commit_outs.len(), 2);
         assert_eq!(op.burn_fee, 26);
+        // the third output, because it's not a burn, should not have counted as a sunset_burn
+        assert_eq!(op.sunset_burn, 0);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             txid: Txid([0; 32]),

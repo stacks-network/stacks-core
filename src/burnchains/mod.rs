@@ -298,6 +298,8 @@ impl PoxConstants {
         anchor_threshold: u32,
         pox_rejection_fraction: u64,
         pox_participation_threshold_pct: u64,
+        sunset_start: u64,
+        sunset_end: u64,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
 
@@ -307,13 +309,14 @@ impl PoxConstants {
             anchor_threshold,
             pox_rejection_fraction,
             pox_participation_threshold_pct,
-            sunset_end: 5000,
+            sunset_start,
+            sunset_end,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        PoxConstants::new(10, 5, 3, 25, 5)
+        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000)
     }
 
     pub fn reward_slots(&self) -> u32 {
@@ -331,7 +334,7 @@ impl PoxConstants {
         let expected_u128 = (burn_fee as u128) * ((burn_height - self.sunset_start) as u128) / self.sunset_end as u128;
         u64::try_from(expected_u128)
             // should never be possible, because sunset_burn is <= burn_fee, which is a u64
-            .expect("Overflowed u64 in calculating expected sunset_burn");
+            .expect("Overflowed u64 in calculating expected sunset_burn")
     }
 
     /// is participating_ustx enough to engage in PoX in the next reward cycle?
@@ -345,11 +348,11 @@ impl PoxConstants {
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(1000, 240, 192, 25, 5)
+        PoxConstants::new(POX_REWARD_CYCLE_LENGTH, POX_PREPARE_WINDOW_LENGTH, 192, 25, 5, POX_SUNSET_START, POX_SUNSET_END)
     }
 
     pub fn testnet_default() -> PoxConstants {
-        PoxConstants::new(120, 30, 20, 3333333333333333, 5) // total liquid supply is 40000000000000000 µSTX
+        PoxConstants::new(120, 30, 20, 3333333333333333, 5, POX_SUNSET_START, POX_SUNSET_END) // total liquid supply is 40000000000000000 µSTX
     }
 }
 
