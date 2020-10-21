@@ -95,12 +95,12 @@ fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
         .expect("FATAL: no 'hashbytes' field in pox-addr")
         .to_owned();
 
-    let version_u8 = version_value.expect_buff(1)[0];
+    let version_u8 = version_value.expect_buff_padded(1, 0)[0];
     let version: AddressHashMode = version_u8
         .try_into()
         .expect("FATAL: PoX version is not a supported version byte");
 
-    let hashbytes_vec = hashbytes_value.expect_buff(20);
+    let hashbytes_vec = hashbytes_value.expect_buff_padded(20, 0);
 
     let mut hashbytes_20 = [0u8; 20];
     hashbytes_20.copy_from_slice(&hashbytes_vec[0..20]);

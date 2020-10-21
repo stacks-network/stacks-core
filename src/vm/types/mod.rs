@@ -741,11 +741,8 @@ impl Value {
     }
 
     pub fn expect_buff(self, sz: usize) -> Vec<u8> {
-        if let Value::Sequence(SequenceData::Buffer(mut buffdata)) = self {
+        if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
             if buffdata.data.len() <= sz {
-                for _ in buffdata.data.len()..sz {
-                    buffdata.data.push(0u8)
-                }
                 buffdata.data
             } else {
                 error!(
@@ -759,6 +756,16 @@ impl Value {
             error!("Value '{:?}' is not a buff", &self);
             panic!();
         }
+    }
+
+    pub fn expect_buff_padded(self, sz: usize, pad: u8) -> Vec<u8> {
+        let mut data = self.expect_buff(sz);
+        if sz > data.len() {
+            for _ in data.len()..sz {
+                data.push(pad)
+            }
+        }
+        data
     }
 
     pub fn expect_bool(self) -> bool {
@@ -1292,10 +1299,15 @@ mod test {
             data: vec![1, 2, 3, 4, 5],
         }));
         assert_eq!(buff.clone().expect_buff(5), vec![1, 2, 3, 4, 5]);
-        assert_eq!(buff.clone().expect_buff(6), vec![1, 2, 3, 4, 5, 0]);
+        assert_eq!(buff.clone().expect_buff(6), vec![1, 2, 3, 4, 5]);
         assert_eq!(
-            buff.clone().expect_buff(10),
-            vec![1, 2, 3, 4, 5, 0, 0, 0, 0, 0]
+            buff.clone().expect_buff_padded(6, 0),
+            vec![1, 2, 3, 4, 5, 0]
+        );
+        assert_eq!(buff.clone().expect_buff(10), vec![1, 2, 3, 4, 5]);
+        assert_eq!(
+            buff.clone().expect_buff_padded(10, 1),
+            vec![1, 2, 3, 4, 5, 1, 1, 1, 1, 1]
         );
     }
 
