@@ -218,7 +218,7 @@ addresses for a reward cycle, then each miner commitment would have
 ## Adjusting Reward Threshold Based on Participation
 
 Each reward cycle may transfer miner funds to up to 4000 Bitcoin
-addresses (2 addresses in a 1000 burn block cycle). To ensure that
+addresses (2 addresses in a 2000 burn block cycle). To ensure that
 this number of addresses is sufficient to cover the pool of
 participants (given 100% participation of liquid STX), the threshold
 for participation must be 0.025% (1/4000th) of the liquid supply of
