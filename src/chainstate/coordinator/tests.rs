@@ -127,7 +127,12 @@ fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     .unwrap()
 }
 
-pub fn setup_states(paths: &[&str], vrf_keys: &[VRFPrivateKey], committers: &[StacksPrivateKey], pox_consts: Option<PoxConstants>) {
+pub fn setup_states(
+    paths: &[&str],
+    vrf_keys: &[VRFPrivateKey],
+    committers: &[StacksPrivateKey],
+    pox_consts: Option<PoxConstants>,
+) {
     let mut burn_block = None;
     let mut others = vec![];
 
@@ -264,12 +269,24 @@ fn make_reward_set_coordinator<'a>(
     addrs: Vec<StacksAddress>,
     pox_consts: Option<PoxConstants>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider> {
-    ChainsCoordinator::test_new(&get_burnchain(path, pox_consts), path, StubbedRewardSetProvider(addrs))
+    ChainsCoordinator::test_new(
+        &get_burnchain(path, pox_consts),
+        path,
+        StubbedRewardSetProvider(addrs),
+    )
 }
 
 pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain {
     let mut b = Burnchain::new(&format!("{}/burnchain/db/", path), "bitcoin", "regtest").unwrap();
-    b.pox_constants = pox_consts.unwrap_or(PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value()));
+    b.pox_constants = pox_consts.unwrap_or(PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        u64::max_value(),
+        u64::max_value(),
+    ));
     b
 }
 
@@ -447,7 +464,7 @@ fn make_stacks_block_with_recipients(
         key_index,
         recipients,
         0,
-        false
+        false,
     )
 }
 
@@ -464,7 +481,7 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
     key_index: u32,
     recipients: Option<&RewardSetInfo>,
     sunset_burn: u64,
-    post_sunset_burn: bool
+    post_sunset_burn: bool,
 ) -> (BlockstackOperationType, StacksBlock) {
     let tx_auth = TransactionAuth::from_p2pkh(miner).unwrap();
 
@@ -1233,8 +1250,8 @@ fn test_sortition_with_sunset() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 80;
-    let pox_consts_inner = PoxConstants::new(5, 3, 3, 25, 5, 10, sunset_ht);
-    let pox_consts = Some(pox_consts_inner.clone());
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 10, sunset_ht));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
     let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::new()).collect();
@@ -1311,9 +1328,9 @@ fn test_sortition_with_sunset() {
                 if burnchain_tip.block_height == sunset_ht {
                     // sunset finished in the last reward cycle,
                     //   the last two slots were left unfilled.
-                    assert_eq!(reward_recipients.len(), reward_set_size - 2);                    
+                    assert_eq!(reward_recipients.len(), reward_set_size - 2);
                 } else if burnchain_tip.block_height > sunset_ht {
-                    assert_eq!(reward_recipients.len(), 0);                    
+                    assert_eq!(reward_recipients.len(), 0);
                 } else {
                     assert_eq!(reward_recipients.len(), reward_set_size);
                 }
@@ -1343,8 +1360,8 @@ fn test_sortition_with_sunset() {
             }
         }
 
-        let sunset_burn = pox_consts_inner.expected_sunset_burn(
-            next_mock_header.block_height, 10000);
+        let sunset_burn = burnchain_conf.expected_sunset_burn(next_mock_header.block_height, 10000);
+        let rest_commit = 10000 - sunset_burn;
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
@@ -1363,12 +1380,12 @@ fn test_sortition_with_sunset() {
                 &mut chainstate,
                 &parent,
                 miner,
-                10000,
+                rest_commit,
                 vrf_key,
                 ix as u32,
                 next_block_recipients.as_ref(),
                 sunset_burn + (rand::random::<u8>() as u64),
-                next_mock_header.block_height >= sunset_ht
+                next_mock_header.block_height >= sunset_ht,
             )
         };
 
@@ -1386,7 +1403,7 @@ fn test_sortition_with_sunset() {
                 (ix + WRONG_OUTS_OFFSET) as u32,
                 next_block_recipients.as_ref(),
                 sunset_burn - 1,
-                false
+                false,
             );
             ops.push(bad_outs_op);
         }
@@ -1413,9 +1430,12 @@ fn test_sortition_with_sunset() {
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
-                assert!(ic.get_last_anchor_block_hash().unwrap().is_none(), "No PoX anchor block should be chosen after PoX sunset");
+                assert!(
+                    ic.get_last_anchor_block_hash().unwrap().is_none(),
+                    "No PoX anchor block should be chosen after PoX sunset"
+                );
             }
-        } 
+        }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         assert_eq!(&tip.winning_block_txid, &expected_winner);

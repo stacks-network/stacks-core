@@ -20,12 +20,12 @@ pub mod burnchain;
 pub mod db;
 pub mod indexer;
 
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::default::Default;
 use std::error;
 use std::fmt;
 use std::io;
-use std::convert::TryFrom;
-use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use self::bitcoin::Error as btc_error;
@@ -303,6 +303,8 @@ impl PoxConstants {
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
 
+        assert!(sunset_start <= sunset_end);
+
         PoxConstants {
             reward_cycle_length,
             prepare_length,
@@ -323,20 +325,6 @@ impl PoxConstants {
         self.reward_cycle_length * (OUTPUTS_PER_COMMIT as u32)
     }
 
-    /// the expected sunset burn is:
-    ///   burn_fee * ((burn_height - sunset_start) / sunset_end)
-    pub fn expected_sunset_burn(&self, burn_height: u64, burn_fee: u64) -> u64 {
-        if burn_height < self.sunset_start || burn_height >= self.sunset_end {
-            return 0
-        }
-
-        // use u128 to any possibilities of overflowing in the calculation here.
-        let expected_u128 = (burn_fee as u128) * ((burn_height - self.sunset_start) as u128) / self.sunset_end as u128;
-        u64::try_from(expected_u128)
-            // should never be possible, because sunset_burn is <= burn_fee, which is a u64
-            .expect("Overflowed u64 in calculating expected sunset_burn")
-    }
-
     /// is participating_ustx enough to engage in PoX in the next reward cycle?
     pub fn enough_participation(&self, participating_ustx: u128, liquid_ustx: u128) -> bool {
         participating_ustx
@@ -348,11 +336,27 @@ impl PoxConstants {
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(POX_REWARD_CYCLE_LENGTH, POX_PREPARE_WINDOW_LENGTH, 192, 25, 5, POX_SUNSET_START, POX_SUNSET_END)
+        PoxConstants::new(
+            POX_REWARD_CYCLE_LENGTH,
+            POX_PREPARE_WINDOW_LENGTH,
+            192,
+            25,
+            5,
+            POX_SUNSET_START,
+            POX_SUNSET_END,
+        )
     }
 
     pub fn testnet_default() -> PoxConstants {
-        PoxConstants::new(120, 30, 20, 3333333333333333, 5, POX_SUNSET_START, POX_SUNSET_END) // total liquid supply is 40000000000000000 µSTX
+        PoxConstants::new(
+            120,
+            30,
+            20,
+            3333333333333333,
+            5,
+            POX_SUNSET_START,
+            POX_SUNSET_END,
+        ) // total liquid supply is 40000000000000000 µSTX
     }
 }
 

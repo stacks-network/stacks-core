@@ -369,7 +369,11 @@ pub fn get_next_recipients<U: RewardSetProvider>(
         provider,
     )?;
     sort_db
-        .get_next_block_recipients(sortition_tip, reward_cycle_info.as_ref(), burnchain.pox_constants.sunset_end)
+        .get_next_block_recipients(
+            sortition_tip,
+            reward_cycle_info.as_ref(),
+            burnchain.pox_constants.sunset_end,
+        )
         .map_err(|e| Error::from(e))
 }
 
@@ -391,7 +395,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         if burn_height >= burnchain.pox_constants.sunset_end {
             return Ok(Some(RewardCycleInfo {
                 anchor_status: PoxAnchorBlockStatus::NotSelected,
-            }))
+            }));
         }
 
         info!("Beginning reward cycle. block_height={}", burn_height);

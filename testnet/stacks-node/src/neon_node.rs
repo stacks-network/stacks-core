@@ -1048,8 +1048,8 @@ impl InitializedNeonNode {
             }
         };
 
-        let sunset_burn = burnchain.pox_constants.expected_sunset_burn(
-            burn_block.block_height + 1, burn_fee_cap);
+        let sunset_burn = burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap);
+        let rest_commit = burn_fee_cap - sunset_burn;
 
         let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end {
             RewardSetInfo::into_commit_outs(recipients, false)
@@ -1061,7 +1061,7 @@ impl InitializedNeonNode {
         let op = inner_generate_block_commit_op(
             keychain.get_burnchain_signer(),
             anchored_block.block_hash(),
-            burn_fee_cap,
+            rest_commit,
             &registered_key,
             parent_block_burn_height
                 .try_into()
@@ -1069,7 +1069,7 @@ impl InitializedNeonNode {
             parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof),
             commit_outs,
-            sunset_burn
+            sunset_burn,
         );
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer, attempt);

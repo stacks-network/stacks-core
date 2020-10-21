@@ -296,7 +296,8 @@ impl BurnchainDB {
         sunset_end_ht: u64,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
-        let mut blockstack_ops = BurnchainDB::get_blockstack_transactions(block, &header, sunset_end_ht);
+        let mut blockstack_ops =
+            BurnchainDB::get_blockstack_transactions(block, &header, sunset_end_ht);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         let db_tx = self.tx_begin()?;

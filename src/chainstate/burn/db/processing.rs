@@ -23,9 +23,7 @@ use chainstate::burn::db::sortdb::{PoxId, SortitionHandleTx, SortitionId};
 
 use chainstate::coordinator::RewardCycleInfo;
 
-use chainstate::burn::operations::{
-    leader_block_commit::RewardSetInfo, BlockstackOperationType,
-};
+use chainstate::burn::operations::{leader_block_commit::RewardSetInfo, BlockstackOperationType};
 
 use burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainStateTransition,

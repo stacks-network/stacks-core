@@ -31,11 +31,10 @@ use stacks::burnchains::PoxConstants;
 use stacks::burnchains::PublicKey;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use stacks::chainstate::stacks::StacksAddress;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::StacksAddress;
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
 use stacks::deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
@@ -604,7 +603,13 @@ impl BitcoinRegtestController {
             0
         };
 
-        self.finalize_tx(&mut tx, payload.burn_fee + sunset_burn, utxos, signer, attempt)?;
+        self.finalize_tx(
+            &mut tx,
+            payload.burn_fee + sunset_burn,
+            utxos,
+            signer,
+            attempt,
+        )?;
 
         increment_btc_ops_sent_counter();
 

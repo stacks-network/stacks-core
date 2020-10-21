@@ -27,8 +27,8 @@ use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 
 use chainstate::burn::operations::{
-    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
 use burnchains::Address;
@@ -171,9 +171,14 @@ impl LeaderBlockCommitOp {
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
-        pox_sunset_ht: u64
+        pox_sunset_ht: u64,
     ) -> Result<LeaderBlockCommitOp, op_error> {
-        LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx, pox_sunset_ht)
+        LeaderBlockCommitOp::parse_from_tx(
+            block_header.block_height,
+            &block_header.block_hash,
+            tx,
+            pox_sunset_ht,
+        )
     }
 
     /// parse a LeaderBlockCommitOp
@@ -248,8 +253,7 @@ impl LeaderBlockCommitOp {
         }
 
         // check if we've reached PoX disable
-        let (commit_outs, sunset_burn, burn_fee) = 
-        if block_height >= pox_sunset_ht {
+        let (commit_outs, sunset_burn, burn_fee) = if block_height >= pox_sunset_ht {
             if !outputs[0].address.is_burn() {
                 return Err(op_error::BlockCommitBadOutputs);
             }
@@ -406,10 +410,17 @@ impl LeaderBlockCommitOp {
     ) -> Result<(), op_error> {
         let parent_block_height = self.parent_block_ptr as u64;
 
-        let expected_sunset_burn = burnchain.pox_constants.expected_sunset_burn(self.block_height, self.burn_fee);
+        let total_committed = self
+            .burn_fee
+            .checked_add(self.sunset_burn)
+            .expect("BUG: Overflow in total committed calculation");
+        let expected_sunset_burn =
+            burnchain.expected_sunset_burn(self.block_height, total_committed);
         if self.sunset_burn < expected_sunset_burn {
-            warn!("Invalid block commit: should have included sunset burn amount of {}, found {}",
-                   expected_sunset_burn, self.sunset_burn);
+            warn!(
+                "Invalid block commit: should have included sunset burn amount of {}, found {}",
+                expected_sunset_burn, self.sunset_burn
+            );
             return Err(op_error::BlockCommitBadOutputs);
         }
 
@@ -724,10 +735,19 @@ mod tests {
             ],
         });
 
-        let err = LeaderBlockCommitOp::parse_from_tx(16843022, &BurnchainHeaderHash([0; 32]), &tx, 16843022)
-            .unwrap_err();
+        let err = LeaderBlockCommitOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843022,
+        )
+        .unwrap_err();
 
-        assert!(if let op_error::BlockCommitBadOutputs = err { true } else { false }); 
+        assert!(if let op_error::BlockCommitBadOutputs = err {
+            true
+        } else {
+            false
+        });
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             txid: Txid([0; 32]),
@@ -767,8 +787,13 @@ mod tests {
             ],
         });
 
-        let op = LeaderBlockCommitOp::parse_from_tx(16843022, &BurnchainHeaderHash([0; 32]), &tx, 16843022)
-            .unwrap();
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843022,
+        )
+        .unwrap();
 
         assert_eq!(op.commit_outs.len(), 1);
         assert!(op.commit_outs[0].is_burn());
@@ -815,8 +840,13 @@ mod tests {
             ],
         });
 
-        let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx, 16843020)
-            .unwrap();
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap();
 
         // should have 2 commit outputs, summing to 20 burned units
         assert_eq!(op.commit_outs.len(), 2);
@@ -855,8 +885,13 @@ mod tests {
         });
 
         // burn amount should have been 10, not 9
-        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx, 16843020)
-            .unwrap_err()
+        match LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap_err()
         {
             op_error::ParseError => {}
             _ => unreachable!(),
@@ -916,8 +951,13 @@ mod tests {
             ],
         });
 
-        let op = LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx, 16843020)
-            .unwrap();
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap();
 
         // should have 2 commit outputs
         assert_eq!(op.commit_outs.len(), 2);
@@ -946,8 +986,13 @@ mod tests {
         });
 
         // not enough PoX outputs
-        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx, 16843020)
-            .unwrap_err()
+        match LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap_err()
         {
             op_error::InvalidInput => {}
             _ => unreachable!(),
@@ -984,8 +1029,13 @@ mod tests {
         });
 
         // unequal PoX outputs
-        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx, 16843020)
-            .unwrap_err()
+        match LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap_err()
         {
             op_error::ParseError => {}
             _ => unreachable!(),
@@ -1046,8 +1096,13 @@ mod tests {
         });
 
         // 0 total burn
-        match LeaderBlockCommitOp::parse_from_tx(16843019, &BurnchainHeaderHash([0; 32]), &tx, 16843020)
-            .unwrap_err()
+        match LeaderBlockCommitOp::parse_from_tx(
+            16843019,
+            &BurnchainHeaderHash([0; 32]),
+            &tx,
+            16843020,
+        )
+        .unwrap_err()
         {
             op_error::ParseError => {}
             _ => unreachable!(),

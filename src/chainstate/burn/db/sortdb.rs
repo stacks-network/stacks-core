@@ -49,8 +49,7 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
 use burnchains::{Address, BurnchainHeaderHash, PublicKey, Txid};
@@ -2352,12 +2351,11 @@ impl SortitionDB {
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
-        let reward_set_info =
-            if burn_header.block_height >= burnchain.pox_constants.sunset_end {
-                None
-            } else {
-                sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?
-            };
+        let reward_set_info = if burn_header.block_height >= burnchain.pox_constants.sunset_end {
+            None
+        } else {
+            sortition_db_handle.pick_recipients(&reward_set_vrf_hash, next_pox_info.as_ref())?
+        };
 
         let new_snapshot = sortition_db_handle.process_block_txs(
             &parent_snapshot,
@@ -2380,7 +2378,7 @@ impl SortitionDB {
     pub fn test_get_next_block_recipients(
         &mut self,
         next_pox_info: Option<&RewardCycleInfo>,
-        sunset_ht: u64
+        sunset_ht: u64,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
         self.get_next_block_recipients(&parent_snapshot, next_pox_info, sunset_ht)
@@ -2390,7 +2388,7 @@ impl SortitionDB {
         &mut self,
         parent_snapshot: &BlockSnapshot,
         next_pox_info: Option<&RewardCycleInfo>,
-        sunset_end_ht: u64
+        sunset_end_ht: u64,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         let reward_set_vrf_hash = parent_snapshot
             .sortition_hash
@@ -3473,8 +3471,7 @@ mod tests {
     use util::get_epoch_time_secs;
 
     use chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-        UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     use burnchains::bitcoin::address::BitcoinAddress;
