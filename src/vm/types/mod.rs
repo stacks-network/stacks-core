@@ -1288,16 +1288,23 @@ mod test {
 
     #[test]
     fn expect_buff() {
-        let buff = Value::Sequence(SequenceData::Buffer(BuffData { data: vec![1,2,3,4,5] }));
-        assert_eq!(buff.clone().expect_buff(5), vec![1,2,3,4,5]);
-        assert_eq!(buff.clone().expect_buff(6), vec![1,2,3,4,5,0]);
-        assert_eq!(buff.clone().expect_buff(10), vec![1,2,3,4,5,0,0,0,0,0]);
+        let buff = Value::Sequence(SequenceData::Buffer(BuffData {
+            data: vec![1, 2, 3, 4, 5],
+        }));
+        assert_eq!(buff.clone().expect_buff(5), vec![1, 2, 3, 4, 5]);
+        assert_eq!(buff.clone().expect_buff(6), vec![1, 2, 3, 4, 5, 0]);
+        assert_eq!(
+            buff.clone().expect_buff(10),
+            vec![1, 2, 3, 4, 5, 0, 0, 0, 0, 0]
+        );
     }
-    
+
     #[test]
     #[should_panic]
     fn expect_buff_too_small() {
-        let buff = Value::Sequence(SequenceData::Buffer(BuffData { data: vec![1,2,3,4,5] }));
+        let buff = Value::Sequence(SequenceData::Buffer(BuffData {
+            data: vec![1, 2, 3, 4, 5],
+        }));
         let _ = buff.expect_buff(4);
     }
 }
