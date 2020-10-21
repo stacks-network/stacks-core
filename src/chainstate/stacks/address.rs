@@ -38,10 +38,10 @@ use burnchains::PublicKey;
 
 use address::c32::c32_address_decode;
 
-use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
-
 use deps::bitcoin::blockdata::opcodes::All as BtcOp;
+use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use deps::bitcoin::blockdata::transaction::TxOut;
+use std::cmp::{Ord, Ordering};
 
 use burnchains::bitcoin::address::{
     address_type_to_version_byte, to_b52_version_byte, to_c32_version_byte,
@@ -75,6 +75,21 @@ impl From<StandardPrincipalData> for StacksAddress {
         StacksAddress {
             version: o.0,
             bytes: Hash160(o.1),
+        }
+    }
+}
+
+impl PartialOrd for StacksAddress {
+    fn partial_cmp(&self, other: &StacksAddress) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for StacksAddress {
+    fn cmp(&self, other: &StacksAddress) -> Ordering {
+        match self.version.cmp(&other.version) {
+            Ordering::Equal => self.bytes.cmp(&other.bytes),
+            inequality => inequality,
         }
     }
 }

@@ -103,6 +103,8 @@ impl Drop for BitcoinCoreController {
     }
 }
 
+const BITCOIND_INT_TEST_COMMITS: u64 = 11000;
+
 #[test]
 #[ignore]
 fn bitcoind_integration_test() {
@@ -112,7 +114,7 @@ fn bitcoind_integration_test() {
 
     let mut conf = super::new_test_conf();
     conf.burnchain.commit_anchor_block_within = 2000;
-    conf.burnchain.burn_fee_cap = 5000;
+    conf.burnchain.burn_fee_cap = BITCOIND_INT_TEST_COMMITS;
     conf.burnchain.mode = "helium".to_string();
     conf.burnchain.peer_host = "127.0.0.1".to_string();
     conf.burnchain.rpc_port = 18443;
@@ -136,14 +138,14 @@ fn bitcoind_integration_test() {
 
     // In this serie of tests, the callback is fired post-burnchain-sync, pre-stacks-sync
     run_loop.callbacks.on_new_burn_chain_state(|round, burnchain_tip, chain_tip| {
+        let block = &burnchain_tip.block_snapshot;
+        let expected_total_burn = BITCOIND_INT_TEST_COMMITS * (round as u64 + 1);
+        assert_eq!(block.total_burn, expected_total_burn);
+        assert_eq!(block.sortition, true);
+        assert_eq!(block.num_sortitions, round as u64 + 1);
+        assert_eq!(block.block_height, round as u64 + 203);
         match round {
             0 => {
-                let block = &burnchain_tip.block_snapshot;
-                assert!(block.block_height == 203);
-                assert!(block.total_burn == 5000);
-                assert!(block.num_sortitions == 1);
-                assert!(block.sortition == true);
-
                 let state_transition = &burnchain_tip.state_transition;
                 assert!(state_transition.accepted_ops.len() == 1);
                 assert!(state_transition.consumed_leader_keys.len() == 1);
@@ -157,19 +159,13 @@ fn bitcoind_integration_test() {
                             assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 0);
                             assert!(op.parent_vtxindex == 0);
-                            assert!(op.burn_fee == 5000);
+                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                         }
                         _ => assert!(false)
                     }
                 }
             },
             1 => {
-                let block = &burnchain_tip.block_snapshot;
-                assert!(block.block_height == 204);
-                assert!(block.total_burn == 10000);
-                assert!(block.num_sortitions == 2);
-                assert!(block.sortition == true);
-
                 let state_transition = &burnchain_tip.state_transition;
                 assert!(state_transition.accepted_ops.len() == 1);
                 assert!(state_transition.consumed_leader_keys.len() == 1);
@@ -182,7 +178,7 @@ fn bitcoind_integration_test() {
                         LeaderBlockCommit(op) => {
                             assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 203);
-                            assert!(op.burn_fee == 5000);
+                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                         }
                         _ => assert!(false)
                     }
@@ -191,12 +187,6 @@ fn bitcoind_integration_test() {
                 assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             2 => {
-                let block = &burnchain_tip.block_snapshot;
-                assert!(block.block_height == 205);
-                assert!(block.total_burn == 15000);
-                assert!(block.num_sortitions == 3);
-                assert!(block.sortition == true);
-
                 let state_transition = &burnchain_tip.state_transition;
                 assert!(state_transition.accepted_ops.len() == 1);
                 assert!(state_transition.consumed_leader_keys.len() == 1);
@@ -209,7 +199,7 @@ fn bitcoind_integration_test() {
                         LeaderBlockCommit(op) => {
                             assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 204);
-                            assert!(op.burn_fee == 5000);
+                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                         }
                         _ => assert!(false)
                     }
@@ -218,12 +208,6 @@ fn bitcoind_integration_test() {
                 assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             3 => {
-                let block = &burnchain_tip.block_snapshot;
-                assert!(block.block_height == 206);
-                assert!(block.total_burn == 20000);
-                assert!(block.num_sortitions == 4);
-                assert!(block.sortition == true);
-
                 let state_transition = &burnchain_tip.state_transition;
                 assert!(state_transition.accepted_ops.len() == 1);
                 assert!(state_transition.consumed_leader_keys.len() == 1);
@@ -236,7 +220,7 @@ fn bitcoind_integration_test() {
                         LeaderBlockCommit(op) => {
                             assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 205);
-                            assert!(op.burn_fee == 5000);
+                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                         }
                         _ => assert!(false)
                     }
@@ -245,12 +229,6 @@ fn bitcoind_integration_test() {
                 assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             4 => {
-                let block = &burnchain_tip.block_snapshot;
-                assert!(block.block_height == 207);
-                assert!(block.total_burn == 25000);
-                assert!(block.num_sortitions == 5);
-                assert!(block.sortition == true);
-
                 let state_transition = &burnchain_tip.state_transition;
                 assert!(state_transition.accepted_ops.len() == 1);
                 assert!(state_transition.consumed_leader_keys.len() == 1);
@@ -263,7 +241,7 @@ fn bitcoind_integration_test() {
                         LeaderBlockCommit(op) => {
                             assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 206);
-                            assert!(op.burn_fee == 5000);
+                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                         }
                         _ => assert!(false)
                     }
@@ -272,12 +250,6 @@ fn bitcoind_integration_test() {
                 assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             5 => {
-                let block = &burnchain_tip.block_snapshot;
-                assert!(block.block_height == 208);
-                assert!(block.total_burn == 30000);
-                assert!(block.num_sortitions == 6);
-                assert!(block.sortition == true);
-
                 let state_transition = &burnchain_tip.state_transition;
                 assert!(state_transition.accepted_ops.len() == 1);
                 assert!(state_transition.consumed_leader_keys.len() == 1);
@@ -290,7 +262,7 @@ fn bitcoind_integration_test() {
                         LeaderBlockCommit(op) => {
                             assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "ff80684f3a5912662adbae013fb6521f10fb6ba7e4e60ccba8671b765cef8a34");
                             assert!(op.parent_block_ptr == 207);
-                            assert!(op.burn_fee == 5000);
+                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                         }
                         _ => assert!(false)
                     }
