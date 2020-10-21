@@ -51,6 +51,7 @@ use chainstate::stacks::StacksPublicKey;
 
 use chainstate::burn::db::sortdb::PoxId;
 use chainstate::burn::distribution::BurnSamplePoint;
+use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::operations::LeaderKeyRegisterOp;
@@ -311,7 +312,7 @@ impl PoxConstants {
     }
 
     pub fn reward_slots(&self) -> u32 {
-        self.reward_cycle_length
+        self.reward_cycle_length * (OUTPUTS_PER_COMMIT as u32)
     }
 
     /// is participating_ustx enough to engage in PoX in the next reward cycle?

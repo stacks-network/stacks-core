@@ -191,10 +191,10 @@ Address validity is determined according to two different rules:
    descendant of the anchor block*, all of the miner's commitment
    funds must be burnt.
 2. If a miner is building off a descendant of the anchor block, the
-   miner must send commitment funds to 5 addresses from the reward
+   miner must send commitment funds to 2 addresses from the reward
    set, chosen as follows:
     * Use the verifiable random function (also used by sortition) to
-      choose 5 addresses from the reward set. These 5 addresses are
+      choose 2 addresses from the reward set. These 2 addresses are
       the reward addresses for this block.
     * Once addresses have been chosen for a block, these addresses are
       removed from the reward set, so that future blocks in the reward
@@ -217,24 +217,25 @@ addresses for a reward cycle, then each miner commitment would have
 
 ## Adjusting Reward Threshold Based on Participation
 
-Each reward cycle may transfer miner funds to up to 5000 Bitcoin
-addresses. To ensure that this number of addresses is sufficient to
-cover the pool of participants (given 100% participation of liquid
-STX), the threshold for participation must be 0.02% (1/5000th) of the
-liquid supply of STX. However, if participation is _lower_ than 100%,
-the reward pool could admit lower STX holders. The Stacking protocol
-specifies **2 operating levels**:
+Each reward cycle may transfer miner funds to up to 4000 Bitcoin
+addresses (2 addresses in a 2000 burn block cycle). To ensure that
+this number of addresses is sufficient to cover the pool of
+participants (given 100% participation of liquid STX), the threshold
+for participation must be 0.025% (1/4000th) of the liquid supply of
+STX. However, if participation is _lower_ than 100%, the reward pool
+could admit lower STX holders. The Stacking protocol specifies **2
+operating levels**:
 
 * **25%** If fewer than `0.25 * STX_LIQUID_SUPPLY` STX participate in
   a reward cycle, participant wallets controlling `x` STX may include
-  `floor(x / (0.00005*STX_LIQUID_SUPPLY))` addresses in the reward set.
-  That is, the minimum participation threshold is 1/20,000th of the liquid
+  `floor(x / (0.0000625*STX_LIQUID_SUPPLY))` addresses in the reward set.
+  That is, the minimum participation threshold is 1/16,000th of the liquid
   supply.
 * **25%-100%** If between `0.25 * STX_LIQUID_SUPPLY` and `1.0 *
   STX_LIQUID_SUPPLY` STX participate in a reward cycle, the reward
   threshold is optimized in order to maximize the number of slots that
   are filled. That is, the minimum threshold `T` for participation will be
-  roughly 1/5,000th of the participating STX (adjusted in increments
+  roughly 1/4,000th of the participating STX (adjusted in increments
   of 10,000 STX). Participant wallets controlling `x` STX may
   include `floor(x / T)` addresses in the
   reward set.
@@ -517,10 +518,6 @@ the second through nth outputs:
        The order of these addresses does not matter. Each of these outputs must receive the
        same amount of BTC.
     c. If the number of remaining addresses in the reward set N is less than M, then the leader
-       block commit transaction must burn BTC:
-          i. If N > 0, then the (N+2)nd output must be a burn output, and it must burn
-             (M-N) * (the amount of BTC transfered to each of the first N outputs)
-         ii. If N == 0, then the 2nd output must be a burn output, and the amount burned
-             by this output will be counted as the amount committed to by the block commit.
-2. Otherwise, the 2nd output must be a burn output, and the amount burned by this output will be
-   counted as the amount committed to by the block commit.
+       block commit transaction must burn BTC by including (M-N) burn outputs.
+2. Otherwise, the second through (M+1)th output must be burn addresses, and the amount burned by
+   these outputs will be counted as the amount committed to by the block commit.
