@@ -36,6 +36,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
+    conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.mode = "neon".into();
     conf.burnchain.username = Some("neon-tester".into());
@@ -491,6 +492,16 @@ fn microblock_integration_test() {
             assert_eq!(&parent_index_hash, previous_index_hash);
         }
 
+        // make sure we have a burn_block_hash, burn_block_height and miner_txid
+
+        eprintln!("{}", block);
+
+        let _burn_block_hash = block.get("burn_block_hash").unwrap().as_str().unwrap();
+
+        let _burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
+
+        let _miner_txid = block.get("miner_txid").unwrap().as_str().unwrap();
+
         prior = Some(my_index_hash);
     }
 
@@ -760,7 +771,7 @@ fn pox_integration_test() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut burnchain_config = btc_regtest_controller.get_burnchain();
-    let mut pox_constants = PoxConstants::new(10, 5, 4, 5, 15);
+    let pox_constants = PoxConstants::new(10, 5, 4, 5, 15);
     burnchain_config.pox_constants = pox_constants;
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -994,7 +1005,7 @@ fn pox_integration_test() {
     eprintln!("Got UTXOs: {}", utxos.len());
     assert_eq!(
         utxos.len(),
-        3,
+        7,
         "Should have received three outputs during PoX reward cycle"
     );
 
@@ -1006,7 +1017,7 @@ fn pox_integration_test() {
     eprintln!("Got UTXOs: {}", utxos.len());
     assert_eq!(
         utxos.len(),
-        3,
+        7,
         "Should have received three outputs during PoX reward cycle"
     );
 

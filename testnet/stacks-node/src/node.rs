@@ -9,7 +9,8 @@ use std::{thread, thread::JoinHandle, time};
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
 use stacks::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
@@ -631,7 +632,7 @@ impl Node {
         };
 
         self.event_dispatcher
-            .process_chain_tip(&chain_tip, &parent_index_hash);
+            .process_chain_tip(&chain_tip, &parent_index_hash, Txid([0; 32]));
 
         self.chain_tip = Some(chain_tip.clone());
 
@@ -692,6 +693,8 @@ impl Node {
             ),
         };
 
+        let commit_outs = RewardSetInfo::into_commit_outs(None, false);
+
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             block_header_hash,
             burn_fee,
@@ -704,7 +707,7 @@ impl Node {
             parent_vtxindex,
             vtxindex: 0,
             txid: Txid([0u8; 32]),
-            commit_outs: vec![],
+            commit_outs,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash([0u8; 32]),
         })
