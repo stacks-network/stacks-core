@@ -582,7 +582,7 @@ impl PeerNetwork {
                     // safety check -- don't send to someone who has already been a relayer
                     let mut do_relay = true;
                     if let Some(pubkey) = convo.ref_public_key() {
-                        let pubkey_hash = Hash160::from_data(&pubkey.to_bytes());
+                        let pubkey_hash = Hash160::from_node_public_key(pubkey);
                         for rhint in relay_hints.iter() {
                             if rhint.peer.public_key_hash == pubkey_hash {
                                 do_relay = false;
@@ -819,7 +819,7 @@ impl PeerNetwork {
         // don't send a message to anyone who sent this message to us
         for (_, convo) in self.peers.iter() {
             if let Some(pubkey) = convo.ref_public_key() {
-                let pubkey_hash = Hash160::from_data(&pubkey.to_bytes());
+                let pubkey_hash = Hash160::from_node_public_key(pubkey);
                 if relay_pubkhs.contains(&pubkey_hash) {
                     let nk = convo.to_neighbor_key();
                     debug!(
@@ -1105,16 +1105,19 @@ impl PeerNetwork {
     }
 
     /// Is a node with the given public key hash registered?
-    /// Return the event ID if so
-    pub fn get_pubkey_event(&self, pubkh: &Hash160) -> Option<usize> {
-        for (_, convo) in self.peers.iter() {
-            if let Some(convo_pubkh) = convo.get_public_key_hash() {
-                if convo_pubkh == *pubkh {
-                    return Some(convo.conn_id);
+    /// Return the event IDs if so
+    pub fn get_pubkey_events(&self, pubkh: &Hash160) -> Vec<usize> {
+        let mut ret = vec![];
+        for (event_id, convo) in self.peers.iter() {
+            if convo.is_authenticated() {
+                if let Some(convo_pubkh) = convo.get_public_key_hash() {
+                    if convo_pubkh == *pubkh {
+                        ret.push(*event_id);
+                    }
                 }
             }
         }
-        None
+        ret
     }
 
     /// Find the neighbor key bound to an event ID
@@ -1193,22 +1196,37 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Check to see if we can register a peer with a given public key
+    /// Check to see if we can register a peer with a given public key in a given direction
     pub fn can_register_peer_with_pubkey(
         &mut self,
         nk: &NeighborKey,
         outbound: bool,
         pubkh: &Hash160,
     ) -> Result<(), net_error> {
+        // can't talk to myself
+        let my_pubkey_hash = Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
+            &self.local_peer.private_key,
+        ));
+        if pubkh == &my_pubkey_hash {
+            return Err(net_error::ConnectionCycle);
+        }
+
         self.can_register_peer(nk, outbound).and_then(|_| {
-            if let Some(event_id) = self.get_pubkey_event(pubkh) {
-                let nk = self
-                    .get_event_neighbor_key(event_id)
-                    .ok_or(net_error::PeerNotConnected)?;
-                Err(net_error::AlreadyConnected(event_id, nk))
-            } else {
-                Ok(())
+            let other_events = self.get_pubkey_events(pubkh);
+            if other_events.len() > 0 {
+                for event_id in other_events.into_iter() {
+                    if let Some(convo) = self.peers.get(&event_id) {
+                        // only care if we're trying to connect in the same direction
+                        if outbound == convo.is_outbound() {
+                            let nk = self
+                                .get_event_neighbor_key(event_id)
+                                .ok_or(net_error::PeerNotConnected)?;
+                            return Err(net_error::AlreadyConnected(event_id, nk));
+                        }
+                    }
+                }
             }
+            return Ok(());
         })
     }
 
@@ -1417,7 +1435,7 @@ impl PeerNetwork {
         match self.events.get(&peer_key) {
             None => {
                 // not connected
-                info!("Could not sign for peer {:?}: not connected", peer_key);
+                debug!("Could not sign for peer {:?}: not connected", peer_key);
                 Err(net_error::PeerNotConnected)
             }
             Some(event_id) => match self.peers.get_mut(&event_id) {
@@ -2918,9 +2936,9 @@ impl PeerNetwork {
             self.walk_pingbacks.remove(&naddr);
         }
 
-        let my_pubkey_hash = Hash160::from_data(
-            &Secp256k1PublicKey::from_private(&self.local_peer.private_key).to_bytes()[..],
-        );
+        let my_pubkey_hash = Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
+            &self.local_peer.private_key,
+        ));
 
         // add new pingbacks
         for event_id in event_ids.into_iter() {
