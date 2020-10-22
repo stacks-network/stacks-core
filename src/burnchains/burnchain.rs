@@ -774,7 +774,7 @@ impl Burnchain {
         );
 
         let header = block.header();
-        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block, 0)?;
+        let blockstack_txs = burnchain_db.store_new_burnchain_block(&block, u64::max_value())?;
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
