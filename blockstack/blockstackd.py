@@ -3181,11 +3181,17 @@ def run_blockstackd():
         'path', nargs='?',
         help='the path to the fastdump file')
     parser.add_argument(
-        'consensus_hash',
+        'block_height', nargs='?',
+        help='the block height to export from')
+    parser.add_argument(
+        'consensus_hash', nargs='?',
         help='the known-good consensus hash string or file path')
     parser.add_argument(
-        'output_path',
+        'output_path', nargs='?',
         help='the migration JSON output file path')
+    parser.add_argument(
+        '--verify', action='store_true',
+        help='Run a full database verification against the consensus hash')
     parser.add_argument(
         '--working-dir', action='store',
         help='Directory with the chain state to use')
@@ -3502,14 +3508,18 @@ def run_blockstackd():
 
     elif args.action == 'export_migration_json':
         path = str(args.path)
-        rc = fast_sync_import(working_dir, path, public_keys=None, num_required=0, verbose=True, delete_file=False)
+        print "Importing fast-sync dump {} into {}".format(path, working_dir)
+        rc = True
+        # rc = fast_sync_import(working_dir, path, public_keys=None, num_required=0, verbose=True, delete_file=False)
         if not rc:
            print 'fast_sync failed'
            sys.exit(1)
 
         # treat this as a recovery
+        print "Running setup recovery..."
         setup_recovery(working_dir)
 
+        block = int(args.block_height)
         # allow consensus_hash to be provided as a string or within a file
         consensus_hash = args.consensus_hash
         if os.path.exists(consensus_hash):
@@ -3517,26 +3527,31 @@ def run_blockstackd():
                 consensus_hash = file.read().replace('\n', '')
     
         db = get_db_state(working_dir)
-        ch = db.get_current_consensus()
+        ch = db.get_consensus_at(block)
         if str(ch) != consensus_hash:
             print "Fast-sync import does not match consensus hash!"
-            # sys.exit(1)
-        block = db.get_current_block()
+            sys.exit(1)
 
-        tmpdir = tempfile.mkdtemp('blockstack-verify-chainstate-XXXXXX')
-        db_verified = False
-        try:
-            db_verified = verify_database(consensus_hash, block, working_dir, tmpdir)
-        except:
-            pass
-        if db_verified:
-           print "Database is consistent with %s" % args.consensus_hash
-        else:
-           print "Database is NOT CONSISTENT"
-           # TODO: can't get this passing using regtest fastdumps
-           # sys.exit(1)
+        if args.verify:
+            db_verified = False
+            print "Running database verification..."
+            tmpdir = tempfile.mkdtemp('blockstack-verify-chainstate-XXXXXX')
+            try:
+                db_verified = verify_database(consensus_hash, block, working_dir, tmpdir, start_block=FIRST_BLOCK_MAINNET)
+            except Exception as e:
+                print "Exception during database verification"
+                print e
+                traceback.print_exc()
+            shutil.rmtree(tmpdir)
+            if db_verified:
+                print "Database is consistent with %s" % args.consensus_hash
+            else:
+                print "Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash)
+                sys.exit(1)
 
+        print "Querying account addresses..."
         addresses = db.get_all_account_addresses(force_allow=True)
+        print "Querying account balances..."
         stx_balances = []
         for addr in addresses:
             account = db.get_account(str(addr), TOKEN_TYPE_STACKS)
@@ -3549,6 +3564,7 @@ def run_blockstackd():
                         'balance': str(balance)
                     })
 
+        print "Querying account vesting addresses..."
         vesting_entries = db.get_account_vesting_addresses(block)
         vesting = []
         for entry in vesting_entries:
@@ -3559,12 +3575,13 @@ def run_blockstackd():
             account['blocks'] = entry['block_id'] - block
             vesting.append(account)
 
-        # write migration data to json file
+        # write migration data to json object
         json_data = {}
         json_data['balances'] = stx_balances
         json_data['vesting'] = vesting
 
         # write the json output file
+        print "Writing migration data to {}".format(args.output_path)
         with open(args.output_path, 'w') as json_out:
             json.dump(json_data, json_out, separators=(',', ':'))
 
@@ -3573,10 +3590,14 @@ def run_blockstackd():
         with open(args.output_path, 'rb') as f:
             file_bytes = f.read()
             json_hash = sha256(file_bytes).hexdigest()
-            print 'migration json sha256: {}'.format(json_hash)
             output_path, ext = os.path.splitext(args.output_path)
-            with open(output_path + '.sha256', 'w') as hash_out:
+            hash_file_name = output_path + '.sha256'
+            print "Migration data sha256 hash: {}".format(json_hash)
+            with open(hash_file_name, 'w') as hash_out:
                 hash_out.write(json_hash)
+                print "Migration data sha256 hash wrote to file {}".format(hash_file_name)
+
+        print "Migration data export complete"
 
     elif args.action == 'fast_sync':
         # fetch the snapshot and verify it
