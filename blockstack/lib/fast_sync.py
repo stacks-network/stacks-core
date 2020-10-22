@@ -624,44 +624,45 @@ def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLI
         log.exception(e)
         return False
 
-    if num_required > 0:
-        num_signatures = 0
-        ptr = file_size
-        signatures = []
-        with open(import_path, 'r') as f:
-            info = fast_sync_inspect( f )
-            if 'error' in info:
-                logerr("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
-                return False
-
+    num_signatures = 0
+    ptr = file_size
+    signatures = []
+    hash_hex = None
+    with open(import_path, 'r') as f:
+        info = fast_sync_inspect( f )
+        if 'error' in info and num_required > 0:
+            logerr("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
+            return False
+        elif num_required > 0:
             signatures = info['signatures']
             ptr = info['payload_size']
 
             # get the hash of the file 
             hash_hex = get_file_hash(f, hashlib.sha256, fd_len=ptr)
-            
+        
             # validate signatures over the hash
             logmsg("Verify {} bytes".format(ptr))
-            key_idx = 0
-            num_match = 0
-            for next_pubkey in public_keys:
-                for sigb64 in signatures:
-                    valid = verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
-                    if valid:
-                        num_match += 1
-                        if num_match >= num_required:
-                            break
-                        
-                        logmsg("Public key {} matches {} ({})".format(next_pubkey, sigb64, hash_hex))
-                        signatures.remove(sigb64)
-                    
-                    else:
-                        logmsg("Public key {} does NOT match {} ({})".format(next_pubkey, sigb64, hash_hex))
 
-            # enough signatures?
-            if num_match < num_required:
-                logerr("Not enough signatures match (required {}, found {})".format(num_required, num_match))
-                return False
+        key_idx = 0
+        num_match = 0
+        for next_pubkey in public_keys:
+            for sigb64 in signatures:
+                valid = verify_digest( hash_hex, keylib.ECPublicKey(next_pubkey).to_hex(), sigb64, hashfunc=hashlib.sha256 ) 
+                if valid:
+                    num_match += 1
+                    if num_match >= num_required:
+                        break
+                    
+                    logmsg("Public key {} matches {} ({})".format(next_pubkey, sigb64, hash_hex))
+                    signatures.remove(sigb64)
+                
+                else:
+                    logmsg("Public key {} does NOT match {} ({})".format(next_pubkey, sigb64, hash_hex))
+
+        # enough signatures?
+        if num_match < num_required:
+            logerr("Not enough signatures match (required {}, found {})".format(num_required, num_match))
+            return False
 
     # decompress
     import_path = os.path.abspath(import_path)

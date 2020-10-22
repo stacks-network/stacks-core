@@ -3510,7 +3510,7 @@ def run_blockstackd():
         path = str(args.path)
         print "Importing fast-sync dump {} into {}".format(path, working_dir)
         rc = True
-        rc = fast_sync_import(working_dir, path, public_keys=None, num_required=0, verbose=True, delete_file=False)
+        rc = fast_sync_import(working_dir, path, public_keys=[], num_required=0, verbose=True, delete_file=False)
         if not rc:
            print 'fast_sync failed'
            sys.exit(1)
