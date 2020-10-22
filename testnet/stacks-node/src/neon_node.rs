@@ -211,12 +211,7 @@ fn inner_generate_block_commit_op(
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
 
-    let commit_outs = if let Some(recipient_set) = recipients {
-        let (addr, _) = recipient_set.recipient;
-        vec![addr]
-    } else {
-        vec![]
-    };
+    let commit_outs = RewardSetInfo::into_commit_outs(recipients, false);
 
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
