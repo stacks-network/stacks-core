@@ -594,7 +594,7 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
             # check if threshold is reached at current block height
             v2_signals = db_state.get_num_names_in_namespace(v2_upgrade_signal_namespace)
             if (v2_signals >= v2_upgrade_signal_required_registrations):
-                log.debug('[v2-upgrade] namespace signal threshold reached at block: {}'.format(block_height))
+                log.warn('[v2-upgrade] namespace signal threshold reached at block: {}'.format(block_height))
                 db_state.set_v2_upgrade_threshold_block(block_height)
 
         return True
