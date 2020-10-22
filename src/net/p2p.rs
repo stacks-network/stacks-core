@@ -52,6 +52,7 @@ use net::server::*;
 use net::relay::*;
 
 use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats};
+use net::atlas::{AttachmentRequest};
 
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -3269,6 +3270,7 @@ impl PeerNetwork {
         download_backpressure: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
+        attachment_requests: HashSet<AttachmentRequest>
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
@@ -3288,6 +3290,8 @@ impl PeerNetwork {
         let http_poll_state = poll_states
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
+
+        self.update_attachments_inventory(attachment_requests, sortdb, chainstate);
 
         let mut result = NetworkResult::new();
 

@@ -34,7 +34,7 @@ pub mod atlas;
 
 use std::borrow::Borrow;
 use std::cmp::PartialEq;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::From;
 use std::convert::TryFrom;
 use std::error;
@@ -849,7 +849,7 @@ pub struct NatPunchData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct GetZonefilesInv {
+pub struct GetAttachmentsInv {
     pub nonce: u32,
 }
 
@@ -859,7 +859,7 @@ pub struct ZonefilesInvData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct GetZonefileData {
+pub struct GetAttachmentData {
     pub nonce: u32,
 }
 
@@ -903,9 +903,9 @@ pub enum StacksMessageType {
     Pong(PongData),
     NatPunchRequest(u32),
     NatPunchReply(NatPunchData),
-    GetZonefilesInv(GetZonefilesInv),
+    GetAttachmentsInv(GetAttachmentsInv),
     ZonefilesInv(ZonefilesInvData),
-    GetZonefile(GetZonefileData),
+    GetAttachment(GetAttachmentData),
     ZonefilesAvailable(ZonefilesAvailableData),
     Zonefiles(ZonefilesData)
 }
@@ -1104,17 +1104,24 @@ pub struct GetNameResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PostZonefileResponse {
+pub struct PostAttachmentResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GetZonefileResponse {
+pub struct GetAttachmentResponse {
+    attachment: Attachment
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GetZonefilesInvResponse {
-    pages_indexes: Vec<u32>,
-    inventory: Vec<u8>
+pub struct GetAttachmentsInvResponse {
+    block_id: StacksBlockId,
+    pages: Vec<AttachmentPage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachmentPage {
+    pub index: u32,
+    pub inventory: Vec<u8>
 }
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
@@ -1240,9 +1247,9 @@ pub enum HttpRequestType {
     ),
     OptionsPreflight(HttpRequestMetadata, String),
     GetName(HttpRequestMetadata, String, Option<StacksBlockId>),
-    GetZonefile(HttpRequestMetadata, String, Option<StacksBlockId>),
-    GetZonefilesInv(HttpRequestMetadata, Option<StacksBlockId>, u32),
-    PostZonefile(HttpRequestMetadata, Attachment),
+    GetAttachment(HttpRequestMetadata, String),
+    GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
+    PostAttachment(HttpRequestMetadata, Attachment),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1333,9 +1340,9 @@ pub enum HttpResponseType {
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
     GetName(HttpResponseMetadata, GetNameResponse),
-    GetZonefile(HttpResponseMetadata, GetZonefileResponse),
-    GetZonefilesInv(HttpResponseMetadata, GetZonefilesInvResponse),
-    PostZonefile(HttpResponseMetadata, PostZonefileResponse),
+    GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
+    GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
+    PostAttachment(HttpResponseMetadata, PostAttachmentResponse),
     OptionsPreflight(HttpResponseMetadata),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
@@ -1377,9 +1384,9 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
-    GetZonefilesInv = 19,
+    GetAttachmentsInv = 19,
     ZonefilesInv = 20,
-    GetZonefile = 21,
+    GetAttachment = 21,
     ZonefilesAvailable = 22,
     Zonefiles = 23,
     Reserved = 255,

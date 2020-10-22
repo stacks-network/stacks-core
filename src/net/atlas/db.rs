@@ -3,6 +3,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
+use std::collections::HashSet;
 use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
@@ -10,7 +11,7 @@ use std::fs;
 use util::db::tx_begin_immediate;
 use util::db::DBConn;
 use util::db::Error as db_error;
-use util::db::{query_count, query_row, query_rows, u64_to_sql, FromColumn, FromRow};
+use util::db::{query_count, query_row, query_rows, query_int, u64_to_sql, FromColumn, FromRow};
 
 use util;
 use util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160};
@@ -19,30 +20,35 @@ use util::macros::is_big_endian;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 
-use super::inv::ZonefileHash;
-use super::Attachment;
+use chainstate::stacks::StacksBlockId;
+
+use super::inv::{ZonefileHash, AttachmentCoordinates};
+use super::{Attachment, AttachmentRequest};
 
 pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
 
+// todo(ludo): should have one DB for BNS, and one DB for Atlas.
 const ATLASDB_SETUP: &'static [&'static str] = &[
     r#"
     CREATE TABLE attachments(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at INTEGER NOT NULL,
-        content_hash TEXT NOT NULL,
-        content TEXT NOT NULL,
-        txid STRING UNIQUE NOT NULL,
-        stacks_block_id INTEGER NOT NULL,
-        inv_index INTEGER NOT NULL,
-        present INTEGER NOT NULL,
-        tried_storage TEXT NOT NULL,
-        block_height INTEGER NOT NULL
+        content_hash TEXT UNIQUE PRIMARY KEY,
+        content TEXT NOT NULL
     );"#,
     r#"
-    CREATE TABLE unprocessed_attachments(
+    CREATE TABLE attachments_coordinates(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at INTEGER NOT NULL,
         content_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        block_id STRING NOT NULL,
+        position_in_page INTEGER NOT NULL,
+        page_index INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        is_available INTEGER NOT NULL
+    );"#,
+    r#"
+    CREATE TABLE inboxed_attachments(
+        content_hash TEXT UNIQUE PRIMARY KEY,
+        created_at INTEGER NOT NULL,
         content TEXT NOT NULL
     );"#, // todo(ludo): should content be a BLOB instead? 
     r#"
@@ -56,6 +62,34 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
     CREATE TABLE db_version(version TEXT NOT NULL);
     "#
 ];
+
+impl FromRow<Attachment> for Attachment {
+    fn from_row<'a>(row: &'a Row) -> Result<Attachment, db_error> {
+        let content: String = row.get("content");
+        let content_hash: String = row.get("content_hash");
+
+        Ok(Attachment {
+            content,
+            content_hash
+        })
+    }
+}
+
+impl FromRow<AttachmentCoordinates> for AttachmentCoordinates {
+    fn from_row<'a>(row: &'a Row) -> Result<AttachmentCoordinates, db_error> {
+        let content_hash: String = row.get("content_hash");
+        let position_in_page: u32 = row.get("position_in_page");
+        let page_index: u32 = row.get("page_index");
+        let block_height = u64::from_column(row, "block_height").unwrap(); // todo(ludo)
+
+        Ok(AttachmentCoordinates {
+            content_hash,
+            position_in_page,
+            page_index,
+            block_height
+        })
+    }
+}
 
 #[derive(Debug)]
 pub struct AtlasDB {
@@ -156,8 +190,8 @@ impl AtlasDB {
         Ok(rows)
     }
 
-    pub fn get_processed_zonefiles_hashes_at_page(&self, min: u32, max: u32) -> (Vec<Option<ZonefileHash>>, Vec<u32>) {
-        let mut missing_indexes = vec![];
+    pub fn get_processed_zonefiles_hashes_at_page(&self, min: u32, max: u32) -> (Vec<Option<ZonefileHash>>, HashSet<u32>) {
+        let mut missing_indexes = HashSet::new();
         let mut downloaded_zonefiles = match self.get_zonefiles_hashes_in_range_desc(min, max) {
             Ok(zonefiles) => zonefiles,
             Err(e) => {
@@ -176,7 +210,7 @@ impl AtlasDB {
                 }
             };
             if entry.is_none() {
-                missing_indexes.push(cursor);
+                missing_indexes.insert(cursor);
             }
 
             zonefiles_hashes.push(entry);
@@ -185,12 +219,72 @@ impl AtlasDB {
         (zonefiles_hashes, missing_indexes)
     }
 
-    pub fn insert_unprocessed_attachment(&mut self, attachment: Attachment) -> Result<(), db_error> {
+    pub fn get_block_height_window_for_page_index(&self, page_index: u32) -> Result<(u64, u64), db_error> {
+        let qry = "SELECT min(block_height) as min, max(block_height) as max FROM attachments_coordinates WHERE page_index = ?1".to_string();
+        let args = [&page_index as &dyn ToSql];
+        let result = query_int::<_>(&self.conn, &qry, &args)?;
+
+        let mut stmt = self.conn.prepare(&qry)?;
+        let mut rows = stmt.query(&args)?;
+        match rows.next() {
+            Some(Ok(row)) => {
+                let min= u64::from_column(&row, "min")?;
+                let max = u64::from_column(&row, "max")?;
+                Ok((min, max))
+            }
+            _ => {
+                Err(db_error::NotFoundError)
+            }
+        }
+    }
+
+    pub fn get_inventoried_attachments_at_page_index(&self, page_index: u32,  ancestor_tree: Vec<StacksBlockId>) -> Result<Vec<AttachmentCoordinates>, db_error> {
+        let qry = "SELECT * FROM attachments_coordinates WHERE page_index = ?1 AND block_id IN (?2) ORDER BY position_in_page DESC".to_string();
+        let ancestor_tree_sql = ancestor_tree.iter()
+            .map(|block_id| format!("'{}'", block_id))
+            .collect::<Vec<String>>()
+            .join(", ");
+        let args = [&page_index as &dyn ToSql, &ancestor_tree_sql as &dyn ToSql];
+        let rows = query_rows::<AttachmentCoordinates, _>(&self.conn, &qry, &args)?;
+        Ok(rows)
+    }
+
+    pub fn get_attachments_available_at_pages_indexes(&self, pages_indexes: &Vec<u32>, blocks_ids: &Vec<StacksBlockId>) -> Result<Vec<Vec<u8>>, db_error> {
+        let mut pages = vec![];
+        for page_index in pages_indexes {
+            let page = self.get_attachments_missing_at_page_index(*page_index, blocks_ids)?;
+            let mut bit_vector = vec![];
+            let mut byte: u8 = 0;
+            for (index, is_attachment_missing) in page.iter().enumerate() {
+                if index % 8 == 0 {
+                    bit_vector.push(byte);
+                    byte = 0;
+                }
+                byte = byte << if *is_attachment_missing {0} else {1};
+            }
+            pages.push(bit_vector);
+        }
+        Ok(pages)
+    }
+
+    pub fn get_attachments_missing_at_page_index(&self, page_index: u32, blocks_ids: &Vec<StacksBlockId>) -> Result<Vec<bool>, db_error> {
+        let qry = "SELECT is_available FROM attachments_coordinates WHERE page_index = ?1 AND block_id IN (?2) ORDER BY position_in_page ASC".to_string();
+        let ancestor_tree_sql = blocks_ids.iter()
+            .map(|block_id| format!("'{}'", block_id))
+            .collect::<Vec<String>>()
+            .join(", ");
+        let args = [&page_index as &dyn ToSql, &ancestor_tree_sql as &dyn ToSql];
+        let rows = query_rows::<i64, _>(&self.conn, &qry, &args)?;
+        let res = rows.iter().map(|r| *r == 0).collect::<Vec<bool>>();
+        Ok(res)
+    }
+
+    pub fn insert_new_inboxed_attachment(&mut self, attachment: Attachment) -> Result<(), db_error> {
 
         // Check hash + content
 
         // Do we already have an entry (proceessed or unprocessed) for this attachment? - todo(ludo) think more about this
-        let qry = "SELECT count(*) FROM unprocessed_attachments WHERE content_hash = ?1".to_string();
+        let qry = "SELECT count(*) FROM inboxed_attachments WHERE content_hash = ?1".to_string();
         let args = [&attachment.content_hash as &dyn ToSql];
         let count = query_count(&self.conn, &qry, &args)?;
         if count != 0 {
@@ -199,306 +293,90 @@ impl AtlasDB {
         }
 
         let tx = self.tx_begin()?;
-
         let now = util::get_epoch_time_secs() as i64;
-
         let res = tx.execute(
-            "INSERT INTO unprocessed_attachments (content_hash, content, created_at) VALUES (?1, ?2, ?3)",
+            "INSERT INTO inboxed_attachments (content_hash, content, created_at) VALUES (?1, ?2, ?3)",
             &[
                 &attachment.content_hash as &dyn ToSql, 
                 &attachment.content as &dyn ToSql,
                 &now as &dyn ToSql
             ]
         );
-
         res.map_err(db_error::SqliteError)?;
-
         tx.commit().map_err(db_error::SqliteError)?;
-
         Ok(())
     }
 
+    pub fn find_inboxed_attachment(&mut self, content_hash: &str) -> Result<Option<Attachment>, db_error> {
+        let qry = "SELECT content, content_hash FROM inboxed_attachments WHERE content_hash = ?1".to_string();
+        let args = [&content_hash as &dyn ToSql];
+        let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;
+        Ok(row)
+    }
 
-    // Set the local IP address and port
-    // pub fn set_local_ipaddr<'a>(
-    //     tx: &mut Transaction<'a>,
-    //     addrbytes: &PeerAddress,
-    //     port: u16,
-    // ) -> Result<(), db_error> {
-    //     tx.execute(
-    //         "UPDATE local_peer SET addrbytes = ?1, port = ?2",
-    //         &[&to_bin(&addrbytes.as_bytes().to_vec()), &port as &dyn ToSql],
-    //     )
-    //     .map_err(db_error::SqliteError)?;
+    pub fn find_attachment(&mut self, content_hash: &str) -> Result<Option<Attachment>, db_error> {
+        let qry = "SELECT content, content_hash FROM attachments WHERE content_hash = ?1".to_string();
+        let args = [&content_hash as &dyn ToSql];
+        let row = query_row::<Attachment, _>(&self.conn, &qry, &args)?;
+        Ok(row)
+    }
 
-    //     Ok(())
-    // }
+    pub fn insert_new_attachment_coordinates(&mut self, request: AttachmentRequest, is_available: bool) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        let now = util::get_epoch_time_secs() as i64;
+        let res = tx.execute(
+            "INSERT INTO attachments_coordinates (content_hash, created_at, block_id, position_in_page, page_index, block_height, is_available) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            &[
+                &request.content_hash as &dyn ToSql, 
+                &now as &dyn ToSql,
+                &request.get_stacks_block_id() as &dyn ToSql, 
+                &request.position_in_page as &dyn ToSql, 
+                &request.page_index as &dyn ToSql, 
+                &request.block_height as &dyn ToSql, 
+                &is_available as &dyn ToSql, 
+            ]
+        );
+        res.map_err(db_error::SqliteError)?;
+        tx.commit().map_err(db_error::SqliteError)?;
+        Ok(())
+    }
 
-    // Get peer by port (used in tests where the IP address doesn't really matter)
-    // #[cfg(test)]
-    // pub fn get_peer_by_port(
-    //     conn: &DBConn,
-    //     network_id: u32,
-    //     peer_port: u16,
-    // ) -> Result<Option<Neighbor>, db_error> {
-    //     let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND port = ?2".to_string();
-    //     let args = [&network_id as &dyn ToSql, &peer_port as &dyn ToSql];
-    //     query_row::<Neighbor, _>(conn, &qry, &args)
-    // }
+    pub fn insert_new_attachment(&mut self, content_hash: &str, content: &str) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        tx.execute(
+            "INSERT INTO attachments (content_hash, content) VALUES (?1, ?2)",
+            &[
+                &content_hash as &dyn ToSql, 
+                &content as &dyn ToSql,
+            ]
+        ).map_err(db_error::SqliteError)?;
+        tx.execute(
+            "UPDATE attachments_coordinates SET is_available = 1 WHERE content_hash = ?1",
+            &[&content_hash as &dyn ToSql],
+        ).map_err(db_error::SqliteError)?;
+        tx.commit().map_err(db_error::SqliteError)?;
+        Ok(())
+    }
 
-    // Get a peer record at a particular slot
-    // pub fn get_peer_at(
-    //     conn: &DBConn,
-    //     network_id: u32,
-    //     slot: u32,
-    // ) -> Result<Option<Neighbor>, db_error> {
-    //     let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND slot = ?2".to_string();
-    //     let args = [&network_id as &dyn ToSql, &slot as &dyn ToSql];
-    //     query_row::<Neighbor, _>(conn, &qry, &args)
-    // }
+    pub fn remove_attachment_from_inbox(&mut self, content_hash: &str) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        tx.execute(
+            "DELETE FROM inboxed_attachments WHERE content_hash = ?1",
+            &[&content_hash as &dyn ToSql,],
+        ).map_err(db_error::SqliteError)?;
+        tx.commit().map_err(db_error::SqliteError)?;
+        Ok(())
+    }
 
-    // Insert or replace a neighbor into a given slot
-    // pub fn insert_or_replace_peer<'a>(
-    //     tx: &mut Transaction<'a>,
-    //     neighbor: &Neighbor,
-    //     slot: u32,
-    // ) -> Result<(), db_error> {
-    //     let neighbor_args: &[&dyn ToSql] = &[
-    //         &neighbor.addr.peer_version,
-    //         &neighbor.addr.network_id,
-    //         &to_bin(neighbor.addr.addrbytes.as_bytes()),
-    //         &neighbor.addr.port,
-    //         &to_hex(&neighbor.public_key.to_bytes_compressed()),
-    //         &u64_to_sql(neighbor.expire_block)?,
-    //         &u64_to_sql(neighbor.last_contact_time)?,
-    //         &neighbor.asn,
-    //         &neighbor.org,
-    //         &neighbor.allowed,
-    //         &neighbor.denied,
-    //         &neighbor.in_degree,
-    //         &neighbor.out_degree,
-    //         &0i64,
-    //         &slot,
-    //     ];
+    pub fn import_attachment_from_inbox(&mut self, content_hash: &str) -> Result<(), db_error> {
 
-    //     tx.execute("INSERT OR REPLACE INTO frontier (peer_version, network_id, addrbytes, port, public_key, expire_block_height, last_contact_time, asn, org, allowed, denied, in_degree, out_degree, initial, slot) \
-    //                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", neighbor_args)
-    //         .map_err(db_error::SqliteError)?;
+        let attachment = match self.find_inboxed_attachment(content_hash) {
+            Ok(Some(attachment)) => attachment,
+            _ => return Err(db_error::NotFoundError)
+        };
 
-    //     Ok(())
-    // }
-
-    // Remove a peer from the peer database
-    // pub fn drop_peer<'a>(
-    //     tx: &mut Transaction<'a>,
-    //     network_id: u32,
-    //     peer_addr: &PeerAddress,
-    //     peer_port: u16,
-    // ) -> Result<(), db_error> {
-    //     tx.execute(
-    //         "DELETE FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
-    //         &[
-    //             &network_id as &dyn ToSql,
-    //             &peer_addr.to_bin() as &dyn ToSql,
-    //             &peer_port as &dyn ToSql,
-    //         ],
-    //     )
-    //     .map_err(db_error::SqliteError)?;
-
-    //     Ok(())
-    // }
-
-    // // Is a peer one of this node's initial neighbors?
-    // pub fn is_initial_peer(
-    //     conn: &DBConn,
-    //     network_id: u32,
-    //     peer_addr: &PeerAddress,
-    //     peer_port: u16,
-    // ) -> Result<bool, db_error> {
-    //     let res: Option<i64> = query_row(
-    //         conn,
-    //         "SELECT initial FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
-    //         &[&network_id as &dyn ToSql, &peer_addr.to_bin(), &peer_port],
-    //     )?;
-
-    //     match res {
-    //         Some(x) => Ok(x != 0),
-    //         None => Ok(false),
-    //     }
-    // }
-
-    // // Set a peer as an initial peer
-    // fn set_initial_peer<'a>(
-    //     tx: &mut Transaction<'a>,
-    //     network_id: u32,
-    //     peer_addr: &PeerAddress,
-    //     peer_port: u16,
-    // ) -> Result<(), db_error> {
-    //     tx.execute("UPDATE frontier SET initial = 1 WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3", 
-    //                 &[&network_id as &dyn ToSql, &peer_addr.to_bin(), &peer_port])
-    //         .map_err(db_error::SqliteError)?;
-
-    //     Ok(())
-    // }
-
-    // // clear all initial peers
-    // fn clear_initial_peers<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
-    //     tx.execute("UPDATE frontier SET initial = 0", NO_PARAMS)
-    //         .map_err(db_error::SqliteError)?;
-
-    //     Ok(())
-    // }
-
-    // // Set/unset allow flag for a peer
-    // // Pass -1 for "always"
-    // pub fn set_allow_peer<'a>(
-    //     tx: &mut Transaction<'a>,
-    //     network_id: u32,
-    //     peer_addr: &PeerAddress,
-    //     peer_port: u16,
-    //     allow_deadline: i64,
-    // ) -> Result<(), db_error> {
-    //     let num_updated = tx.execute("UPDATE frontier SET allowed = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4",
-    //                &[&allow_deadline as &dyn ToSql, &network_id, &peer_addr.to_bin(), &peer_port])
-    //         .map_err(db_error::SqliteError)?;
-
-    //     if num_updated == 0 {
-    //         // we're preemptively allowing
-    //         let nk = NeighborKey {
-    //             peer_version: 0,
-    //             network_id: network_id,
-    //             addrbytes: peer_addr.clone(),
-    //             port: peer_port,
-    //         };
-    //         let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
-    //         let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
-
-    //         empty_neighbor.allowed = allow_deadline as i64;
-
-    //         debug!("Preemptively allow peer {:?}", &nk);
-    //         if !PeerDB::try_insert_peer(tx, &empty_neighbor)? {
-    //             let mut slots = PeerDB::peer_slots(tx, network_id, peer_addr, peer_port)?;
-    //             let slot = slots.pop().expect("BUG: no slots");
-    //             warn!(
-    //                 "Forcing replacement of peer at slot {} for allowed peer {:?}",
-    //                 slot, &empty_neighbor.addr
-    //             );
-    //             PeerDB::insert_or_replace_peer(tx, &empty_neighbor, slot)?;
-    //         }
-    //     }
-
-    //     Ok(())
-    // }
-
-    // Set/unset deny flag for a peer
-    // negative values aren't allowed
-    // pub fn set_deny_peer<'a>(
-    //     tx: &mut Transaction<'a>,
-    //     network_id: u32,
-    //     peer_addr: &PeerAddress,
-    //     peer_port: u16,
-    //     deny_deadline: u64,
-    // ) -> Result<(), db_error> {
-    //     let args: &[&dyn ToSql] = &[
-    //         &u64_to_sql(deny_deadline)?,
-    //         &network_id,
-    //         &peer_addr.to_bin(),
-    //         &peer_port,
-    //     ];
-    //     let num_updated = tx.execute("UPDATE frontier SET denied = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4", args)
-    //         .map_err(db_error::SqliteError)?;
-
-    //     if num_updated == 0 {
-    //         // we're preemptively denying
-    //         let nk = NeighborKey {
-    //             peer_version: 0,
-    //             network_id: network_id,
-    //             addrbytes: peer_addr.clone(),
-    //             port: peer_port,
-    //         };
-    //         let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
-    //         let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
-
-    //         empty_neighbor.denied = deny_deadline as i64;
-
-    //         debug!("Preemptively deny peer {:?}", &nk);
-    //         if !PeerDB::try_insert_peer(tx, &empty_neighbor)? {
-    //             let mut slots = PeerDB::peer_slots(tx, network_id, peer_addr, peer_port)?;
-    //             let slot = slots.pop().expect("BUG: no slots");
-    //             warn!(
-    //                 "Forcing replacement of peer at slot {} for denied peer {:?}",
-    //                 slot, &empty_neighbor.addr
-    //             );
-    //             PeerDB::insert_or_replace_peer(tx, &empty_neighbor, slot)?;
-    //         }
-    //     }
-
-    //     Ok(())
-    // }
-
-    // Update an existing peer's entries.  Does nothing if the peer is not present.
-    // pub fn update_peer<'a>(tx: &mut Transaction<'a>, neighbor: &Neighbor) -> Result<(), db_error> {
-    //     let args: &[&dyn ToSql] = &[
-    //         &neighbor.addr.peer_version,
-    //         &to_hex(&neighbor.public_key.to_bytes_compressed()),
-    //         &u64_to_sql(neighbor.expire_block)?,
-    //         &u64_to_sql(neighbor.last_contact_time)?,
-    //         &neighbor.asn,
-    //         &neighbor.org,
-    //         &neighbor.allowed,
-    //         &neighbor.denied,
-    //         &neighbor.in_degree,
-    //         &neighbor.out_degree,
-    //         &neighbor.addr.network_id,
-    //         &to_bin(neighbor.addr.addrbytes.as_bytes()),
-    //         &neighbor.addr.port,
-    //     ];
-
-    //     tx.execute("UPDATE frontier SET peer_version = ?1, public_key = ?2, expire_block_height = ?3, last_contact_time = ?4, asn = ?5, org = ?6, allowed = ?7, denied = ?8, in_degree = ?9, out_degree = ?10 \
-    //                 WHERE network_id = ?11 AND addrbytes = ?12 AND port = ?13", args)
-    //         .map_err(db_error::SqliteError)?;
-
-    //     Ok(())
-    // }
-
-    // Try to insert a peer at one of its slots.
-    // Does not insert the peer if it is already present, but will instead try to update it with
-    // this peer's information.
-    // If at least one slot was empty, or if the peer is already present and can be updated, then insert/update the peer and return true.
-    // If all slots are occupied, return false.
-    // pub fn try_insert_peer<'a>(
-    //     tx: &mut Transaction<'a>,
-    //     neighbor: &Neighbor,
-    // ) -> Result<bool, db_error> {
-    //     let present = PeerDB::get_peer(
-    //         tx,
-    //         neighbor.addr.network_id,
-    //         &neighbor.addr.addrbytes,
-    //         neighbor.addr.port,
-    //     )?;
-    //     if present.is_some() {
-    //         // already here
-    //         PeerDB::update_peer(tx, neighbor)?;
-    //         return Ok(false);
-    //     }
-
-    //     let slots = PeerDB::peer_slots(
-    //         tx,
-    //         neighbor.addr.network_id,
-    //         &neighbor.addr.addrbytes,
-    //         neighbor.addr.port,
-    //     )?;
-    //     for slot in &slots {
-    //         let peer_opt = PeerDB::get_peer_at(tx, neighbor.addr.network_id, *slot)?;
-    //         if peer_opt.is_none() {
-    //             // have a spare slot!
-    //             PeerDB::insert_or_replace_peer(tx, neighbor, *slot)?;
-    //             return Ok(true);
-    //         }
-    //     }
-
-    //     // no slots free
-    //     return Ok(false);
-    // }
-
+        self.insert_new_attachment(&attachment.content_hash, &attachment.content)?;
+        self.remove_attachment_from_inbox(&attachment.content_hash)?;
+        Ok(())
+    }
 }

@@ -5,6 +5,7 @@ use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle, time};
+use std::collections::HashSet;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -123,6 +124,7 @@ fn spawn_peer(
                     false,
                     poll_timeout,
                     &handler_args,
+                    HashSet::new(),
                 )
                 .unwrap();
             if net_result.has_transactions() {

@@ -36,6 +36,7 @@ use net::StacksMessage;
 use net::StacksP2P;
 use net::download::BlockDownloader;
 use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats, InvAttachmentWorkState};
+use net::atlas::{AttachmentRequest, AttachmentsInvRequest, ExpectedAttachmentState, BNSContractReader};
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
@@ -57,6 +58,7 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::BlockSnapshot;
 
 use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::StacksBlockHeader;
 
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -1551,23 +1553,121 @@ impl PeerNetwork {
         }
     }
 
-    // /// Make the next GetBlocksInv for a peer
-    // fn make_next_getattachmentsinv(
-    //     &self,
-    //     sortdb: &SortitionDB,
-    //     nk: &NeighborKey,
-    //     stats: &NeighborBlockStats,
-    // ) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
-    //     if stats.block_reward_cycle < stats.inv.num_reward_cycles {
-    //         self.make_getblocksinv(sortdb, nk, stats, stats.block_reward_cycle)
-    //             .and_then(|getblocksinv_opt| {
-    //                 Ok(getblocksinv_opt
-    //                     .map(|getblocksinv| (stats.block_reward_cycle, getblocksinv)))
-    //             })
-    //     } else {
-    //         Ok(None)
-    //     }
-    // }
+    pub fn update_attachments_inventory(&mut self, new_attachments: HashSet<AttachmentRequest>, sortdb: &SortitionDB, chainstate: &mut StacksChainState,) -> Result<(), (/* todo(ludo) */)> {
+        // let mut attachments_to_download = vec![];
+        
+        PeerNetwork::with_inv_states(self, |network, _, attachments_inv_state| {
+
+            if attachments_inv_state.request_to_process.is_some() {
+                // todo(ludo): Houston, we have a problem
+                panic!()
+            }
+
+            let mut inv_request = AttachmentsInvRequest::new();
+            for attachment in new_attachments.into_iter() {
+                // test 1
+                if let Ok(Some(entry)) = network.atlasdb.find_attachment(&attachment.content_hash) { // todo(ludo)
+                    network.atlasdb.insert_new_attachment_coordinates(attachment, true);
+                    continue;
+                }
+
+                // test 2
+                if let Ok(Some(entry)) = network.atlasdb.find_inboxed_attachment(&attachment.content_hash) { // todo(ludo)
+                    network.atlasdb.import_attachment_from_inbox(&attachment.content_hash);
+                    network.atlasdb.insert_new_attachment_coordinates(attachment, true);
+                    continue;
+                }
+
+                // test 3
+
+                // test 4
+
+                // test 5
+                inv_request.add_request(attachment, sortdb);
+            }
+
+            if !inv_request.missing_attachments.is_empty() {
+                attachments_inv_state.request_to_process = Some(inv_request);
+            }
+
+
+
+
+
+            // if attachments_inv_state.expected_inventory.is_none() {
+            //     let (consensus_hash, anchor_block_hash) = match chainstate.get_stacks_chain_tip(sortdb)? {
+            //         Some(tip) => (tip.consensus_hash, tip.anchored_block_hash.clone()),
+            //         None => {
+            //             // todo(ludo)
+            //             return Err(net_error::ChainstateError("Unable to load chain tip".to_string()))
+            //         }
+            //     };
+        
+            //     let tip = StacksBlockHeader::make_index_block_hash(
+            //         &consensus_hash,
+            //         &anchor_block_hash,
+            //     );
+        
+            //     match BNSContractReader::get_attachments_inventory(sortdb, chainstate, &tip) {
+            //         Ok(expected_inventory) => {
+            //             let local_inventory = expected_inventory.get_missing_attachments_inventory(&network.atlasdb);
+            //             attachments_inv_state.expected_inventory = Some(expected_inventory);
+            //             attachments_inv_state.local_inventory = Some(local_inventory);
+            //         },
+            //         Err(_) => {
+            //             // todo(ludo)
+            //             panic!()
+            //         }
+            //     }
+            // }
+
+            // let expected_inventory = attachments_inv_state.expected_inventory.take().unwrap(); // todo(ludo)
+            // let local_inventory = attachments_inv_state.local_inventory.take().unwrap(); // todo(ludo)
+
+
+            // Update expected_inventory
+
+            // Update local_inventory
+
+            // todo(ludo) a zone file hash can exist at multiple locations (fork / page_index / index).
+
+            // for attachment in new_attachments.iter() {
+            
+            //     if attachment.state != ExpectedAttachmentState::Signaled {
+            //         continue;
+            //     }
+
+                // todo(ludo): has already been processed?
+                // if let Ok(Some(entry)) = self.atlasdb.find_inboxed_attachment(attachment.content_hash) { // todo(ludo)
+                //     // Move the entry to the right DB
+                //     attachment.state = ExpectedAttachmentState::Downloaded(entry.content);
+                //     continue;
+                // }
+
+    
+                // todo(ludo): has already been enqueued?
+                // if let Ok(Some(entry)) = self.atlasdb.find_inboxed_attachment(attachment.content_hash) { // todo(ludo)
+                //     // Move the entry to the right DB
+                //     attachment.state = ExpectedAttachmentState::Downloaded(entry.content);
+                //     continue;
+                // }
+                
+                // local_inventory.track_missing_attachment(&attachment);
+
+                // attachment.state = ExpectedAttachmentState::Inventoried;
+                // expected_inventory.add_expected_attachment(attachment);
+    
+            // todo(ludo): local_inventory.untrack_attachment(attachment);
+
+            // attachments_inv_state.expected_inventory = Some(expected_inventory);
+            // attachments_inv_state.local_inventory = Some(local_inventory);
+
+            Ok(())
+        });
+
+
+        Ok(())
+    }
 
     /// Start requesting the next batch of PoX inventories
     fn inv_getpoxinv_begin(

@@ -2,7 +2,7 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use crate::config::HELIUM_BLOCK_LIMIT;
 use crate::run_loop::RegisteredKey;
 
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
@@ -34,6 +34,7 @@ use stacks::net::{
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
+    atlas::AttachmentRequest,
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
@@ -242,7 +243,7 @@ fn spawn_peer(
     config: Config,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
-) -> Result<JoinHandle<()>, NetError> {
+) -> Result<(JoinHandle<()>, SyncSender<HashSet<AttachmentRequest>>), NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
     let block_limit = config.block_limit;
@@ -265,6 +266,8 @@ fn spawn_peer(
 
     // buffer up blocks to store without stalling the p2p thread
     let mut results_with_data = VecDeque::new();
+
+    let (attachments_tx, attachments_rx) = sync_channel(1);
 
     let server_thread = thread::spawn(move || {
         let handler_args = RPCHandlerArgs {
@@ -299,6 +302,11 @@ fn spawn_peer(
                 .refresh_unconfirmed_state_readonly(canonical_tip)
                 .expect("Failed to open unconfirmed Clarity state");
 
+            let expected_attachments = match attachments_rx.try_recv() {
+                Ok(expected_attachments) => expected_attachments,
+                _ => HashSet::new(), // todo(ludo)
+            };
+        
             let network_result = match this.run(
                 &sortdb,
                 &mut chainstate,
@@ -307,6 +315,7 @@ fn spawn_peer(
                 download_backpressure,
                 poll_ms,
                 &handler_args,
+                expected_attachments,
             ) {
                 Ok(res) => res,
                 Err(e) => {
@@ -350,7 +359,7 @@ fn spawn_peer(
         dns_resolver.thread_main();
     });
 
-    Ok(server_thread)
+    Ok((server_thread, attachments_tx))
 }
 
 fn spawn_miner_relayer(

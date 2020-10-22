@@ -50,12 +50,13 @@ use net::StacksMessageType;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetZonefilesInvResponse, PostZonefileResponse};
+use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetAttachmentsInvResponse, PostAttachmentResponse, GetAttachmentResponse, AttachmentPage};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
 use net::atlas::{AtlasDB, BNSContractReader, Attachment};
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::collections::HashSet;
 
 use burnchains::Burnchain;
 use burnchains::BurnchainHeaderHash;
@@ -544,7 +545,7 @@ impl ConversationHttp {
         }
     }
 
-    fn handle_getzonefilesinv<W: Write>(
+    fn handle_getattachmentsinv<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
@@ -552,35 +553,85 @@ impl ConversationHttp {
         atlasdb: &AtlasDB,
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
-        page_index: u32,
+        pages_indexes: &HashSet<u32>,
         options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        match BNSContractReader::get_zonefiles_hashes_at_page_index(page_index, sortdb, chainstate, tip, options) {
-            Ok(zonefiles_hashes_inv) => {
+        let pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
 
-                let compact_inventory = zonefiles_hashes_inv.compute_compact_inventory(atlasdb);
+        let (oldest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
+            (*pages_indexes.iter().min().unwrap(), pages_indexes.clone())
+        } else {
+            let res = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let cost_tracker = LimitedCostTracker::new(options.read_only_call_limit.clone());
+                BNSContractReader::get_zonefiles_inv_info(cost_tracker, clarity_tx)
+            });
+            match res {
+                Ok(inv_info) => {
+                    let current_page = inv_info.pages_count - 1;
+                    (current_page, vec![current_page])
+                }
+                Err(_) => {
+                    let msg = format!("Unable to read contract BNS"); 
+                    warn!("{}", msg);
+                    let response = HttpResponseType::ServerError(
+                        response_metadata,
+                        msg.clone(),
+                    );
+                    response.send(http, fd);
+                    return Err(net_error::ChainstateError(msg))
+                }
+            }
+        };
+        let (min_block_height, max_block_height) = match atlasdb.get_block_height_window_for_page_index(oldest_page_index) {
+            Ok(window) => window,
+            Err(e) => {
+                let msg = format!("Unable to read Atlas DB"); 
+                warn!("{}", msg);
+                let response = HttpResponseType::ServerError(
+                    response_metadata,
+                    msg.clone(),
+                );
+                response.send(http, fd);
+                return Err(net_error::DBError(e))
+            }
+        };
+        
+        let blocks_ids = {
+            // todo(ludo) complete this part
+            // let ic = sortdb.index_conn();
+            // SortitionDB::get_ancestor_snapshot(&ic, max_block_height, tip_block_hash);
+            vec![]
+        };
 
-                let content = GetZonefilesInvResponse {
-                    pages_indexes: vec![page_index], // todo(ludo)
-                    inventory: compact_inventory
+        match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
+            Ok(pages) => {
+                let pages = pages.into_iter()
+                    .zip(pages_indexes)
+                    .map(|(inventory, index)| AttachmentPage { index, inventory })
+                    .collect();
+
+                let content = GetAttachmentsInvResponse {
+                    block_id: tip.clone(),
+                    pages
                 };
-
-                let response = HttpResponseType::GetZonefilesInv(response_metadata, content);
+                let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
                 response.send(http, fd)
             }
             Err(e) => {
-                warn!("Failed to get peer info {:?}: {:?}", req, &e);
+                let msg = format!("Unable to read Atlas DB"); 
+                warn!("{}", msg);
                 let response = HttpResponseType::ServerError(
                     response_metadata,
-                    "Failed to query peer info".to_string(),
+                    msg.clone(),
                 );
-                response.send(http, fd)
+                response.send(http, fd);
+                return Err(net_error::DBError(e))
             }
         }
     }
 
-    fn handle_postzonefile<W: Write>(
+    fn handle_postattachment<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
@@ -591,12 +642,39 @@ impl ConversationHttp {
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        atlasdb.insert_unprocessed_attachment(attachment);
+        atlasdb.insert_new_inboxed_attachment(attachment);
         
-        let content = PostZonefileResponse {};
+        let content = PostAttachmentResponse {};
 
-        let response = HttpResponseType::PostZonefile(response_metadata, content);
+        let response = HttpResponseType::PostAttachment(response_metadata, content);
         response.send(http, fd)
+    }
+
+    fn handle_getattachment<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        atlasdb: &mut AtlasDB,
+        content_hash: String,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        match atlasdb.find_attachment(&content_hash) {
+            Ok(Some(attachment)) => {
+                let content = GetAttachmentResponse { attachment };
+                let response = HttpResponseType::GetAttachment(response_metadata, content);
+                response.send(http, fd)
+            }
+            _ => {
+                let msg = format!("Unable to find attachment"); 
+                warn!("{}", msg);
+                let response = HttpResponseType::ServerError(
+                    response_metadata,
+                    msg.clone(),
+                );
+                response.send(http, fd)
+            }
+        }
     }
 
     /// Handle a GET neighbors
@@ -1532,8 +1610,8 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::PostZonefile(ref _md, ref attachment) => {
-                ConversationHttp::handle_postzonefile(
+            HttpRequestType::PostAttachment(ref _md, ref attachment) => {
+                ConversationHttp::handle_postattachment(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
@@ -1544,11 +1622,17 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetZonefile(ref _md, ref name, ref tip_opt) => {
-                // todo(ludo): implement
+            HttpRequestType::GetAttachment(ref _md, ref content_hash) => {
+                ConversationHttp::handle_getattachment(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    atlasdb,
+                    content_hash.clone(),
+                )?;
                 None
             }
-            HttpRequestType::GetZonefilesInv(ref _md, ref tip_opt, page_index) => {
+            HttpRequestType::GetAttachmentsInv(ref _md, ref tip_opt, ref pages_indexes) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
@@ -1558,7 +1642,7 @@ impl ConversationHttp {
                     chainstate,
                 )? {
                     println!("GET /v2/zonefiles/inv!");
-                    ConversationHttp::handle_getzonefilesinv(
+                    ConversationHttp::handle_getattachmentsinv(
                         &mut self.connection.protocol,
                         &mut reply,
                         &req,
@@ -1566,7 +1650,7 @@ impl ConversationHttp {
                         atlasdb,
                         chainstate,
                         &tip,
-                        page_index,
+                        pages_indexes,
                         &self.connection.options,
                     )?;
                 }

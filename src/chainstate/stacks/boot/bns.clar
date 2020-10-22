@@ -53,7 +53,7 @@
 (define-constant name-preorder-claimability-ttl u10)
 (define-constant name-grace-period-duration u5)
 
-(define-constant zonefiles-inv-page-size u1000)
+(define-constant zonefiles-inv-page-size u512)
 (define-data-var zonefiles-inv-index-cursor uint u0)
 (define-data-var zonefiles-inv-page-cursor uint u0)
 (define-map zonefiles-inv 
@@ -224,7 +224,7 @@
       (map-get? name-properties ((namespace namespace) (name name))) 
       (err err-name-not-found))))
     (if (and (is-none (get registered-at name-props)) (is-some (get imported-at name-props)))
-      (ok false) ;; The name was imported and not launched - not subject to expiration
+      (ok false) ;; The name was imported and not launched - not subject to expiration, however should they expire if the namespace expire? - if so, todo(ludo)
       (let (      ;; The name was registered
         (registered-at (unwrap! 
           (get registered-at name-props) (err err-panic)))

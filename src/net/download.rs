@@ -214,13 +214,13 @@ pub struct BlockDownloader {
     /// The key for each of these is the sortition height and _index_ block hash.
     getblock_requests: HashMap<BlockRequestKey, usize>,
     getmicroblocks_requests: HashMap<BlockRequestKey, usize>,
-    getattachmentsinv_requests: HashMap<BlockRequestKey, usize>,
-    getattachments_requests: HashMap<BlockRequestKey, usize>,
-
     blocks: HashMap<BlockRequestKey, StacksBlock>,
     microblocks: HashMap<BlockRequestKey, Vec<StacksMicroblock>>,
-    attachment_invs: HashMap<NeighborKey, GetZonefilesInvResponse>,
-    attachments: HashMap<BlockRequestKey, GetZonefileResponse>,
+
+    getattachmentsinv_requests: HashMap<BlockRequestKey, usize>,
+    getattachments_requests: HashMap<BlockRequestKey, usize>,
+    attachment_invs: HashMap<NeighborKey, GetAttachmentsInvResponse>,
+    attachments: HashMap<BlockRequestKey, GetAttachmentResponse>,
 
     /// statistics on peers' data-plane endpoints
     dead_peers: Vec<usize>,
@@ -841,7 +841,7 @@ impl BlockDownloader {
                             pending_attachment_requests.insert(request_key, event_id);
                         }
                         Some(http_response) => match http_response {
-                            HttpResponseType::GetZonefilesInv(_md, response) => {
+                            HttpResponseType::GetAttachmentsInv(_md, response) => {
                                 println!("Got attachment_inv {:?}", response);
                                 self.attachment_invs.insert(request_key.neighbor, response);
                             }
@@ -927,7 +927,7 @@ impl BlockDownloader {
                             pending_attachment_requests.insert(request_key, event_id);
                         }
                         Some(http_response) => match http_response {
-                            HttpResponseType::GetZonefile(_md, response) => {
+                            HttpResponseType::GetAttachment(_md, response) => {
                                 println!("Got attachment {:?}", response);
                                 self.attachments.insert(request_key, response);
                             }
@@ -2287,136 +2287,107 @@ impl PeerNetwork {
         })
     }
 
-
     pub fn block_getattachmentsinv_begin(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState
-    ) -> Result<bool, net_error> {
+    ) -> Result<(), net_error> {
         println!(">>>> block_getattachmentsinv_begin");
-
-        let (consensus_hash, anchor_block_hash) = match chainstate.get_stacks_chain_tip(sortdb)? {
-            Some(tip) => (tip.consensus_hash, tip.anchored_block_hash.clone()),
-            None => {
-                // todo(ludo)
-                return Ok(false)
-            }
-        };
-
-        let tip = StacksBlockHeader::make_index_block_hash(
-            &consensus_hash,
-            &anchor_block_hash,
-        );
-
-        let expected_inventory = match BNSContractReader::get_attachments_inventory(sortdb, chainstate, &tip) {
-            Ok(attachments_inv) => attachments_inv,
-            Err(_) => {
-                // todo(ludo)
-                return Ok(false)
-            }
-        };
-
-        let local_inventory = expected_inventory.get_missing_attachments_inventory(&self.atlasdb);
-
-        PeerNetwork::with_downloader_state(self, |network, downloader| {
-
-            PeerNetwork::with_inv_states(network, |network, _, attachment_inv_state| {
-
-                attachment_inv_state.expected_inventory = Some(expected_inventory);
-                attachment_inv_state.local_inventory = Some(local_inventory);
-
+        PeerNetwork::with_inv_states(self, |network, _, attachment_inv_state| {
+            PeerNetwork::with_downloader_state(network, |network, downloader| {
                 let mut requests = HashMap::new();
-                let peers = network.sync_peers.clone();
-                let page_index = 0; // todo(ludo)
-                for nk in peers {
-                    let mut stats = match attachment_inv_state.attachments_stats.get_mut(&nk) {
-                        Some(stats) => stats,
-                        None => {
-                            // todo(ludo)
-                            continue;
-                        }
-                    };
-                    match stats.state {
-                        InvAttachmentWorkState::GetAttachmentsInvBegin => {},
-                        _ => continue // todo(ludo)
-                    };
+                if attachment_inv_state.request_to_process.is_some() {
+                    let inv_request = attachment_inv_state.request_to_process.as_ref().unwrap();
+                    let peers = network.sync_peers.clone();
+                    let pages_indexes = inv_request.get_pages_indexes();
+                    for nk in peers {
+                        let mut stats = match attachment_inv_state.attachments_stats.get_mut(&nk) {
+                            Some(stats) => stats,
+                            None => {
+                                // todo(ludo)
+                                continue;
+                            }
+                        };
+                        match stats.state {
+                            InvAttachmentWorkState::GetAttachmentsInvBegin => {},
+                            _ => continue // todo(ludo)
+                        };
 
-                    let data_url = match network.get_data_url(&nk) {
-                        Some(url) => url,
-                        None => {
+                        let data_url = match network.get_data_url(&nk) {
+                            Some(url) => url,
+                            None => {
+                                continue;
+                            }
+                        };
+                        if data_url.len() == 0 {
+                            // peer doesn't yet know its public IP address, and isn't given a data URL
+                            // directly
                             continue;
                         }
-                    };
-                    if data_url.len() == 0 {
-                        // peer doesn't yet know its public IP address, and isn't given a data URL
-                        // directly
-                        continue;
-                    }
-    
-                    let prev_blocked = if let Some(deadline) = downloader.blocked_urls.get(&data_url) {
-                        if get_epoch_time_secs() < *deadline {
-                            true
+        
+                        let prev_blocked = if let Some(deadline) = downloader.blocked_urls.get(&data_url) {
+                            if get_epoch_time_secs() < *deadline {
+                                true
+                            } else {
+                                false
+                            }
                         } else {
                             false
-                        }
-                    } else {
-                        false
-                    };
-    
-                    if prev_blocked {
-                        continue;
-                    }
+                        };
         
-                    // todo(ludo): turn into trait
-                    let request_key = BlockRequestKey::new(
-                        nk,
-                        data_url,
-                        consensus_hash,
-                        anchor_block_hash,
-                        tip,
-                        None,
-                       0,
-                    );
-                    let mut request_keys = VecDeque::new();
-                    request_keys.push_front(request_key);
-
-
-                    match PeerNetwork::begin_request(
-                        network,
-                        &downloader.dns_lookups,
-                        "anchored block",
-                        &mut request_keys,
-                        chainstate,
-                        |peerhost, index_block_hash| {
-                            HttpRequestType::GetZonefilesInv(
-                                HttpRequestMetadata::from_host(peerhost),
-                                Some(index_block_hash),
-                                page_index
-                            )
-                        },
-                    ) {
-                        Some((key, handle)) => {
-                            requests.insert(key.clone(), handle);
-                            stats.state = InvAttachmentWorkState::GetAttachmentsInvFinish;
+                        if prev_blocked {
+                            continue;
                         }
-                        None => {}
-                    };
+            
+                        // todo(ludo): turn into trait
+                        let request_key = BlockRequestKey::new(
+                            nk,
+                            data_url,
+                            inv_request.consensus_hash.clone(),
+                            inv_request.block_header_hash.clone(),
+                            inv_request.get_stacks_block_id(),
+                            None,
+                        0,
+                        );
+                        let mut request_keys = VecDeque::new();
+                        request_keys.push_front(request_key);
+
+
+                        match PeerNetwork::begin_request(
+                            network,
+                            &downloader.dns_lookups,
+                            "GetAttachmentsInv",
+                            &mut request_keys,
+                            chainstate,
+                            |peerhost, block_id| {
+                                HttpRequestType::GetAttachmentsInv(
+                                    HttpRequestMetadata::from_host(peerhost),
+                                    Some(block_id),
+                                    pages_indexes.clone(),
+                                )
+                            },
+                        ) {
+                            Some((key, handle)) => {
+                                requests.insert(key.clone(), handle);
+                                stats.state = InvAttachmentWorkState::GetAttachmentsInvFinish;
+                            }
+                            None => {}
+                        };
+                    }
                 }
                 
                 downloader.getattachmentsinv_begin(requests);
-                Ok(true)
+                Ok(())
             })
         })
     }
     
     pub fn block_getattachmentsinv_try_finish(
         &mut self,
-        sortdb: &SortitionDB,
     ) -> Result<bool, net_error> {
         PeerNetwork::with_downloader_state(self, |network, downloader| {
             println!(">>>> block_getattachmentsinv_try_finish");
-            downloader.getattachmentsinv_try_finish(&mut network.http);
-            Ok(true)
+            downloader.getattachmentsinv_try_finish(&mut network.http)
         })
     }
 
@@ -2425,45 +2396,16 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState
     ) -> Result<bool, net_error> {
+        println!(">>>> block_getattachments_begin");
+
         PeerNetwork::with_downloader_state(self, |network, downloader| {
             PeerNetwork::with_inv_states(network, |network, _, attachment_inv_state| {
                 let mut requests = HashMap::new();
-                let local_inventory = match attachment_inv_state.local_inventory {
-                    Some(ref inv) => inv,
-                    None => {
-                        // todo(ludo)
-                        return Ok(false)
-                    }
-                };
-
-                let expected_inventory = match attachment_inv_state.expected_inventory {
-                    Some(ref inv) => inv,
-                    None => {
-                        // todo(ludo)
-                        return Ok(false)
-                    }
-                };
-
-
-
-                // todo(ludo) be smarter than that, we already have the tip
-                let (consensus_hash, anchor_block_hash) = match chainstate.get_stacks_chain_tip(sortdb)? {
-                    Some(tip) => (tip.consensus_hash, tip.anchored_block_hash.clone()),
-                    None => {
-                        // todo(ludo)
-                        return Ok(false)
-                    }
-                };
-                let tip = StacksBlockHeader::make_index_block_hash(
-                    &consensus_hash,
-                    &anchor_block_hash,
-                );        
-
-                let peers = network.sync_peers.clone();
-                let mut attachments_sources = HashMap::new();
-                for (page_index, missing_indexes) in local_inventory.indexes.iter() {
-                    
-                    for attachment_index in missing_indexes {
+                if attachment_inv_state.request_to_process.is_some() {
+                    let inv_request = attachment_inv_state.request_to_process.as_ref().unwrap();
+                    let peers = network.sync_peers.clone();
+                    let mut attachments_sources = HashMap::new();
+                    for ((page_index, attachment_index), _) in inv_request.missing_attachments.iter() {
                         let mut candidates = VecDeque::new();
                         for nk in peers.iter() {  // todo(ludo) we can probably use a more appropriate itertor
                             let stats = match attachment_inv_state.attachments_stats.get_mut(&nk) {
@@ -2514,56 +2456,53 @@ impl PeerNetwork {
                                 let request_key = BlockRequestKey::new(
                                     nk.clone(),
                                     data_url,
-                                    consensus_hash,
-                                    anchor_block_hash,
-                                    tip,
+                                    inv_request.consensus_hash.clone(),
+                                    inv_request.block_header_hash.clone(),
+                                    inv_request.get_stacks_block_id(),
                                     None,
-                                   0,
+                                0,
                                 );
                                 candidates.push_front(request_key);
                             }
                         }
-    
                         attachments_sources.insert((*page_index, *attachment_index), candidates);
-                    }
-                } 
+                    } 
 
-                let ordered_indexes = PeerNetwork::prioritize_requests::<(u32, u32)>(&attachments_sources);
-                
-                for (page_index, entry_index) in ordered_indexes {
-                    let mut request_keys = attachments_sources.get_mut(&(page_index, entry_index)).unwrap(); // todo(ludo)
+                    let ordered_indexes = PeerNetwork::prioritize_requests::<(u32, u32)>(&attachments_sources);
                     
-                    let attachment_hash = match expected_inventory.get_expected_attachment_hash(page_index, entry_index) {
-                        Some(hash) => hash,
-                        None => {
-                            // todo(ludo)
-                            continue;
-                        }
-                    };
+                    for (page_index, entry_index) in ordered_indexes {
+                        let mut request_keys = attachments_sources.get_mut(&(page_index, entry_index)).unwrap(); // todo(ludo)
+                        let key = (page_index, entry_index);
+                        let attachment_hash = match inv_request.missing_attachments.get(&key) {
+                            Some(hash) => hash,
+                            None => {
+                                // todo(ludo)
+                                continue;
+                            }
+                        };
 
-                    match PeerNetwork::begin_request(
-                        network,
-                        &downloader.dns_lookups,
-                        "get attachment",
-                        &mut request_keys,
-                        chainstate,
-                        |peerhost, index_block_hash| {
-                            HttpRequestType::GetZonefile(
-                                HttpRequestMetadata::from_host(peerhost),
-                                attachment_hash.clone(),
-                                Some(index_block_hash),
-                            )
-                        },
-                    ) {
-                        Some((key, handle)) => {
-                            requests.insert(key.clone(), handle);
-                        }
-                        None => {
-                            // todo(ludo)
-                        }
-                    };
+                        match PeerNetwork::begin_request(
+                            network,
+                            &downloader.dns_lookups,
+                            "GetAttachment",
+                            &mut request_keys,
+                            chainstate,
+                            |peerhost, _index_block_hash| {
+                                HttpRequestType::GetAttachment(
+                                    HttpRequestMetadata::from_host(peerhost),
+                                    attachment_hash.clone()
+                                )
+                            },
+                        ) {
+                            Some((key, handle)) => {
+                                requests.insert(key.clone(), handle);
+                            }
+                            None => {
+                                // todo(ludo)
+                            }
+                        };
+                    }
                 }
-
                 println!(">>>> block_getattachments_begin");
 
                 downloader.getattachments_begin(requests);
@@ -2576,6 +2515,7 @@ impl PeerNetwork {
         PeerNetwork::with_downloader_state(self, |network, downloader| {
             println!(">>>> block_getattachments_try_finish");
             downloader.getattachments_try_finish(&mut network.http);
+            // todo(ludo): some cleaning is still required
             Ok(true)
         })
     }
@@ -2689,7 +2629,7 @@ impl PeerNetwork {
                     self.block_getattachmentsinv_begin(sortdb, chainstate)?;
                 }
                 BlockDownloaderState::GetAttachmentsInvFinish => {
-                    self.block_getattachmentsinv_try_finish(sortdb)?;
+                    self.block_getattachmentsinv_try_finish()?;
                 }
                 BlockDownloaderState::GetAttachmentsBegin => {
                     self.block_getattachments_begin(sortdb, chainstate)?;

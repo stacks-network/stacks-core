@@ -57,7 +57,7 @@ impl BNSContractReader {
         })
     }
 
-    fn get_zonefiles_inv_info(cost_tracker: LimitedCostTracker, clarity_tx: &mut ClarityReadOnlyConnection) -> Result<ZonefilesPagesInfo, (/*todo(ludo)*/)> {
+    pub fn get_zonefiles_inv_info(cost_tracker: LimitedCostTracker, clarity_tx: &mut ClarityReadOnlyConnection) -> Result<ZonefilesPagesInfo, (/*todo(ludo)*/)> {
 
         let contract_identifier = boot::boot_code_id("bns");
         let function = "get-zonefiles-inv-info";
@@ -100,6 +100,7 @@ impl BNSContractReader {
         tip: &StacksBlockId,
     ) -> Result<ZonefileHashInventory, (/*todo(ludo)*/)> 
     {
+        // todo(ludo): think about a lighter version
         chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             let cost_tracker = LimitedCostTracker::new(ExecutionCost::max_value());
 

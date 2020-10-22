@@ -1,4 +1,4 @@
-use super::AtlasDB;
+use super::{AtlasDB, ExpectedAttachment, AttachmentsInvRequest};
 use util::db::FromRow;
 use rusqlite::Row;
 use util::db::Error as db_error;
@@ -10,6 +10,9 @@ use net::p2p::PeerNetwork;
 use chainstate::stacks::StacksBlockId;
 
 use std::collections::{HashSet, HashMap};
+use std::collections::hash_map::Entry;
+
+// todo(ludo): revisit overall naming
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ZonefilesPagesInfo {
@@ -56,7 +59,7 @@ impl FromRow<ZonefileHash> for ZonefileHash {
 #[derive(Debug)]
 pub struct MissingAttachmentsInventory {
     pub tip: StacksBlockId,
-    pub indexes: HashMap<u32, Vec<u32>>
+    pub indexes: HashMap<u32, HashSet<u32>>
 }
 
 impl MissingAttachmentsInventory {
@@ -65,6 +68,111 @@ impl MissingAttachmentsInventory {
             tip: StacksBlockId([0x00; 32]),
             indexes: HashMap::new(),
         }
+    }
+
+    // pub fn track_missing_attachment(&mut self, attachment: &ExpectedAttachment) {
+    //     self.indexes.entry(attachment.page_index)
+    //         .and_modify(|indexes| { indexes.insert(attachment.index); })
+    //         .or_insert_with(|| {
+    //             let mut indexes = HashSet::new();
+    //             indexes.insert(attachment.index);
+    //             indexes
+    //         });
+    // }
+
+    // pub fn untrack_attachment(&mut self, attachment: &ExpectedAttachment) {
+    //     self.indexes.entry(attachment.page_index)
+    //         .and_modify(|indexes| { indexes.remove(attachment.index); });
+    // }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum AttachmentState {
+    Signaled,
+    Inventoried,
+    Enqueued,
+    Available(String),
+    Processed
+}
+
+pub struct Attachment {
+    content_hash: String,
+    content: String,
+    state: AttachmentState,
+    coordinates: Vec<AttachmentCoordinates>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachmentCoordinates {
+    pub content_hash: String,
+    pub page_index: u32,
+    pub position_in_page: u32,
+    pub block_height: u64,
+    // pub block_id: StacksBlockId,
+}
+
+pub struct AttachmentsInventory {
+    // pub missing_attachments: HashMap<String, Attachment>,
+    // Get an Attachment, given a content_hash
+    pub attachments: HashMap<String, Attachment>,
+    // Index attachments on states
+    // pub to_handle: HashMap<AttachmentState, HashSet<String>>,
+
+    // pub missing_indexes: HashMap<u32, HashMap<u32, String>>
+}
+
+impl AttachmentsInventory {
+    pub fn new() -> AttachmentsInventory {
+        AttachmentsInventory {
+            attachments: HashMap::new()
+        }
+    }
+
+    pub fn get_attachments_at_page_index(&self, page_index: u32, block_id: &StacksBlockId) -> Vec<Attachment> {
+
+        
+        vec![]
+    }
+
+    pub fn retrieve_attachments_expected_at_page_index(&self, page_index: u32, block_id: &StacksBlockId, atlasdb: &AtlasDB) -> Result<AttachmentsPage, ()> {
+        // Get block height for block_id.
+        // Get lowest page_index n
+        // Build ancestor tree, between block_id and nth ancestor
+        let entries = HashSet::new();
+
+        Ok(AttachmentsPage {
+            page_index,
+            entries,
+            missing_indexes: None,
+            block_id: block_id.clone()
+        })
+    }   
+
+}
+
+pub struct AttachmentsPage {
+    page_index: u32,
+    entries: HashSet<AttachmentCoordinates>,
+    missing_indexes: Option<HashSet<u32>>,
+    // Most recent block id?
+    block_id: StacksBlockId,
+}
+
+impl AttachmentsPage {
+
+    pub fn retrieve_missing_attachments_list(&self, atlasdb: &AtlasDB) -> () {
+
+        // let (_, missing_indexes) = atlas_db.get_processed_zonefiles_hashes_at_page(min, max);
+        // if missing_indexes.len() > 0 {
+        //     missing_indexes_inv.insert(*page_index, missing_indexes);
+        // }            
+
+        
+        // MissingAttachmentsInventory {
+        //     tip: self.tip.clone(),
+        //     indexes: missing_indexes_inv,
+        // }
+
     }
 }
 
@@ -123,8 +231,22 @@ impl ZonefileHashInventory {
         let entry = page.entries.get(entry_index as usize)?;
         Some(entry)
     }
-}
 
+    // pub fn add_expected_attachment(&mut self, attachment: ExpectedAttachment) -> () {
+    //     self.indexes.entry(attachment.page_index)
+    //         .and_modify(|indexes| { indexes.insert(attachment.index); })
+    //         .or_insert_with(|| {
+    //             let mut indexes = HashSet::new();
+    //             indexes.insert(attachment.index);
+    //             indexes
+    //         });
+
+
+        // insert pages_indexes
+        // update pages
+        // update pages_info
+    // }
+}
 
 impl ZonefileHashPage {
 
@@ -160,6 +282,10 @@ pub enum InvAttachmentWorkState {
 pub struct AttachmentInvState {
     /// Accumulated knowledge of which peers have which attachments.
     pub attachments_stats: HashMap<NeighborKey, NeighborAttachmentStats>,
+    /// Request queue 
+    pub request_to_process: Option<AttachmentsInvRequest>,
+    /// Request queue
+    pub requests_in_progress: HashSet<AttachmentsInvRequest>, 
     /// Latest expected inventory
     pub expected_inventory: Option<ZonefileHashInventory>,
     /// Latest actual local inventory
@@ -186,6 +312,8 @@ impl AttachmentInvState {
     ) -> AttachmentInvState {
         AttachmentInvState {
             attachments_stats: HashMap::new(),
+            request_to_process: None,
+            requests_in_progress: HashSet::new(),
             local_inventory: None,
             expected_inventory: None,
             request_timeout: request_timeout,
@@ -196,7 +324,6 @@ impl AttachmentInvState {
             last_rescanned_at: 0,
         }
     }
-
 }
 
 #[derive(Debug)]
@@ -204,7 +331,7 @@ pub struct NeighborAttachmentStats {
     /// Who are we talking to?
     pub nk: NeighborKey,
     /// What blocks do we know this peer has?
-    pub inv: ZonefileHashInventory,
+    pub inv: ZonefileHashInventory, // todo(ludo): merge remote inventories
     /// Scan state
     pub state: InvAttachmentWorkState,
     /// Peer status

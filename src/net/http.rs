@@ -55,7 +55,7 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
-use net::{GetNameResponse, GetZonefileResponse, GetZonefilesInvResponse, PostZonefileResponse};
+use net::{GetNameResponse, GetAttachmentResponse, GetAttachmentsInvResponse, PostAttachmentResponse};
 use net::atlas::{BNS_NAME_REGEX, Attachment};
 use burnchains::{Address, Txid};
 use chainstate::burn::BlockHeaderHash;
@@ -129,13 +129,9 @@ lazy_static! {
     ))
     .unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
-    static ref PATH_GET_ZONEFILE: Regex = Regex::new(&format!(
-        r#"^/v2/names/(?P<name>{})/zonefile$"#,
-        *BNS_NAME_REGEX
-    ))
-    .unwrap();
     static ref PATH_POST_ZONEFILE: Regex = Regex::new("^/v2/zonefiles$").unwrap();
     static ref PATH_GET_ZONEFILES_INV: Regex = Regex::new("^/v2/zonefiles/inv$").unwrap();
+    static ref PATH_GET_ZONEFILE: Regex = Regex::new("^/v2/zonefiles/([0-9a-f]{20})$").unwrap();
     static ref PATH_GET_NAME: Regex = Regex::new(&format!(
         r#"^/v2/names/(?P<name>{})$"#,
         *BNS_NAME_REGEX
@@ -2101,7 +2097,7 @@ impl HttpRequestType {
 
         if preamble.get_content_length() == 0 {
             return Err(net_error::DeserializeError(
-                "Invalid Http request: expected non-zero-length body for PostZonefile"
+                "Invalid Http request: expected non-zero-length body for PostAttachment"
                     .to_string(),
             ));
         }
@@ -2133,10 +2129,7 @@ impl HttpRequestType {
             ));
         }
 
-                // curl --header "Content-Type: application/json" --request POST --data '{"content":"xyz","content_hash":"xyz"}' http://127.0.0.1:20443/v2/zonefiles
-        println!("Attachment: {:?}", attachment);
-
-        Ok(HttpRequestType::PostZonefile(
+        Ok(HttpRequestType::PostAttachment(
             HttpRequestMetadata::from_preamble(preamble),
             attachment))
     }
@@ -2153,15 +2146,16 @@ impl HttpRequestType {
                 "Invalid Http request: expected 0-length body".to_string(),
             ));
         }
+        let content_hash = captures
+            .get(1)
+            .ok_or(net_error::DeserializeError(
+                "Failed to match path to attachment hash group".to_string(),
+            ))?
+            .as_str();
 
-        let name = captures["name"].to_string();
-
-        let tip = HttpRequestType::get_chain_tip_query(query);
-
-        Ok(HttpRequestType::GetZonefile(
+        Ok(HttpRequestType::GetAttachment(
             HttpRequestMetadata::from_preamble(preamble),
-            name,
-            tip))
+            content_hash.to_string()))
     }
 
     fn parse_get_zonefiles_inv<R: Read>(
@@ -2178,8 +2172,8 @@ impl HttpRequestType {
         }
 
         let mut tip = None;
-        let mut page_index = 0;
-        
+        let mut pages_indexes = HashSet::new();
+
         if let Some(query) = query {
             for (key, value) in form_urlencoded::parse(query.as_bytes()) {
                 if key == "tip" {
@@ -2188,19 +2182,22 @@ impl HttpRequestType {
                         _ => None
                     };
 
-                } else if key == "page_index" {
-                    page_index = match value.parse::<u32>() {
-                        Ok(page_index) => page_index,
-                        _ => 0,
-                    };
+                } else if key == "pages_indexes" {
+                    if let Ok(pages_indexes_value) = value.parse::<String>()  {
+                        for entry in pages_indexes_value.split(",") {
+                            if let Ok(page_index) = entry.parse::<u32>() {
+                                pages_indexes.insert(page_index);
+                            }
+                        }
+                    }
                 }
-            }    
+            }
         }
-
-        Ok(HttpRequestType::GetZonefilesInv(
+        // todo(ludo) handle multiple pages
+        Ok(HttpRequestType::GetAttachmentsInv(
             HttpRequestMetadata::from_preamble(preamble),
             tip,
-            page_index))
+            pages_indexes))
     }
 
     fn parse_get_name<R: Read>(
@@ -2258,9 +2255,9 @@ impl HttpRequestType {
             HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetName(ref md, ..) => md,
-            HttpRequestType::GetZonefilesInv(ref md, ..) => md,
-            HttpRequestType::GetZonefile(ref md, ..) => md,
-            HttpRequestType::PostZonefile(ref md, ..) => md,
+            HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
+            HttpRequestType::GetAttachment(ref md, ..) => md,
+            HttpRequestType::PostAttachment(ref md, ..) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
@@ -2284,9 +2281,9 @@ impl HttpRequestType {
             HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetName(ref mut md, ..) => md,
-            HttpRequestType::GetZonefilesInv(ref mut md, ..) => md,
-            HttpRequestType::GetZonefile(ref mut md, ..) => md,
-            HttpRequestType::PostZonefile(ref mut md, ..) => md,
+            HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
+            HttpRequestType::GetAttachment(ref mut md, ..) => md,
+            HttpRequestType::PostAttachment(ref mut md, ..) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
@@ -2383,23 +2380,15 @@ impl HttpRequestType {
                 HttpRequestType::make_query_string(tip_opt.as_ref(), true)
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
-            HttpRequestType::GetZonefilesInv(_md, ..) => "/v2/zonefiles/inv".to_string(),
-            HttpRequestType::PostZonefile(_md, ..) => "/v2/zonefiles".to_string(),
+            HttpRequestType::GetAttachmentsInv(_md, ..) => "/v2/attachments/inv".to_string(),
+            HttpRequestType::PostAttachment(_md, ..) => "/v2/attachments".to_string(),
+            HttpRequestType::GetAttachment(_, content_hash) => format!("/v2/attachments/{}", content_hash.as_str()),
             HttpRequestType::GetName(
                 _,
                 name,
                 tip_opt,
             ) => format!(
                 "/v2/names/{}{}",
-                name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
-            ),
-            HttpRequestType::GetZonefile(
-                _,
-                name,
-                tip_opt,
-            ) => format!(
-                "/v2/names/{}/zonefile{}",
                 name.as_str(),
                 HttpRequestType::make_query_string(tip_opt.as_ref(), true)
             ),
@@ -3076,9 +3065,9 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res = GetZonefileResponse {};
+        let res: GetAttachmentResponse = HttpResponseType::parse_json(preamble, fd, len_hint, 66)?;
 
-        Ok(HttpResponseType::GetZonefile(
+        Ok(HttpResponseType::GetAttachment(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             res,
         ))
@@ -3091,11 +3080,9 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res = GetZonefilesInvResponse {
-            inventory: vec![], // todo(ludo)
-            pages_indexes: vec![],
-        };
-        Ok(HttpResponseType::GetZonefilesInv(
+        let res: GetAttachmentsInvResponse = HttpResponseType::parse_json(preamble, fd, len_hint, 66)?;
+
+        Ok(HttpResponseType::GetAttachmentsInv(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             res,
         ))
@@ -3108,9 +3095,9 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res = PostZonefileResponse {};
-
-        Ok(HttpResponseType::PostZonefile(
+        let res = PostAttachmentResponse {};
+        // todo(ludo): compliance with 301?
+        Ok(HttpResponseType::PostAttachment(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             res,
         ))
@@ -3191,9 +3178,9 @@ impl HttpResponseType {
             HttpResponseType::GetContractSrc(ref md, _) => md,
             HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
             HttpResponseType::GetName(ref md, _) => md,
-            HttpResponseType::PostZonefile(ref md, _) => md,
-            HttpResponseType::GetZonefile(ref md, _) => md,
-            HttpResponseType::GetZonefilesInv(ref md, _) => md,
+            HttpResponseType::PostAttachment(ref md, _) => md,
+            HttpResponseType::GetAttachment(ref md, _) => md,
+            HttpResponseType::GetAttachmentsInv(ref md, _) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
@@ -3310,15 +3297,15 @@ impl HttpResponseType {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, name_data)?;
             }
-            HttpResponseType::PostZonefile(ref md, ref zonefile_data) => {
+            HttpResponseType::PostAttachment(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
             }
-            HttpResponseType::GetZonefile(ref md, ref zonefile_data) => {
+            HttpResponseType::GetAttachment(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
             }
-            HttpResponseType::GetZonefilesInv(ref md, ref zonefile_data) => {
+            HttpResponseType::GetAttachmentsInv(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
             }
@@ -3506,9 +3493,9 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpRequestType::GetName(..) => "HTTP(GetName)",
-                HttpRequestType::PostZonefile(..) => "HTTP(PostZonefile)",
-                HttpRequestType::GetZonefile(..) => "HTTP(GetZonefile)",
-                HttpRequestType::GetZonefilesInv(..) => "HTTP(GetZonefilesInv)",
+                HttpRequestType::PostAttachment(..) => "HTTP(PostAttachment)",
+                HttpRequestType::GetAttachment(..) => "HTTP(GetAttachment)",
+                HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
             },
@@ -3520,9 +3507,9 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpResponseType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpResponseType::GetName(ref md, _) => "HTTP(GetName)",
-                HttpResponseType::PostZonefile(ref md, _) => "HTTP(PostZonefile)",
-                HttpResponseType::GetZonefile(ref md, _) => "HTTP(GetZonefile)",
-                HttpResponseType::GetZonefilesInv(ref md, _) => "HTTP(GetZonefilesInv)",
+                HttpResponseType::PostAttachment(ref md, _) => "HTTP(PostAttachment)",
+                HttpResponseType::GetAttachment(ref md, _) => "HTTP(GetAttachment)",
+                HttpResponseType::GetAttachmentsInv(ref md, _) => "HTTP(GetAttachmentsInv)",
                 HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::PoxInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::Neighbors(_, _) => "HTTP(Neighbors)",
