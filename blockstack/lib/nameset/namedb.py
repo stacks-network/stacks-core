@@ -955,12 +955,12 @@ class BlockstackDB(virtualchain.StateEngine):
         return namedb_get_account_history(cur, address, offset=offset, count=count)
 
 
-    def get_all_account_addresses(self, force_allow=False):
+    def get_all_account_addresses(self, from_cli=False):
         """
         TESTING ONLY
         Get all account addresses
         """
-        assert BLOCKSTACK_TEST or force_allow, 'BUG: this method can only be accessed in test mode'
+        assert BLOCKSTACK_TEST or from_cli, 'BUG: this method can only be accessed in test mode or from the CLI'
         cur = self.db.cursor()
         return namedb_get_all_account_addresses(cur)
 

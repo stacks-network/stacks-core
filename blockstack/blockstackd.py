@@ -3176,7 +3176,7 @@ def run_blockstackd():
     # -------------------------------------
     parser = subparsers.add_parser(
         'export_migration_json',
-        help='validate a fastdump file and export as JSON for Stacks 2.0 migration')
+        help='validate a fast-sync file and export as JSON for Stacks 2.0 migration')
     parser.add_argument(
         'path', nargs='?',
         help='the path to the fastdump file')
@@ -3510,7 +3510,7 @@ def run_blockstackd():
         path = str(args.path)
         print "Importing fast-sync dump {} into {}".format(path, working_dir)
         rc = True
-        # rc = fast_sync_import(working_dir, path, public_keys=None, num_required=0, verbose=True, delete_file=False)
+        rc = fast_sync_import(working_dir, path, public_keys=None, num_required=0, verbose=True, delete_file=False)
         if not rc:
            print 'fast_sync failed'
            sys.exit(1)
@@ -3550,7 +3550,7 @@ def run_blockstackd():
                 sys.exit(1)
 
         print "Querying account addresses..."
-        addresses = db.get_all_account_addresses(force_allow=True)
+        addresses = db.get_all_account_addresses(from_cli=True)
         print "Querying account balances..."
         stx_balances = []
         for addr in addresses:
