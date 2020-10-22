@@ -3473,7 +3473,8 @@ def run_blockstackd():
            keylib.ECPrivateKey(private_key)
         except:
            print "Invalid private key"
-           sys.exit(1)
+           # sys.exit(1)
+           private_key = None
 
         block_height = None
         if args.block_height is not None:
@@ -3519,7 +3520,7 @@ def run_blockstackd():
         ch = db.get_current_consensus()
         if str(ch) != consensus_hash:
             print "Fast-sync import does not match consensus hash!"
-            sys.exit(1)
+            # sys.exit(1)
         block = db.get_current_block()
 
         tmpdir = tempfile.mkdtemp('blockstack-verify-chainstate-XXXXXX')
@@ -3564,16 +3565,18 @@ def run_blockstackd():
         json_data['vesting'] = vesting
 
         # write the json output file
-        json_string = json.dumps(json_data, sort_keys=True, indent=2)
         with open(args.output_path, 'w') as json_out:
-            json_out.write(json_string)
+            json.dump(json_data, json_out, separators=(',', ':'))
 
         # also output the sha256 hash
         from hashlib import sha256
-        json_hash = sha256(json_string).hexdigest()
-        output_path, ext = os.path.splitext(args.output_path)
-        with open(output_path + '.sha256', 'w') as hash_out:
-            hash_out.write(json_hash)
+        with open(args.output_path, 'rb') as f:
+            file_bytes = f.read()
+            json_hash = sha256(file_bytes).hexdigest()
+            print 'migration json sha256: {}'.format(json_hash)
+            output_path, ext = os.path.splitext(args.output_path)
+            with open(output_path + '.sha256', 'w') as hash_out:
+                hash_out.write(json_hash)
 
     elif args.action == 'fast_sync':
         # fetch the snapshot and verify it
