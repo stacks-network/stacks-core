@@ -442,29 +442,6 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpf
         _cleanup(tmpdir)
         return False
 
-    # copy over zone files
-    zonefiles_path = os.path.join(working_dir, "zonefiles")
-    dest_path = os.path.join(tmpdir, "zonefiles")
-    try:
-        skip_zonefile_copy = True
-        if not skip_zonefile_copy:
-            print "Copying zonefiles to temp directory..."
-            if which_tools(['cp']):
-                cmd = "cp -R '{}' '{}'".format(zonefiles_path, dest_path)
-                log.info(cmd)
-                rc = os.system(cmd)
-                if rc != 0:
-                    log.error('Failed to copy {} to {}, cp error code: {}'.format(zonefiles_path, dest_path, rc))
-                    _cleanup(tmpdir)
-                    return False
-            else:
-                shutil.copytree(zonefiles_path, dest_path, ignore=_zonefile_copy_progress)
-    except Exception, e:
-        log.exception(e)
-        log.error('Failed to copy {} to {}'.format(zonefiles_path, dest_path))
-        _cleanup(tmpdir)
-        return False
-
     # copy over namespace keychains 
     print "Copying namespace keychains..."
     rc = _copy_paths(namespace_keychain_paths, tmpdir)
