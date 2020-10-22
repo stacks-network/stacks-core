@@ -190,24 +190,31 @@ def which_tools(tools):
     return True
 
 
-def native_fast_sync_snapshot_compress(snapshot_dir, export_path):
+def native_fast_sync_snapshot_compress(snapshot_dir, export_path, zonefile_dir):
     """
     Shell out to `tar` and `bzip2` if available.
     They're much faster.
     """
     log.debug("Try native tar/bzip2 compression")
-    tools = ['tar', 'bzip2', 'mv']
+    tools = ['tar']
     if not which_tools(tools):
         return False
 
-    cmd = "tar cf '{}' -C '{}' . && bzip2 '{}' && mv '{}.bz2' '{}'".format(export_path, snapshot_dir, export_path, export_path, export_path)
-    
+    # matt: on my macbook, bz2 compression is nearly half the speed of gzip. 
+    #       yet results in less than 10% file size reduction than gzip.
+
+    # bzip2
+    # cmd = "tar -cjSf '{}' -C '{}' . -C '{}' 'zonefiles'".format(export_path, snapshot_dir, zonefile_dir)
+
+    # gzip
+    cmd = "tar -czSf '{}' -C '{}' . -C '{}' 'zonefiles'".format(export_path, snapshot_dir, zonefile_dir)
+
     log.debug(cmd)
     rc = os.system(cmd)
     return rc == 0
 
 
-def fast_sync_snapshot_compress( snapshot_dir, export_path ):
+def fast_sync_snapshot_compress( snapshot_dir, export_path, zonefile_dir ):
     """
     Given the path to a directory, compress it and export it to the
     given path.
@@ -221,7 +228,7 @@ def fast_sync_snapshot_compress( snapshot_dir, export_path ):
     if os.path.exists(export_path):
         return {'error': 'Snapshot path exists: {}'.format(export_path)}
 
-    rc = native_fast_sync_snapshot_compress(snapshot_dir, export_path)
+    rc = native_fast_sync_snapshot_compress(snapshot_dir, export_path, zonefile_dir)
     if rc:
         return {'status': True}
 
@@ -241,6 +248,7 @@ def fast_sync_snapshot_compress( snapshot_dir, export_path ):
         os.chdir(snapshot_dir)
         with tarfile.TarFile.bz2open(export_path, "w") as f:
             f.add(".", filter=print_progress)
+            f.add(os.path.join(zonefile_dir, "zonefiles"), arcname="zonefiles", filter=print_progress)
 
     except:
         os.chdir(old_dir)
@@ -257,7 +265,7 @@ def native_fast_sync_snapshot_decompress(snapshot_path, output_dir):
     Decompress and extract a snapshot file using native tools, if they're present
     """
     log.debug("Try decompressing with native tools")
-    tools = ['tar', 'bunzip2']
+    tools = ['tar']
     if not which_tools(tools):
         return False
 
@@ -285,7 +293,7 @@ def fast_sync_snapshot_decompress( snapshot_path, output_dir ):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    with tarfile.TarFile.bz2open(snapshot_path, 'r') as f:
+    with tarfile.TarFile.open(snapshot_path, 'r') as f:
         tarfile.TarFile.extractall(f, path=output_dir)
 
     return {'status': True}
@@ -401,6 +409,9 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpf
     all_namespace_keychain_paths = [os.path.join(working_dir, '{}.keychain'.format(nsid)) for nsid in namespace_ids]
     namespace_keychain_paths = filter(lambda nsp: os.path.exists(nsp), all_namespace_keychain_paths)
     
+    consensus_hash = db.get_consensus_at(block_number)
+    print "Fast-sync-snapshot at block {} with consensus hash {}".format(block_number, consensus_hash)
+
     for p in db_paths:
         if not os.path.exists(p):
             log.error("Missing file: '%s'" % p)
@@ -425,6 +436,7 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpf
         _cleanup(tmpdir)
         return False
 
+    print "Copying backups..."
     rc = _copy_paths(db_paths, backups_path)
     if not rc:
         _cleanup(tmpdir)
@@ -434,7 +446,19 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpf
     zonefiles_path = os.path.join(working_dir, "zonefiles")
     dest_path = os.path.join(tmpdir, "zonefiles")
     try:
-        shutil.copytree(zonefiles_path, dest_path, ignore=_zonefile_copy_progress)
+        skip_zonefile_copy = True
+        if not skip_zonefile_copy:
+            print "Copying zonefiles to temp directory..."
+            if which_tools(['cp']):
+                cmd = "cp -R '{}' '{}'".format(zonefiles_path, dest_path)
+                log.info(cmd)
+                rc = os.system(cmd)
+                if rc != 0:
+                    log.error('Failed to copy {} to {}, cp error code: {}'.format(zonefiles_path, dest_path, rc))
+                    _cleanup(tmpdir)
+                    return False
+            else:
+                shutil.copytree(zonefiles_path, dest_path, ignore=_zonefile_copy_progress)
     except Exception, e:
         log.exception(e)
         log.error('Failed to copy {} to {}'.format(zonefiles_path, dest_path))
@@ -442,6 +466,7 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpf
         return False
 
     # copy over namespace keychains 
+    print "Copying namespace keychains..."
     rc = _copy_paths(namespace_keychain_paths, tmpdir)
     if not rc:
         log.error("Failed to copy namespace keychain paths")
@@ -449,14 +474,16 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpf
         return False
 
     # compress
+    print "Compressing chainstate..."
     export_path = os.path.abspath(export_path)
-    res = fast_sync_snapshot_compress(tmpdir, export_path)
+    res = fast_sync_snapshot_compress(tmpdir, export_path, working_dir)
     if 'error' in res:
         log.error("Failed to compress {} to {}: {}".format(tmpdir, export_path, res['error']))
         _cleanup(tmpdir)
         return False
 
-    log.debug("Wrote {} bytes".format(os.stat(export_path).st_size))
+    # log.debug("Wrote {} bytes".format(os.stat(export_path).st_size))
+    print "Fast-sync-snapshot completed at block {} with consensus hash {}".format(block_number, consensus_hash)
 
     # sign
     if private_key is not None:
