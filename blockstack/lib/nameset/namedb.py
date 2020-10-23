@@ -1172,8 +1172,6 @@ class BlockstackDB(virtualchain.StateEngine):
             log.warning('v2_migration_data already exists at {}'.format(export_file_path))
             return
 
-        consensus_hash = self.get_consensus_at(block_id)
-
         # override backup frequency to force a backup _now_
         # note: the `make_backup` function subtracts 1 from the given block ID
         old_backup_frequency = self.backup_frequency
