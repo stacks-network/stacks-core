@@ -1358,7 +1358,7 @@ impl PeerNetwork {
         };
 
         debug!(
-            "{:?}: Send GetPoxInv to {:?} for {} rewad cycles starting at {} ({})",
+            "{:?}: Send GetPoxInv to {:?} for {} reward cycles starting at {} ({})",
             &self.local_peer,
             nk,
             num_reward_cycles,

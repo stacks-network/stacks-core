@@ -82,11 +82,13 @@ use util::hash::Hash160;
 use crate::version_string;
 
 use vm::{
+    analysis::errors::CheckErrors,
     clarity::ClarityConnection,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         marf::ContractCommitment, ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
     },
+    errors::Error::Unchecked,
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
@@ -867,7 +869,7 @@ impl ConversationHttp {
 
         let data = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
-                env.execute_contract(&contract_identifier, function.as_str(), &args, true)
+                env.execute_contract(&contract_identifier, function.as_str(), &args, false)
             })
         });
 
@@ -877,11 +879,20 @@ impl ConversationHttp {
                 result: Some(format!("0x{}", data.serialize())),
                 cause: None,
             },
-            Err(e) => CallReadOnlyResponse {
-                okay: false,
-                result: None,
-                cause: Some(e.to_string()),
-            },
+            Err(e) => {
+                match e {
+                    Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _)) if actual_cost.write_count > 0 => CallReadOnlyResponse {
+                        okay: false,
+                        result: None,
+                        cause: Some("NotReadOnly".to_string()),
+                    },
+                    _ => CallReadOnlyResponse {
+                        okay: false,
+                        result: None,
+                        cause: Some(e.to_string()),
+                    }
+                }
+            }
         };
 
         let response = HttpResponseType::CallReadOnlyFunction(response_metadata, response);
