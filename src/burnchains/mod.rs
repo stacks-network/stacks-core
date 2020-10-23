@@ -238,6 +238,12 @@ impl BurnchainTransaction {
                 .collect(),
         }
     }
+
+    pub fn get_burn_amount(&self) -> u64 {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.data_amt,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
