@@ -706,6 +706,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -758,6 +759,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -811,6 +813,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -863,6 +866,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -906,6 +910,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -974,6 +979,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
             }],
             outputs: vec![BitcoinTxOutput {
                 units: 13,
@@ -1007,6 +1013,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -1050,6 +1057,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
             }],
             outputs: vec![
                 BitcoinTxOutput {

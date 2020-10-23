@@ -595,6 +595,7 @@ mod tests {
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
+                            tx_ref: Txid([0; 32]),
                         },
                         BitcoinTxInput {
                             keys: vec![
@@ -602,6 +603,7 @@ mod tests {
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
+                            tx_ref: Txid([0; 32]),
                         },
                         BitcoinTxInput {
                             keys: vec![
@@ -609,6 +611,7 @@ mod tests {
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
+                            tx_ref: Txid([0; 32]),
                         }
                     ],
                     outputs: vec![
@@ -640,6 +643,7 @@ mod tests {
                             ],
                             num_required: 2,
                             in_type: BitcoinInputType::Standard,
+                            tx_ref: Txid([0; 32]),
                         },
                         BitcoinTxInput {
                             keys: vec![
@@ -649,6 +653,7 @@ mod tests {
                             ],
                             num_required: 2,
                             in_type: BitcoinInputType::Standard,
+                            tx_ref: Txid([0; 32]),
                         },
                     ],
                     outputs: vec![
@@ -678,6 +683,7 @@ mod tests {
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::SegwitP2SH,
+                            tx_ref: Txid([0; 32]),
                         }
                     ],
                     outputs: vec![
@@ -709,6 +715,7 @@ mod tests {
                             ],
                             num_required: 2,
                             in_type: BitcoinInputType::SegwitP2SH,
+                            tx_ref: Txid([0; 32]),
                         }
                     ],
                     outputs: vec![
@@ -785,6 +792,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::SegwitP2SH,
+                                    tx_ref: Txid([0; 32]),
                                 }
                             ],
                             outputs: vec![
@@ -826,6 +834,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
+                                    tx_ref: Txid([0; 32]),
                                 }
                             ],
                             outputs: vec![
@@ -852,6 +861,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
+                                    tx_ref: Txid([0; 32]),
                                 }
                             ],
                             outputs: vec![
@@ -878,6 +888,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
+                                    tx_ref: Txid([0; 32]),
                                 }
                             ],
                             outputs: vec![
@@ -904,6 +915,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
+                                    tx_ref: Txid([0; 32]),
                                 }
                             ],
                             outputs: vec![
@@ -930,6 +942,7 @@ mod tests {
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
+                                    tx_ref: Txid([0; 32]),
                                 }
                             ],
                             outputs: vec![

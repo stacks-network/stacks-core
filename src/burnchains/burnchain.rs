@@ -57,7 +57,8 @@ use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use chainstate::burn::db::sortdb::{PoxId, SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
+    UserBurnSupportOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
 
@@ -128,6 +129,12 @@ impl BurnchainStateTransition {
         // don't treat block commits and user burn supports just yet.
         for i in 0..block_ops.len() {
             match block_ops[i] {
+                BlockstackOperationType::PreStackStx(_) => {
+                    // PreStackStx ops don't need to be processed by sort db, so pass.
+                }
+                BlockstackOperationType::StackStx(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
                 BlockstackOperationType::LeaderKeyRegister(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
@@ -581,6 +588,7 @@ impl Burnchain {
 
     /// Try to parse a burnchain transaction into a Blockstack operation
     pub fn classify_transaction(
+        burnchain_db: &BurnchainDB,
         block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
         sunset_end_ht: u64,
@@ -626,6 +634,33 @@ impl Burnchain {
                         );
                         None
                     }
+                }
+            }
+            x if x == Opcodes::StackStx as u8 => {
+                let pre_stack_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stack_stx_tx = burnchain_db.get_burnchain_op(pre_stack_stx_txid);
+                if let Some(BlockstackOperationType::PreStackStx(pre_stack_stx)) = pre_stack_stx_tx
+                {
+                    let sender = &pre_stack_stx.output;
+                    match StackStxOp::from_tx(block_header, burn_tx, sender, sunset_end_ht) {
+                        Ok(op) => Some(BlockstackOperationType::StackStx(op)),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse stack stx tx {} data {}: {:?}",
+                                &burn_tx.txid(),
+                                &to_hex(&burn_tx.data()),
+                                e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Failed to find corresponding input to StackStxOp (txid={}) at txid = {}",
+                        &burn_tx.txid(),
+                        pre_stack_stx_txid
+                    );
+                    None
                 }
             }
             _ => None,
@@ -2357,6 +2392,7 @@ pub mod tests {
                 in_type: BitcoinInputType::Standard,
                 keys: vec![bitcoin_publickey.clone()],
                 num_required: 1,
+                tx_ref: Txid([0; 32]),
             };
 
             leader_bitcoin_addresses.push(

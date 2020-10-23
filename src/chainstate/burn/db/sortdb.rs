@@ -49,7 +49,8 @@ use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStackStxOp, StackStxOp,
+    UserBurnSupportOp,
 };
 
 use burnchains::{Address, BurnchainHeaderHash, PublicKey, Txid};
@@ -3006,6 +3007,21 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_user_burn(op, sort_id)
             }
+            BlockstackOperationType::StackStx(ref op) => {
+                info!(
+                    "ACCEPTED({}) stack stx opt {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_stack_stx(op, sort_id)
+            }
+            BlockstackOperationType::PreStackStx(ref op) => {
+                info!(
+                    "ACCEPTED({}) pre stack stx op {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                // no need to store this op in the sortition db.
+                Ok(())
+            }
         }
     }
 
@@ -3033,6 +3049,25 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a pre-stack-stx op
+    fn insert_stack_stx(&mut self, op: &StackStxOp, sort_id: &SortitionId) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.sender.to_string(),
+            &op.reward_addr.to_string(),
+            &op.stacked_ustx.to_string(),
+            &op.num_cycles,
+            sort_id,
+        ];
+
+        self.execute("INSERT INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }

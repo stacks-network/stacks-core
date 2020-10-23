@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use burnchains::Txid;
 use rusqlite::{
     types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
 };
@@ -155,12 +156,12 @@ impl<'a> BurnchainDBTransaction<'a> {
         block_ops: &[BlockstackOperationType],
     ) -> Result<(), BurnchainError> {
         let sql = "INSERT INTO burnchain_db_block_ops
-                   (block_hash, op) VALUES (?, ?)";
+                   (block_hash, txid, op) VALUES (?, ?)";
         let mut stmt = self.sql_tx.prepare(sql)?;
         for op in block_ops.iter() {
             let serialized_op =
                 serde_json::to_string(op).expect("Failed to serialize parsed BlockstackOp");
-            let args: &[&dyn ToSql] = &[block_hash, &serialized_op];
+            let args: &[&dyn ToSql] = &[block_hash, op.txid_ref(), &serialized_op];
             stmt.execute(args)?;
         }
         Ok(())
@@ -271,9 +272,25 @@ impl BurnchainDB {
         })
     }
 
+    pub fn get_burnchain_op(&self, txid: &Txid) -> Option<BlockstackOperationType> {
+        let qry = "SELECT op FROM burnchain_db_block_ops WHERE txid = ?";
+
+        match query_row(&self.conn, qry, &[txid]) {
+            Ok(res) => res,
+            Err(e) => {
+                warn!(
+                    "BurnchainDB Error finding burnchain op: {:?}. txid = {}",
+                    e, txid
+                );
+                None
+            }
+        }
+    }
+
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
     /// Return the ordered list of blockstack operations by vtxindex
     fn get_blockstack_transactions(
+        &self,
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
         sunset_end_ht: u64,
@@ -286,7 +303,9 @@ impl BurnchainDB {
         block
             .txs()
             .iter()
-            .filter_map(|tx| Burnchain::classify_transaction(block_header, &tx, sunset_end_ht))
+            .filter_map(|tx| {
+                Burnchain::classify_transaction(self, block_header, &tx, sunset_end_ht)
+            })
             .collect()
     }
 
@@ -296,8 +315,7 @@ impl BurnchainDB {
         sunset_end_ht: u64,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
-        let mut blockstack_ops =
-            BurnchainDB::get_blockstack_transactions(block, &header, sunset_end_ht);
+        let mut blockstack_ops = self.get_blockstack_transactions(block, &header, sunset_end_ht);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         let db_tx = self.tx_begin()?;
