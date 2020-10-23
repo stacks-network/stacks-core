@@ -879,20 +879,22 @@ impl ConversationHttp {
                 result: Some(format!("0x{}", data.serialize())),
                 cause: None,
             },
-            Err(e) => {
-                match e {
-                    Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _)) if actual_cost.write_count > 0 => CallReadOnlyResponse {
+            Err(e) => match e {
+                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
+                    if actual_cost.write_count > 0 =>
+                {
+                    CallReadOnlyResponse {
                         okay: false,
                         result: None,
                         cause: Some("NotReadOnly".to_string()),
-                    },
-                    _ => CallReadOnlyResponse {
-                        okay: false,
-                        result: None,
-                        cause: Some(e.to_string()),
                     }
                 }
-            }
+                _ => CallReadOnlyResponse {
+                    okay: false,
+                    result: None,
+                    cause: Some(e.to_string()),
+                },
+            },
         };
 
         let response = HttpResponseType::CallReadOnlyFunction(response_metadata, response);
