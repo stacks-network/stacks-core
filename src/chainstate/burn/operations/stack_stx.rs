@@ -1,0 +1,361 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::io::{Read, Write};
+
+use address::AddressHashMode;
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::Opcodes;
+use chainstate::burn::{BlockHeaderHash, VRFSeed};
+
+use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+
+use chainstate::burn::operations::{
+    parse_u128_from_be, BlockstackOperationType, PreStackStxOp, StackStxOp,
+};
+use core::POX_MAX_NUM_CYCLES;
+
+use burnchains::Address;
+use burnchains::Burnchain;
+use burnchains::BurnchainBlockHeader;
+use burnchains::BurnchainHeaderHash;
+use burnchains::Txid;
+use burnchains::{BurnchainRecipient, BurnchainSigner};
+use burnchains::{BurnchainTransaction, PublicKey};
+
+use net::codec::write_next;
+use net::Error as net_error;
+use net::StacksMessageCodec;
+
+use chainstate::stacks::index::storage::TrieFileStorage;
+use util::hash::to_hex;
+use util::log;
+use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+
+// return type from parse_data below
+struct ParsedData {
+    stacked_ustx: u128,
+    num_cycles: u8,
+}
+
+pub static OUTPUTS_PER_COMMIT: usize = 2;
+
+impl PreStackStxOp {
+    #[cfg(test)]
+    pub fn new(sender: &StacksAddress) -> PreStackStxOp {
+        PreStackStxOp {
+            output: sender.clone(),
+            // to be filled in
+            txid: Txid([0u8; 32]),
+            vtxindex: 0,
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        }
+    }
+
+    pub fn from_tx(
+        block_header: &BurnchainBlockHeader,
+        tx: &BurnchainTransaction,
+        pox_sunset_ht: u64,
+    ) -> Result<PreStackStxOp, op_error> {
+        PreStackStxOp::parse_from_tx(
+            block_header.block_height,
+            &block_header.block_hash,
+            tx,
+            pox_sunset_ht,
+        )
+    }
+
+    /// parse a LeaderBlockCommitOp
+    /// `pox_sunset_ht` is the height at which PoX *disables*
+    pub fn parse_from_tx(
+        block_height: u64,
+        block_hash: &BurnchainHeaderHash,
+        tx: &BurnchainTransaction,
+        pox_sunset_ht: u64,
+    ) -> Result<PreStackStxOp, op_error> {
+        // can't be too careful...
+        let inputs = tx.get_signers();
+        let outputs = tx.get_recipients();
+
+        if inputs.len() == 0 {
+            warn!(
+                "Invalid tx: inputs: {}, outputs: {}",
+                inputs.len(),
+                outputs.len()
+            );
+            return Err(op_error::InvalidInput);
+        }
+
+        if outputs.len() == 0 {
+            warn!(
+                "Invalid tx: inputs: {}, outputs: {}",
+                inputs.len(),
+                outputs.len()
+            );
+            return Err(op_error::InvalidInput);
+        }
+
+        if tx.opcode() != Opcodes::PreStackStx as u8 {
+            warn!("Invalid tx: invalid opcode {}", tx.opcode());
+            return Err(op_error::InvalidInput);
+        };
+
+        // check if we've reached PoX disable
+        if block_height >= pox_sunset_ht {
+            debug!(
+                "PreStackStxOp broadcasted after sunset. Ignoring. txid={}",
+                tx.txid()
+            );
+            return Err(op_error::InvalidInput);
+        }
+
+        Ok(PreStackStxOp {
+            output: outputs[0].address,
+            txid: tx.txid(),
+            vtxindex: tx.vtxindex(),
+            block_height,
+            burn_header_hash: block_hash.clone(),
+        })
+    }
+}
+
+impl StackStxOp {
+    #[cfg(test)]
+    pub fn new(
+        sender: &StacksAddress,
+        reward_addr: &StacksAddress,
+        stacked_ustx: u128,
+        num_cycles: u8,
+    ) -> StackStxOp {
+        StackStxOp {
+            sender: sender.clone(),
+            reward_addr: reward_addr.clone(),
+            stacked_ustx,
+            num_cycles,
+            // to be filled in
+            txid: Txid([0u8; 32]),
+            vtxindex: 0,
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        }
+    }
+
+    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+        /*
+            Wire format:
+            0      2  3                             19        20
+            |------|--|-----------------------------|---------|
+             magic  op         uSTX to lock (u128)     cycles (u8)
+
+             Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
+
+             The values ustx to lock and cycles are in big-endian order.
+
+             parent-delta and parent-txoff will both be 0 if this block builds off of the genesis block.
+        */
+
+        if data.len() < 17 {
+            // too short
+            warn!(
+                "StacksStxOp payload is malformed ({} bytes, expected {})",
+                data.len(),
+                17
+            );
+            return None;
+        }
+
+        let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
+        let num_cycles = data[16].clone();
+
+        Some(ParsedData {
+            stacked_ustx,
+            num_cycles,
+        })
+    }
+
+    pub fn get_sender_txid(tx: &BurnchainTransaction) -> Result<&Txid, op_error> {
+        tx.get_input_tx_ref(0).ok_or_else(|| {
+            warn!("Invalid tx: StackStxOp must have at least one input");
+            op_error::InvalidInput
+        })
+    }
+
+    pub fn from_tx(
+        block_header: &BurnchainBlockHeader,
+        tx: &BurnchainTransaction,
+        sender: &StacksAddress,
+        pox_sunset_ht: u64,
+    ) -> Result<StackStxOp, op_error> {
+        StackStxOp::parse_from_tx(
+            block_header.block_height,
+            &block_header.block_hash,
+            tx,
+            sender,
+            pox_sunset_ht,
+        )
+    }
+
+    /// parse a LeaderBlockCommitOp
+    /// `pox_sunset_ht` is the height at which PoX *disables*
+    pub fn parse_from_tx(
+        block_height: u64,
+        block_hash: &BurnchainHeaderHash,
+        tx: &BurnchainTransaction,
+        sender: &StacksAddress,
+        pox_sunset_ht: u64,
+    ) -> Result<StackStxOp, op_error> {
+        // can't be too careful...
+        let outputs = tx.get_recipients();
+
+        if tx.num_signers() == 0 {
+            warn!(
+                "Invalid tx: inputs: {}, outputs: {}",
+                tx.num_signers(),
+                outputs.len()
+            );
+            return Err(op_error::InvalidInput);
+        }
+
+        if outputs.len() == 0 {
+            warn!(
+                "Invalid tx: inputs: {}, outputs: {}",
+                tx.num_signers(),
+                outputs.len()
+            );
+            return Err(op_error::InvalidInput);
+        }
+
+        if tx.opcode() != Opcodes::StackStx as u8 {
+            warn!("Invalid tx: invalid opcode {}", tx.opcode());
+            return Err(op_error::InvalidInput);
+        };
+
+        let data = StackStxOp::parse_data(&tx.data()).ok_or_else(|| {
+            warn!("Invalid tx data");
+            op_error::ParseError
+        })?;
+
+        // check if we've reached PoX disable
+        if block_height >= pox_sunset_ht {
+            debug!(
+                "StackStxOp broadcasted after sunset. Ignoring. txid={}",
+                tx.txid()
+            );
+            return Err(op_error::InvalidInput);
+        }
+
+        Ok(StackStxOp {
+            sender: sender.clone(),
+            reward_addr: outputs[0].address,
+            stacked_ustx: data.stacked_ustx,
+            num_cycles: data.num_cycles,
+            txid: tx.txid(),
+            vtxindex: tx.vtxindex(),
+            block_height,
+            burn_header_hash: block_hash.clone(),
+        })
+    }
+}
+
+impl StacksMessageCodec for StackStxOp {
+    /*
+            Wire format:
+            0      2  3                             19        20
+            |------|--|-----------------------------|---------|
+             magic  op         uSTX to lock (u128)     cycles (u8)
+    */
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(Opcodes::StackStx as u8))?;
+        fd.write_all(&self.stacked_ustx.to_be_bytes())
+            .map_err(|e| net_error::WriteError(e))?;
+        write_next(fd, &self.num_cycles)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<StackStxOp, net_error> {
+        // Op deserialized through burchain indexer
+        unimplemented!();
+    }
+}
+
+impl StackStxOp {
+    pub fn check(&self) -> Result<(), op_error> {
+        if self.stacked_ustx == 0 {
+            warn!("Invalid StackStxOp, must have positive ustx");
+            return Err(op_error::StackStxMustBePositive);
+        }
+
+        if self.num_cycles == 0 || self.num_cycles > POX_MAX_NUM_CYCLES {
+            warn!(
+                "Invalid StackStxOp, num_cycles = {}, but must be in (0, {}]",
+                self.num_cycles, POX_MAX_NUM_CYCLES
+            );
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burnchains::bitcoin::address::*;
+    use burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::*;
+    use burnchains::*;
+
+    use address::AddressHashMode;
+
+    use deps::bitcoin::blockdata::transaction::Transaction;
+    use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
+
+    use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
+
+    use chainstate::burn::operations::*;
+
+    use util::get_epoch_time_secs;
+    use util::hash::*;
+    use util::vrf::VRFPublicKey;
+
+    use chainstate::stacks::StacksAddress;
+    use chainstate::stacks::StacksPublicKey;
+
+    use chainstate::burn::db::sortdb::*;
+    use chainstate::burn::db::*;
+    use chainstate::burn::*;
+
+    struct OpFixture {
+        txstr: String,
+        opstr: String,
+        result: Option<StackStxOp>,
+    }
+
+    struct CheckFixture {
+        op: StackStxOp,
+        res: Result<(), op_error>,
+    }
+
+    fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
+        let tx_bin = hex_bytes(hex_str).map_err(|_e| "failed to decode hex string")?;
+        let tx = deserialize(&tx_bin.to_vec()).map_err(|_e| "failed to deserialize")?;
+        Ok(tx)
+    }
+}
