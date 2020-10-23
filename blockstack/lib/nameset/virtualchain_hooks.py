@@ -586,16 +586,16 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
                 if (block_height - threshold_block_id == v2_upgrade_signal_import_threshold):
                     # emit parsable log entry and export datafile
                     export_block_id = db_state.get_current_block()
-                    log.warn('[v2-upgrade] import threshold reached at block: {}'.format(export_block_id))
-                    db_state.set_v2_import_block_reached(export_block_id)
-                    db_state.perform_v2_upgrade_datafile_export(export_block_id)
+                    log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_height))
+                    db_state.set_v2_import_block_reached(block_height)
+                    db_state.perform_v2_upgrade_datafile_export(block_height, consensus_hash)
                     log.warn('[v2-upgrade] migration datafile export successful')
 
         else:
             # check if threshold is reached at current block height
             v2_signals = db_state.get_num_names_in_namespace(v2_upgrade_signal_namespace)
             if (v2_signals >= v2_upgrade_signal_required_registrations):
-                log.debug('[v2-upgrade] namespace signal threshold reached at block: {}'.format(block_height))
+                log.warn('[v2-upgrade] namespace signal threshold reached at block: {}'.format(block_height))
                 db_state.set_v2_upgrade_threshold_block(block_height)
 
         return True

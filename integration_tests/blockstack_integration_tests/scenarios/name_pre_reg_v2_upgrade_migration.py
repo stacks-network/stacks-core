@@ -23,6 +23,7 @@
 
 import testlib
 import virtualchain
+import blockstack
 import json
 import time
 import os
@@ -42,6 +43,9 @@ wallets = [
 os.environ['V2_MIGRATION_EXPORT'] = '1'
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+
+# block_threshold = 500
+block_threshold = 10
 
 def scenario( wallets, **kw ):
 
@@ -66,6 +70,9 @@ def scenario( wallets, **kw ):
         
     testlib.next_block( **kw )
 
+    threshold_start_block = testlib.get_current_block( **kw )
+    os.environ['TEST_THRESHOLD_START_BLOCK'] = str(threshold_start_block)
+
     testlib.blockstack_name_preorder( "bar.miner", wallets[4].privkey, wallets[5].addr )
     testlib.blockstack_name_register( "bar.miner", wallets[4].privkey, wallets[5].addr )
     testlib.next_block( **kw )
@@ -74,6 +81,10 @@ def scenario( wallets, **kw ):
     block_threshold = 10
     for i in xrange(0, block_threshold + 1):
         testlib.next_block( **kw )
+    
+    testlib.blockstack_name_preorder( "toolate.miner", wallets[6].privkey, wallets[7].addr )
+    testlib.blockstack_name_register( "toolate.miner", wallets[6].privkey, wallets[7].addr )
+    testlib.next_block( **kw )
 
 def check( state_engine ):
     os.environ['V2_MIGRATION_EXPORT'] = '0'
@@ -81,6 +92,35 @@ def check( state_engine ):
     migration_data_file_path = os.path.join( state_engine.working_dir, 'v2_migration_data.tar.bz2')
     if not os.path.exists(migration_data_file_path):
         print 'v2_migration_data file not found'
+        return False
+
+    working_dir = os.environ.get("BLOCKSTACK_WORKING_DIR")
+    restore_dir = os.path.join(working_dir, "snapshot_dir")
+    if os.path.exists(restore_dir):
+        shutil.rmtree(restore_dir)
+    os.makedirs(restore_dir)
+
+    rc = blockstack.fast_sync_import( restore_dir, "file://{}".format(migration_data_file_path), public_keys=[], num_required=0 )
+    if not rc:
+        print "failed to restore snapshot {}".format(snapshot_path)
+        return False
+
+    db = blockstack.lib.namedb.BlockstackDB.get_readwrite_instance(restore_dir)
+    last_block = db.get_current_block()
+    threshold_start_block = int(os.environ['TEST_THRESHOLD_START_BLOCK'])
+
+    if last_block - threshold_start_block != block_threshold:
+        print "export block height is not the correct threshold, {} - {} = {}".format(last_block, threshold_start_block, last_block - threshold_start_block)
+        return False
+
+    name_rec = db.get_name( "toolate.miner" )
+    if name_rec is not None:
+        print "toolate.miner should not be in snapshot"
+        return False 
+
+    name_rec = db.get_name( "bar.miner" )
+    if name_rec is None:
+        print "bar.miner should be in snapshot"
         return False
 
     # not revealed, but ready 

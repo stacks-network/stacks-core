@@ -24,6 +24,7 @@
 import json
 import traceback
 import keychain
+import keylib
 import os
 import copy
 import threading
@@ -1157,7 +1158,7 @@ class BlockstackDB(virtualchain.StateEngine):
         """
         namedb_set_v2_import_block_reached(self.db, block_id)
 
-    def perform_v2_upgrade_datafile_export( self, block_id ):
+    def perform_v2_upgrade_datafile_export( self, block_id, consensus_hash ):
         """
         Export a datafile used for the v2 upgrade. 
         Does nothing if the `v2_migration_export` config option is not enabled.
