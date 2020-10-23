@@ -105,6 +105,7 @@ def check( state_engine ):
 
     if last_block - threshold_start_block != block_threshold:
         print "export block height is not the correct threshold, {} - {} = {}".format(last_block, threshold_start_block, last_block - threshold_start_block)
+        return False
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "miner" )
