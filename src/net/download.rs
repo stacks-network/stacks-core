@@ -2393,11 +2393,8 @@ impl PeerNetwork {
 
     pub fn block_getattachments_begin(
         &mut self,
-        sortdb: &SortitionDB,
         chainstate: &mut StacksChainState
     ) -> Result<bool, net_error> {
-        println!(">>>> block_getattachments_begin");
-
         PeerNetwork::with_downloader_state(self, |network, downloader| {
             PeerNetwork::with_inv_states(network, |network, _, attachment_inv_state| {
                 let mut requests = HashMap::new();
@@ -2405,7 +2402,7 @@ impl PeerNetwork {
                     let inv_request = attachment_inv_state.request_to_process.as_ref().unwrap();
                     let peers = network.sync_peers.clone();
                     let mut attachments_sources = HashMap::new();
-                    for ((page_index, attachment_index), _) in inv_request.missing_attachments.iter() {
+                    for ((page_index, position_in_page), _) in inv_request.missing_attachments.iter() {
                         let mut candidates = VecDeque::new();
                         for nk in peers.iter() {  // todo(ludo) we can probably use a more appropriate itertor
                             let stats = match attachment_inv_state.attachments_stats.get_mut(&nk) {
@@ -2423,49 +2420,62 @@ impl PeerNetwork {
                                     continue;
                                 }
                             };
-    
-                            if true { // todo(ludo) peer has missing attachment on missing page - bit masks shenanigans
 
-                                // todo(ludo) deduplicate code
-                                let data_url = match network.get_data_url(&nk) {
-                                    Some(url) => url,
-                                    None => {
-                                        continue;
-                                    }
-                                };
-                                if data_url.len() == 0 {
-                                    // peer doesn't yet know its public IP address, and isn't given a data URL
-                                    // directly
+                            let index = peer_response.pages.iter()
+                                .position(|page| page.index == *page_index);
+                            let has_attachment = match index {
+                                Some(index) => match peer_response.pages[index].inventory.get(*position_in_page as usize) {
+                                    Some(result) if *result == 1 => true,
+                                    _ => false
+                                }
+                                None => false,
+                            };
+
+                            if !has_attachment {
+                                continue;
+                            }
+
+                            println!(">>>> Response {:?}", peer_response);
+    
+                            // todo(ludo) deduplicate code
+                            let data_url = match network.get_data_url(&nk) {
+                                Some(url) => url,
+                                None => {
                                     continue;
                                 }
-                
-                                let prev_blocked = if let Some(deadline) = downloader.blocked_urls.get(&data_url) {
-                                    if get_epoch_time_secs() < *deadline {
-                                        true
-                                    } else {
-                                        false
-                                    }
+                            };
+                            if data_url.len() == 0 {
+                                // peer doesn't yet know its public IP address, and isn't given a data URL
+                                // directly
+                                continue;
+                            }
+            
+                            let prev_blocked = if let Some(deadline) = downloader.blocked_urls.get(&data_url) {
+                                if get_epoch_time_secs() < *deadline {
+                                    true
                                 } else {
                                     false
-                                };
-                
-                                if prev_blocked {
-                                    continue;
                                 }
+                            } else {
+                                false
+                            };
             
-                                let request_key = BlockRequestKey::new(
-                                    nk.clone(),
-                                    data_url,
-                                    inv_request.consensus_hash.clone(),
-                                    inv_request.block_header_hash.clone(),
-                                    inv_request.get_stacks_block_id(),
-                                    None,
-                                0,
-                                );
-                                candidates.push_front(request_key);
+                            if prev_blocked {
+                                continue;
                             }
+        
+                            let request_key = BlockRequestKey::new(
+                                nk.clone(),
+                                data_url,
+                                inv_request.consensus_hash.clone(),
+                                inv_request.block_header_hash.clone(),
+                                inv_request.get_stacks_block_id(),
+                                None,
+                            0,
+                            );
+                            candidates.push_front(request_key);
                         }
-                        attachments_sources.insert((*page_index, *attachment_index), candidates);
+                        attachments_sources.insert((*page_index, *position_in_page), candidates);
                     } 
 
                     let ordered_indexes = PeerNetwork::prioritize_requests::<(u32, u32)>(&attachments_sources);
@@ -2632,7 +2642,7 @@ impl PeerNetwork {
                     self.block_getattachmentsinv_try_finish()?;
                 }
                 BlockDownloaderState::GetAttachmentsBegin => {
-                    self.block_getattachments_begin(sortdb, chainstate)?;
+                    self.block_getattachments_begin(chainstate)?;
                 }
                 BlockDownloaderState::GetAttachmentsFinish => {
                     self.block_getattachments_try_finish()?;

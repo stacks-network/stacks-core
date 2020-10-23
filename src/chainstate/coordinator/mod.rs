@@ -14,9 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
+use std::sync::mpsc::SyncSender;
 
 use burnchains::{
     db::{BurnchainBlockData, BurnchainDB},
@@ -28,13 +29,17 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS,
+    boot::{STACKS_BOOT_CODE_CONTRACT_ADDRESS, boot_code_id},
     db::{ClarityTx, StacksChainState, StacksHeaderInfo},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
+    TransactionPayload,
+    events::StacksTransactionEvent,
 };
 use monitoring::increment_stx_blocks_processed_counter;
 use util::db::Error as DBError;
+use util::hash::to_hex;
+use net::atlas::AttachmentRequest;
 use vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier},
@@ -125,6 +130,7 @@ pub struct ChainsCoordinator<
     chain_state_db: StacksChainState,
     sortition_db: SortitionDB,
     burnchain: Burnchain,
+    attachments_tx: SyncSender<HashSet<AttachmentRequest>>,
     dispatcher: Option<&'a T>,
     reward_set_provider: R,
     notifier: N,
@@ -224,6 +230,7 @@ impl<'a, T: BlockEventDispatcher>
         stacks_chain_id: u32,
         initial_balances: Option<Vec<(PrincipalData, u64)>>,
         block_limit: ExecutionCost,
+        attachments_tx: SyncSender<HashSet<AttachmentRequest>>,
         dispatcher: &mut T,
         comms: CoordinatorReceivers,
         boot_block_exec: F,
@@ -289,6 +296,7 @@ impl<'a, T: BlockEventDispatcher>
             chain_state_db,
             sortition_db,
             burnchain,
+            attachments_tx,
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
@@ -325,6 +333,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         burnchain: &Burnchain,
         path: &str,
         reward_set_provider: U,
+        attachments_tx: SyncSender<HashSet<AttachmentRequest>>,     
     ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
@@ -348,6 +357,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             dispatcher: None,
             reward_set_provider,
             notifier: (),
+            attachments_tx,
         }
     }
 }
@@ -587,6 +597,52 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     increment_stx_blocks_processed_counter();
                     let block_hash = block_receipt.header.anchored_header.block_hash();
 
+                    let mut attachments_requests = HashSet::new();
+                    for receipt in block_receipt.tx_receipts.iter() {
+                        if let TransactionPayload::ContractCall(ref contract_call) = receipt.transaction.payload {
+                            if contract_call.to_clarity_contract_id() == boot_code_id("bns") {
+                                for event in receipt.events.iter() {
+                                    if let StacksTransactionEvent::SmartContractEvent(ref event_data) = event {
+                                        let value = event_data.value.clone();
+                                        let attachment_data = value.expect_tuple();
+                                        let page_index = attachment_data
+                                            .get("page-index")
+                                            .expect(&format!("FATAL: no 'page-index'"))
+                                            .to_owned()
+                                            .expect_u128();
+                                        let position_in_page = attachment_data
+                                            .get("position-in-page")
+                                            .expect(&format!("FATAL: no 'position-in-page'"))
+                                            .to_owned()
+                                            .expect_u128();
+                                        let attachment_hash = attachment_data
+                                            .get("hash")
+                                            .expect(&format!("FATAL: no 'hash'"))
+                                            .to_owned()
+                                            .expect_buff(20);
+                                        let request = AttachmentRequest {
+                                            consensus_hash: block_receipt.header.consensus_hash.clone(),
+                                            block_header_hash: block_receipt.header.anchored_header.block_hash(),
+                                            content_hash: to_hex(&attachment_hash[..]),
+                                            page_index: page_index as u32,
+                                            position_in_page: position_in_page as u32,
+                                            block_height: block_receipt.header.block_height,
+                                        };
+                                        attachments_requests.insert(request);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !attachments_requests.is_empty() {
+                        match self.attachments_tx.send(attachments_requests) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                error!("Error dispatching attachments {}", e);
+                            }
+                        };
+                    }
+
                     if let Some(dispatcher) = self.dispatcher {
                         let metadata = &block_receipt.header;
                         let block: StacksBlock = {
@@ -604,12 +660,14 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             .chain_state_db
                             .get_parent(&stacks_block)
                             .expect("BUG: failed to get parent for processed block");
+                        
                         dispatcher.announce_block(
                             block,
                             block_receipt.header,
                             block_receipt.tx_receipts,
                             &parent,
                         );
+
                     }
 
                     // if, just after processing the block, we _know_ that this block is a pox anchor, that means

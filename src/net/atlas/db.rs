@@ -332,7 +332,7 @@ impl AtlasDB {
                 &request.get_stacks_block_id() as &dyn ToSql, 
                 &request.position_in_page as &dyn ToSql, 
                 &request.page_index as &dyn ToSql, 
-                &request.block_height as &dyn ToSql, 
+                &u64_to_sql(request.block_height)?,
                 &is_available as &dyn ToSql, 
             ]
         );

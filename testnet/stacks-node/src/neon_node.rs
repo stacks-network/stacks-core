@@ -243,7 +243,8 @@ fn spawn_peer(
     config: Config,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
-) -> Result<(JoinHandle<()>, SyncSender<HashSet<AttachmentRequest>>), NetError> {
+    attachments_rx: Receiver<HashSet<AttachmentRequest>>,
+) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
     let block_limit = config.block_limit;
@@ -266,8 +267,6 @@ fn spawn_peer(
 
     // buffer up blocks to store without stalling the p2p thread
     let mut results_with_data = VecDeque::new();
-
-    let (attachments_tx, attachments_rx) = sync_channel(1);
 
     let server_thread = thread::spawn(move || {
         let handler_args = RPCHandlerArgs {
@@ -359,7 +358,7 @@ fn spawn_peer(
         dns_resolver.thread_main();
     });
 
-    Ok((server_thread, attachments_tx))
+    Ok(server_thread)
 }
 
 fn spawn_miner_relayer(
@@ -608,6 +607,7 @@ impl InitializedNeonNode {
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
         burnchain: Burnchain,
+        attachments_rx: Receiver<HashSet<AttachmentRequest>>
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -724,6 +724,7 @@ impl InitializedNeonNode {
             config.clone(),
             5000,
             relay_send.clone(),
+            attachments_rx,
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -1178,6 +1179,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        attachments_rx: Receiver<HashSet<AttachmentRequest>>
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1192,6 +1194,7 @@ impl NeonGenesisNode {
             blocks_processed,
             coord_comms,
             self.burnchain,
+            attachments_rx
         )
     }
 
@@ -1200,6 +1203,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        attachments_rx: Receiver<HashSet<AttachmentRequest>>
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1214,6 +1218,7 @@ impl NeonGenesisNode {
             blocks_processed,
             coord_comms,
             self.burnchain,
+            attachments_rx,
         )
     }
 }

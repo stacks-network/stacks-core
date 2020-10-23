@@ -1796,6 +1796,7 @@ pub mod test {
     use net::relay::*;
     use net::rpc::RPCHandlerArgs;
     use net::Error as net_error;
+    use net::atlas::AtlasDB;
 
     use core::NETWORK_P2P_PORT;
 
@@ -1844,6 +1845,7 @@ pub mod test {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use std::thread;
+    use std::sync::mpsc::sync_channel;
 
     use std::fs;
 
@@ -2307,8 +2309,9 @@ pub mod test {
                 },
                 ExecutionCost::max_value()).unwrap();
 
+            let (tx, _) = sync_channel(1);
             let mut coord =
-                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider());
+                ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
@@ -2433,6 +2436,7 @@ pub mod test {
                 false,
                 10,
                 &RPCHandlerArgs::default(),
+                HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);
@@ -2455,6 +2459,7 @@ pub mod test {
                 false,
                 10,
                 &RPCHandlerArgs::default(),
+                HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);

@@ -290,9 +290,9 @@
       (print { 
         namespace: namespace,
         name: name,
-        zonefile-hash: zonefile-hash,
-        page: next-page,
-        index: next-index })
+        hash: zonefile-hash,
+        page-index: next-page,
+        position-in-page: next-index })
       ;; Update zonefiles-inv
       (map-set zonefiles-inv
         ((page next-page) (index next-index))

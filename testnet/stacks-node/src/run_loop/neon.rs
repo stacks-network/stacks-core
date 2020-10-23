@@ -1,4 +1,5 @@
 use std::thread;
+use std::sync::mpsc::sync_channel;
 
 use crate::{
     neon_node, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
@@ -151,6 +152,8 @@ impl RunLoop {
         let chainstate_path = self.config.get_chainstate_path();
         let coordinator_burnchain_config = burnchain_config.clone();
 
+        let (attachments_tx, attachments_rx) = sync_channel(1);
+
         thread::spawn(move || {
             ChainsCoordinator::run(
                 &chainstate_path,
@@ -159,6 +162,7 @@ impl RunLoop {
                 chainid,
                 Some(initial_balances),
                 block_limit,
+                attachments_tx,
                 &mut coordinator_dispatcher,
                 coordinator_receivers,
                 |_| {},
@@ -181,12 +185,14 @@ impl RunLoop {
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
                 coordinator_senders,
+                attachments_rx,
             )
         } else {
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
                 coordinator_senders,
+                attachments_rx,
             )
         };
 

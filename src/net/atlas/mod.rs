@@ -71,7 +71,7 @@ pub struct ExpectedAttachment {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttachmentsInvRequest {
-    pub block_height: u32,    
+    pub block_height: u64,    
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub missing_attachments: HashMap<(u32, u32), String>,
@@ -124,14 +124,14 @@ impl AttachmentsInvRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct AttachmentRequest {
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub content_hash: String, // todo(ludo)
     pub page_index: u32,
     pub position_in_page: u32,
-    pub block_height: u32,
+    pub block_height: u64,
 }
 
 impl AttachmentRequest {
@@ -146,28 +146,3 @@ impl AttachmentRequest {
 
 #[cfg(test)]
 mod tests;
-
-// todo(ludo)
-// When we receive a new block, if the block contains some events related to zonefile updates
-// we should:
-// 1) Check if the zonefile have been buffered / staged (from the API)
-// 2) Request the ZonefileInv from peers
-// 3) Check if the missing are present
-// 4) Build a priority queue
-// 5) Fetch the missing zonefiles
-// 6) Process and store the zonefiles
-
-// 1) Ability to build a bit vector
-
-// BNS
-
-// High level:
-// HTTP Endpoints
-// - POST v2/zonefiles: Receives a Zonefile + Hash
-//     - Did we reveive the zonefile?
-//     - 
-// - GET v2/names/{name}: serve name info
-//     - Do we have an entry for that name?
-//     - Do we have an entry "in flux"?
-
-// HTTP Endpoint, 

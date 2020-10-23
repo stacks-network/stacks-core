@@ -32,6 +32,7 @@ use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, RwLock,
+    mpsc::sync_channel,
 };
 use util::vrf::*;
 use vm::{
@@ -241,7 +242,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
 pub fn make_coordinator<'a>(
     path: &str,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
-    ChainsCoordinator::test_new(&get_burnchain(path), path, OnChainRewardSetProvider())
+    let (tx, _) = sync_channel(1);
+    ChainsCoordinator::test_new(&get_burnchain(path), path, OnChainRewardSetProvider(), tx)
 }
 
 struct StubbedRewardSetProvider(Vec<StacksAddress>);
@@ -263,7 +265,8 @@ fn make_reward_set_coordinator<'a>(
     path: &str,
     addrs: Vec<StacksAddress>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider> {
-    ChainsCoordinator::test_new(&get_burnchain(path), path, StubbedRewardSetProvider(addrs))
+    let (tx, _) = sync_channel(1);
+    ChainsCoordinator::test_new(&get_burnchain(path), path, StubbedRewardSetProvider(addrs), tx)
 }
 
 pub fn get_burnchain(path: &str) -> Burnchain {
