@@ -79,6 +79,10 @@ def scenario( wallets, **kw ):
 
     for i in xrange(0, block_threshold + 1):
         testlib.next_block( **kw )
+    
+    testlib.blockstack_name_preorder( "toolate.miner", wallets[6].privkey, wallets[7].addr )
+    testlib.blockstack_name_register( "toolate.miner", wallets[6].privkey, wallets[7].addr )
+    testlib.next_block( **kw )
 
 def check( state_engine ):
     os.environ['V2_MIGRATION_EXPORT'] = '0'
@@ -106,6 +110,16 @@ def check( state_engine ):
     if last_block - threshold_start_block != block_threshold:
         print "export block height is not the correct threshold, {} - {} = {}".format(last_block, threshold_start_block, last_block - threshold_start_block)
         return False
+
+    name_rec = db.get_name( "toolate.miner" )
+    if name_rec is not None:
+        print "toolate.miner should not be in snapshot"
+        return False 
+
+    name_rec = db.get_name( "bar.miner" )
+    if name_rec is None:
+        print "bar.miner should be in snapshot"
+        return False 
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "miner" )

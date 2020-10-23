@@ -1158,7 +1158,7 @@ class BlockstackDB(virtualchain.StateEngine):
         """
         namedb_set_v2_import_block_reached(self.db, block_id)
 
-    def perform_v2_upgrade_datafile_export( self, consensus_hash ):
+    def perform_v2_upgrade_datafile_export( self, block_id, consensus_hash ):
         """
         Export a datafile used for the v2 upgrade. 
         Does nothing if the `v2_migration_export` config option is not enabled.
@@ -1171,8 +1171,6 @@ class BlockstackDB(virtualchain.StateEngine):
         if os.path.exists(export_file_path):
             log.warning('v2_migration_data already exists')
             return
-
-        block_id = self.get_current_block()
 
         # override backup frequency to force a backup _now_
         # note: the `make_backup` function subtracts 1 from the given block ID
