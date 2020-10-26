@@ -609,7 +609,6 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
 }
 
 fn main() {
-    log::set_loglevel(log::LOG_DEBUG).unwrap();
     let mut argv: Vec<String> = env::args().collect();
 
     argv.remove(0);
