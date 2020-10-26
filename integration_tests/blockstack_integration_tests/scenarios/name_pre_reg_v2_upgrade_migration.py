@@ -77,6 +77,8 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "bar.miner", wallets[4].privkey, wallets[5].addr )
     testlib.next_block( **kw )
 
+    # block_threshold = 500
+    block_threshold = 10
     for i in xrange(0, block_threshold + 1):
         testlib.next_block( **kw )
     
@@ -119,7 +121,7 @@ def check( state_engine ):
     name_rec = db.get_name( "bar.miner" )
     if name_rec is None:
         print "bar.miner should be in snapshot"
-        return False 
+        return False
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "miner" )
