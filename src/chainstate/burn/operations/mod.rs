@@ -300,6 +300,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref mut data) => data.block_height = height,
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => data.block_height = height,
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
+            BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
+            BlockstackOperationType::PreStackStx(ref mut data) => data.block_height = height,
         };
     }
 
@@ -313,6 +315,8 @@ impl BlockstackOperationType {
                 data.burn_header_hash = hash
             }
             BlockstackOperationType::UserBurnSupport(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::StackStx(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::PreStackStx(ref mut data) => data.burn_header_hash = hash,
         };
     }
 }

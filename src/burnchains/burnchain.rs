@@ -2060,18 +2060,8 @@ pub mod tests {
             block_124_hash_bytes[0] = (scenario_idx + 1) as u8;
             let block_124_hash = BurnchainHeaderHash(block_124_hash_bytes);
 
-            for i in 0..block_ops_124.len() {
-                match block_ops_124[i] {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut op) => {
-                        op.burn_header_hash = block_124_hash.clone();
-                    }
-                    BlockstackOperationType::LeaderBlockCommit(ref mut op) => {
-                        op.burn_header_hash = block_124_hash.clone();
-                    }
-                    BlockstackOperationType::UserBurnSupport(ref mut op) => {
-                        op.burn_header_hash = block_124_hash.clone();
-                    }
-                }
+            for op in block_ops_124.iter_mut() {
+                op.set_burn_header_hash(block_124_hash.clone());
             }
 
             // everything will be included
@@ -2079,11 +2069,7 @@ pub mod tests {
                 &block_ops_124
                     .clone()
                     .into_iter()
-                    .map(|bo| match bo {
-                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.txid.clone(),
-                        BlockstackOperationType::LeaderKeyRegister(ref op) => op.txid.clone(),
-                        BlockstackOperationType::UserBurnSupport(ref op) => op.txid.clone(),
-                    })
+                    .map(|bo| bo.txid())
                     .collect(),
             );
             let block_prev_chs_124 = vec![

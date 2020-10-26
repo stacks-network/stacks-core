@@ -124,7 +124,7 @@ CREATE TABLE burnchain_db_block_headers (
 CREATE TABLE burnchain_db_block_ops (
     block_hash TEXT NOT NULL,
     op TEXT NOT NULL,
-
+    txid TEXT NOT NULL,
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
 ";
@@ -156,7 +156,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         block_ops: &[BlockstackOperationType],
     ) -> Result<(), BurnchainError> {
         let sql = "INSERT INTO burnchain_db_block_ops
-                   (block_hash, txid, op) VALUES (?, ?)";
+                   (block_hash, txid, op) VALUES (?, ?, ?)";
         let mut stmt = self.sql_tx.prepare(sql)?;
         for op in block_ops.iter() {
             let serialized_op =

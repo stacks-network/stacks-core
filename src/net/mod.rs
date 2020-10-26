@@ -1795,6 +1795,10 @@ pub mod test {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
             match self {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
+                BlockstackOperationType::PreStackStx(_) | BlockstackOperationType::StackStx(_) => {
+                    Ok(())
+                }
+                BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
             }
@@ -2470,17 +2474,7 @@ pub mod test {
             bhh: &BurnchainHeaderHash,
         ) {
             for op in blockstack_ops.iter_mut() {
-                match op {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                    BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                    BlockstackOperationType::UserBurnSupport(ref mut data) => {
-                        data.burn_header_hash = (*bhh).clone();
-                    }
-                }
+                op.set_burn_header_hash(bhh.clone());
             }
         }
 
