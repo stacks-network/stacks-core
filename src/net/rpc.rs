@@ -50,7 +50,7 @@ use net::StacksMessageType;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetAttachmentsInvResponse, PostAttachmentResponse, GetAttachmentResponse, AttachmentPage};
+use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetAttachmentsInvResponse, PostAttachmentResponse, GetAttachmentResponse, AttachmentPage, AttachmentData};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
 use net::atlas::{AtlasDB, BNSContractReader, Attachment};
@@ -558,6 +558,7 @@ impl ConversationHttp {
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
+        println!("Getting /v2/attachments/inv {:?} {:?}", tip, pages_indexes);
 
         let (oldest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
             (*pages_indexes.iter().min().unwrap(), pages_indexes.clone())
@@ -583,6 +584,7 @@ impl ConversationHttp {
                 }
             }
         };
+        // todo(ludo) complete this part
         let (min_block_height, max_block_height) = match atlasdb.get_block_height_window_for_page_index(oldest_page_index) {
             Ok(window) => window,
             Err(e) => {
@@ -655,7 +657,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         atlasdb: &mut AtlasDB,
-        content_hash: String,
+        content_hash: Hash160,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
@@ -1620,6 +1622,12 @@ impl ConversationHttp {
                     attachment.clone(),
                     &self.connection.options,
                 )?;
+
+                ret = Some(StacksMessageType::Attachment(AttachmentData {
+                    content: attachment.content.clone(),
+                    hash: attachment.hash.clone(),
+                }));
+
                 None
             }
             HttpRequestType::GetAttachment(ref _md, ref content_hash) => {

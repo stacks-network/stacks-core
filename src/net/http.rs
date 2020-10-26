@@ -55,7 +55,7 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
-use net::{GetNameResponse, GetAttachmentResponse, GetAttachmentsInvResponse, PostAttachmentResponse};
+use net::{GetNameResponse, GetAttachmentResponse, GetAttachmentsInvResponse, PostAttachmentResponse, PostAttachmentRequestBody};
 use net::atlas::{BNS_NAME_REGEX, Attachment};
 use burnchains::{Address, Txid};
 use chainstate::burn::BlockHeaderHash;
@@ -129,9 +129,9 @@ lazy_static! {
     ))
     .unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
-    static ref PATH_POST_ZONEFILE: Regex = Regex::new("^/v2/zonefiles$").unwrap();
-    static ref PATH_GET_ZONEFILES_INV: Regex = Regex::new("^/v2/zonefiles/inv$").unwrap();
-    static ref PATH_GET_ZONEFILE: Regex = Regex::new("^/v2/zonefiles/([0-9a-f]{20})$").unwrap();
+    static ref PATH_POST_ATTACHMENT: Regex = Regex::new("^/v2/attachments$").unwrap();
+    static ref PATH_GET_ATTACHMENTS_INV: Regex = Regex::new("^/v2/attachments/inv$").unwrap();
+    static ref PATH_GET_ATTACHMENT: Regex = Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_GET_NAME: Regex = Regex::new(&format!(
         r#"^/v2/names/(?P<name>{})$"#,
         *BNS_NAME_REGEX
@@ -1512,18 +1512,18 @@ impl HttpRequestType {
             ),
             (
                 "GET",
-                &PATH_GET_ZONEFILE,
-                &HttpRequestType::parse_get_zonefile,
+                &PATH_GET_ATTACHMENT,
+                &HttpRequestType::parse_get_attachment,
             ),
             (
                 "POST",
-                &PATH_POST_ZONEFILE,
-                &HttpRequestType::parse_post_zonefile,
+                &PATH_POST_ATTACHMENT,
+                &HttpRequestType::parse_post_attachment,
             ),
             (
                 "GET",
-                &PATH_GET_ZONEFILES_INV,
-                &HttpRequestType::parse_get_zonefiles_inv,
+                &PATH_GET_ATTACHMENTS_INV,
+                &HttpRequestType::parse_get_attachments_inv,
             )
         ];
 
@@ -2087,7 +2087,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_post_zonefile<R: Read>(
+    fn parse_post_attachment<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -2101,7 +2101,7 @@ impl HttpRequestType {
                     .to_string(),
             ));
         }
-
+        // todo(ludo): should be queued and processed by the peer network instead
         // content-type must be given, and must be application/json
         match preamble.content_type {
             None => {
@@ -2119,9 +2119,16 @@ impl HttpRequestType {
             }
         };
 
-        let attachment: Attachment = serde_json::from_reader(fd)
+        let body: PostAttachmentRequestBody = serde_json::from_reader(fd)
             .map_err(|_e| net_error::DeserializeError("Failed to parse attachment".into()))?;
         
+        let hash = Hash160::from_hex(&body.hash)
+            .map_err(|_| net_error::DeserializeError("Invalid Http request: hash invalid".to_string()))?;
+
+        let content = hex_bytes(&body.content)
+            .map_err(|_| net_error::DeserializeError("Invalid Http request: content invalid".to_string()))?;
+
+        let attachment = Attachment { hash, content }; 
         if !attachment.is_hash_valid() {
             return Err(net_error::DeserializeError(
                 "Invalid Http request: hash invalid"
@@ -2134,11 +2141,11 @@ impl HttpRequestType {
             attachment))
     }
 
-    fn parse_get_zonefile<R: Read>(
+    fn parse_get_attachment<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
-        query: Option<&str>,
+        _query: Option<&str>,
         _fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
@@ -2146,22 +2153,27 @@ impl HttpRequestType {
                 "Invalid Http request: expected 0-length body".to_string(),
             ));
         }
-        let content_hash = captures
+        let hex_content_hash = captures
             .get(1)
             .ok_or(net_error::DeserializeError(
                 "Failed to match path to attachment hash group".to_string(),
             ))?
             .as_str();
 
+        let content_hash = Hash160::from_hex(&hex_content_hash)
+            .map_err(|_| net_error::DeserializeError(
+                "Failed to construct hash160 from inputs".to_string(),
+            ))?;
+
         Ok(HttpRequestType::GetAttachment(
             HttpRequestMetadata::from_preamble(preamble),
-            content_hash.to_string()))
+            content_hash))
     }
 
-    fn parse_get_zonefiles_inv<R: Read>(
+    fn parse_get_attachments_inv<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        _captures: &Captures,
         query: Option<&str>,
         _fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
@@ -2382,7 +2394,7 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
             HttpRequestType::GetAttachmentsInv(_md, ..) => "/v2/attachments/inv".to_string(),
             HttpRequestType::PostAttachment(_md, ..) => "/v2/attachments".to_string(),
-            HttpRequestType::GetAttachment(_, content_hash) => format!("/v2/attachments/{}", content_hash.as_str()),
+            HttpRequestType::GetAttachment(_, content_hash) => format!("/v2/attachments/{}", to_hex(&content_hash.0[..])),
             HttpRequestType::GetName(
                 _,
                 name,
@@ -2783,9 +2795,9 @@ impl HttpResponseType {
                 &HttpResponseType::parse_call_read_only,
             ),
             (&PATH_GET_NAME, &HttpResponseType::parse_get_name),
-            (&PATH_GET_ZONEFILE, &HttpResponseType::parse_get_zonefile),
-            (&PATH_POST_ZONEFILE, &HttpResponseType::parse_post_zonefile),
-            (&PATH_GET_ZONEFILES_INV, &HttpResponseType::parse_get_zonefiles_inv),
+            (&PATH_GET_ATTACHMENT, &HttpResponseType::parse_get_attachment),
+            (&PATH_POST_ATTACHMENT, &HttpResponseType::parse_post_attachment),
+            (&PATH_GET_ATTACHMENTS_INV, &HttpResponseType::parse_get_attachments_inv),
         ];
 
         // use url::Url to parse path and query string
@@ -3058,7 +3070,7 @@ impl HttpResponseType {
         ))
     }
 
-    fn parse_get_zonefile<R: Read>(
+    fn parse_get_attachment<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
@@ -3073,7 +3085,7 @@ impl HttpResponseType {
         ))
     }
 
-    fn parse_get_zonefiles_inv<R: Read>(
+    fn parse_get_attachments_inv<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
@@ -3088,7 +3100,7 @@ impl HttpResponseType {
         ))
     }
 
-    fn parse_post_zonefile<R: Read>(
+    fn parse_post_attachment<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,

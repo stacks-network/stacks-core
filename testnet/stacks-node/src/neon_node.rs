@@ -34,7 +34,7 @@ use stacks::net::{
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
-    atlas::AttachmentRequest,
+    atlas::inv::AttachmentInstance,
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
@@ -243,7 +243,7 @@ fn spawn_peer(
     config: Config,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
-    attachments_rx: Receiver<HashSet<AttachmentRequest>>,
+    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
@@ -418,6 +418,11 @@ fn spawn_miner_relayer(
                     let mempool_txs_added = net_receipts.mempool_txs_added.len();
                     if mempool_txs_added > 0 {
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
+                    }
+                    
+                    // Dispatch retrieved attachments, if any.
+                    if net_result.has_attachments() {
+                        event_dispatcher.process_new_attachments(&net_result.attachments);
                     }
                 }
                 RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
@@ -607,7 +612,7 @@ impl InitializedNeonNode {
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
         burnchain: Burnchain,
-        attachments_rx: Receiver<HashSet<AttachmentRequest>>
+        attachments_rx: Receiver<HashSet<AttachmentInstance>>
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -1179,7 +1184,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
-        attachments_rx: Receiver<HashSet<AttachmentRequest>>
+        attachments_rx: Receiver<HashSet<AttachmentInstance>>
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1203,7 +1208,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
-        attachments_rx: Receiver<HashSet<AttachmentRequest>>
+        attachments_rx: Receiver<HashSet<AttachmentInstance>>
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;

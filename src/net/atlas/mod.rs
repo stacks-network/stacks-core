@@ -1,15 +1,15 @@
 pub mod db;
 pub mod bns;
-pub mod zonefile;
 pub mod inv;
 
 pub use self::bns::BNSContractReader;
 pub use self::db::AtlasDB;
+use self::inv::AttachmentInstance;
 
 use chainstate::stacks::{StacksBlockId, StacksBlockHeader};
 use chainstate::burn::{ConsensusHash, BlockHeaderHash};
 use chainstate::burn::db::sortdb::SortitionDB;
-
+use vm::types::TupleData;
 use util::hash::Hash160;
 
 use std::collections::{HashSet, HashMap};
@@ -33,15 +33,15 @@ lazy_static! {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Attachment {
-    pub content: String,
-    pub content_hash: String
+    pub hash: Hash160,
+    pub content: Vec<u8>,
 }
 
 impl Attachment {
-    pub fn new(content: String, content_hash: String) -> Attachment {
+    pub fn new(content: Vec<u8>, hash: Hash160) -> Attachment {
         Attachment {
+            hash,
             content,
-            content_hash
         }
     }
 
@@ -56,7 +56,7 @@ pub enum ExpectedAttachmentState {
     Signaled,
     Inventoried,
     Enqueued,
-    Downloaded(String),
+    Downloaded(Vec<u8>),
     Processed
 }
 
@@ -64,7 +64,7 @@ pub enum ExpectedAttachmentState {
 pub struct ExpectedAttachment {
     pub page_index: u32,
     pub index: u32,
-    pub content_hash: String, // todo(ludo)
+    pub content_hash: Hash160,
     pub block_id: StacksBlockId,
     pub state: ExpectedAttachmentState,
 }
@@ -74,36 +74,38 @@ pub struct AttachmentsInvRequest {
     pub block_height: u64,    
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
-    pub missing_attachments: HashMap<(u32, u32), String>,
+    pub burn_block_height: u64,
+    pub missing_attachments: HashMap<(u32, u32), Hash160>,
 }
 
 impl AttachmentsInvRequest {
 
     pub fn new() -> AttachmentsInvRequest {
         AttachmentsInvRequest {
-            block_height: 0,    
+            block_height: 0,
+            burn_block_height: 0,
             consensus_hash: ConsensusHash::empty(),
             block_header_hash: BlockHeaderHash([0u8; 32]),
             missing_attachments: HashMap::new(),
         }
     }
 
-    pub fn is_request_in_same_fork(&self, request: &AttachmentRequest, sortdb: &SortitionDB) -> bool {
+    pub fn is_request_in_same_fork(&self, attachment: &AttachmentInstance, sortdb: &SortitionDB) -> bool {
         // todo(ludo): check if there's a descendant / ancestor relationship 
-        self.block_header_hash == request.block_header_hash && self.consensus_hash == request.consensus_hash
+        self.block_header_hash == attachment.block_header_hash && self.consensus_hash == attachment.consensus_hash
     }
 
-    pub fn add_request(&mut self, request: AttachmentRequest, sortdb: &SortitionDB) -> Result<(), ()> {
-        if self.is_request_in_same_fork(&request, sortdb) {
+    pub fn add_request(&mut self, attachment: &AttachmentInstance, sortdb: &SortitionDB) -> Result<(), ()> {
+        if self.is_request_in_same_fork(attachment, sortdb) {
             return Err(())
         }
-        let key = (request.page_index, request.position_in_page);
+        let key = (attachment.page_index, attachment.position_in_page);
 
-        self.missing_attachments.insert(key, request.content_hash);
-        if request.block_height > self.block_height {
-            self.block_height = request.block_height.clone();
-            self.consensus_hash = request.consensus_hash.clone();
-            self.block_header_hash = request.block_header_hash;
+        self.missing_attachments.insert(key, attachment.content_hash.clone());
+        if attachment.block_height > self.block_height {
+            self.block_height = attachment.block_height.clone();
+            self.consensus_hash = attachment.consensus_hash.clone();
+            self.block_header_hash = attachment.block_header_hash;
         }
         Ok(())
     }
@@ -122,27 +124,7 @@ impl AttachmentsInvRequest {
             &self.block_header_hash
         )
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
-pub struct AttachmentRequest {
-    pub consensus_hash: ConsensusHash,
-    pub block_header_hash: BlockHeaderHash,
-    pub content_hash: String, // todo(ludo)
-    pub page_index: u32,
-    pub position_in_page: u32,
-    pub block_height: u64,
-}
-
-impl AttachmentRequest {
-
-    pub fn get_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockHeader::make_index_block_hash(
-            &self.consensus_hash,
-            &self.block_header_hash
-        )
-    }
-}
+} 
 
 #[cfg(test)]
 mod tests;

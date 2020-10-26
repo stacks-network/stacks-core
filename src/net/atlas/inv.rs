@@ -2,12 +2,15 @@ use super::{AtlasDB, ExpectedAttachment, AttachmentsInvRequest};
 use util::db::FromRow;
 use rusqlite::Row;
 use util::db::Error as db_error;
+use util::hash::Hash160;
 use net::Neighbor;
 use net::inv::NodeStatus;
 use net::connection::ReplyHandleHttp;
 use net::NeighborKey;
 use net::p2p::PeerNetwork;
-use chainstate::stacks::StacksBlockId;
+use chainstate::burn::{ConsensusHash, BlockHeaderHash};
+use burnchains::BurnchainHeaderHash;
+use chainstate::stacks::{StacksBlockId, StacksBlockHeader};
 
 use std::collections::{HashSet, HashMap};
 use std::collections::hash_map::Entry;
@@ -92,23 +95,36 @@ pub enum AttachmentState {
     Inventoried,
     Enqueued,
     Available(String),
-    Processed
+    Dispatched,
 }
 
 pub struct Attachment {
-    content_hash: String,
-    content: String,
+    content_hash: Hash160,
+    content: Vec<u8>,
     state: AttachmentState,
-    coordinates: Vec<AttachmentCoordinates>,
+    coordinates: Vec<AttachmentInstance>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AttachmentCoordinates {
-    pub content_hash: String,
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct AttachmentInstance {
+    pub content_hash: Hash160,
     pub page_index: u32,
     pub position_in_page: u32,
     pub block_height: u64,
-    // pub block_id: StacksBlockId,
+    pub consensus_hash: ConsensusHash,
+    pub block_header_hash: BlockHeaderHash,
+    pub burn_block_height: u32,
+    pub metadata: String,
+}
+
+impl AttachmentInstance {
+
+    pub fn get_stacks_block_id(&self) -> StacksBlockId {
+        StacksBlockHeader::make_index_block_hash(
+            &self.consensus_hash,
+            &self.block_header_hash
+        )
+    }
 }
 
 pub struct AttachmentsInventory {
@@ -152,7 +168,7 @@ impl AttachmentsInventory {
 
 pub struct AttachmentsPage {
     page_index: u32,
-    entries: HashSet<AttachmentCoordinates>,
+    entries: HashSet<AttachmentInstance>,
     missing_indexes: Option<HashSet<u32>>,
     // Most recent block id?
     block_id: StacksBlockId,

@@ -51,8 +51,7 @@ use net::server::*;
 
 use net::relay::*;
 
-use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats};
-use net::atlas::{AttachmentRequest};
+use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats, AttachmentInstance};
 
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -1170,8 +1169,7 @@ impl PeerNetwork {
                 attachments_inv_state.attachments_stats.insert(
                     peer.clone(),
                     NeighborAttachmentStats::new(peer.clone()),
-                ); // todo(ludo): deduplicate 
-                println!(">>>>> inserted block stats {:?}", inv_state.block_stats);
+                ); // todo(ludo): deduplicate
             }
         }
     }
@@ -2398,6 +2396,7 @@ impl PeerNetwork {
             old_pox_id,
             mut blocks,
             mut microblocks,
+            mut attachments,
             mut broken_http_peers,
             mut broken_p2p_peers,
         ) = self.download_blocks(sortdb, chainstate, dns_client)?;
@@ -2407,6 +2406,7 @@ impl PeerNetwork {
         network_result
             .confirmed_microblocks
             .append(&mut microblocks);
+        network_result.attachments.append(&mut attachments);
 
         if cfg!(test) {
             let mut block_set = HashSet::new();
@@ -3270,7 +3270,7 @@ impl PeerNetwork {
         download_backpressure: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
-        attachment_requests: HashSet<AttachmentRequest>
+        attachment_requests: HashSet<AttachmentInstance>
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {

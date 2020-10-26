@@ -110,7 +110,7 @@ use vm::clarity::Error as clarity_error;
 
 use self::dns::*;
 
-use net::atlas::Attachment;
+use net::atlas::{Attachment, inv::AttachmentInstance};
 
 use core::POX_REWARD_CYCLE_LENGTH;
 
@@ -731,6 +731,13 @@ pub struct MicroblocksData {
     pub microblocks: Vec<StacksMicroblock>,
 }
 
+/// Attachment pushed
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttachmentData {
+    pub hash: Hash160,
+    pub content: Vec<u8>,
+}
+
 /// Block available hint
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksAvailableData {
@@ -848,31 +855,6 @@ pub struct NatPunchData {
     pub nonce: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct GetAttachmentsInv {
-    pub nonce: u32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ZonefilesInvData {
-    pub nonce: u32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct GetAttachmentData {
-    pub nonce: u32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ZonefilesAvailableData {
-    pub nonce: u32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ZonefilesData {
-    pub nonce: u32,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
@@ -903,11 +885,7 @@ pub enum StacksMessageType {
     Pong(PongData),
     NatPunchRequest(u32),
     NatPunchReply(NatPunchData),
-    GetAttachmentsInv(GetAttachmentsInv),
-    ZonefilesInv(ZonefilesInvData),
-    GetAttachment(GetAttachmentData),
-    ZonefilesAvailable(ZonefilesAvailableData),
-    Zonefiles(ZonefilesData)
+    Attachment(AttachmentData),
 }
 
 /// Peer address variants
@@ -1107,6 +1085,12 @@ pub struct GetNameResponse {
 pub struct PostAttachmentResponse {
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PostAttachmentRequestBody {
+    pub hash: String,
+    pub content: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetAttachmentResponse {
     attachment: Attachment
@@ -1247,7 +1231,7 @@ pub enum HttpRequestType {
     ),
     OptionsPreflight(HttpRequestMetadata, String),
     GetName(HttpRequestMetadata, String, Option<StacksBlockId>),
-    GetAttachment(HttpRequestMetadata, String),
+    GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
     PostAttachment(HttpRequestMetadata, Attachment),
     /// catch-all for any errors we should surface from parsing
@@ -1384,11 +1368,7 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
-    GetAttachmentsInv = 19,
-    ZonefilesInv = 20,
-    GetAttachment = 21,
-    ZonefilesAvailable = 22,
-    Zonefiles = 23,
+    Attachment = 21,
     Reserved = 255,
 }
 
@@ -1674,6 +1654,8 @@ pub struct NetworkResult {
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
+    pub uploaded_attachments: Vec<AttachmentData>,     // attachments sent to us by the http server
+    pub attachments: Vec<AttachmentInstance>
 }
 
 impl NetworkResult {
@@ -1688,6 +1670,8 @@ impl NetworkResult {
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
             uploaded_microblocks: vec![],
+            uploaded_attachments: vec![],
+            attachments: vec![],
         }
     }
 
@@ -1705,6 +1689,10 @@ impl NetworkResult {
         self.pushed_transactions.len() > 0 || self.uploaded_transactions.len() > 0
     }
 
+    pub fn has_attachments(&self) -> bool {
+        self.attachments.len() > 0
+    }
+
     pub fn transactions(&self) -> Vec<StacksTransaction> {
         self.pushed_transactions
             .values()
@@ -1714,7 +1702,7 @@ impl NetworkResult {
     }
 
     pub fn has_data_to_store(&self) -> bool {
-        self.has_blocks() || self.has_microblocks() || self.has_transactions()
+        self.has_blocks() || self.has_microblocks() || self.has_transactions() || self.has_attachments()
     }
 
     pub fn consume_unsolicited(
@@ -1772,6 +1760,9 @@ impl NetworkResult {
                 }
                 StacksMessageType::Microblocks(mblock_data) => {
                     self.uploaded_microblocks.push(mblock_data);
+                }
+                StacksMessageType::Attachment(attachment_data) => {
+                    self.uploaded_attachments.push(attachment_data);
                 }
                 _ => {
                     // drop

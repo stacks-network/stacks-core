@@ -880,63 +880,17 @@ impl StacksMessageCodec for RelayData {
     }
 }
 
-impl StacksMessageCodec for GetAttachmentsInv {
+impl StacksMessageCodec for AttachmentData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.nonce)?;
+        write_next(fd, &self.hash)?;
+        write_next(fd, &self.content)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetAttachmentsInv, net_error> {
-        let nonce: u32 = read_next(fd)?;
-        Ok(GetAttachmentsInv { nonce })
-    }
-}
-
-impl StacksMessageCodec for ZonefilesInvData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.nonce)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ZonefilesInvData, net_error> {
-        let nonce: u32 = read_next(fd)?;
-        Ok(ZonefilesInvData { nonce })
-    }
-}
-
-impl StacksMessageCodec for GetAttachmentData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.nonce)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetAttachmentData, net_error> {
-        let nonce: u32 = read_next(fd)?;
-        Ok(GetAttachmentData { nonce })
-    }
-}
-
-impl StacksMessageCodec for ZonefilesAvailableData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.nonce)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ZonefilesAvailableData, net_error> {
-        let nonce: u32 = read_next(fd)?;
-        Ok(ZonefilesAvailableData { nonce })
-    }
-}
-
-impl StacksMessageCodec for ZonefilesData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.nonce)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ZonefilesData, net_error> {
-        let nonce: u32 = read_next(fd)?;
-        Ok(ZonefilesData { nonce })
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<AttachmentData, net_error> {
+        let hash: Hash160 = read_next(fd)?;
+        let content: Vec<u8> = read_next(fd)?;
+        Ok(AttachmentData { hash, content })
     }
 }
 
@@ -964,11 +918,7 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => StacksMessageID::Pong,
             StacksMessageType::NatPunchRequest(ref _m) => StacksMessageID::NatPunchRequest,
             StacksMessageType::NatPunchReply(ref _m) => StacksMessageID::NatPunchReply,
-            StacksMessageType::GetAttachmentsInv(ref _m) => StacksMessageID::GetAttachmentsInv,
-            StacksMessageType::ZonefilesInv(ref _m) => StacksMessageID::ZonefilesInv,
-            StacksMessageType::GetAttachment(ref _m) => StacksMessageID::GetAttachment,
-            StacksMessageType::ZonefilesAvailable(ref _m) => StacksMessageID::ZonefilesAvailable,
-            StacksMessageType::Zonefiles(ref _m) => StacksMessageID::Zonefiles,
+            StacksMessageType::Attachment(ref _m) => StacksMessageID::Attachment,
         }
     }
 
@@ -993,11 +943,7 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => "Pong",
             StacksMessageType::NatPunchRequest(ref _m) => "NatPunchRequest",
             StacksMessageType::NatPunchReply(ref _m) => "NatPunchReply",
-            StacksMessageType::GetAttachmentsInv(ref _m) => "GetAttachmentsInv",
-            StacksMessageType::ZonefilesInv(ref _m) => "ZonefilesInv",
-            StacksMessageType::GetAttachment(ref _m) => "GetAttachment",
-            StacksMessageType::ZonefilesAvailable(ref _m) => "ZonefilesAvailable",
-            StacksMessageType::Zonefiles(ref _m) => "Zonefiles",
+            StacksMessageType::Attachment(ref _m) => "Attachment",
         }
     }
 
@@ -1056,11 +1002,7 @@ impl StacksMessageType {
             StacksMessageType::NatPunchReply(ref m) => {
                 format!("NatPunchReply({},{}:{})", m.nonce, &m.addrbytes, m.port)
             },
-            StacksMessageType::GetAttachmentsInv(ref m) => format!("GetAttachmentsInv({})", m.nonce),
-            StacksMessageType::ZonefilesInv(ref m) => format!("ZonefilesInv({})", m.nonce),
-            StacksMessageType::GetAttachment(ref m) => format!("GetAttachment({})", m.nonce),
-            StacksMessageType::ZonefilesAvailable(ref m) => format!("ZonefilesAvailable({})", m.nonce),
-            StacksMessageType::Zonefiles(ref m) => format!("Zonefiles({})", m.nonce),
+            StacksMessageType::Attachment(ref m) => format!("Attachment({})", m.hash),
         }
     }
 }
@@ -1094,11 +1036,7 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::Pong as u8 => StacksMessageID::Pong,
             x if x == StacksMessageID::NatPunchRequest as u8 => StacksMessageID::NatPunchRequest,
             x if x == StacksMessageID::NatPunchReply as u8 => StacksMessageID::NatPunchReply,
-            x if x == StacksMessageID::GetAttachmentsInv as u8 => StacksMessageID::GetAttachmentsInv,
-            x if x == StacksMessageID::ZonefilesInv as u8 => StacksMessageID::ZonefilesInv,
-            x if x == StacksMessageID::GetAttachment as u8 => StacksMessageID::GetAttachment,
-            x if x == StacksMessageID::ZonefilesAvailable as u8 => StacksMessageID::ZonefilesAvailable,
-            x if x == StacksMessageID::Zonefiles as u8 => StacksMessageID::Zonefiles,
+            x if x == StacksMessageID::Attachment as u8 => StacksMessageID::Attachment,
             _ => {
                 return Err(net_error::DeserializeError(
                     "Unknown message ID".to_string(),
@@ -1132,11 +1070,7 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::Pong(ref m) => write_next(fd, m)?,
             StacksMessageType::NatPunchRequest(ref nonce) => write_next(fd, nonce)?,
             StacksMessageType::NatPunchReply(ref m) => write_next(fd, m)?,
-            StacksMessageType::GetAttachmentsInv(ref m) => write_next(fd, m)?,
-            StacksMessageType::ZonefilesInv(ref m) => write_next(fd, m)?,
-            StacksMessageType::GetAttachment(ref m) => write_next(fd, m)?,
-            StacksMessageType::ZonefilesAvailable(ref m) => write_next(fd, m)?,
-            StacksMessageType::Zonefiles(ref m) => write_next(fd, m)?,
+            StacksMessageType::Attachment(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1214,25 +1148,9 @@ impl StacksMessageCodec for StacksMessageType {
                 let m: NatPunchData = read_next(fd)?;
                 StacksMessageType::NatPunchReply(m)
             }
-            StacksMessageID::GetAttachmentsInv => {
-                let m: GetAttachmentsInv = read_next(fd)?;
-                StacksMessageType::GetAttachmentsInv(m)
-            }
-            StacksMessageID::ZonefilesInv => {
-                let m: ZonefilesInvData = read_next(fd)?;
-                StacksMessageType::ZonefilesInv(m)
-            }
-            StacksMessageID::GetAttachment => {
-                let m: GetAttachmentData = read_next(fd)?;
-                StacksMessageType::GetAttachment(m)
-            }
-            StacksMessageID::ZonefilesAvailable => {
-                let m: ZonefilesAvailableData = read_next(fd)?;
-                StacksMessageType::ZonefilesAvailable(m)
-            }
-            StacksMessageID::Zonefiles => {
-                let m: ZonefilesData = read_next(fd)?;
-                StacksMessageType::Zonefiles(m)
+            StacksMessageID::Attachment => {
+                let m: AttachmentData = read_next(fd)?;
+                StacksMessageType::Attachment(m)
             }
             StacksMessageID::Reserved => {
                 return Err(net_error::DeserializeError(

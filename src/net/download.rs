@@ -205,6 +205,9 @@ pub struct BlockDownloader {
     /// Microblock requests to try, grouped by block, keyed by sortition height
     microblocks_to_try: HashMap<u64, VecDeque<BlockRequestKey>>,
 
+    /// Attachments requests to try, grouped by block, keyed by content hash
+    attachments_to_try: HashMap<Hash160, VecDeque<BlockRequestKey>>,
+
     /// In-flight requests for DNS names
     parsed_urls: HashMap<UrlString, DNSRequest>,
     dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
@@ -220,7 +223,7 @@ pub struct BlockDownloader {
     getattachmentsinv_requests: HashMap<BlockRequestKey, usize>,
     getattachments_requests: HashMap<BlockRequestKey, usize>,
     attachment_invs: HashMap<NeighborKey, GetAttachmentsInvResponse>,
-    attachments: HashMap<BlockRequestKey, GetAttachmentResponse>,
+    attachments: HashMap<BlockRequestKey, Attachment>,
 
     /// statistics on peers' data-plane endpoints
     dead_peers: Vec<usize>,
@@ -262,6 +265,7 @@ impl BlockDownloader {
             max_inflight_requests: max_inflight_requests,
             blocks_to_try: HashMap::new(),
             microblocks_to_try: HashMap::new(),
+            attachments_to_try: HashMap::new(),
 
             parsed_urls: HashMap::new(),
             dns_lookups: HashMap::new(),
@@ -300,6 +304,7 @@ impl BlockDownloader {
         self.getattachments_requests.clear();
         self.blocks_to_try.clear();
         self.microblocks_to_try.clear();
+        self.attachments_to_try.clear();
         self.blocks.clear();
         self.microblocks.clear();
         self.attachment_invs.clear();
@@ -901,7 +906,7 @@ impl BlockDownloader {
                 None => {
                     if http.is_connecting(event_id) {
                         debug!(
-                            "Event {} ({:?}, {:?} for block {} is not connected yet",
+                            "Event {} ({:?}, {:?} for attachment {} is not connected yet",
                             event_id,
                             &request_key.neighbor,
                             &request_key.data_url,
@@ -909,7 +914,7 @@ impl BlockDownloader {
                         );
                         pending_attachment_requests.insert(request_key, event_id);
                     } else {
-                        debug!("Event {} ({:?}, {:?} for block {} failed to connect. Temporarily blocking URL", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
+                        debug!("Event {} ({:?}, {:?} for attachment {} failed to connect. Temporarily blocking URL", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
                         self.dead_peers.push(event_id);
 
                         // don't try this again for a while
@@ -923,18 +928,17 @@ impl BlockDownloader {
                     match convo.try_get_response() {
                         None => {
                             // still waiting
-                            debug!("Event {} ({:?}, {:?} for block {}) is still waiting for a response", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
+                            debug!("Event {} ({:?}, {:?} for attachment {}) is still waiting for a response", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
                             pending_attachment_requests.insert(request_key, event_id);
                         }
                         Some(http_response) => match http_response {
                             HttpResponseType::GetAttachment(_md, response) => {
-                                println!("Got attachment {:?}", response);
-                                self.attachments.insert(request_key, response);
+                                self.attachments.insert(request_key, response.attachment);
                             }
                             // TODO: redirect?
                             HttpResponseType::NotFound(_, _) => {
                                 // remote peer didn't have the block
-                                info!("Remote neighbor {:?} ({:?}) does not actually have block {} indexed at {} ({})", &request_key.neighbor, &request_key.data_url, request_key.sortition_height, &request_key.index_block_hash, &request_key.consensus_hash);
+                                info!("Remote neighbor {:?} ({:?}) does not actually have attachment {} indexed at {} ({})", &request_key.neighbor, &request_key.data_url, request_key.sortition_height, &request_key.index_block_hash, &request_key.consensus_hash);
 
                                 // the fact that we asked this peer means that it's block inv indicated
                                 // it was present, so the absence is the mark of a broken peer
@@ -2066,12 +2070,13 @@ impl PeerNetwork {
             Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
-            // todo(ludo)
+            Vec<AttachmentInstance>
         ),
         net_error,
     > {
         let mut blocks = vec![];
         let mut microblocks = vec![];
+        let mut attachments = vec![];
         let mut done = false;
         let mut old_pox_id = None;
 
@@ -2153,9 +2158,19 @@ impl PeerNetwork {
                     .remove(&request_key.sortition_height);
             }
 
+            for (_, attachment) in downloader.attachments.drain() {
+                // todo(ludo): is this adequate?
+                let mut attachments_instances = network.atlasdb.find_all_attachment_instances(&attachment.hash)
+                    .map_err(|e| net_error::DBError(e))?;
+                attachments.append(&mut attachments_instances);
+                downloader.attachments_to_try.remove(&attachment.hash);
+            }
+
             // clear empties
             let mut blocks_empty = vec![];
             let mut microblocks_empty = vec![];
+            let mut attachments_empty = vec![];
+
             for (height, requests) in downloader.blocks_to_try.iter() {
                 if requests.len() == 0 {
                     blocks_empty.push(*height);
@@ -2164,6 +2179,11 @@ impl PeerNetwork {
             for (height, requests) in downloader.microblocks_to_try.iter() {
                 if requests.len() == 0 {
                     microblocks_empty.push(*height);
+                }
+            }
+            for (content_hash, requests) in downloader.attachments_to_try.iter() {
+                if requests.len() == 0 {
+                    attachments_empty.push(content_hash.clone());
                 }
             }
 
@@ -2175,12 +2195,17 @@ impl PeerNetwork {
                 downloader.microblocks_to_try.remove(&height);
             }
 
+            for content_hash in attachments_empty.drain(..) {
+                downloader.attachments_to_try.remove(&content_hash);
+            }
+
             debug!(
-                "Blocks to try: {}; Microblocks to try: {}",
+                "Blocks to try: {}; Microblocks to try: {}; Attachments to try: {}",
                 downloader.blocks_to_try.len(),
-                downloader.microblocks_to_try.len()
+                downloader.microblocks_to_try.len(),
+                downloader.attachments_to_try.len(),
             );
-            if downloader.blocks_to_try.len() == 0 && downloader.microblocks_to_try.len() == 0 {
+            if downloader.blocks_to_try.is_empty() && downloader.microblocks_to_try.is_empty() && downloader.attachments_to_try.is_empty() {
                 // advance downloader state
                 done = true;
 
@@ -2279,11 +2304,17 @@ impl PeerNetwork {
                             .collect::<Vec<UrlString>>()
                     );
                 }
+                for (content_hash, requests) in downloader.attachments_to_try.iter() {
+                    assert!(
+                        requests.len() > 0,
+                        format!("Empty attachment requests at height {}", content_hash)
+                    );
+                }
 
                 downloader.state = BlockDownloaderState::GetBlocksBegin;
             }
 
-            Ok((done, old_pox_id, blocks, microblocks))
+            Ok((done, old_pox_id, blocks, microblocks, attachments))
         })
     }
 
@@ -2523,8 +2554,13 @@ impl PeerNetwork {
 
     pub fn block_getattachments_try_finish(&mut self) -> Result<bool, net_error> {
         PeerNetwork::with_downloader_state(self, |network, downloader| {
+            PeerNetwork::with_inv_states(network, |_network, _, attachment_inv_state| {
+                attachment_inv_state.request_to_process = None;
+                Ok(())
+            })?;
+
             println!(">>>> block_getattachments_try_finish");
-            downloader.getattachments_try_finish(&mut network.http);
+            downloader.getattachments_try_finish(&mut network.http)?;
             // todo(ludo): some cleaning is still required
             Ok(true)
         })
@@ -2554,6 +2590,7 @@ impl PeerNetwork {
             Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
+            Vec<AttachmentInstance>,
             Vec<usize>,
             Vec<NeighborKey>,
         ),
@@ -2585,7 +2622,7 @@ impl PeerNetwork {
                             &self.local_peer,
                             downloader.finished_scan_at + downloader.download_interval
                         );
-                        return Ok((true, None, vec![], vec![], vec![], vec![]));
+                        return Ok((true, None, vec![], vec![], vec![], vec![], vec![]));
                     } else {
                         // start a rescan -- we've waited long enough
                         debug!(
@@ -2609,6 +2646,7 @@ impl PeerNetwork {
 
         let mut blocks = vec![];
         let mut microblocks = vec![];
+        let mut attachments = vec![];
         let mut old_pox_id = None;
 
         let mut done_cycle = false;
@@ -2655,11 +2693,13 @@ impl PeerNetwork {
                         downloader_pox_id,
                         mut successful_blocks,
                         mut successful_microblocks,
+                        mut successful_attachments,
                     ) = self.finish_downloads(sortdb, chainstate)?;
 
                     old_pox_id = downloader_pox_id;
                     blocks.append(&mut successful_blocks);
                     microblocks.append(&mut successful_microblocks);
+                    attachments.append(&mut successful_attachments);
                     done = blocks_done;
 
                     done_cycle = true;
@@ -2691,6 +2731,7 @@ impl PeerNetwork {
             old_pox_id,
             blocks,
             microblocks,
+            attachments,
             broken_http_peers,
             broken_p2p_peers,
         ))

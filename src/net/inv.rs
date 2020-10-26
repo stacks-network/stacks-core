@@ -36,7 +36,7 @@ use net::StacksMessage;
 use net::StacksP2P;
 use net::download::BlockDownloader;
 use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats, InvAttachmentWorkState};
-use net::atlas::{AttachmentRequest, AttachmentsInvRequest, ExpectedAttachmentState, BNSContractReader};
+use net::atlas::{inv::AttachmentInstance, AttachmentsInvRequest, ExpectedAttachmentState, BNSContractReader};
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
@@ -1553,7 +1553,7 @@ impl PeerNetwork {
         }
     }
 
-    pub fn update_attachments_inventory(&mut self, new_attachments: HashSet<AttachmentRequest>, sortdb: &SortitionDB, chainstate: &mut StacksChainState,) -> Result<(), (/* todo(ludo) */)> {
+    pub fn update_attachments_inventory(&mut self, new_attachments: HashSet<AttachmentInstance>, sortdb: &SortitionDB, chainstate: &mut StacksChainState,) -> Result<(), (/* todo(ludo) */)> {
         // let mut attachments_to_download = vec![];
         
         PeerNetwork::with_inv_states(self, |network, _, attachments_inv_state| {
@@ -1565,16 +1565,17 @@ impl PeerNetwork {
 
             let mut inv_request = AttachmentsInvRequest::new();
             for attachment in new_attachments.into_iter() {
+
                 // test 1
                 if let Ok(Some(entry)) = network.atlasdb.find_attachment(&attachment.content_hash) { // todo(ludo)
-                    network.atlasdb.insert_new_attachment_coordinates(attachment, true);
+                    network.atlasdb.insert_new_attachment_instance(attachment, true);
                     continue;
                 }
 
                 // test 2
                 if let Ok(Some(entry)) = network.atlasdb.find_inboxed_attachment(&attachment.content_hash) { // todo(ludo)
                     network.atlasdb.import_attachment_from_inbox(&attachment.content_hash);
-                    network.atlasdb.insert_new_attachment_coordinates(attachment, true);
+                    network.atlasdb.insert_new_attachment_instance(attachment, true);
                     continue;
                 }
 
@@ -1583,7 +1584,8 @@ impl PeerNetwork {
                 // test 4
 
                 // test 5
-                inv_request.add_request(attachment, sortdb);
+                inv_request.add_request(&attachment, sortdb);
+                network.atlasdb.insert_new_attachment_instance(attachment, false);
             }
 
             if !inv_request.missing_attachments.is_empty() {

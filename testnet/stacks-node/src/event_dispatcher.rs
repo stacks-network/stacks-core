@@ -2,6 +2,7 @@ use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::StacksBlock;
+use stacks::net::atlas::inv::AttachmentInstance;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::thread::sleep;
@@ -38,6 +39,7 @@ const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
+pub const PATH_ATTACHMENT_PROCESSED: &str = "new_attachment";
 
 impl EventObserver {
     fn send_payload(&self, payload: &serde_json::Value, path: &str) {
@@ -161,6 +163,14 @@ impl EventObserver {
             "raw_tx": format!("0x{}", raw_tx.join("")),
             "contract_abi": contract_interface_json,
         })
+    }
+
+    fn make_new_attachment_payload(attachment: &AttachmentInstance) -> serde_json::Value {
+        json!(attachment)
+    }
+
+    fn send_new_attachments(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
     fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
@@ -369,6 +379,32 @@ impl EventDispatcher {
 
         for (_, observer) in interested_observers.iter() {
             observer.send_new_mempool_txs(&payload);
+        }
+    }
+
+    pub fn process_new_attachments(&self, attachments: &Vec<AttachmentInstance>) {
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            // todo(ludo): only notify bns contract observers
+            // .filter(|(obs_id, _observer)| {
+            //     self.mempool_observers_lookup.contains(&(*obs_id as u16))
+            //         || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+            // })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let mut serialized_attachments = vec![];
+        for attachment in attachments.iter() {
+            let payload = EventObserver::make_new_attachment_payload(attachment);
+            serialized_attachments.push(payload);
+        }
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_new_attachments(&json!(serialized_attachments));
         }
     }
 

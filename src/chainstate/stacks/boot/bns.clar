@@ -288,11 +288,13 @@
       (next-index (mod (+ current-index u1) zonefiles-inv-page-size)))
       ;; Emit event used as a system hinter
       (print { 
-        namespace: namespace,
-        name: name,
         hash: zonefile-hash,
         page-index: next-page,
-        position-in-page: next-index })
+        position-in-page: next-index,
+        metadata: {
+          name: name,
+          namespace: namespace,
+        }})
       ;; Update zonefiles-inv
       (map-set zonefiles-inv
         ((page next-page) (index next-index))
@@ -466,10 +468,10 @@
       (asserts!
         (is-none (get launched-at namespace-props))
         (err err-namespace-already-launched))
-      ;; The principal can register a name
-      (asserts!
-        can-sender-register-name
-        (err err-principal-already-associated))
+      ;; The principal can register a name. Should we enable this condition in case of NAME-IMPORT
+      ;; (asserts!
+      ;;   can-sender-register-name
+      ;;   (err err-principal-already-associated))
       ;; Less than 1 year must have passed since the namespace was "revealed"
       (asserts!
         (< block-height (+ (get revealed-at namespace-props) namespace-launchability-ttl))
