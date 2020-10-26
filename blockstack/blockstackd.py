@@ -259,6 +259,58 @@ def get_namespace_cost( db, namespace_id ):
 
     return {'amount': namespace_fee, 'units': namespace_units, 'namespace': namespace}
 
+def load_name_info( db, name, block_height, include_history=False ):
+    """
+    Get some extra name information, given a db-loaded name record.
+    Return the updated name_record
+    """
+    name_record = db.get_name(name, lastblock=block_height, include_history=include_history)
+
+    namespace_id = get_namespace_from_name(name)
+    namespace_record = db.get_namespace(namespace_id, include_history=include_history)
+    if namespace_record is None:
+        namespace_record = db.get_namespace_reveal(namespace_id, include_history=include_history)
+
+    if namespace_record is None:
+        # name can't exist (this can be arrived at if we're resolving a DID)
+        return None
+
+    # when does this name expire (if it expires)?
+    if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
+        deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, block_height)
+        if deadlines is not None:
+            name_record['expire_block'] = deadlines['expire_block']
+            name_record['renewal_deadline'] = deadlines['renewal_deadline']
+        else:
+            # only possible if namespace is not yet ready
+            name_record['expire_block'] = -1
+            name_record['renewal_deadline'] = -1
+
+    else:
+        name_record['expire_block'] = -1
+        name_record['renewal_deadline'] = -1
+
+    if name_record['expire_block'] > 0 and name_record['expire_block'] <= block_height:
+        name_record['expired'] = True
+    else:
+        name_record['expired'] = False
+
+    # try to get the zonefile as well 
+    if 'value_hash' in name_record and name_record['value_hash'] is not None:
+        conf = get_blockstack_opts()
+
+        # check cache
+        atlas_zonefile_data = get_atlas_zonefile_data( name_record['value_hash'], conf['zonefiles'], check=False )
+        if atlas_zonefile_data is not None:
+            # check hash
+            zfh = get_zonefile_data_hash( atlas_zonefile_data )
+            if zfh != name_record['value_hash']:
+                print "Invalid local zonefile %s" % zonefile_hash
+            else:
+                name_record['zonefile'] = atlas_zonefile_data
+
+    return name_record
+
 
 class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
     """
@@ -3549,8 +3601,37 @@ def run_blockstackd():
                 print "Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash)
                 sys.exit(1)
 
+        print "Querying namespace IDs..."
+        namespaces_entries = db.get_all_namespace_ids()
+        namespaces_entries.sort()
+        namespaces = []
+        for namespace_str in namespaces_entries:
+            namespace_info = db.get_namespace(namespace_str)
+            namespace = {}
+            namespace['namespace_id'] = namespace_info['namespace_id']
+            namespace['address'] = b58ToC32(str(namespace_info['address']))
+            namespaces.append(namespace)
+
+        print "Querying names..."
+        name_entries = db.get_all_names()
+        name_entries.sort()
+        names = []
+        for name_str in name_entries:
+            name_info = load_name_info(db, name_str, block)
+            name = {}
+            name['name'] = name_info['name']
+            name['address'] = b58ToC32(str(name_info['address']))
+            name['expire_block'] = name_info['expire_block']
+            if 'zonefile' not in name_info or name_info['zonefile'] is None:
+                print 'missing zonefile for {}'.format(name)
+                name['zonefile'] = "__MISSING__"
+            else:
+                name['zonefile'] = name_info['zonefile']
+            names.append(name)
+
         print "Querying account addresses..."
         addresses = db.get_all_account_addresses(from_cli=True)
+        addresses.sort()
         print "Querying account balances..."
         stx_balances = []
         for addr in addresses:
@@ -3566,6 +3647,7 @@ def run_blockstackd():
 
         print "Querying account vesting addresses..."
         vesting_entries = db.get_account_vesting_addresses(block)
+        vesting_entries.sort()
         vesting = []
         for entry in vesting_entries:
             account = {}
@@ -3579,6 +3661,8 @@ def run_blockstackd():
         json_data = {}
         json_data['balances'] = stx_balances
         json_data['vesting'] = vesting
+        json_data['namespaces'] = namespaces
+        json_data['names'] = names
 
         # write the json output file
         print "Writing migration data to {}".format(args.output_path)
