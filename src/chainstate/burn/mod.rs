@@ -34,6 +34,7 @@ use burnchains::Txid;
 use util::hash::{to_hex, Hash160};
 use util::vrf::VRFProof;
 
+use rand::seq::index::sample;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -179,12 +180,22 @@ impl SortitionHash {
         SortitionHash(ret)
     }
 
-    /// Choose 1 index from the range [0, max).
-    pub fn choose(&self, max: u32) -> u32 {
+    /// Choose two indices (without replacement) from the range [0, max).
+    pub fn choose_two(&self, max: u32) -> Vec<u32> {
         let mut rng = ChaCha20Rng::from_seed(self.0.clone());
-        let index: u32 = rng.gen_range(0, max);
-        assert!(index < max);
-        index
+        if max < 2 {
+            return (0..max).collect();
+        }
+        let first = rng.gen_range(0, max);
+        let try_second = rng.gen_range(0, max - 1);
+        let second = if first == try_second {
+            // "swap" try_second with max
+            max - 1
+        } else {
+            try_second
+        };
+
+        vec![first, second]
     }
 
     /// Convert a SortitionHash into a (little-endian) uint256

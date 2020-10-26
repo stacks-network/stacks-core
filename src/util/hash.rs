@@ -21,6 +21,7 @@ use std::mem;
 
 use util::log;
 use util::pair::*;
+use util::secp256k1::Secp256k1PublicKey;
 use util::HexError;
 
 use ripemd160::Ripemd160;
@@ -28,6 +29,8 @@ use sha2::{Digest, Sha256, Sha512, Sha512Trunc256};
 use sha3::Keccak256;
 
 use util::uint::Uint256;
+
+use net::StacksPublicKeyBuffer;
 
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
@@ -182,6 +185,14 @@ impl Hash160 {
         let sha2_result = Sha256::digest(data);
         let ripe_160_result = Ripemd160::digest(sha2_result.as_slice());
         Hash160::from(ripe_160_result.as_slice())
+    }
+
+    pub fn from_node_public_key(pubkey: &Secp256k1PublicKey) -> Hash160 {
+        Hash160::from_data(&pubkey.to_bytes_compressed())
+    }
+
+    pub fn from_node_public_key_buffer(pubkey_buf: &StacksPublicKeyBuffer) -> Hash160 {
+        Hash160::from_data(pubkey_buf.as_bytes())
     }
 }
 

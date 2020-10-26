@@ -46,7 +46,7 @@ use util::retry::BoundReader;
 
 /// printable-ASCII-only string, but encodable.
 /// Note that it cannot be longer than ARRAY_MAX_LEN (4.1 billion bytes)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct StacksString(Vec<u8>);
 
 impl fmt::Display for StacksString {

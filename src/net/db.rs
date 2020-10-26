@@ -150,7 +150,9 @@ impl LocalPeer {
         key_expire: u64,
         data_url: UrlString,
     ) -> LocalPeer {
-        let pkey = privkey.unwrap_or(Secp256k1PrivateKey::new());
+        let mut pkey = privkey.unwrap_or(Secp256k1PrivateKey::new());
+        pkey.set_compress_public(true);
+
         let mut rng = thread_rng();
         let mut my_nonce = [0u8; 32];
 
@@ -183,9 +185,9 @@ impl LocalPeer {
         NeighborAddress {
             addrbytes: self.addrbytes.clone(),
             port: self.port,
-            public_key_hash: Hash160::from_data(
-                &StacksPublicKey::from_private(&self.private_key).to_bytes(),
-            ),
+            public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                &self.private_key,
+            )),
         }
     }
 }
@@ -254,7 +256,8 @@ impl FromRow<Neighbor> for Neighbor {
         let network_id: u32 = row.get("network_id");
         let addrbytes: PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
         let port: u16 = row.get("port");
-        let public_key: Secp256k1PublicKey = Secp256k1PublicKey::from_column(row, "public_key")?;
+        let mut public_key: Secp256k1PublicKey =
+            Secp256k1PublicKey::from_column(row, "public_key")?;
         let expire_block_height = u64::from_column(row, "expire_block_height")?;
         let last_contact_time = u64::from_column(row, "last_contact_time")?;
         let asn: u32 = row.get("asn");
@@ -263,6 +266,8 @@ impl FromRow<Neighbor> for Neighbor {
         let denied: i64 = row.get("denied");
         let in_degree: u32 = row.get("in_degree");
         let out_degree: u32 = row.get("out_degree");
+
+        public_key.set_compressed(true);
 
         Ok(Neighbor {
             addr: NeighborKey {

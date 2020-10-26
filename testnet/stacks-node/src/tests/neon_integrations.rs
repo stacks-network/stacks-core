@@ -2,7 +2,7 @@ use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
 };
-use stacks::burnchains::{Address, PoxConstants, PublicKey};
+use stacks::burnchains::{Address, PoxConstants};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
     db::StacksChainState, StacksAddress, StacksBlock, StacksBlockHeader, StacksPrivateKey,
@@ -36,6 +36,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
+    conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.mode = "neon".into();
     conf.burnchain.username = Some("neon-tester".into());
@@ -180,7 +181,7 @@ fn find_microblock_privkey(
     let mut keychain = Keychain::default(conf.node.seed.clone());
     for _ in 0..max_tries {
         let privk = keychain.rotate_microblock_keypair();
-        let pubkh = Hash160::from_data(&StacksPublicKey::from_private(&privk).to_bytes());
+        let pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&privk));
         if pubkh == *pubkey_hash {
             return Some(privk);
         }
@@ -491,6 +492,16 @@ fn microblock_integration_test() {
             assert_eq!(&parent_index_hash, previous_index_hash);
         }
 
+        // make sure we have a burn_block_hash, burn_block_height and miner_txid
+
+        eprintln!("{}", block);
+
+        let _burn_block_hash = block.get("burn_block_hash").unwrap().as_str().unwrap();
+
+        let _burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
+
+        let _miner_txid = block.get("miner_txid").unwrap().as_str().unwrap();
+
         prior = Some(my_index_hash);
     }
 
@@ -716,14 +727,14 @@ fn pox_integration_test() {
     )
     .unwrap();
     let pox_pubkey_hash = bytes_to_hex(
-        &Hash160::from_data(&pox_pubkey.to_bytes())
+        &Hash160::from_node_public_key(&pox_pubkey)
             .to_bytes()
             .to_vec(),
     );
 
     let pox_2_pubkey = Secp256k1PublicKey::from_private(&StacksPrivateKey::new());
     let pox_2_pubkey_hash = bytes_to_hex(
-        &Hash160::from_data(&pox_2_pubkey.to_bytes())
+        &Hash160::from_node_public_key(&pox_2_pubkey)
             .to_bytes()
             .to_vec(),
     );
@@ -760,7 +771,7 @@ fn pox_integration_test() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut burnchain_config = btc_regtest_controller.get_burnchain();
-    let mut pox_constants = PoxConstants::new(10, 5, 4, 5, 15);
+    let pox_constants = PoxConstants::new(10, 5, 4, 5, 15);
     burnchain_config.pox_constants = pox_constants;
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -994,7 +1005,7 @@ fn pox_integration_test() {
     eprintln!("Got UTXOs: {}", utxos.len());
     assert_eq!(
         utxos.len(),
-        3,
+        7,
         "Should have received three outputs during PoX reward cycle"
     );
 
@@ -1006,7 +1017,7 @@ fn pox_integration_test() {
     eprintln!("Got UTXOs: {}", utxos.len());
     assert_eq!(
         utxos.len(),
-        3,
+        7,
         "Should have received three outputs during PoX reward cycle"
     );
 

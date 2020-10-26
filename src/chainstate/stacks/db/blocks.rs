@@ -3174,11 +3174,12 @@ impl StacksChainState {
         };
 
         let mut dup = microblock.clone();
-        if dup.verify(&pubkey_hash).is_err() {
+        if let Err(e) = dup.verify(&pubkey_hash) {
             let msg = format!(
-                "Invalid microblock {}: failed to verify signature with {}",
+                "Invalid microblock {}: failed to verify signature with {}: {:?}",
                 microblock.block_hash(),
-                pubkey_hash
+                pubkey_hash,
+                &e
             );
             warn!("{}", &msg);
             return Err(Error::InvalidStacksMicroblock(msg, microblock.block_hash()));
@@ -4868,7 +4869,7 @@ pub mod test {
         };
 
         let mblock_pubkey_hash =
-            Hash160::from_data(&StacksPublicKey::from_private(mblock_key).to_bytes());
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(mblock_key));
         let mut block = StacksBlock::from_parent(
             &parent_header,
             &parent_microblock_header,
