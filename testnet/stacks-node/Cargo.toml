@@ -19,7 +19,7 @@ http-types = "1.0"
 base64 = "0.12.0"
 backtrace = "0.3.50"
 libc = "0.2"
-slog = "2.5.2"
+slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 
 [dev-dependencies]
 warp = "0.2"

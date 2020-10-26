@@ -125,7 +125,7 @@ fn make_logger() -> Logger {
     if env::var("BLOCKSTACK_LOG_JSON") == Ok("1".into()) {
         make_json_logger()
     } else {
-        let plain = slog_term::PlainSyncDecorator::new(std::io::stdout());
+        let plain = slog_term::PlainSyncDecorator::new(std::io::stderr());
         let drain = TermFormat::new(plain);
 
         let logger = Logger::root(drain.fuse(), o!());
