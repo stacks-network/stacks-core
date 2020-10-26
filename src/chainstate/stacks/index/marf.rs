@@ -213,7 +213,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         if !is_parent_sentinel {
             debug!("Extending off of existing node {}", chain_tip);
         } else {
-            info!("First-ever block {}", next_chain_tip);
+            info!("First-ever block {}", next_chain_tip; "block" => %next_chain_tip);
         }
 
         self.storage.open_block(chain_tip)?;

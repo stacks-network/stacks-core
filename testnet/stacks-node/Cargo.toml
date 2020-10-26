@@ -19,6 +19,7 @@ http-types = "1.0"
 base64 = "0.12.0"
 backtrace = "0.3.50"
 libc = "0.2"
+slog = "2.5.2"
 
 [dev-dependencies]
 warp = "0.2"
@@ -31,5 +32,6 @@ path = "src/main.rs"
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]
+slog_json = ["stacks/slog_json"]
 tx-log = ["stacks/tx_log"]
 default = []
