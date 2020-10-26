@@ -23,10 +23,10 @@ use rusqlite::Row;
 
 use std::collections::HashMap;
 
-pub struct BNSContractReader {
+pub struct SNSContractReader {
 }
 
-impl BNSContractReader {
+impl SNSContractReader {
 
     pub fn get_zonefiles_hashes_at_page_index(page_index: u32,
                                               sortdb: &SortitionDB,
@@ -37,11 +37,11 @@ impl BNSContractReader {
             let cost_tracker = LimitedCostTracker::new(options.read_only_call_limit.clone());
 
             // Get pagination informations
-            let pages_info = BNSContractReader::get_zonefiles_inv_info(cost_tracker, clarity_tx)?;
+            let pages_info = SNSContractReader::get_zonefiles_inv_info(cost_tracker, clarity_tx)?;
             
             // Read expected_page
             let expected_page = clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                BNSContractReader::get_zonefiles_hashes(page_index, &pages_info, tip, clarity_db)
+                SNSContractReader::get_zonefiles_hashes(page_index, &pages_info, tip, clarity_db)
             })?;
 
             let pages_indexes = vec![expected_page.index];
@@ -59,7 +59,7 @@ impl BNSContractReader {
 
     pub fn get_zonefiles_inv_info(cost_tracker: LimitedCostTracker, clarity_tx: &mut ClarityReadOnlyConnection) -> Result<ZonefilesPagesInfo, (/*todo(ludo)*/)> {
 
-        let contract_identifier = boot::boot_code_id("bns");
+        let contract_identifier = boot::boot_code_id("sns");
         let function = "get-zonefiles-inv-info";
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
 
@@ -105,13 +105,13 @@ impl BNSContractReader {
             let cost_tracker = LimitedCostTracker::new(ExecutionCost::max_value());
 
             // Get pagination informations
-            let pages_info = BNSContractReader::get_zonefiles_inv_info(cost_tracker, clarity_tx)?;
+            let pages_info = SNSContractReader::get_zonefiles_inv_info(cost_tracker, clarity_tx)?;
 
             let (pages_indexes, pages) = clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let mut pages_indexes = vec![];
                 let mut pages = HashMap::new();
                 for page_index in 0..pages_info.pages_count {
-                    let page = BNSContractReader::get_zonefiles_hashes(page_index, &pages_info, tip, clarity_db)?;
+                    let page = SNSContractReader::get_zonefiles_hashes(page_index, &pages_info, tip, clarity_db)?;
                     pages_indexes.push(page_index);
                     pages.insert(page_index, page);
                 }
@@ -132,7 +132,7 @@ impl BNSContractReader {
                             tip: &StacksBlockId,
                             clarity_db: &mut ClarityDatabase) -> Result<ZonefileHashPage, (/*todo(ludo)*/)> {
         
-        let contract_identifier = boot::boot_code_id("bns");
+        let contract_identifier = boot::boot_code_id("sns");
         let map_name = "zonefiles-inv";
 
         let limit = if page_index == pages_info.pages_count {

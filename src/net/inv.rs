@@ -36,7 +36,7 @@ use net::StacksMessage;
 use net::StacksP2P;
 use net::download::BlockDownloader;
 use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats, InvAttachmentWorkState};
-use net::atlas::{inv::AttachmentInstance, AttachmentsInvRequest, ExpectedAttachmentState, BNSContractReader};
+use net::atlas::{inv::AttachmentInstance, AttachmentsInvRequest, ExpectedAttachmentState, SNSContractReader};
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
@@ -1610,7 +1610,7 @@ impl PeerNetwork {
             //         &anchor_block_hash,
             //     );
         
-            //     match BNSContractReader::get_attachments_inventory(sortdb, chainstate, &tip) {
+            //     match SNSContractReader::get_attachments_inventory(sortdb, chainstate, &tip) {
             //         Ok(expected_inventory) => {
             //             let local_inventory = expected_inventory.get_missing_attachments_inventory(&network.atlasdb);
             //             attachments_inv_state.expected_inventory = Some(expected_inventory);

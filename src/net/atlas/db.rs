@@ -29,7 +29,7 @@ use super::{Attachment};
 
 pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
 
-// todo(ludo): should have one DB for BNS, and one DB for Atlas.
+// todo(ludo): should have one DB for SNS, and one DB for Atlas.
 const ATLASDB_SETUP: &'static [&'static str] = &[
     r#"
     CREATE TABLE attachments(

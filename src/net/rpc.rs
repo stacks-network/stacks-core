@@ -53,7 +53,7 @@ use net::MAX_NEIGHBORS_DATA_LEN;
 use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetAttachmentsInvResponse, PostAttachmentResponse, GetAttachmentResponse, AttachmentPage, AttachmentData};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
-use net::atlas::{AtlasDB, BNSContractReader, Attachment};
+use net::atlas::{AtlasDB, SNSContractReader, Attachment};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::collections::HashSet;
@@ -565,7 +565,7 @@ impl ConversationHttp {
         } else {
             let res = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 let cost_tracker = LimitedCostTracker::new(options.read_only_call_limit.clone());
-                BNSContractReader::get_zonefiles_inv_info(cost_tracker, clarity_tx)
+                SNSContractReader::get_zonefiles_inv_info(cost_tracker, clarity_tx)
             });
             match res {
                 Ok(inv_info) => {
@@ -573,7 +573,7 @@ impl ConversationHttp {
                     (current_page, vec![current_page])
                 }
                 Err(_) => {
-                    let msg = format!("Unable to read contract BNS"); 
+                    let msg = format!("Unable to read contract SNS"); 
                     warn!("{}", msg);
                     let response = HttpResponseType::ServerError(
                         response_metadata,

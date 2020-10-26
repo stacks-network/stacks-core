@@ -603,7 +603,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     let mut attachments_requests = HashSet::new();
                     for receipt in block_receipt.tx_receipts.iter() {
                         if let TransactionPayload::ContractCall(ref contract_call) = receipt.transaction.payload {
-                            if contract_call.to_clarity_contract_id() == boot_code_id("bns") {
+                            if contract_call.to_clarity_contract_id() == boot_code_id("sns") {
                                 for event in receipt.events.iter() {
                                     if let StacksTransactionEvent::SmartContractEvent(ref event_data) = event {
                                         let value = event_data.value.clone();

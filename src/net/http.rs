@@ -56,7 +56,7 @@ use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::{GetNameResponse, GetAttachmentResponse, GetAttachmentsInvResponse, PostAttachmentResponse, PostAttachmentRequestBody};
-use net::atlas::{BNS_NAME_REGEX, Attachment};
+use net::atlas::{SNS_NAME_REGEX, Attachment};
 use burnchains::{Address, Txid};
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::{
@@ -134,7 +134,7 @@ lazy_static! {
     static ref PATH_GET_ATTACHMENT: Regex = Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_GET_NAME: Regex = Regex::new(&format!(
         r#"^/v2/names/(?P<name>{})$"#,
-        *BNS_NAME_REGEX
+        *SNS_NAME_REGEX
     ))
     .unwrap();
 

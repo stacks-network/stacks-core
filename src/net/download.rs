@@ -33,7 +33,7 @@ use net::Neighbor;
 use net::NeighborKey;
 use net::PeerAddress;
 use std::hash::{Hash, Hasher};
-use net::atlas::{Attachment, BNSContractReader};
+use net::atlas::{Attachment, SNSContractReader};
 use net::atlas::inv::{NeighborAttachmentStats, InvAttachmentWorkState};
 
 use net::inv::NodeStatus;
