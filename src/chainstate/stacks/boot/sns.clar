@@ -309,9 +309,9 @@
           (revoked-at revoked-at)
           (zonefile-hash zonefile-hash))))))
 
-(define-read-only (get-zonefiles-inv-info)
+(define-read-only (get-attachments-inv-info)
   (ok { 
-    pages-count: (var-get zonefiles-inv-page-cursor),
+    pages-count: (+ (var-get zonefiles-inv-page-cursor) u1),
     last-page-len: (var-get zonefiles-inv-index-cursor),
     page-size: zonefiles-inv-page-size
   }))

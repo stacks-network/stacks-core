@@ -104,7 +104,6 @@ pub enum NetworkRequest {
     Ban(Vec<NeighborKey>),
     AdvertizeBlocks(BlocksAvailableMap), // announce to all wanting neighbors that we have these blocks
     AdvertizeMicroblocks(BlocksAvailableMap), // announce to all wanting neighbors that we have these confirmed microblock streams
-    AdvertizeZonefiles, // announce to all wanting neighbors that we have these zonefiles
     Relay(NeighborKey, StacksMessage),
     Broadcast(Vec<RelayData>, StacksMessageType),
 }
@@ -160,12 +159,6 @@ impl NetworkHandle {
     /// Advertize microblocks
     pub fn advertize_microblocks(&mut self, blocks: BlocksAvailableMap) -> Result<(), net_error> {
         let req = NetworkRequest::AdvertizeMicroblocks(blocks);
-        self.send_request(req)
-    }
-
-    /// Advertize microblocks
-    pub fn advertize_zonefiles(&mut self) -> Result<(), net_error> {
-        let req = NetworkRequest::AdvertizeZonefiles;
         self.send_request(req)
     }
 
@@ -915,12 +908,6 @@ impl PeerNetwork {
             NetworkRequest::AdvertizeMicroblocks(mblocks) => {
                 if !(cfg!(test) && self.connection_opts.disable_block_advertisement) {
                     self.advertize_microblocks(mblocks)?;
-                }
-                Ok(())
-            }
-            NetworkRequest::AdvertizeZonefiles => {
-                if !(cfg!(test) && self.connection_opts.disable_zonefile_advertisement) {
-                    self.advertize_zonefiles()?;
                 }
                 Ok(())
             }

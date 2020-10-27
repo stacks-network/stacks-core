@@ -1553,16 +1553,13 @@ impl PeerNetwork {
         }
     }
 
-    pub fn update_attachments_inventory(&mut self, new_attachments: HashSet<AttachmentInstance>, sortdb: &SortitionDB, chainstate: &mut StacksChainState,) -> Result<(), (/* todo(ludo) */)> {
+    pub fn update_attachments_inventory(&mut self, new_attachments: HashSet<AttachmentInstance>, sortdb: &SortitionDB, chainstate: &mut StacksChainState,) -> Result<(), net_error> {
         // let mut attachments_to_download = vec![];
-        
+        if new_attachments.is_empty() {
+            return Ok(())
+        }
+
         PeerNetwork::with_inv_states(self, |network, _, attachments_inv_state| {
-
-            if attachments_inv_state.request_to_process.is_some() {
-                // todo(ludo): Houston, we have a problem
-                panic!()
-            }
-
             let mut inv_request = AttachmentsInvRequest::new();
             for attachment in new_attachments.into_iter() {
 
@@ -1589,86 +1586,10 @@ impl PeerNetwork {
             }
 
             if !inv_request.missing_attachments.is_empty() {
-                attachments_inv_state.request_to_process = Some(inv_request);
+                attachments_inv_state.inv_request_queue.insert(inv_request);
             }
-
-
-
-
-
-            // if attachments_inv_state.expected_inventory.is_none() {
-            //     let (consensus_hash, anchor_block_hash) = match chainstate.get_stacks_chain_tip(sortdb)? {
-            //         Some(tip) => (tip.consensus_hash, tip.anchored_block_hash.clone()),
-            //         None => {
-            //             // todo(ludo)
-            //             return Err(net_error::ChainstateError("Unable to load chain tip".to_string()))
-            //         }
-            //     };
-        
-            //     let tip = StacksBlockHeader::make_index_block_hash(
-            //         &consensus_hash,
-            //         &anchor_block_hash,
-            //     );
-        
-            //     match SNSContractReader::get_attachments_inventory(sortdb, chainstate, &tip) {
-            //         Ok(expected_inventory) => {
-            //             let local_inventory = expected_inventory.get_missing_attachments_inventory(&network.atlasdb);
-            //             attachments_inv_state.expected_inventory = Some(expected_inventory);
-            //             attachments_inv_state.local_inventory = Some(local_inventory);
-            //         },
-            //         Err(_) => {
-            //             // todo(ludo)
-            //             panic!()
-            //         }
-            //     }
-            // }
-
-            // let expected_inventory = attachments_inv_state.expected_inventory.take().unwrap(); // todo(ludo)
-            // let local_inventory = attachments_inv_state.local_inventory.take().unwrap(); // todo(ludo)
-
-
-            // Update expected_inventory
-
-            // Update local_inventory
-
-            // todo(ludo) a zone file hash can exist at multiple locations (fork / page_index / index).
-
-            // for attachment in new_attachments.iter() {
-            
-            //     if attachment.state != ExpectedAttachmentState::Signaled {
-            //         continue;
-            //     }
-
-                // todo(ludo): has already been processed?
-                // if let Ok(Some(entry)) = self.atlasdb.find_inboxed_attachment(attachment.content_hash) { // todo(ludo)
-                //     // Move the entry to the right DB
-                //     attachment.state = ExpectedAttachmentState::Downloaded(entry.content);
-                //     continue;
-                // }
-
-    
-                // todo(ludo): has already been enqueued?
-                // if let Ok(Some(entry)) = self.atlasdb.find_inboxed_attachment(attachment.content_hash) { // todo(ludo)
-                //     // Move the entry to the right DB
-                //     attachment.state = ExpectedAttachmentState::Downloaded(entry.content);
-                //     continue;
-                // }
-                
-                // local_inventory.track_missing_attachment(&attachment);
-
-                // attachment.state = ExpectedAttachmentState::Inventoried;
-                // expected_inventory.add_expected_attachment(attachment);
-    
-            // todo(ludo): local_inventory.untrack_attachment(attachment);
-
-            // attachments_inv_state.expected_inventory = Some(expected_inventory);
-            // attachments_inv_state.local_inventory = Some(local_inventory);
-
             Ok(())
-        });
-
-
-        Ok(())
+        })
     }
 
     /// Start requesting the next batch of PoX inventories

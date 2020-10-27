@@ -40,6 +40,7 @@ use monitoring::increment_stx_blocks_processed_counter;
 use util::db::Error as DBError;
 use util::hash::{to_hex, Hash160};
 use net::atlas::inv::AttachmentInstance;
+use net::atlas::AtlasConfig;
 use net::StacksMessageCodec;
 use vm::{
     costs::ExecutionCost,
@@ -601,9 +602,10 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     let block_hash = block_receipt.header.anchored_header.block_hash();
 
                     let mut attachments_requests = HashSet::new();
+                    let atlas_config = AtlasConfig::default();
                     for receipt in block_receipt.tx_receipts.iter() {
                         if let TransactionPayload::ContractCall(ref contract_call) = receipt.transaction.payload {
-                            if contract_call.to_clarity_contract_id() == boot_code_id("sns") {
+                            if atlas_config.contracts.contains(&contract_call.to_clarity_contract_id()) {
                                 for event in receipt.events.iter() {
                                     if let StacksTransactionEvent::SmartContractEvent(ref event_data) = event {
                                         let value = event_data.value.clone();

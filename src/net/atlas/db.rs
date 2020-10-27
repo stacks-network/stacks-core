@@ -24,7 +24,7 @@ use net::StacksMessageCodec;
 use chainstate::stacks::StacksBlockId;
 use chainstate::burn::{ConsensusHash, BlockHeaderHash};
 
-use super::inv::{ZonefileHash, AttachmentInstance};
+use super::inv::{AttachmentInstance};
 use super::{Attachment};
 
 pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
@@ -135,8 +135,6 @@ impl AtlasDB {
         Ok(())
     }
 
-    // todo(ludo): parse error: Invalid numeric literal at line 1, column 7
-
     // Open the burn database at the given path.  Open read-only or read/write.
     // If opened for read/write and it doesn't exist, instantiate it.
     pub fn connect(
@@ -200,71 +198,21 @@ impl AtlasDB {
         Ok(tx)
     }
 
-    // Read the local peer record
-    fn get_zonefiles_hashes_in_range_desc(&self, min: u32, max: u32) -> Result<Vec<ZonefileHash>, db_error> { // todo(ludo): can't fork, won't work
-        let qry = "SELECT inv_index, hash FROM attachments WHERE inv_index >= ?1 AND inv_index < ?2 ORDER BY inv_index DESC".to_string();
-        let args = [&min as &dyn ToSql, &max as &dyn ToSql];
-        let rows = query_rows::<ZonefileHash, _>(&self.conn, &qry, &args)?;
-        Ok(rows)
-    }
-
-    pub fn get_processed_zonefiles_hashes_at_page(&self, min: u32, max: u32) -> (Vec<Option<ZonefileHash>>, HashSet<u32>) {
-        let mut missing_indexes = HashSet::new();
-        let mut downloaded_zonefiles = match self.get_zonefiles_hashes_in_range_desc(min, max) {
-            Ok(zonefiles) => zonefiles,
-            Err(e) => {
-                println!("{:?}", e);
-                panic!() // todo(ludo)
-            }
-        };
-
-        let mut zonefiles_hashes = vec![];        
-        for cursor in min..max {
-            let entry = match downloaded_zonefiles.len() {
-                0 => None,
-                len => match downloaded_zonefiles[len - 1].zonefile_id {
-                    index if index == cursor => downloaded_zonefiles.pop(),
-                    _ => None,
-                }
-            };
-            if entry.is_none() {
-                missing_indexes.insert(cursor);
-            }
-
-            zonefiles_hashes.push(entry);
-        }
-
-        (zonefiles_hashes, missing_indexes)
-    }
-
-    pub fn get_block_height_window_for_page_index(&self, page_index: u32) -> Result<(u64, u64), db_error> {
-        let qry = "SELECT min(block_height) as min, max(block_height) as max FROM attachment_instances WHERE page_index = ?1".to_string();
-        let args = [&page_index as &dyn ToSql];
-        let result = query_int::<_>(&self.conn, &qry, &args)?;
-
+    pub fn get_minmax_heights_window_for_page_index(&self, oldest_page_index: u32, newest_page_index: u32) -> Result<(u64, u64), db_error> {
+        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE page_index >= ?1 AND page_index <= ?2".to_string();
+        let args = [&oldest_page_index as &dyn ToSql, &newest_page_index as &dyn ToSql];
         let mut stmt = self.conn.prepare(&qry)?;
         let mut rows = stmt.query(&args)?;
         match rows.next() {
             Some(Ok(row)) => {
-                let min= u64::from_column(&row, "min")?;
-                let max = u64::from_column(&row, "max")?;
-                Ok((min, max))
+                let min: i64 = row.get_checked("min")?;
+                let max: i64 = row.get_checked("max")?;
+                Ok((min as u64, max as u64))                
             }
             _ => {
                 Err(db_error::NotFoundError)
             }
         }
-    }
-
-    pub fn get_inventoried_attachments_at_page_index(&self, page_index: u32,  ancestor_tree: Vec<StacksBlockId>) -> Result<Vec<AttachmentInstance>, db_error> {
-        let qry = "SELECT * FROM attachment_instances WHERE page_index = ?1 AND block_id IN (?2) ORDER BY position_in_page DESC".to_string();
-        let ancestor_tree_sql = ancestor_tree.iter()
-            .map(|block_id| format!("'{}'", block_id))
-            .collect::<Vec<String>>()
-            .join(", ");
-        let args = [&page_index as &dyn ToSql, &ancestor_tree_sql as &dyn ToSql];
-        let rows = query_rows::<AttachmentInstance, _>(&self.conn, &qry, &args)?;
-        Ok(rows)
     }
 
     pub fn get_attachments_available_at_pages_indexes(&self, pages_indexes: &Vec<u32>, blocks_ids: &Vec<StacksBlockId>) -> Result<Vec<Vec<u8>>, db_error> {
@@ -274,26 +222,29 @@ impl AtlasDB {
             let mut bit_vector = vec![];
             let mut byte: u8 = 0;
             for (index, is_attachment_missing) in page.iter().enumerate() {
-                if index % 8 == 0 {
+                if (index + 1) % 8 == 0 {
                     bit_vector.push(byte);
                     byte = 0;
                 }
-                byte = byte << if *is_attachment_missing {0} else {1};
+                byte <<= 1;
+                byte ^= if *is_attachment_missing {0} else {1};
             }
+            bit_vector.push(byte);
             pages.push(bit_vector);
         }
         Ok(pages)
     }
 
     pub fn get_attachments_missing_at_page_index(&self, page_index: u32, blocks_ids: &Vec<StacksBlockId>) -> Result<Vec<bool>, db_error> {
-        let qry = "SELECT is_available FROM attachment_instances WHERE page_index = ?1 AND block_id IN (?2) ORDER BY position_in_page ASC".to_string();
+        // todo(ludo): unable to build a compiled stmt with rusqlite - investigate carray.
         let ancestor_tree_sql = blocks_ids.iter()
             .map(|block_id| format!("'{}'", block_id))
             .collect::<Vec<String>>()
             .join(", ");
-        let args = [&page_index as &dyn ToSql, &ancestor_tree_sql as &dyn ToSql];
-        let rows = query_rows::<i64, _>(&self.conn, &qry, &args)?;
+        let qry = format!("SELECT is_available FROM attachment_instances WHERE page_index = {} AND block_id IN ({}) ORDER BY position_in_page ASC", page_index, ancestor_tree_sql);
+        let rows = query_rows::<i64, _>(&self.conn, &qry, NO_PARAMS)?;
         let res = rows.iter().map(|r| *r == 0).collect::<Vec<bool>>();
+        println!("get_attachments_missing_at_page_index res: {:?}", res);
         Ok(res)
     }
 

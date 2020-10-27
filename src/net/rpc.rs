@@ -552,25 +552,33 @@ impl ConversationHttp {
         sortdb: &SortitionDB,
         atlasdb: &AtlasDB,
         chainstate: &mut StacksChainState,
-        tip: &StacksBlockId,
+        tip_consensus_hash: &ConsensusHash, 
+        tip_block_hash: &BlockHeaderHash,
         pages_indexes: &HashSet<u32>,
         options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        let pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
+        let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
+        pages_indexes.sort();
+        let tip = StacksBlockHeader::make_index_block_hash(
+            &tip_consensus_hash,
+            &tip_block_hash,
+        );
         println!("Getting /v2/attachments/inv {:?} {:?}", tip, pages_indexes);
 
-        let (oldest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
-            (*pages_indexes.iter().min().unwrap(), pages_indexes.clone())
+        let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
+            (*pages_indexes.first().unwrap(), *pages_indexes.last().unwrap(), pages_indexes.clone())
         } else {
-            let res = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+            // Pages indexes not provided. By default, we'll return the inventory of the latest page
+            // present on the canonical chain.
+            let res = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                 let cost_tracker = LimitedCostTracker::new(options.read_only_call_limit.clone());
-                SNSContractReader::get_zonefiles_inv_info(cost_tracker, clarity_tx)
+                SNSContractReader::get_attachments_inv_info(cost_tracker, clarity_tx)
             });
             match res {
                 Ok(inv_info) => {
                     let current_page = inv_info.pages_count - 1;
-                    (current_page, vec![current_page])
+                    (current_page, current_page, vec![current_page])
                 }
                 Err(_) => {
                     let msg = format!("Unable to read contract SNS"); 
@@ -579,13 +587,14 @@ impl ConversationHttp {
                         response_metadata,
                         msg.clone(),
                     );
-                    response.send(http, fd);
+                    response.send(http, fd)?;
                     return Err(net_error::ChainstateError(msg))
                 }
             }
         };
-        // todo(ludo) complete this part
-        let (min_block_height, max_block_height) = match atlasdb.get_block_height_window_for_page_index(oldest_page_index) {
+
+        // We need to rebuild an ancestry tree, but we're still missing some informations at this point
+        let (min_block_height, max_block_height) = match atlasdb.get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index) {
             Ok(window) => window,
             Err(e) => {
                 let msg = format!("Unable to read Atlas DB"); 
@@ -594,17 +603,25 @@ impl ConversationHttp {
                     response_metadata,
                     msg.clone(),
                 );
-                response.send(http, fd);
+                response.send(http, fd)?;
                 return Err(net_error::DBError(e))
             }
         };
-        
-        let blocks_ids = {
-            // todo(ludo) complete this part
-            // let ic = sortdb.index_conn();
-            // SortitionDB::get_ancestor_snapshot(&ic, max_block_height, tip_block_hash);
-            vec![]
-        };
+
+        let mut blocks_ids = vec![];
+        let mut headers_tx = chainstate.headers_tx_begin()?;
+        let tip_index_hash = StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
+
+        for block_height in min_block_height..=max_block_height {
+            match StacksChainState::get_index_tip_ancestor(
+                &mut headers_tx,
+                &tip_index_hash,
+                block_height,
+            )? {
+                Some(header) => blocks_ids.push(header.index_block_hash()),
+                _ => {}
+            }
+        }
 
         match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
             Ok(pages) => {
@@ -612,7 +629,7 @@ impl ConversationHttp {
                     .zip(pages_indexes)
                     .map(|(inventory, index)| AttachmentPage { index, inventory })
                     .collect();
-
+                
                 let content = GetAttachmentsInvResponse {
                     block_id: tip.clone(),
                     pages
@@ -627,7 +644,7 @@ impl ConversationHttp {
                     response_metadata,
                     msg.clone(),
                 );
-                response.send(http, fd);
+                response.send(http, fd)?;
                 return Err(net_error::DBError(e))
             }
         }
@@ -1641,7 +1658,7 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::GetAttachmentsInv(ref _md, ref tip_opt, ref pages_indexes) => {
-                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                if let Some((tip_consensus_hash, tip_block_hash)) = ConversationHttp::handle_load_stacks_chain_tip_hashes(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
@@ -1649,7 +1666,6 @@ impl ConversationHttp {
                     sortdb,
                     chainstate,
                 )? {
-                    println!("GET /v2/zonefiles/inv!");
                     ConversationHttp::handle_getattachmentsinv(
                         &mut self.connection.protocol,
                         &mut reply,
@@ -1657,7 +1673,8 @@ impl ConversationHttp {
                         sortdb,
                         atlasdb,
                         chainstate,
-                        &tip,
+                        &tip_consensus_hash, 
+                        &tip_block_hash,
                         pages_indexes,
                         &self.connection.options,
                     )?;

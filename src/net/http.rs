@@ -2392,7 +2392,16 @@ impl HttpRequestType {
                 HttpRequestType::make_query_string(tip_opt.as_ref(), true)
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
-            HttpRequestType::GetAttachmentsInv(_md, ..) => "/v2/attachments/inv".to_string(),
+            HttpRequestType::GetAttachmentsInv(_md, tip_opt, pages_indexes) => {
+                let pages_indexes = pages_indexes.iter().map(|i| format!("{}", i)).collect::<Vec<String>>().join(",");
+                let prefix = if tip_opt.is_some() { "&" } else { "?" };
+                format!(
+                    "/v2/attachments/inv{}{}{}",
+                    HttpRequestType::make_query_string(tip_opt.as_ref(), true),
+                    prefix,
+                    pages_indexes,
+                )
+            }
             HttpRequestType::PostAttachment(_md, ..) => "/v2/attachments".to_string(),
             HttpRequestType::GetAttachment(_, content_hash) => format!("/v2/attachments/{}", to_hex(&content_hash.0[..])),
             HttpRequestType::GetName(
