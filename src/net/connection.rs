@@ -358,6 +358,9 @@ pub struct ConnectionOptions {
     pub public_ip_request_timeout: u64,
     pub public_ip_timeout: u64,
     pub public_ip_max_retries: u64,
+    pub max_block_push: u64,
+    pub max_microblock_push: u64,
+    pub antientropy_retry: u64,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -371,6 +374,7 @@ pub struct ConnectionOptions {
     pub disable_pingbacks: bool,
     pub disable_inbound_walks: bool,
     pub disable_natpunch: bool,
+    pub disable_inbound_handshakes: bool,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -424,6 +428,9 @@ impl std::default::Default for ConnectionOptions {
             public_ip_request_timeout: 60, // how often we can attempt to look up our public IP address
             public_ip_timeout: 3600,       // re-learn the public IP ever hour, if it's not given
             public_ip_max_retries: 3, // maximum number of retries before self-throttling for $public_ip_timeout
+            max_block_push: 10,         // maximum number of blocksData messages to push out via our anti-entropy protocol
+            max_microblock_push: 10,       // maximum number of microblocks messages to push out via our anti-entrop protocol
+            antientropy_retry: 3600 * 24,        // retry pushing data only once every day
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -437,6 +444,7 @@ impl std::default::Default for ConnectionOptions {
             disable_pingbacks: false,
             disable_inbound_walks: false,
             disable_natpunch: false,
+            disable_inbound_handshakes: false,
         }
     }
 }
