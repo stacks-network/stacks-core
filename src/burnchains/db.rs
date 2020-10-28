@@ -350,14 +350,16 @@ impl BurnchainDB {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::blocks::*;
     use burnchains::bitcoin::*;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
-    use chainstate::burn::operations;
+    use chainstate::burn::*;
+    use chainstate::stacks::*;
     use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
     use deps::bitcoin::network::serialize::deserialize;
     use std::convert::TryInto;
-    use util::hash::{hex_bytes, to_hex};
+    use util::hash::*;
 
     fn make_tx(hex_str: &str) -> BtcTx {
         let tx_bin = hex_bytes(hex_str).unwrap();
@@ -469,5 +471,205 @@ mod tests {
             burnchain_db.get_burnchain_block(&canon_hash).unwrap();
         assert_eq!(ops.len(), 0);
         assert_eq!(&header, &looked_up_canon);
+    }
+
+    #[test]
+    fn test_classify_stack_stx() {
+        let first_bhh = BurnchainHeaderHash([0; 32]);
+        let first_timestamp = 321;
+        let first_height = 1;
+
+        let mut burnchain_db =
+            BurnchainDB::connect(":memory:", first_height, &first_bhh, first_timestamp, true)
+                .unwrap();
+
+        let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
+        assert_eq!(&first_block_header.block_hash, &first_bhh);
+        assert_eq!(&first_block_header.block_height, &first_height);
+        assert_eq!(&first_block_header.timestamp, &first_timestamp);
+        assert_eq!(
+            &first_block_header.parent_block_hash,
+            &BurnchainHeaderHash::sentinel()
+        );
+
+        let canon_hash = BurnchainHeaderHash([1; 32]);
+
+        let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            500,
+            &canon_hash,
+            &first_bhh,
+            &vec![],
+            485,
+        ));
+        let ops = burnchain_db
+            .store_new_burnchain_block(&canonical_block, 1000)
+            .unwrap();
+        assert_eq!(ops.len(), 0);
+
+        // let's mine a block with a pre-stack-stx tx, and a stack-stx tx,
+        //    the stack-stx tx should _fail_ to verify, because there's no
+        //    corresponding pre-stack-stx.
+
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
+
+        let pre_stack_stx_0_txid = Txid([5; 32]);
+        let pre_stack_stx_0 = BitcoinTransaction {
+            txid: pre_stack_stx_0_txid.clone(),
+            vtxindex: 0,
+            opcode: Opcodes::PreStackStx as u8,
+            data: vec![0; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }],
+        };
+
+        // this one will have a corresponding pre_stack_stx tx.
+        let stack_stx_0 = BitcoinTransaction {
+            txid: Txid([4; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::StackStx as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: pre_stack_stx_0_txid.clone(),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }],
+        };
+
+        // this one will have a corresponding pre_stack_stx tx.
+        let stack_stx_0_second_attempt = BitcoinTransaction {
+            txid: Txid([4; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::StackStx as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: pre_stack_stx_0_txid.clone(),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([2; 20]),
+                },
+            }],
+        };
+
+        // this one won't have a corresponding pre_stack_stx tx.
+        let stack_stx_1 = BitcoinTransaction {
+            txid: Txid([3; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::StackStx as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }],
+        };
+
+        let ops_0 = vec![pre_stack_stx_0, stack_stx_0];
+
+        let ops_1 = vec![stack_stx_1, stack_stx_0_second_attempt];
+
+        let block_height_0 = 501;
+        let block_hash_0 = BurnchainHeaderHash([2; 32]);
+        let block_height_1 = 502;
+        let block_hash_1 = BurnchainHeaderHash([3; 32]);
+
+        let block_0 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            block_height_0,
+            &block_hash_0,
+            &first_bhh,
+            &ops_0,
+            350,
+        ));
+
+        let block_1 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            block_height_1,
+            &block_hash_1,
+            &block_hash_0,
+            &ops_1,
+            360,
+        ));
+
+        let processed_ops_0 = burnchain_db
+            .store_new_burnchain_block(&block_0, 1000)
+            .unwrap();
+
+        assert_eq!(
+            processed_ops_0.len(),
+            1,
+            "Only pre_stack_stx op should have been accepted"
+        );
+
+        let processed_ops_1 = burnchain_db
+            .store_new_burnchain_block(&block_1, 1000)
+            .unwrap();
+
+        assert_eq!(
+            processed_ops_1.len(),
+            1,
+            "Only one stack_stx op should have been accepted"
+        );
+
+        let expected_pre_stack_addr = StacksAddress::from_bitcoin_address(&BitcoinAddress {
+            addrtype: BitcoinAddressType::PublicKeyHash,
+            network_id: BitcoinNetworkType::Mainnet,
+            bytes: Hash160([1; 20]),
+        });
+
+        let expected_reward_addr = StacksAddress::from_bitcoin_address(&BitcoinAddress {
+            addrtype: BitcoinAddressType::PublicKeyHash,
+            network_id: BitcoinNetworkType::Mainnet,
+            bytes: Hash160([2; 20]),
+        });
+
+        if let BlockstackOperationType::PreStackStx(op) = &processed_ops_0[0] {
+            assert_eq!(&op.output, &expected_pre_stack_addr);
+        } else {
+            panic!("EXPECTED to parse a pre stack stx op");
+        }
+
+        if let BlockstackOperationType::StackStx(op) = &processed_ops_1[0] {
+            assert_eq!(&op.sender, &expected_pre_stack_addr);
+            assert_eq!(&op.reward_addr, &expected_reward_addr);
+            assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
+            assert_eq!(op.num_cycles, 1);
+        } else {
+            panic!("EXPECTED to parse a stack stx op");
+        }
     }
 }

@@ -599,10 +599,10 @@ impl Burnchain {
                     Ok(op) => Some(BlockstackOperationType::LeaderKeyRegister(op)),
                     Err(e) => {
                         warn!(
-                            "Failed to parse leader key register tx {} data {}: {:?}",
-                            &burn_tx.txid(),
-                            &to_hex(&burn_tx.data()[..]),
-                            e
+                            "Failed to parse leader key register tx";
+                            "txid" => %burn_tx.txid().to_string(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => %format!("{:?}", e)
                         );
                         None
                     }
@@ -613,10 +613,10 @@ impl Burnchain {
                     Ok(op) => Some(BlockstackOperationType::LeaderBlockCommit(op)),
                     Err(e) => {
                         warn!(
-                            "Failed to parse leader block commit tx {} data {}: {:?}",
-                            &burn_tx.txid(),
-                            &to_hex(&burn_tx.data()[..]),
-                            e
+                            "Failed to parse leader block commit tx";
+                            "txid" => %burn_tx.txid().to_string(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => %format!("{:?}", e)
                         );
                         None
                     }
@@ -627,10 +627,24 @@ impl Burnchain {
                     Ok(op) => Some(BlockstackOperationType::UserBurnSupport(op)),
                     Err(e) => {
                         warn!(
-                            "Failed to parse user burn support tx {} data {}: {:?}",
-                            &burn_tx.txid(),
-                            &to_hex(&burn_tx.data()[..]),
-                            e
+                            "Failed to parse user burn support tx";
+                            "txid" => %burn_tx.txid().to_string(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => %format!("{:?}", e)
+                        );
+                        None
+                    }
+                }
+            }
+            x if x == Opcodes::PreStackStx as u8 => {
+                match PreStackStxOp::from_tx(block_header, burn_tx, sunset_end_ht) {
+                    Ok(op) => Some(BlockstackOperationType::PreStackStx(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse pre stack stx tx";
+                            "txid" => %burn_tx.txid().to_string(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => %format!("{:?}", e)
                         );
                         None
                     }
@@ -646,19 +660,19 @@ impl Burnchain {
                         Ok(op) => Some(BlockstackOperationType::StackStx(op)),
                         Err(e) => {
                             warn!(
-                                "Failed to parse stack stx tx {} data {}: {:?}",
-                                &burn_tx.txid(),
-                                &to_hex(&burn_tx.data()),
-                                e
+                                "Failed to parse stack stx tx";
+                                "txid" => %burn_tx.txid().to_string(),
+                                "data" => %to_hex(&burn_tx.data()),
+                                "error" => %format!("{:?}", e)
                             );
                             None
                         }
                     }
                 } else {
                     warn!(
-                        "Failed to find corresponding input to StackStxOp (txid={}) at txid = {}",
-                        &burn_tx.txid(),
-                        pre_stack_stx_txid
+                        "Failed to find corresponding input to StackStxOp";
+                        "txid" => %burn_tx.txid().to_string(),
+                        "pre_stx_txid" => %pre_stack_stx_txid.to_string()
                     );
                     None
                 }
