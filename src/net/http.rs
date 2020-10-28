@@ -55,7 +55,7 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
-use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostAttachmentResponse, PostAttachmentRequestBody};
+use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
 use net::atlas::{SNS_NAME_REGEX, Attachment};
 use burnchains::{Address, Txid};
 use chainstate::burn::BlockHeaderHash;
@@ -129,7 +129,6 @@ lazy_static! {
     ))
     .unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
-    static ref PATH_POST_ATTACHMENT: Regex = Regex::new("^/v2/attachments$").unwrap();
     static ref PATH_GET_ATTACHMENTS_INV: Regex = Regex::new("^/v2/attachments/inv$").unwrap();
     static ref PATH_GET_ATTACHMENT: Regex = Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
@@ -1505,11 +1504,6 @@ impl HttpRequestType {
                 &HttpRequestType::parse_get_attachment,
             ),
             (
-                "POST",
-                &PATH_POST_ATTACHMENT,
-                &HttpRequestType::parse_post_attachment,
-            ),
-            (
                 "GET",
                 &PATH_GET_ATTACHMENTS_INV,
                 &HttpRequestType::parse_get_attachments_inv,
@@ -1995,6 +1989,7 @@ impl HttpRequestType {
         _query: Option<&str>,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
+
         if preamble.get_content_length() == 0 {
             return Err(net_error::DeserializeError(
                 "Invalid Http request: expected non-zero-length body for PostTransaction"
@@ -2002,23 +1997,32 @@ impl HttpRequestType {
             ));
         }
 
-        // content-type must be given, and must be application/octet-stream
         match preamble.content_type {
             None => {
                 return Err(net_error::DeserializeError(
                     "Missing Content-Type for transaction".to_string(),
                 ));
             }
-            Some(ref c) => {
-                if *c != HttpContentType::Bytes {
-                    return Err(net_error::DeserializeError(
-                        "Wrong Content-Type for transaction; expected application/octet-stream"
-                            .to_string(),
-                    ));
-                }
-            }
-        };
+            Some(HttpContentType::Bytes) => {
+                HttpRequestType::parse_posttransaction_octets(preamble, fd)
 
+            }
+            Some(HttpContentType::JSON) => {
+                HttpRequestType::parse_posttransaction_json(preamble, fd)
+            }
+            _ => {
+                return Err(net_error::DeserializeError(
+                    "Wrong Content-Type for transaction; expected application/json"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
+    fn parse_posttransaction_octets<R: Read>(
+        preamble: &HttpRequestPreamble,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
         let tx = StacksTransaction::consensus_deserialize(fd).map_err(|e| {
             if let net_error::DeserializeError(msg) = e {
                 net_error::ClientError(ClientError::Message(format!(
@@ -2032,7 +2036,48 @@ impl HttpRequestType {
         Ok(HttpRequestType::PostTransaction(
             HttpRequestMetadata::from_preamble(preamble),
             tx,
+            None,
         ))
+    }
+
+    fn parse_posttransaction_json<R: Read>(
+        preamble: &HttpRequestPreamble,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let body: PostTransactionRequestBody = serde_json::from_reader(fd)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse body".into()))?;
+
+        let tx = {
+            let tx_bytes = hex_bytes(&body.tx)
+                .map_err(|_e| net_error::DeserializeError("Failed to parse tx".into()))?;
+            StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).map_err(|e| {
+                if let net_error::DeserializeError(msg) = e {
+                    net_error::ClientError(ClientError::Message(format!(
+                        "Failed to deserialize posted transaction: {}",
+                        msg
+                    )))
+                } else {
+                    e
+                }
+            })
+        }?;
+
+        let attachment = match body.attachment {
+            None => None,
+            Some(attachment_content) => {
+                let content = hex_bytes(&attachment_content)
+                    .map_err(|_e| net_error::DeserializeError("Failed to parse attachment".into()))?;
+                let hash = Hash160::from_data(&content[..]);
+                Some(Attachment::new(content, hash))
+            }
+        };
+
+        Ok(HttpRequestType::PostTransaction(
+            HttpRequestMetadata::from_preamble(preamble),
+            tx,
+            attachment,
+        ))
+
     }
 
     fn parse_postmicroblock<R: Read>(
@@ -2074,60 +2119,6 @@ impl HttpRequestType {
             mb,
             tip,
         ))
-    }
-
-    fn parse_post_attachment<R: Read>(
-        _protocol: &mut StacksHttp,
-        preamble: &HttpRequestPreamble,
-        _regex: &Captures,
-        _query: Option<&str>,
-        fd: &mut R,
-    ) -> Result<HttpRequestType, net_error> {
-
-        if preamble.get_content_length() == 0 {
-            return Err(net_error::DeserializeError(
-                "Invalid Http request: expected non-zero-length body for PostAttachment"
-                    .to_string(),
-            ));
-        }
-        // todo(ludo): should be queued and processed by the peer network instead
-        // content-type must be given, and must be application/json
-        match preamble.content_type {
-            None => {
-                return Err(net_error::DeserializeError(
-                    "Missing Content-Type for transaction".to_string(),
-                ));
-            }
-            Some(ref c) => {
-                if *c != HttpContentType::JSON {
-                    return Err(net_error::DeserializeError(
-                        "Wrong Content-Type for transaction; expected application/json"
-                            .to_string(),
-                    ));
-                }
-            }
-        };
-
-        let body: PostAttachmentRequestBody = serde_json::from_reader(fd)
-            .map_err(|_e| net_error::DeserializeError("Failed to parse attachment".into()))?;
-        
-        let hash = Hash160::from_hex(&body.hash)
-            .map_err(|_| net_error::DeserializeError("Invalid Http request: hash invalid".to_string()))?;
-
-        let content = hex_bytes(&body.content)
-            .map_err(|_| net_error::DeserializeError("Invalid Http request: content invalid".to_string()))?;
-
-        let attachment = Attachment { hash, content }; 
-        if !attachment.is_hash_valid() {
-            return Err(net_error::DeserializeError(
-                "Invalid Http request: hash invalid"
-                    .to_string(),
-            ));
-        }
-
-        Ok(HttpRequestType::PostAttachment(
-            HttpRequestMetadata::from_preamble(preamble),
-            attachment))
     }
 
     fn parse_get_attachment<R: Read>(
@@ -2194,7 +2185,6 @@ impl HttpRequestType {
                 }
             }
         }
-        // todo(ludo) handle multiple pages
         Ok(HttpRequestType::GetAttachmentsInv(
             HttpRequestMetadata::from_preamble(preamble),
             tip,
@@ -2223,7 +2213,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksIndexed(ref md, _) => md,
             HttpRequestType::GetMicroblocksConfirmed(ref md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
-            HttpRequestType::PostTransaction(ref md, _) => md,
+            HttpRequestType::PostTransaction(ref md, _, _) => md,
             HttpRequestType::PostMicroblock(ref md, ..) => md,
             HttpRequestType::GetAccount(ref md, ..) => md,
             HttpRequestType::GetMapEntry(ref md, ..) => md,
@@ -2234,7 +2224,6 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
             HttpRequestType::GetAttachment(ref md, ..) => md,
-            HttpRequestType::PostAttachment(ref md, ..) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
@@ -2248,7 +2237,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksIndexed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksConfirmed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
-            HttpRequestType::PostTransaction(ref mut md, _) => md,
+            HttpRequestType::PostTransaction(ref mut md, _, _) => md,
             HttpRequestType::PostMicroblock(ref mut md, ..) => md,
             HttpRequestType::GetAccount(ref mut md, ..) => md,
             HttpRequestType::GetMapEntry(ref mut md, ..) => md,
@@ -2259,7 +2248,6 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
-            HttpRequestType::PostAttachment(ref mut md, ..) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
@@ -2366,7 +2354,6 @@ impl HttpRequestType {
                     pages_indexes,
                 )
             }
-            HttpRequestType::PostAttachment(_md, ..) => "/v2/attachments".to_string(),
             HttpRequestType::GetAttachment(_, content_hash) => format!("/v2/attachments/{}", to_hex(&content_hash.0[..])),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
@@ -2377,9 +2364,29 @@ impl HttpRequestType {
 
     pub fn send<W: Write>(&self, _protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match self {
-            HttpRequestType::PostTransaction(md, tx) => {
+            HttpRequestType::PostTransaction(md, tx, attachment) => {
+                
                 let mut tx_bytes = vec![];
                 write_next(&mut tx_bytes, tx)?;
+                let tx_hex = to_hex(&tx_bytes[..]);
+
+                let attachment_hex = match attachment {
+                    None => None,
+                    Some(attachment) => Some(to_hex(&attachment.content[..]))
+                };
+
+                let request_body = PostTransactionRequestBody {
+                    tx: tx_hex,
+                    attachment: attachment_hex,
+                };
+
+                let mut request_body_bytes = vec![];
+                serde_json::to_writer(&mut request_body_bytes, &request_body).map_err(|e| {
+                    net_error::SerializeError(format!(
+                        "Failed to serialize read-only call to JSON: {:?}",
+                        &e
+                    ))
+                })?;
 
                 HttpRequestPreamble::new_serialized(
                     fd,
@@ -2388,11 +2395,14 @@ impl HttpRequestType {
                     &self.request_path(),
                     &md.peer,
                     md.keep_alive,
-                    Some(tx_bytes.len() as u32),
-                    Some(&HttpContentType::Bytes),
+                    Some(request_body_bytes.len() as u32),
+                    Some(&HttpContentType::JSON),
                     empty_headers,
                 )?;
-                fd.write_all(&tx_bytes).map_err(net_error::WriteError)?;
+                fd.write_all(&request_body_bytes)
+                    .map_err(net_error::WriteError)?;
+
+
             }
             HttpRequestType::PostMicroblock(md, mb, ..) => {
                 let mut mb_bytes = vec![];
@@ -2759,7 +2769,6 @@ impl HttpResponseType {
                 &HttpResponseType::parse_call_read_only,
             ),
             (&PATH_GET_ATTACHMENT, &HttpResponseType::parse_get_attachment),
-            (&PATH_POST_ATTACHMENT, &HttpResponseType::parse_post_attachment),
             (&PATH_GET_ATTACHMENTS_INV, &HttpResponseType::parse_get_attachments_inv),
         ];
 
@@ -3048,20 +3057,6 @@ impl HttpResponseType {
         ))
     }
 
-    fn parse_post_attachment<R: Read>(
-        _protocol: &mut StacksHttp,
-        request_version: HttpVersion,
-        preamble: &HttpResponsePreamble,
-        _fd: &mut R,
-        _len_hint: Option<usize>,
-    ) -> Result<HttpResponseType, net_error> {
-        let res = PostAttachmentResponse {};
-        Ok(HttpResponseType::PostAttachment(
-            HttpResponseMetadata::from_preamble(request_version, preamble),
-            res,
-        ))
-    }
-
     fn parse_microblock_hash<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -3136,7 +3131,6 @@ impl HttpResponseType {
             HttpResponseType::GetContractABI(ref md, _) => md,
             HttpResponseType::GetContractSrc(ref md, _) => md,
             HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
-            HttpResponseType::PostAttachment(ref md, _) => md,
             HttpResponseType::GetAttachment(ref md, _) => md,
             HttpResponseType::GetAttachmentsInv(ref md, _) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
@@ -3250,10 +3244,6 @@ impl HttpResponseType {
             HttpResponseType::Neighbors(ref md, ref neighbor_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, neighbor_data)?;
-            }
-            HttpResponseType::PostAttachment(ref md, ref zonefile_data) => {
-                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
-                HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
             }
             HttpResponseType::GetAttachment(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
@@ -3438,7 +3428,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetMicroblocksUnconfirmed(_, _, _) => {
                     "HTTP(GetMicroblocksUnconfirmed)"
                 }
-                HttpRequestType::PostTransaction(_, _) => "HTTP(PostTransaction)",
+                HttpRequestType::PostTransaction(_, _, _) => "HTTP(PostTransaction)",
                 HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
                 HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
                 HttpRequestType::GetMapEntry(..) => "HTTP(GetMapEntry)",
@@ -3446,7 +3436,6 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
-                HttpRequestType::PostAttachment(..) => "HTTP(PostAttachment)",
                 HttpRequestType::GetAttachment(..) => "HTTP(GetAttachment)",
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
@@ -3459,7 +3448,6 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpResponseType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpResponseType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
-                HttpResponseType::PostAttachment(_, _) => "HTTP(PostAttachment)",
                 HttpResponseType::GetAttachment(_, _) => "HTTP(GetAttachment)",
                 HttpResponseType::GetAttachmentsInv(_, _) => "HTTP(GetAttachmentsInv)",
                 HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
@@ -4958,6 +4946,7 @@ mod test {
             HttpRequestType::PostTransaction(
                 http_request_metadata_dns.clone(),
                 make_test_transaction(),
+                None,
             ),
             HttpRequestType::OptionsPreflight(http_request_metadata_ip.clone(), "/".to_string()),
         ];

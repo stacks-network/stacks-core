@@ -50,7 +50,7 @@ use net::StacksMessageType;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetAttachmentsInvResponse, PostAttachmentResponse, GetAttachmentResponse, AttachmentPage, AttachmentData};
+use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetAttachmentsInvResponse, GetAttachmentResponse, AttachmentPage, AttachmentData};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
 use net::atlas::{AtlasDB, OnchainInventoryLookup, Attachment};
@@ -650,24 +650,6 @@ impl ConversationHttp {
         }
     }
 
-    fn handle_postattachment<W: Write>(
-        http: &mut StacksHttp,
-        fd: &mut W,
-        req: &HttpRequestType,
-        atlasdb: &mut AtlasDB,
-        attachment: Attachment,
-    ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
-
-        atlasdb.insert_new_inboxed_attachment(attachment)
-            .map_err(|e| net_error::DBError(e))?;
-
-        let content = PostAttachmentResponse {};
-
-        let response = HttpResponseType::PostAttachment(response_metadata, content);
-        response.send(http, fd)
-    }
-
     fn handle_getattachment<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
@@ -1264,6 +1246,8 @@ impl ConversationHttp {
         block_hash: BlockHeaderHash,
         mempool: &mut MemPoolDB,
         tx: StacksTransaction,
+        atlasdb: &mut AtlasDB,
+        attachment: Option<Attachment>,
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
@@ -1285,6 +1269,12 @@ impl ConversationHttp {
             }
         };
 
+        if let Some(attachment) = attachment {
+            if accepted {
+                atlasdb.insert_new_inboxed_attachment(attachment)
+                    .map_err(|e| net_error::DBError(e))?;
+            }
+        }
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
@@ -1600,7 +1590,7 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::PostTransaction(ref _md, ref tx) => {
+            HttpRequestType::PostTransaction(ref _md, ref tx, ref attachment) => {
                 match chainstate.get_stacks_chain_tip(sortdb)? {
                     Some(tip) => {
                         let accepted = ConversationHttp::handle_post_transaction(
@@ -1611,6 +1601,8 @@ impl ConversationHttp {
                             tip.anchored_block_hash,
                             mempool,
                             tx.clone(),
+                            atlasdb,
+                            attachment.clone(),
                         )?;
                         if accepted {
                             // forward to peer network
@@ -1627,22 +1619,6 @@ impl ConversationHttp {
                         response.send(&mut self.connection.protocol, &mut reply)?;
                     }
                 }
-                None
-            }
-            HttpRequestType::PostAttachment(ref _md, ref attachment) => {
-                ConversationHttp::handle_postattachment(
-                    &mut self.connection.protocol,
-                    &mut reply,
-                    &req,
-                    atlasdb,
-                    attachment.clone(),
-                )?;
-
-                ret = Some(StacksMessageType::Attachment(AttachmentData {
-                    content: attachment.content.clone(),
-                    hash: attachment.hash.clone(),
-                }));
-
                 None
             }
             HttpRequestType::GetAttachment(ref _md, ref content_hash) => {
@@ -2168,7 +2144,7 @@ impl ConversationHttp {
 
     /// Make a new post-transaction request
     pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
-        HttpRequestType::PostTransaction(HttpRequestMetadata::from_host(self.peer_host.clone()), tx)
+        HttpRequestType::PostTransaction(HttpRequestMetadata::from_host(self.peer_host.clone()), tx, None)
     }
 
     /// Make a new post-microblock request

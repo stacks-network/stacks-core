@@ -1081,14 +1081,10 @@ pub struct AccountEntryResponse {
     pub nonce_proof: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PostAttachmentResponse {
-}
-
 #[derive(Serialize, Deserialize)]
-pub struct PostAttachmentRequestBody {
-    pub hash: String,
-    pub content: String,
+pub struct PostTransactionRequestBody {
+    pub tx: String,
+    pub attachment: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1189,7 +1185,7 @@ pub enum HttpRequestType {
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
-    PostTransaction(HttpRequestMetadata, StacksTransaction),
+    PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
     GetAccount(
         HttpRequestMetadata,
@@ -1232,7 +1228,6 @@ pub enum HttpRequestType {
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
-    PostAttachment(HttpRequestMetadata, Attachment),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1324,7 +1319,6 @@ pub enum HttpResponseType {
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
-    PostAttachment(HttpResponseMetadata, PostAttachmentResponse),
     OptionsPreflight(HttpResponseMetadata),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
