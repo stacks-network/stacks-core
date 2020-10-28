@@ -300,7 +300,10 @@ fn spawn_peer(
 
             let expected_attachments = match attachments_rx.try_recv() {
                 Ok(expected_attachments) => expected_attachments,
-                _ => HashSet::new(), // todo(ludo)
+                _ => {
+                    error!("Failed to receive attachments from channel");
+                    HashSet::new()
+                }
             };
         
             let network_result = match this.run(

@@ -197,7 +197,7 @@ impl OnchainInventoryLookup {
                 TupleData::from_data(vec![
                     ("page".into(), Value::UInt(page_index.into())),
                     ("index".into(), Value::UInt(segment_index.into())),
-                ]).unwrap()); // todo(ludo)
+                ]).expect("Unable to build tuple"));
 
             let key = ClarityDatabase::make_key_for_data_map_entry(
                 &contract_identifier,

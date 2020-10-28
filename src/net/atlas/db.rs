@@ -42,7 +42,6 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         created_at INTEGER NOT NULL,
         consensus_hash STRING NOT NULL,
         block_header_hash STRING NOT NULL,
-        burn_block_height INTEGER NOT NULL,
         block_id STRING NOT NULL,
         position_in_page INTEGER NOT NULL,
         page_index INTEGER NOT NULL,
@@ -244,7 +243,6 @@ impl AtlasDB {
         let args = [&attachment.hash as &dyn ToSql];
         let count = query_count(&self.conn, &qry, &args)?;
         if count != 0 {
-            // todo(ludo): early return
             return Ok(())
         }
 
