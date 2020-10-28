@@ -358,4 +358,126 @@ mod tests {
         let tx = deserialize(&tx_bin.to_vec()).map_err(|_e| "failed to deserialize")?;
         Ok(tx)
     }
+
+    #[test]
+    fn test_parse_pre_stack_stx() {
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::PreStackStx as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+        let op = PreStackStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            16843023,
+        )
+        .unwrap();
+
+        assert_eq!(
+            &op.output,
+            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+        );
+    }
+
+    #[test]
+    fn test_parse_stack_stx() {
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::StackStx as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: Txid([0; 32]),
+            }],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    },
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    },
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+        let op = StackStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &sender,
+            16843023,
+        )
+        .unwrap();
+
+        assert_eq!(&op.sender, &sender);
+        assert_eq!(
+            &op.reward_addr,
+            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+        );
+        assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
+        assert_eq!(op.num_cycles, 1);
+    }
 }

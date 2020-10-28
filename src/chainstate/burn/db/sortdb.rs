@@ -114,6 +114,12 @@ impl From<BlockHeaderHash> for BurnchainHeaderHash {
     }
 }
 
+impl FromRow<SortitionId> for SortitionId {
+    fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
+        SortitionId::from_column(row, "sortition_id")
+    }
+}
+
 impl FromRow<BlockSnapshot> for BlockSnapshot {
     fn from_row<'a>(row: &'a Row) -> Result<BlockSnapshot, db_error> {
         let block_height = u64::from_column(row, "block_height")?;
@@ -306,6 +312,33 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
             burn_header_hash: burn_header_hash,
         };
         Ok(user_burn)
+    }
+}
+
+impl FromRow<StackStxOp> for StackStxOp {
+    fn from_row<'a>(row: &'a Row) -> Result<StackStxOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get("vtxindex");
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let sender = StacksAddress::from_column(row, "sender_addr")?;
+        let reward_addr = StacksAddress::from_column(row, "reward_addr")?;
+        let stacked_ustx_str: String = row.get("stacked_ustx");
+        let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
+            .expect("CORRUPTION: bad u128 written to sortdb");
+        let num_cycles = row.get("num_cycles");
+
+        Ok(StackStxOp {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            sender,
+            reward_addr,
+            stacked_ustx,
+            num_cycles,
+        })
     }
 }
 
@@ -637,6 +670,21 @@ impl db_keys {
         let mut byte_buff = [0; 2];
         byte_buff.copy_from_slice(&bytes[0..2]);
         u16::from_le_bytes(byte_buff)
+    }
+
+    pub fn next_blocks_with_stacking_txs() -> &'static str {
+        "sortition_db::pox::btc_ops::next_blocks_with_stacking_txs"
+    }
+
+    pub fn cur_blocks_with_stacking_txs() -> &'static str {
+        "sortition_db::pox::btc_ops::cur_blocks_with_stacking_txs"
+    }
+
+    pub fn burn_header_hash_for_stacking_tx_block(stacking_ops_block_num: u64) -> String {
+        format!(
+            "sortition_db::pox::btc_ops::block_{}",
+            stacking_ops_block_num
+        )
     }
 }
 
@@ -1043,6 +1091,37 @@ impl<'a> SortitionHandleTx<'a> {
                 Ok(None)
             }
         }
+    }
+
+    fn get_blocks_with_stacks_txs_at_tip(&mut self, next: bool) -> Result<u64, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        self.get_blocks_with_stacks_txs(next, &chain_tip)
+    }
+
+    ///
+    /// Returns the number of blocks in this Sortition fork with Stacking-related
+    ///   bitcoin operations.
+    ///  the `next` parameter controls whether or not to return the value used for the
+    ///   block chosen in the current sortition or the value that should be used for blocks
+    ///   in the subsequent sortition
+    ///
+    pub fn get_blocks_with_stacks_txs(
+        &mut self,
+        next: bool,
+        chain_tip: &SortitionId,
+    ) -> Result<u64, db_error> {
+        let key = if next {
+            db_keys::next_blocks_with_stacking_txs()
+        } else {
+            db_keys::cur_blocks_with_stacking_txs()
+        };
+
+        let entry_str = self
+            .get_indexed(&chain_tip, key)?
+            .expect("CORRUPTION: expected to find blocks_with_stacking_tx entry, but none found");
+        Ok(entry_str
+            .parse()
+            .expect("CORRUPTION: bad u64 formatting in sortition db"))
     }
 
     fn get_reward_set_entry(&mut self, entry_ix: u16) -> Result<StacksAddress, db_error> {
@@ -2547,6 +2626,20 @@ impl SortitionDB {
         )
     }
 
+    pub fn get_sortition_id_by_consensus(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<SortitionId>, db_error> {
+        let qry = "SELECT sortition_id FROM snapshots WHERE consensus_hash = ?1";
+        let args = [&consensus_hash];
+        query_row_panic(conn, qry, &args, || {
+            format!(
+                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                consensus_hash
+            )
+        })
+    }
+
     /// Get a snapshot for an existing burn chain block given its consensus hash.
     /// The snapshot may not be valid.
     pub fn get_block_snapshot_consensus(
@@ -2955,6 +3048,28 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(root_hash)
     }
 
+    pub fn get_stack_stx_ops_for_block(
+        &mut self,
+        block_number: u64,
+    ) -> Result<Vec<StackStxOp>, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let burn_header_hash = BurnchainHeaderHash::from_hex(
+            &self
+                .get_indexed(
+                    &chain_tip,
+                    &db_keys::burn_header_hash_for_stacking_tx_block(block_number),
+                )?
+                .expect("CORRUPTION: expected to find burnchain header entry, but none found"),
+        )
+        .expect("CORRUPTION: bad BurnchainHeaderHash written to sortition db");
+
+        query_rows(
+            self.tx(),
+            "SELECT * FROM stack_stx WHERE burn_header_hash = ?",
+            &[&burn_header_hash],
+        )
+    }
+
     fn store_transition_ops(
         &mut self,
         new_sortition: &SortitionId,
@@ -3235,12 +3350,37 @@ impl<'a> SortitionHandleTx<'a> {
         let mut keys = vec![];
         let mut values = vec![];
 
+        let mut contains_stacking_tx = false;
+
         // record each new VRF key, and each consumed VRF key
         for block_op in block_ops {
             if let BlockstackOperationType::LeaderKeyRegister(ref data) = block_op {
                 keys.push(db_keys::vrf_key_status(&data.public_key));
                 values.push("1".to_string()); // the value is no longer used, but the key needs to exist to figure whether a key was registered
             }
+            if let BlockstackOperationType::StackStx(_) = block_op {
+                contains_stacking_tx = true;
+            }
+        }
+
+        let cur_blocks_with_stacking_txs = if snapshot.is_initial() {
+            0
+        } else {
+            self.get_blocks_with_stacks_txs_at_tip(true)?
+        };
+
+        let next_blocks_with_stacking_txs =
+            cur_blocks_with_stacking_txs + if contains_stacking_tx { 1 } else { 0 };
+        keys.push(db_keys::next_blocks_with_stacking_txs().to_string());
+        values.push(next_blocks_with_stacking_txs.to_string());
+        keys.push(db_keys::cur_blocks_with_stacking_txs().to_string());
+        values.push(cur_blocks_with_stacking_txs.to_string());
+
+        if contains_stacking_tx {
+            keys.push(db_keys::burn_header_hash_for_stacking_tx_block(
+                next_blocks_with_stacking_txs,
+            ));
+            values.push(snapshot.burn_header_hash.to_hex());
         }
 
         // map burnchain header hashes to sortition ids

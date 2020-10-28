@@ -75,8 +75,7 @@ use vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 
-use vm::database::BurnStateDB;
-use vm::database::ClarityDatabase;
+use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 
 use vm::contracts::Contract;
 
@@ -3638,8 +3637,8 @@ impl StacksChainState {
     /// Process a stream of microblocks
     /// Return the fees and burns.
     /// TODO: if we find an invalid Stacks microblock, then punish the miner who produced it
-    pub fn process_microblocks_transactions<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn process_microblocks_transactions(
+        clarity_tx: &mut ClarityTx,
         microblocks: &Vec<StacksMicroblock>,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
@@ -3662,10 +3661,126 @@ impl StacksChainState {
         Ok((fees, burns, receipts))
     }
 
+    /// Returns the total number of blocks with Stacking bitcoin ops processed,
+    ///  and the new Stacking bitcoin ops that must be processed in this block.
+    fn get_stacking_ops(
+        clarity_db: &mut ClarityInstance,
+        sort_db: &mut SortitionHandleTx,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block_hash: &BlockHeaderHash,
+        my_consensus_hash: &ConsensusHash,
+    ) -> Result<(u64, Vec<StackStxOp>), Error> {
+        let chain_tip =
+            SortitionDB::get_sortition_id_by_consensus(sort_db.tx(), my_consensus_hash)?
+                .expect("BUG: failed to find SortitionID for current consensus hash");
+        let cur_blocks = sort_db.get_blocks_with_stacks_txs(false, &chain_tip)?;
+
+        let parent_tip = StacksBlockId::new(parent_consensus_hash, parent_block_hash);
+        let processed_blocks = clarity_db
+            .read_only_connection(&parent_tip, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+            .with_clarity_db_readonly(|db| db.get_stx_btc_ops_processed());
+
+        let mut stacking_ops = vec![];
+        // process the interval (processed_block, cur_blocks]
+        for block_to_fetch in (processed_blocks + 1)..(cur_blocks + 1) {
+            let ops = sort_db.get_stack_stx_ops_for_block(block_to_fetch)?;
+            stacking_ops.extend(ops.into_iter());
+        }
+        Ok((cur_blocks, stacking_ops))
+    }
+
+    /// Process any Stacking-related bitcoin operations
+    ///  that haven't been processed in this Stacks fork yet.
+    fn process_stacking_ops(
+        clarity_tx: &mut ClarityTx,
+        operations: Vec<StackStxOp>,
+        processed_total: u64,
+    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        let mut all_receipts = vec![];
+        let mut cost_so_far = clarity_tx.cost_so_far();
+        for stack_stx_op in operations.into_iter() {
+            let StackStxOp {
+                sender,
+                reward_addr,
+                stacked_ustx,
+                num_cycles,
+                block_height,
+                txid,
+                burn_header_hash,
+                ..
+            } = stack_stx_op;
+            let result = clarity_tx.connection().as_transaction(|tx| {
+                tx.run_contract_call(
+                    &sender.into(),
+                    &QualifiedContractIdentifier::boot_contract("pox"),
+                    "stack-stx",
+                    &[
+                        Value::UInt(stacked_ustx),
+                        StandardPrincipalData::from(reward_addr).into(),
+                        Value::UInt(u128::from(block_height)),
+                        Value::UInt(u128::from(num_cycles)),
+                    ],
+                    |_, _| true,
+                )
+            });
+            match result {
+                Ok((value, _, events)) => {
+                    if let Value::Response(ref resp) = value {
+                        if !resp.committed {
+                            debug!("StackStx burn op rejected by PoX contract.";
+                                   "txid" => %txid,
+                                   "burn_block" => %burn_header_hash,
+                                   "contract_call_ecode" => %resp.data);
+                        }
+                        let mut execution_cost = clarity_tx.cost_so_far();
+                        execution_cost
+                            .sub(&cost_so_far)
+                            .expect("BUG: cost declined between executions");
+                        cost_so_far = clarity_tx.cost_so_far();
+
+                        let receipt = StacksTransactionReceipt {
+                            transaction: TransactionOrigin::Burn(txid),
+                            events,
+                            result: value,
+                            post_condition_aborted: false,
+                            stx_burned: 0,
+                            contract_analysis: None,
+                            execution_cost,
+                        };
+
+                        all_receipts.push(receipt);
+                    } else {
+                        unreachable!(
+                            "BUG: Non-response value returned by Stacking STX burnchain op"
+                        )
+                    }
+                }
+                Err(e) => {
+                    info!("StackStx burn op processing error.";
+                           "error" => %format!("{:?}", e),
+                           "txid" => %txid,
+                           "burn_block" => %burn_header_hash);
+                }
+            };
+        }
+
+        clarity_tx
+            .connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|clarity_db| {
+                    clarity_db.set_stx_btc_ops_processed(processed_total);
+                    Ok(())
+                })
+            })
+            .expect("BUG: failed to set stx burn ops proceessed");
+
+        Ok(all_receipts)
+    }
+
     /// Process a single anchored block.
     /// Return the fees and burns.
-    fn process_block_transactions<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    fn process_block_transactions(
+        clarity_tx: &mut ClarityTx,
         block: &StacksBlock,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
@@ -3753,10 +3868,10 @@ impl StacksChainState {
     /// block's transactions.  Finally, it returns the execution costs for the microblock stream
     /// and for the anchored block (separately).
     /// Returns None if we're out of blocks to process.
-    fn append_block<'a>(
-        chainstate_tx: &mut ChainstateTx<'a>,
-        clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &dyn BurnStateDB,
+    fn append_block(
+        chainstate_tx: &mut ChainstateTx,
+        clarity_instance: &mut ClarityInstance,
+        burn_dbconn: &mut SortitionHandleTx,
         parent_chain_tip: &StacksHeaderInfo,
         chain_tip_consensus_hash: &ConsensusHash,
         chain_tip_burn_header_hash: &BurnchainHeaderHash,
@@ -3834,6 +3949,14 @@ impl StacksChainState {
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
 
+            let (processed_total, stacking_burn_ops) = StacksChainState::get_stacking_ops(
+                clarity_instance,
+                burn_dbconn,
+                &parent_consensus_hash,
+                &parent_block_hash,
+                chain_tip_consensus_hash,
+            )?;
+
             let mut clarity_tx = StacksChainState::chainstate_block_begin(
                 chainstate_tx,
                 clarity_instance,
@@ -3845,7 +3968,7 @@ impl StacksChainState {
             );
 
             // process microblock stream
-            let (microblock_fees, microblock_burns, mut microblock_txs_receipts) =
+            let (microblock_fees, microblock_burns, microblock_txs_receipts) =
                 match StacksChainState::process_microblocks_transactions(
                     &mut clarity_tx,
                     &microblocks,
@@ -3870,13 +3993,34 @@ impl StacksChainState {
                 };
 
             let microblock_cost = clarity_tx.cost_so_far();
-            debug!("\n\nAppend block {}/{} off of {}/{}\nStacks block height: {}, Total Burns: {}\nMicroblock parent: {} (seq {}) (count {})\n", 
-                   chain_tip_consensus_hash, block.block_hash(), parent_consensus_hash, parent_block_hash,
-                   block.header.total_work.work, block.header.total_work.burn,
-                   last_microblock_hash, last_microblock_seq, microblocks.len());
+            debug!("\n\nAppend block";
+                   "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
+                   "parent_block" => %format!("{}/{}", parent_consensus_hash, parent_block_hash),
+                   "stacks_height" => %block.header.total_work.work,
+                   "total_burns" => %block.header.total_work.burn,
+                   "microblock_parent" => %last_microblock_hash,
+                   "microblock_parent_seq" => %last_microblock_seq,
+                   "microblock_parent_count" => %microblocks.len());
+
+            // process stacking operations from bitcoin ops
+            let mut receipts = match StacksChainState::process_stacking_ops(
+                &mut clarity_tx,
+                stacking_burn_ops,
+                processed_total,
+            ) {
+                Err(e) => {
+                    let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
+                    warn!("Invalid stacks block";
+                          "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
+                          "cause" => %format!("{:?}", e));
+                    clarity_tx.rollback_block();
+                    return Err(Error::InvalidStacksBlock(msg));
+                }
+                Ok(x) => x,
+            };
 
             // process anchored block
-            let (block_fees, block_burns, mut txs_receipts) =
+            let (block_fees, block_burns, txs_receipts) =
                 match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
@@ -3889,6 +4033,8 @@ impl StacksChainState {
                         (block_fees, block_burns, txs_receipts)
                     }
                 };
+
+            receipts.extend(txs_receipts.into_iter());
 
             let mut block_cost = clarity_tx.cost_so_far();
             block_cost
@@ -3961,11 +4107,11 @@ impl StacksChainState {
             ) // TODO: calculate total compute budget and scale up
             .expect("FATAL: parsed and processed a block without a coinbase");
 
-            txs_receipts.append(&mut microblock_txs_receipts);
+            receipts.extend(microblock_txs_receipts.into_iter());
 
             (
                 scheduled_miner_reward,
-                txs_receipts,
+                receipts,
                 microblock_cost,
                 block_cost,
                 total_liquid_ustx,

@@ -393,8 +393,10 @@ impl Node {
                         }
                     }
                 }
-                BlockstackOperationType::UserBurnSupport(_) => {
-                    // no-op, UserBurnSupport ops are not supported / produced at this point.
+                BlockstackOperationType::PreStackStx(_)
+                | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::UserBurnSupport(_) => {
+                    // no-op, ops are not supported / produced at this point.
                 }
             }
         }
