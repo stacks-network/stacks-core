@@ -36,11 +36,11 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
-use stacks::util::get_epoch_time_secs;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
@@ -241,7 +241,7 @@ fn spawn_peer(
     config: Config,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
-    mut sync_comms: PoxSyncWatchdogComms
+    mut sync_comms: PoxSyncWatchdogComms,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
@@ -317,13 +317,13 @@ fn spawn_peer(
                     panic!();
                 }
             };
-            
+
             if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
                 // p2p state-machine did a full pass. Notify anyone listening.
                 sync_comms.notify_p2p_state_pass();
                 num_p2p_state_machine_passes = network_result.num_state_machine_passes;
             }
-            
+
             if num_inv_sync_passes < network_result.num_inv_sync_passes {
                 // inv-sync state-machine did a full pass. Notify anyone listening.
                 sync_comms.notify_inv_sync_pass();
@@ -695,7 +695,14 @@ impl InitializedNeonNode {
         {
             let mut tx = peerdb.tx_begin().unwrap();
             for denied in config.node.deny_nodes.iter() {
-                PeerDB::set_deny_peer(&mut tx, denied.addr.network_id, &denied.addr.addrbytes, denied.addr.port, get_epoch_time_secs() + 24 * 365 * 3600).unwrap();
+                PeerDB::set_deny_peer(
+                    &mut tx,
+                    denied.addr.network_id,
+                    &denied.addr.addrbytes,
+                    denied.addr.port,
+                    get_epoch_time_secs() + 24 * 365 * 3600,
+                )
+                .unwrap();
             }
             tx.commit().unwrap();
         }
@@ -734,7 +741,7 @@ impl InitializedNeonNode {
             event_dispatcher,
             blocks_processed.clone(),
             burnchain,
-            coord_comms
+            coord_comms,
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -745,7 +752,7 @@ impl InitializedNeonNode {
             config.clone(),
             5000,
             relay_send.clone(),
-            sync_comms
+            sync_comms,
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -1235,7 +1242,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
-        sync_comms: PoxSyncWatchdogComms
+        sync_comms: PoxSyncWatchdogComms,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1259,7 +1266,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
-        sync_comms: PoxSyncWatchdogComms
+        sync_comms: PoxSyncWatchdogComms,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;

@@ -855,7 +855,7 @@ impl BlockDownloader {
 
     // is the downloader idle? i.e. did we already do a scan?
     pub fn is_download_idle(&self) -> bool {
-        self.empty_block_download_passes > 0 && self.empty_microblock_download_passes > 0 
+        self.empty_block_download_passes > 0 && self.empty_microblock_download_passes > 0
     }
 
     /// Is a request in-flight for a given block or microblock stream?
@@ -2619,16 +2619,18 @@ pub mod test {
                 .unwrap();
 
                 assert!(check_breakage(peer));
-                
+
                 let peer_num_burn_blocks = {
-                    let sn =
-                        SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                            .unwrap();
+                    let sn = SortitionDB::get_canonical_burn_chain_tip(
+                        peer.sortdb.as_ref().unwrap().conn(),
+                    )
+                    .unwrap();
                     sn.block_height
                 };
 
                 peer_invs[i] = get_blocks_inventory(peer, 0, peer_num_burn_blocks);
-                peers_behind_burnchain = peer_num_burn_blocks != num_burn_blocks || peers_behind_burnchain;
+                peers_behind_burnchain =
+                    peer_num_burn_blocks != num_burn_blocks || peers_behind_burnchain;
 
                 test_debug!("Peer {} block inventory: {:?}", i, &peer_invs[i]);
 
@@ -2671,7 +2673,8 @@ pub mod test {
                                     i,
                                     (b as u64) + first_stacks_block_height - first_sortition_height,
                                     first_stacks_block_height - first_sortition_height,
-                                    first_stacks_block_height - first_sortition_height + (num_blocks as u64),
+                                    first_stacks_block_height - first_sortition_height
+                                        + (num_blocks as u64),
                                 );
                                 done = false;
                             }
@@ -2688,7 +2691,8 @@ pub mod test {
                                     i,
                                     (b as u64) + first_stacks_block_height - first_sortition_height,
                                     first_stacks_block_height - first_sortition_height,
-                                    first_stacks_block_height - first_sortition_height + ((num_blocks - 1) as u64),
+                                    first_stacks_block_height - first_sortition_height
+                                        + ((num_blocks - 1) as u64),
                                 );
                                 done = false;
                             }
@@ -2697,7 +2701,13 @@ pub mod test {
                 }
             }
             for (i, peer) in peers.iter().enumerate() {
-                test_debug!("Peer {} has done {} p2p state-machine passes; {} inv syncs, {} download-syncs", i, peer.network.num_state_machine_passes, peer.network.num_inv_sync_passes, peer.network.num_downloader_passes);
+                test_debug!(
+                    "Peer {} has done {} p2p state-machine passes; {} inv syncs, {} download-syncs",
+                    i,
+                    peer.network.num_state_machine_passes,
+                    peer.network.num_inv_sync_passes,
+                    peer.network.num_downloader_passes
+                );
             }
 
             if done {

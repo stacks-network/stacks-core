@@ -168,7 +168,7 @@ impl RunLoop {
         let mut burnchain_tip = burnchain.wait_for_sortitions(None);
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
-        
+
         let chainstate_path = self.config.get_chainstate_path();
         let mut pox_watchdog = PoxSyncWatchdog::new(
             mainnet,
@@ -192,14 +192,14 @@ impl RunLoop {
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
                 coordinator_senders,
-                pox_watchdog.make_comms_handle()
+                pox_watchdog.make_comms_handle(),
             )
         } else {
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
                 coordinator_senders,
-                pox_watchdog.make_comms_handle()
+                pox_watchdog.make_comms_handle(),
             )
         };
 
@@ -240,7 +240,7 @@ impl RunLoop {
 
             target_burnchain_block_height = cmp::min(
                 next_burnchain_height,
-                target_burnchain_block_height + pox_constants.reward_cycle_length as u64
+                target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
             );
             debug!(
                 "Downloaded burnchain blocks up to height {}; new target height is {}",

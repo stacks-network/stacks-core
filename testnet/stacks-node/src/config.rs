@@ -11,8 +11,8 @@ use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::hash::{hex_bytes, to_hex};
-use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
@@ -912,12 +912,15 @@ impl NodeConfig {
 
     pub fn add_deny_node(&mut self, deny_node: &str) {
         let sockaddr = deny_node.to_socket_addrs().unwrap().next().unwrap();
-        let neighbor = NodeConfig::default_neighbor(sockaddr, Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()));
+        let neighbor = NodeConfig::default_neighbor(
+            sockaddr,
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+        );
         self.deny_nodes.push(neighbor);
     }
 
     pub fn set_deny_nodes(&mut self, deny_nodes: String) {
-        let parts : Vec<&str> = deny_nodes.split(",").collect();
+        let parts: Vec<&str> = deny_nodes.split(",").collect();
         for part in parts.into_iter() {
             if part.len() > 0 {
                 self.add_deny_node(&part);

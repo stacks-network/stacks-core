@@ -3294,7 +3294,7 @@ mod test {
             }
         })
     }
-   
+
     #[test]
     #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_antientropy() {
@@ -3389,19 +3389,19 @@ mod test {
                     block_data
                 },
                 |ref mut peers| {
-                    let tip_opt = peers[1].with_db_state(|sortdb, chainstate, _, _| {
-                        let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
-                        Ok(tip_opt)
-                    }).unwrap();
+                    let tip_opt = peers[1]
+                        .with_db_state(|sortdb, chainstate, _, _| {
+                            let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                            Ok(tip_opt)
+                        })
+                        .unwrap();
 
                     if let Some(tip) = tip_opt {
                         for (_, convo) in peers[1].network.peers.iter() {
                             if !convo.is_outbound() {
                                 assert!(
-                                    convo
-                                        .stats
-                                        .get_message_recv_count(StacksMessageID::Blocks)
-                                    <= tip.height
+                                    convo.stats.get_message_recv_count(StacksMessageID::Blocks)
+                                        <= tip.height
                                 );
                             }
                         }
@@ -3417,7 +3417,7 @@ mod test {
             );
         })
     }
-    
+
     #[test]
     #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_bufferred_messages() {
@@ -3492,8 +3492,7 @@ mod test {
                                 peers[i].next_burnchain_block_raw(burn_ops.clone());
                                 peers[i].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
                             }
-                        }
-                        else {
+                        } else {
                             let mut all_sortitions = sortitions.borrow_mut();
                             all_sortitions.push(burn_ops.clone());
                         }
@@ -3508,8 +3507,8 @@ mod test {
                             Some(microblocks),
                         ));
                     }
-                    *blocks_and_microblocks.borrow_mut() = block_data
-                        .clone()[1..].to_vec()
+                    *blocks_and_microblocks.borrow_mut() = block_data.clone()[1..]
+                        .to_vec()
                         .drain(..)
                         .map(|(ch, blk_opt, mblocks_opt)| {
                             (ch, blk_opt.unwrap(), mblocks_opt.unwrap())
@@ -3525,26 +3524,53 @@ mod test {
                     let peer_0_nk = peers[0].to_neighbor().addr;
                     let peer_1_nk = peers[1].to_neighbor().addr;
 
-                    let tip_opt = peers[1].with_db_state(|sortdb, chainstate, _, _| {
-                        let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
-                        Ok(tip_opt)
-                    }).unwrap();
+                    let tip_opt = peers[1]
+                        .with_db_state(|sortdb, chainstate, _, _| {
+                            let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                            Ok(tip_opt)
+                        })
+                        .unwrap();
 
                     if !is_peer_connected(&peers[0], &peer_1_nk) {
                         debug!("Peer 0 not connected to peer 1");
                         return;
                     }
-                    
+
                     if let Some(tip) = tip_opt {
-                        debug!("Push at {}, need {}", tip.height - peers[1].config.burnchain.first_block_height - 1, *pushed_i);
-                        if tip.height - peers[1].config.burnchain.first_block_height - 1 == *pushed_i as u64 {
+                        debug!(
+                            "Push at {}, need {}",
+                            tip.height - peers[1].config.burnchain.first_block_height - 1,
+                            *pushed_i
+                        );
+                        if tip.height - peers[1].config.burnchain.first_block_height - 1
+                            == *pushed_i as u64
+                        {
                             // next block
-                            push_block(&mut peers[0], &peer_1_nk, vec![], (*all_blocks_and_microblocks)[*pushed_i].0.clone(), (*all_blocks_and_microblocks)[*pushed_i].1.clone());
-                            push_microblocks(&mut peers[0], &peer_1_nk, vec![], (*all_blocks_and_microblocks)[*pushed_i].0.clone(), (*all_blocks_and_microblocks)[*pushed_i].1.block_hash(), (*all_blocks_and_microblocks)[*pushed_i].2.clone());
+                            push_block(
+                                &mut peers[0],
+                                &peer_1_nk,
+                                vec![],
+                                (*all_blocks_and_microblocks)[*pushed_i].0.clone(),
+                                (*all_blocks_and_microblocks)[*pushed_i].1.clone(),
+                            );
+                            push_microblocks(
+                                &mut peers[0],
+                                &peer_1_nk,
+                                vec![],
+                                (*all_blocks_and_microblocks)[*pushed_i].0.clone(),
+                                (*all_blocks_and_microblocks)[*pushed_i].1.block_hash(),
+                                (*all_blocks_and_microblocks)[*pushed_i].2.clone(),
+                            );
                             *pushed_i += 1;
                         }
-                        debug!("Sortition at {}, need {}", tip.height - peers[1].config.burnchain.first_block_height - 1, *i);
-                        if tip.height - peers[1].config.burnchain.first_block_height - 1 == *i as u64 {
+                        debug!(
+                            "Sortition at {}, need {}",
+                            tip.height - peers[1].config.burnchain.first_block_height - 1,
+                            *i
+                        );
+                        if tip.height - peers[1].config.burnchain.first_block_height - 1
+                            == *i as u64
+                        {
                             let event_id = {
                                 let mut ret = 0;
                                 for (nk, event_id) in peers[1].network.events.iter() {

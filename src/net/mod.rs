@@ -214,7 +214,7 @@ pub enum Error {
     /// Tried to connect to myself
     ConnectionCycle,
     /// Requested data not found
-    NotFoundError
+    NotFoundError,
 }
 
 /// Enum for passing data for ClientErrors
@@ -354,7 +354,7 @@ impl error::Error for Error {
             Error::CoordinatorClosed => None,
             Error::StaleView => None,
             Error::ConnectionCycle => None,
-            Error::NotFoundError => None
+            Error::NotFoundError => None,
         }
     }
 }
@@ -1612,7 +1612,7 @@ pub struct NetworkResult {
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub num_state_machine_passes: u64,
-    pub num_inv_sync_passes: u64
+    pub num_inv_sync_passes: u64,
 }
 
 impl NetworkResult {
@@ -1628,7 +1628,7 @@ impl NetworkResult {
             uploaded_transactions: vec![],
             uploaded_microblocks: vec![],
             num_state_machine_passes: num_state_machine_passes,
-            num_inv_sync_passes: num_inv_sync_passes
+            num_inv_sync_passes: num_inv_sync_passes,
         }
     }
 

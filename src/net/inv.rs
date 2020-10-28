@@ -2130,26 +2130,32 @@ impl PeerNetwork {
     }
 
     /// Run a function over a given neighbor's inventory
-    pub fn with_neighbor_blocks_inv<F, R>(&mut self, nk: &NeighborKey, func: F) -> Result<R, net_error>
+    pub fn with_neighbor_blocks_inv<F, R>(
+        &mut self,
+        nk: &NeighborKey,
+        func: F,
+    ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> Result<R, net_error>
+        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> Result<R, net_error>,
     {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
                 func(network, nstats)
-            }
-            else {
+            } else {
                 Err(net_error::PeerNotConnected)
             }
         })
     }
 
     /// Get the local block inventory for a reward cycle
-    pub fn get_local_blocks_inv(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState, reward_cycle: u64) -> Result<BlocksInvData, net_error> {
-        let target_block_height = self
-            .burnchain
-            .reward_cycle_to_block_height(reward_cycle);
-       
+    pub fn get_local_blocks_inv(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        reward_cycle: u64,
+    ) -> Result<BlocksInvData, net_error> {
+        let target_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
+
         // if this succeeds, then we should be able to make a BlocksInv
         let ancestor_sn = self.get_ancestor_sortition_snapshot(sortdb, target_block_height)?;
 
@@ -2795,8 +2801,12 @@ mod test {
                     };
 
                     // non-existent consensus has
-                    let sh = inv
-                        .set_block_available(&burnchain, &nk, &sortdb, &ConsensusHash([0xfe; 20]));
+                    let sh = inv.set_block_available(
+                        &burnchain,
+                        &nk,
+                        &sortdb,
+                        &ConsensusHash([0xfe; 20]),
+                    );
                     assert_eq!(Err(net_error::NotFoundError), sh);
                     assert!(!inv
                         .block_stats

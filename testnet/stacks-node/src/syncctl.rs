@@ -9,7 +9,7 @@ use crate::burnchains::BurnchainTip;
 
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc
+    Arc,
 };
 
 #[derive(Clone)]
@@ -24,10 +24,10 @@ impl PoxSyncWatchdogComms {
     pub fn new() -> PoxSyncWatchdogComms {
         PoxSyncWatchdogComms {
             p2p_state_passes: Arc::new(AtomicU64::new(0)),
-            inv_sync_passes: Arc::new(AtomicU64::new(0))
+            inv_sync_passes: Arc::new(AtomicU64::new(0)),
         }
     }
-    
+
     pub fn get_p2p_state_passes(&self) -> u64 {
         self.p2p_state_passes.load(Ordering::SeqCst)
     }
@@ -51,7 +51,7 @@ impl PoxSyncWatchdogComms {
         }
         return true;
     }
-    
+
     /// Wait for at least one inv-sync state-machine passes
     pub fn wait_for_inv_sync_pass(&self, timeout: u64) -> bool {
         let current = self.get_inv_sync_passes();
@@ -71,7 +71,7 @@ impl PoxSyncWatchdogComms {
     pub fn notify_p2p_state_pass(&mut self) {
         self.p2p_state_passes.fetch_add(1, Ordering::SeqCst);
     }
-    
+
     pub fn notify_inv_sync_pass(&mut self) {
         self.inv_sync_passes.fetch_add(1, Ordering::SeqCst);
     }
@@ -114,7 +114,7 @@ pub struct PoxSyncWatchdog {
     /// handle to relayer thread that informs the watchdog when the P2P state-machine does stuff
     relayer_comms: PoxSyncWatchdogComms,
     /// what was the last burnchain height?
-    last_burnchain_height: u64
+    last_burnchain_height: u64,
 }
 
 const PER_SAMPLE_WAIT_MS: u64 = 1000;
@@ -153,14 +153,14 @@ impl PoxSyncWatchdog {
             steady_state_resync_ts: 0,
             chainstate: chainstate,
             relayer_comms: PoxSyncWatchdogComms::new(),
-            last_burnchain_height: 0
+            last_burnchain_height: 0,
         })
     }
 
     pub fn make_comms_handle(&self) -> PoxSyncWatchdogComms {
         self.relayer_comms.clone()
     }
-    
+
     /// How many recently-added Stacks blocks are in an attachable state, up to $max_staging?
     fn count_attachable_stacks_blocks(&mut self) -> Result<u64, String> {
         // number of staging blocks that have arrived since the last sortition
@@ -392,7 +392,7 @@ impl PoxSyncWatchdog {
                 burnchain_height,
             );
         }
-      
+
         let mut waited = false;
         if self.last_burnchain_height < burnchain_height {
             // burnchain has advanced since the last call
@@ -401,13 +401,16 @@ impl PoxSyncWatchdog {
             self.relayer_comms.wait_for_inv_sync_pass(self.max_samples);
             waited = true;
         }
-        
+
         if burnchain_tip.block_snapshot.block_height
             < burnchain_height + (burnchain.pox_constants.reward_cycle_length as u64)
         {
             // unconditionally download if we're within the last reward cycle (after the poll timeout)
             if !waited {
-                debug!("PoX watchdog in last reward cycle -- sync after {} seconds", self.steady_state_burnchain_sync_interval);
+                debug!(
+                    "PoX watchdog in last reward cycle -- sync after {} seconds",
+                    self.steady_state_burnchain_sync_interval
+                );
                 sleep_ms(1000 * self.steady_state_burnchain_sync_interval);
             }
             return PoxSyncWatchdog::infer_initial_burnchain_block_download(
@@ -416,7 +419,7 @@ impl PoxSyncWatchdog {
                 burnchain_height,
             );
         }
-        
+
         // have we reached steady-state behavior?  i.e. have we stopped processing both burnchain
         // and Stacks blocks?
         let mut steady_state = false;
