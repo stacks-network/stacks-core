@@ -325,7 +325,7 @@ impl AtlasDB {
         Ok(())
     }
 
-    pub fn insert_new_attachment(&mut self, content_hash: &Hash160, content: &Vec<u8>) -> Result<(), db_error> {
+    pub fn insert_new_attachment(&mut self, content_hash: &Hash160, content: &Vec<u8>, cascade_update: bool) -> Result<(), db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
         let tx = self.tx_begin()?;
         tx.execute(
@@ -335,10 +335,12 @@ impl AtlasDB {
                 &content as &dyn ToSql,
             ]
         ).map_err(db_error::SqliteError)?;
-        tx.execute(
-            "UPDATE attachment_instances SET is_available = 1 WHERE content_hash = ?1",
-            &[&hex_content_hash as &dyn ToSql],
-        ).map_err(db_error::SqliteError)?;
+        if cascade_update {
+            tx.execute(
+                "UPDATE attachment_instances SET is_available = 1 WHERE content_hash = ?1",
+                &[&hex_content_hash as &dyn ToSql],
+            ).map_err(db_error::SqliteError)?;    
+        }
         tx.commit().map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -361,7 +363,7 @@ impl AtlasDB {
             _ => return Err(db_error::NotFoundError)
         };
 
-        self.insert_new_attachment(&attachment.hash, &attachment.content)?;
+        self.insert_new_attachment(&attachment.hash, &attachment.content, true)?;
         self.remove_attachment_from_inbox(&attachment.hash)?;
         Ok(())
     }

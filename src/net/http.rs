@@ -3086,7 +3086,7 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res: GetAttachmentResponse = HttpResponseType::parse_json(preamble, fd, len_hint, 66)?;
+        let res: GetAttachmentResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?; // todo(ludo)
 
         Ok(HttpResponseType::GetAttachment(
             HttpResponseMetadata::from_preamble(request_version, preamble),
@@ -3101,7 +3101,7 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res: GetAttachmentsInvResponse = HttpResponseType::parse_json(preamble, fd, len_hint, 66)?;
+        let res: GetAttachmentsInvResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?; // todo(ludo)
 
         Ok(HttpResponseType::GetAttachmentsInv(
             HttpResponseMetadata::from_preamble(request_version, preamble),
