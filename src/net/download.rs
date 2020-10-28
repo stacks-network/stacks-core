@@ -100,7 +100,7 @@ use core::FIRST_STACKS_BLOCK_HASH;
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
 #[cfg(test)]
-pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 30;
+pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 0;
 
 /// If a URL never connects, don't use it again for this many seconds
 #[cfg(not(test))]
@@ -792,16 +792,17 @@ impl BlockDownloader {
     /// of the given height.
     pub fn hint_block_sortition_height_available(&mut self, block_sortition_height: u64) -> () {
         if self.empty_block_download_passes > 0
-            || block_sortition_height < self.block_sortition_height
+            || block_sortition_height < self.block_sortition_height + 1
         {
             // idling on new blocks to fetch
             self.empty_block_download_passes = 0;
-            self.block_sortition_height = block_sortition_height;
-            self.next_block_sortition_height = block_sortition_height;
+            self.empty_microblock_download_passes = 0;
+            self.block_sortition_height = block_sortition_height.saturating_sub(1);
+            self.next_block_sortition_height = block_sortition_height.saturating_sub(1);
 
             debug!(
                 "Awaken downloader to start scanning at block sortiton height {}",
-                block_sortition_height
+                block_sortition_height.saturating_sub(1)
             );
         }
     }
@@ -813,16 +814,16 @@ impl BlockDownloader {
         mblock_sortition_height: u64,
     ) -> () {
         if self.empty_microblock_download_passes > 0
-            || mblock_sortition_height < self.microblock_sortition_height
+            || mblock_sortition_height < self.microblock_sortition_height + 1
         {
             // idling on new blocks to fetch
             self.empty_microblock_download_passes = 0;
-            self.microblock_sortition_height = mblock_sortition_height;
-            self.next_microblock_sortition_height = mblock_sortition_height;
+            self.microblock_sortition_height = mblock_sortition_height.saturating_sub(1);
+            self.next_microblock_sortition_height = mblock_sortition_height.saturating_sub(1);
 
             debug!(
                 "Awaken downloader to start scanning at microblock sortiton height {}",
-                mblock_sortition_height
+                mblock_sortition_height.saturating_sub(1)
             );
         }
     }
@@ -847,9 +848,14 @@ impl BlockDownloader {
         self.finished_scan_at == 0
     }
 
+    // how many requests inflight?
+    pub fn num_requests_inflight(&self) -> usize {
+        self.microblocks_to_try.len() + self.blocks_to_try.len()
+    }
+
     // is the downloader idle? i.e. did we already do a scan?
     pub fn is_download_idle(&self) -> bool {
-        self.empty_block_download_passes > 0 && self.empty_microblock_download_passes > 0
+        self.empty_block_download_passes > 0 && self.empty_microblock_download_passes > 0 
     }
 
     /// Is a request in-flight for a given block or microblock stream?
@@ -865,7 +871,7 @@ impl BlockDownloader {
             }
 
             // was recently requested?  could still be bufferred up for storage
-            if let Some(fetched_ts) = self.requested_blocks.get(index_hash) {
+            if let Some(fetched_ts) = self.requested_microblocks.get(index_hash) {
                 if get_epoch_time_secs() < fetched_ts + BLOCK_REREQUEST_INTERVAL {
                     return true;
                 }
@@ -880,7 +886,7 @@ impl BlockDownloader {
             }
 
             // was recently requested?  could still be bufferred up for storage
-            if let Some(fetched_ts) = self.requested_microblocks.get(index_hash) {
+            if let Some(fetched_ts) = self.requested_blocks.get(index_hash) {
                 if get_epoch_time_secs() < fetched_ts + BLOCK_REREQUEST_INTERVAL {
                     return true;
                 }
@@ -1861,13 +1867,14 @@ impl PeerNetwork {
 
     /// Process newly-fetched blocks and microblocks.
     /// Returns true if we've completed all requests.
-    /// Returns (done?, blocks-we-got, microblocks-we-got) on success
+    /// Returns (done?, at-chain-tip?, blocks-we-got, microblocks-we-got) on success
     fn finish_downloads(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
     ) -> Result<
         (
+            bool,
             bool,
             Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
@@ -1878,6 +1885,7 @@ impl PeerNetwork {
         let mut blocks = vec![];
         let mut microblocks = vec![];
         let mut done = false;
+        let mut at_chain_tip = false;
         let mut old_pox_id = None;
 
         let now = get_epoch_time_secs();
@@ -2044,6 +2052,8 @@ impl PeerNetwork {
                     // Regardless, we can throttle back now.
                     debug!("Did a full pass over the burn chain sortitions and found no new data");
                     downloader.finished_scan_at = get_epoch_time_secs();
+
+                    at_chain_tip = true;
                 }
 
                 // propagate PoX ID as it was when we started
@@ -2088,7 +2098,7 @@ impl PeerNetwork {
                 downloader.state = BlockDownloaderState::GetBlocksBegin;
             }
 
-            Ok((done, old_pox_id, blocks, microblocks))
+            Ok((done, at_chain_tip, old_pox_id, blocks, microblocks))
         })
     }
 
@@ -2103,8 +2113,14 @@ impl PeerNetwork {
 
     /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get
     /// anything.
-    /// Returns true/false if we're done, as well as any blocks and microblocks we got, as well as
-    /// broken http and p2p neighbors we encountered (so the main loop can disconnect them)
+    /// Returns:
+    /// * are we done?
+    /// * did we do a full pass up to the chain tip?
+    /// * what's the local PoX ID when we started?  Will be Some(..) when we're done
+    /// * List of blocks we downloaded
+    /// * List of microblock streams we downloaded
+    /// * List of broken HTTP event IDs to disconnect from
+    /// * List of broken p2p neighbor keys to disconnect from
     pub fn download_blocks(
         &mut self,
         sortdb: &SortitionDB,
@@ -2112,6 +2128,7 @@ impl PeerNetwork {
         dns_client: &mut DNSClient,
     ) -> Result<
         (
+            bool,
             bool,
             Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
@@ -2147,7 +2164,7 @@ impl PeerNetwork {
                             &self.local_peer,
                             downloader.finished_scan_at + downloader.download_interval
                         );
-                        return Ok((true, None, vec![], vec![], vec![], vec![]));
+                        return Ok((true, true, None, vec![], vec![], vec![], vec![]));
                     } else {
                         // start a rescan -- we've waited long enough
                         debug!(
@@ -2168,6 +2185,7 @@ impl PeerNetwork {
         }
 
         let mut done = false;
+        let mut at_chain_tip = false;
 
         let mut blocks = vec![];
         let mut microblocks = vec![];
@@ -2202,6 +2220,7 @@ impl PeerNetwork {
                     // do we have more requests?
                     let (
                         blocks_done,
+                        full_pass,
                         downloader_pox_id,
                         mut successful_blocks,
                         mut successful_microblocks,
@@ -2211,6 +2230,7 @@ impl PeerNetwork {
                     blocks.append(&mut successful_blocks);
                     microblocks.append(&mut successful_microblocks);
                     done = blocks_done;
+                    at_chain_tip = full_pass;
 
                     done_cycle = true;
                 }
@@ -2238,6 +2258,7 @@ impl PeerNetwork {
 
         Ok((
             done,
+            at_chain_tip,
             old_pox_id,
             blocks,
             microblocks,
@@ -2547,6 +2568,7 @@ pub mod test {
         loop {
             peer_func(&mut peers);
 
+            let mut peers_behind_burnchain = false;
             for i in 0..peers.len() {
                 let peer = &mut peers[i];
 
@@ -2597,8 +2619,17 @@ pub mod test {
                 .unwrap();
 
                 assert!(check_breakage(peer));
+                
+                let peer_num_burn_blocks = {
+                    let sn =
+                        SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
+                            .unwrap();
+                    sn.block_height
+                };
 
-                peer_invs[i] = get_blocks_inventory(peer, 0, num_burn_blocks);
+                peer_invs[i] = get_blocks_inventory(peer, 0, peer_num_burn_blocks);
+                peers_behind_burnchain = peer_num_burn_blocks != num_burn_blocks || peers_behind_burnchain;
+
                 test_debug!("Peer {} block inventory: {:?}", i, &peer_invs[i]);
 
                 if let Some(ref inv) = peer.network.inv_state {
@@ -2626,7 +2657,8 @@ pub mod test {
             }
 
             if !done {
-                done = true;
+                done = !peers_behind_burnchain;
+
                 for i in 0..num_peers {
                     for b in 0..num_blocks {
                         if !peer_invs[i].has_ith_block(
@@ -2635,9 +2667,11 @@ pub mod test {
                         ) {
                             if block_data[b].1.is_some() {
                                 test_debug!(
-                                    "Peer {} is missing block {}",
+                                    "Peer {} is missing block {} (between {} and {})",
                                     i,
-                                    (b as u64) + first_stacks_block_height - first_sortition_height
+                                    (b as u64) + first_stacks_block_height - first_sortition_height,
+                                    first_stacks_block_height - first_sortition_height,
+                                    first_stacks_block_height - first_sortition_height + (num_blocks as u64),
                                 );
                                 done = false;
                             }
@@ -2650,15 +2684,20 @@ pub mod test {
                         ) {
                             if block_data[b].2.is_some() {
                                 test_debug!(
-                                    "Peer {} is missing microblock stream {}",
+                                    "Peer {} is missing microblock stream {} (between {} and {})",
                                     i,
-                                    (b as u64) + first_stacks_block_height - first_sortition_height
+                                    (b as u64) + first_stacks_block_height - first_sortition_height,
+                                    first_stacks_block_height - first_sortition_height,
+                                    first_stacks_block_height - first_sortition_height + ((num_blocks - 1) as u64),
                                 );
                                 done = false;
                             }
                         }
                     }
                 }
+            }
+            for (i, peer) in peers.iter().enumerate() {
+                test_debug!("Peer {} has done {} p2p state-machine passes; {} inv syncs, {} download-syncs", i, peer.network.num_state_machine_passes, peer.network.num_inv_sync_passes, peer.network.num_downloader_passes);
             }
 
             if done {
