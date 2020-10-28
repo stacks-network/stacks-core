@@ -55,7 +55,7 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
-use net::{GetNameResponse, GetAttachmentResponse, GetAttachmentsInvResponse, PostAttachmentResponse, PostAttachmentRequestBody};
+use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostAttachmentResponse, PostAttachmentRequestBody};
 use net::atlas::{SNS_NAME_REGEX, Attachment};
 use burnchains::{Address, Txid};
 use chainstate::burn::BlockHeaderHash;
@@ -132,12 +132,6 @@ lazy_static! {
     static ref PATH_POST_ATTACHMENT: Regex = Regex::new("^/v2/attachments$").unwrap();
     static ref PATH_GET_ATTACHMENTS_INV: Regex = Regex::new("^/v2/attachments/inv$").unwrap();
     static ref PATH_GET_ATTACHMENT: Regex = Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
-    static ref PATH_GET_NAME: Regex = Regex::new(&format!(
-        r#"^/v2/names/(?P<name>{})$"#,
-        *SNS_NAME_REGEX
-    ))
-    .unwrap();
-
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
@@ -1507,11 +1501,6 @@ impl HttpRequestType {
             ),
             (
                 "GET",
-                &PATH_GET_NAME,
-                &HttpRequestType::parse_get_name,
-            ),
-            (
-                "GET",
                 &PATH_GET_ATTACHMENT,
                 &HttpRequestType::parse_get_attachment,
             ),
@@ -2212,29 +2201,6 @@ impl HttpRequestType {
             pages_indexes))
     }
 
-    fn parse_get_name<R: Read>(
-        _protocol: &mut StacksHttp,
-        preamble: &HttpRequestPreamble,
-        captures: &Captures,
-        query: Option<&str>,
-        _fd: &mut R,
-    ) -> Result<HttpRequestType, net_error> {
-        if preamble.get_content_length() != 0 {
-            return Err(net_error::DeserializeError(
-                "Invalid Http request: expected 0-length body".to_string(),
-            ));
-        }
-
-        let name = captures["name"].to_string();
-
-        let tip = HttpRequestType::get_chain_tip_query(query);
-
-        Ok(HttpRequestType::GetName(
-            HttpRequestMetadata::from_preamble(preamble),
-            name,
-            tip))
-    }
-
     fn parse_options_preflight<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2266,7 +2232,6 @@ impl HttpRequestType {
             HttpRequestType::GetContractSrc(ref md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
-            HttpRequestType::GetName(ref md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
             HttpRequestType::GetAttachment(ref md, ..) => md,
             HttpRequestType::PostAttachment(ref md, ..) => md,
@@ -2292,7 +2257,6 @@ impl HttpRequestType {
             HttpRequestType::GetContractSrc(ref mut md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
-            HttpRequestType::GetName(ref mut md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
             HttpRequestType::PostAttachment(ref mut md, ..) => md,
@@ -2404,15 +2368,6 @@ impl HttpRequestType {
             }
             HttpRequestType::PostAttachment(_md, ..) => "/v2/attachments".to_string(),
             HttpRequestType::GetAttachment(_, content_hash) => format!("/v2/attachments/{}", to_hex(&content_hash.0[..])),
-            HttpRequestType::GetName(
-                _,
-                name,
-                tip_opt,
-            ) => format!(
-                "/v2/names/{}{}",
-                name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
-            ),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
@@ -2803,7 +2758,6 @@ impl HttpResponseType {
                 &PATH_POST_CALL_READ_ONLY,
                 &HttpResponseType::parse_call_read_only,
             ),
-            (&PATH_GET_NAME, &HttpResponseType::parse_get_name),
             (&PATH_GET_ATTACHMENT, &HttpResponseType::parse_get_attachment),
             (&PATH_POST_ATTACHMENT, &HttpResponseType::parse_post_attachment),
             (&PATH_GET_ATTACHMENTS_INV, &HttpResponseType::parse_get_attachments_inv),
@@ -3064,21 +3018,6 @@ impl HttpResponseType {
         ))
     }
 
-    fn parse_get_name<R: Read>(
-        _protocol: &mut StacksHttp,
-        request_version: HttpVersion,
-        preamble: &HttpResponsePreamble,
-        fd: &mut R,
-        len_hint: Option<usize>,
-    ) -> Result<HttpResponseType, net_error> {
-        let res = GetNameResponse {};
-
-        Ok(HttpResponseType::GetName(
-            HttpResponseMetadata::from_preamble(request_version, preamble),
-            res,
-        ))
-    }
-
     fn parse_get_attachment<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -3086,7 +3025,7 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res: GetAttachmentResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?; // todo(ludo)
+        let res: GetAttachmentResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
 
         Ok(HttpResponseType::GetAttachment(
             HttpResponseMetadata::from_preamble(request_version, preamble),
@@ -3101,7 +3040,7 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res: GetAttachmentsInvResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?; // todo(ludo)
+        let res: GetAttachmentsInvResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
 
         Ok(HttpResponseType::GetAttachmentsInv(
             HttpResponseMetadata::from_preamble(request_version, preamble),
@@ -3117,7 +3056,6 @@ impl HttpResponseType {
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
         let res = PostAttachmentResponse {};
-        // todo(ludo): compliance with 301?
         Ok(HttpResponseType::PostAttachment(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             res,
@@ -3198,7 +3136,6 @@ impl HttpResponseType {
             HttpResponseType::GetContractABI(ref md, _) => md,
             HttpResponseType::GetContractSrc(ref md, _) => md,
             HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
-            HttpResponseType::GetName(ref md, _) => md,
             HttpResponseType::PostAttachment(ref md, _) => md,
             HttpResponseType::GetAttachment(ref md, _) => md,
             HttpResponseType::GetAttachmentsInv(ref md, _) => md,
@@ -3313,10 +3250,6 @@ impl HttpResponseType {
             HttpResponseType::Neighbors(ref md, ref neighbor_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, neighbor_data)?;
-            }
-            HttpResponseType::GetName(ref md, ref name_data) => {
-                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
-                HttpResponseType::send_json(protocol, md, fd, name_data)?;
             }
             HttpResponseType::PostAttachment(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
@@ -3513,7 +3446,6 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
-                HttpRequestType::GetName(..) => "HTTP(GetName)",
                 HttpRequestType::PostAttachment(..) => "HTTP(PostAttachment)",
                 HttpRequestType::GetAttachment(..) => "HTTP(GetAttachment)",
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
@@ -3527,7 +3459,6 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpResponseType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpResponseType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
-                HttpResponseType::GetName(ref md, _) => "HTTP(GetName)",
                 HttpResponseType::PostAttachment(ref md, _) => "HTTP(PostAttachment)",
                 HttpResponseType::GetAttachment(ref md, _) => "HTTP(GetAttachment)",
                 HttpResponseType::GetAttachmentsInv(ref md, _) => "HTTP(GetAttachmentsInv)",

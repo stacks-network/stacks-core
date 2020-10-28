@@ -6,7 +6,7 @@ use util::db::Error as db_error;
 use vm::{
     clarity::{ClarityConnection, ClarityReadOnlyConnection},
     costs::{LimitedCostTracker, ExecutionCost},
-    types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData},
+    types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, SequenceData},
     ClarityName, ContractName, Value,
     database::{
         ClarityDatabase, ClaritySerializable, MarfedKV, STXBalance,
@@ -16,26 +16,26 @@ use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::boot;
 use chainstate::stacks::StacksBlockId;
-
+use util::hash::MerkleHashFunc;
 use util::hash::Hash160;
 use rusqlite::Row;
 
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZonefileHashInventory {
+pub struct OnchainAttachmentsInventory {
     pub tip: StacksBlockId,
-    pub pages_info: ZonefilesPagesInfo,
+    pub info: OnchainAttachmentsInventoryInfo,
     pub pages_indexes: Vec<u32>,
-    pub pages: HashMap<u32, ZonefileHashPage>,
+    pub pages: HashMap<u32, OnchainAttachmentPage>,
 }
 
-impl ZonefileHashInventory {
+impl OnchainAttachmentsInventory {
 
-    pub fn empty() -> ZonefileHashInventory {
-        ZonefileHashInventory {
+    pub fn empty() -> OnchainAttachmentsInventory {
+        OnchainAttachmentsInventory {
             tip: StacksBlockId([0x00; 32]),
-            pages_info: ZonefilesPagesInfo::empty(),
+            info: OnchainAttachmentsInventoryInfo::empty(),
             pages_indexes: vec![],
             pages: HashMap::new(),
         }
@@ -44,16 +44,16 @@ impl ZonefileHashInventory {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ZonefilesPagesInfo {
+pub struct OnchainAttachmentsInventoryInfo {
     pub pages_count: u32,
     pub last_page_len: u32,
     pub page_size: u32,
 }
 
-impl ZonefilesPagesInfo {
+impl OnchainAttachmentsInventoryInfo {
 
-    pub fn empty() -> ZonefilesPagesInfo {
-        ZonefilesPagesInfo {
+    pub fn empty() -> OnchainAttachmentsInventoryInfo {
+        OnchainAttachmentsInventoryInfo {
             pages_count: 0,
             last_page_len: 0,
             page_size: 0,
@@ -62,52 +62,46 @@ impl ZonefilesPagesInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ZonefileHashPage {
+pub struct OnchainAttachmentPage {
     pub index: u32,
-    pub entries: Vec<String>
+    pub entries: Vec<Hash160>
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ZonefileHash {
-    pub zonefile_id: u32,
-    pub hash: String,
+pub struct OnchainInventoryLookup {
 }
 
-pub struct SNSContractReader {
-}
+impl OnchainInventoryLookup {
 
-impl SNSContractReader {
-
-    pub fn get_zonefiles_hashes_at_page_index(page_index: u32,
+    pub fn get_attachment_content_hashes_at_page_index(page_index: u32,
                                               sortdb: &SortitionDB,
                                               chainstate: &mut StacksChainState,
                                               tip: &StacksBlockId,
-                                              options: &ConnectionOptions) -> Result<ZonefileHashInventory, net_error> {
+                                              options: &ConnectionOptions) -> Result<OnchainAttachmentsInventory, net_error> {
         chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             let cost_tracker = LimitedCostTracker::new(options.read_only_call_limit.clone());
 
             // Get pagination informations
-            let pages_info = SNSContractReader::get_attachments_inv_info(cost_tracker, clarity_tx)?;
+            let info = OnchainInventoryLookup::get_attachments_inv_info(cost_tracker, clarity_tx)?;
             
             // Read expected_page
             let expected_page = clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                SNSContractReader::get_zonefiles_hashes(page_index, &pages_info, tip, clarity_db)
+                OnchainInventoryLookup::get_attachment_content_hashes(page_index, &info, tip, clarity_db)
             })?;
 
             let pages_indexes = vec![expected_page.index];
             let mut pages = HashMap::new();
             pages.insert(expected_page.index, expected_page);
 
-            Ok(ZonefileHashInventory {
+            Ok(OnchainAttachmentsInventory {
                 tip: tip.clone(),
-                pages_info,
+                info,
                 pages_indexes,
                 pages,
             })
         })
     }
 
-    pub fn get_attachments_inv_info(cost_tracker: LimitedCostTracker, clarity_tx: &mut ClarityReadOnlyConnection) -> Result<ZonefilesPagesInfo, net_error> {
+    pub fn get_attachments_inv_info(cost_tracker: LimitedCostTracker, clarity_tx: &mut ClarityReadOnlyConnection) -> Result<OnchainAttachmentsInventoryInfo, net_error> {
 
         let contract_identifier = boot::boot_code_id("sns");
         let function = "get-attachments-inv-info";
@@ -117,7 +111,6 @@ impl SNSContractReader {
             env.execute_contract(&contract_identifier, function, &vec![], true)
         });
 
-        println!("xxxxxx get_attachments_inv_info {:?}", res);
         let data = match res {
             Ok(res) => Ok(res.expect_result_ok().expect_tuple()),
             Err(_e) => Err(net_error::DBError(db_error::NotFoundError))
@@ -138,7 +131,7 @@ impl SNSContractReader {
             .to_owned()
             .expect_u128() as u32;
 
-        Ok(ZonefilesPagesInfo {
+        Ok(OnchainAttachmentsInventoryInfo {
             pages_count,
             last_page_len,
             page_size,
@@ -149,20 +142,19 @@ impl SNSContractReader {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
-    ) -> Result<ZonefileHashInventory, net_error> 
+    ) -> Result<OnchainAttachmentsInventory, net_error> 
     {
-        // todo(ludo): think about a lighter version
         chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             let cost_tracker = LimitedCostTracker::new(ExecutionCost::max_value());
 
             // Get pagination informations
-            let pages_info = SNSContractReader::get_attachments_inv_info(cost_tracker, clarity_tx)?;
+            let info = OnchainInventoryLookup::get_attachments_inv_info(cost_tracker, clarity_tx)?;
 
             let (pages_indexes, pages) = clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let mut pages_indexes = vec![];
                 let mut pages = HashMap::new();
-                for page_index in 0..pages_info.pages_count {
-                    let page = match SNSContractReader::get_zonefiles_hashes(page_index, &pages_info, tip, clarity_db) {
+                for page_index in 0..info.pages_count {
+                    let page = match OnchainInventoryLookup::get_attachment_content_hashes(page_index, &info, tip, clarity_db) {
                         Ok(page) => page,
                         Err(e) => return Err(e)
                     };
@@ -172,30 +164,30 @@ impl SNSContractReader {
                 Ok((pages_indexes, pages))
             })?;
 
-            Ok(ZonefileHashInventory {
+            Ok(OnchainAttachmentsInventory {
                 tip: tip.clone(),
-                pages_info,
+                info,
                 pages_indexes,
                 pages,
             })
         })
     }
 
-    fn get_zonefiles_hashes(page_index: u32,
-                            pages_info: &ZonefilesPagesInfo,
+    fn get_attachment_content_hashes(page_index: u32,
+                            info: &OnchainAttachmentsInventoryInfo,
                             tip: &StacksBlockId,
-                            clarity_db: &mut ClarityDatabase) -> Result<ZonefileHashPage, net_error> {
+                            clarity_db: &mut ClarityDatabase) -> Result<OnchainAttachmentPage, net_error> {
         
         let contract_identifier = boot::boot_code_id("sns");
-        let map_name = "zonefiles-inv";
+        let map_name = "attachments-inv";
 
-        let limit = if page_index == pages_info.pages_count {
-            pages_info.last_page_len
+        let limit = if page_index == info.pages_count {
+            info.last_page_len
         } else {
-            pages_info.page_size
+            info.page_size
         };
 
-        let mut page = ZonefileHashPage { 
+        let mut page = OnchainAttachmentPage { 
             index: page_index,
             entries: vec![]
         };
@@ -214,6 +206,24 @@ impl SNSContractReader {
                 &map_key,
             );
 
+            let buff = match clarity_db.get::<Value>(&key) {
+                Some(Value::Sequence(SequenceData::Buffer(buff))) => buff,
+                _ => {
+                    return Err(net_error::ChainstateError("".to_string()))
+                }
+            };
+
+            let content_hash = if buff.data.is_empty() {
+                Hash160::empty()
+            } else {
+                if let Some(content_hash) = Hash160::from_bytes(&buff.data[..]) {
+                    content_hash
+                } else {
+                    // todo(ludo) error
+                    return Err(net_error::ChainstateError("".to_string()))
+                }
+            };
+
             let zonefile_hash = clarity_db
                 .get::<Value>(&key)
                 .unwrap_or_else(|| {
@@ -221,7 +231,7 @@ impl SNSContractReader {
                     Value::none()
             });
 
-            page.entries.push(zonefile_hash.to_string()); // todo(ludo): fix
+            page.entries.push(content_hash);
         }
 
         Ok(page)

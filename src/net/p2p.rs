@@ -51,7 +51,7 @@ use net::server::*;
 
 use net::relay::*;
 
-use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats, AttachmentInstance};
+use net::atlas::inv::{AttachmentsInvState, NeighborAttachmentStats, AttachmentInstance};
 
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -263,7 +263,7 @@ pub struct PeerNetwork {
     pub inv_state: Option<InvState>,
 
     // peer attachments inventory state
-    pub attachments_inv_state: Option<AttachmentInvState>,
+    pub attachments_inv_state: Option<AttachmentsInvState>,
 
     // cached view of PoX database
     pub tip_sort_id: SortitionId,
@@ -1119,8 +1119,7 @@ impl PeerNetwork {
         self.sockets.len()
     }
 
-    pub fn reset_sync_peers(&mut self, peers: HashSet<NeighborKey>, inv_state: &mut InvState, attachments_inv_state: &mut AttachmentInvState) {
-
+    pub fn reset_sync_peers(&mut self, peers: HashSet<NeighborKey>, inv_state: &mut InvState, attachments_inv_state: &mut AttachmentsInvState) {
         self.sync_peers.clear();
         self.sync_peers = peers;
 
@@ -1162,7 +1161,7 @@ impl PeerNetwork {
     }
 
     /// Cull broken peers and purge their stats
-    pub fn cull_bad_peers(&mut self, inv_state: &mut InvState, attachments_inv_state: &mut AttachmentInvState) {
+    pub fn cull_bad_peers(&mut self, inv_state: &mut InvState, attachments_inv_state: &mut AttachmentsInvState) {
         let mut bad_peers = HashSet::new();
 
         for (nk, stats) in inv_state.block_stats.iter() {

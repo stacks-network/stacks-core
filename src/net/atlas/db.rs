@@ -29,7 +29,6 @@ use super::{Attachment};
 
 pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
 
-// todo(ludo): should have one DB for SNS, and one DB for Atlas.
 const ATLASDB_SETUP: &'static [&'static str] = &[
     r#"
     CREATE TABLE attachments(
@@ -56,13 +55,6 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         hash TEXT UNIQUE PRIMARY KEY,
         created_at INTEGER NOT NULL,
         content BLOB NOT NULL
-    );"#,
-    r#"
-    CREATE TABLE records(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at INTEGER NOT NULL,
-        zonefile_id INTEGER NOT NULL,
-        name STRING NOT NULL
     );"#,
     r#"
     CREATE TABLE db_version(version TEXT NOT NULL);
@@ -93,7 +85,6 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
             .map_err(|_| db_error::TypeError)?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
-        let burn_block_height = row.get("burn_block_height");
         let metadata: String = row.get("metadata");
 
         Ok(AttachmentInstance {
@@ -103,7 +94,6 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
             consensus_hash,
             block_header_hash,
             block_height,
-            burn_block_height,
             metadata,
         })
     }
@@ -236,7 +226,7 @@ impl AtlasDB {
     }
 
     pub fn get_attachments_missing_at_page_index(&self, page_index: u32, blocks_ids: &Vec<StacksBlockId>) -> Result<Vec<bool>, db_error> {
-        // todo(ludo): unable to build a compiled stmt with rusqlite - investigate carray.
+        // todo(ludo): unable to build a compiled stmt with rusqlite that includes a WHERE ... IN () clause - investigate carray.
         let ancestor_tree_sql = blocks_ids.iter()
             .map(|block_id| format!("'{}'", block_id))
             .collect::<Vec<String>>()
@@ -249,9 +239,6 @@ impl AtlasDB {
     }
 
     pub fn insert_new_inboxed_attachment(&mut self, attachment: Attachment) -> Result<(), db_error> {
-
-        // Check hash + content
-
         // Do we already have an entry (proceessed or unprocessed) for this attachment? - todo(ludo) think more about this
         let qry = "SELECT count(*) FROM inboxed_attachments WHERE hash = ?1".to_string();
         let args = [&attachment.hash as &dyn ToSql];
@@ -305,7 +292,7 @@ impl AtlasDB {
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT INTO attachment_instances (content_hash, created_at, block_id, position_in_page, page_index, block_height, is_available, metadata, consensus_hash, block_header_hash, burn_block_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO attachment_instances (content_hash, created_at, block_id, position_in_page, page_index, block_height, is_available, metadata, consensus_hash, block_header_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             &[
                 &hex_content_hash as &dyn ToSql, 
                 &now as &dyn ToSql,
@@ -317,7 +304,6 @@ impl AtlasDB {
                 &attachment.metadata as &dyn ToSql,
                 &attachment.consensus_hash as &dyn ToSql,
                 &attachment.block_header_hash as &dyn ToSql,
-                &attachment.burn_block_height as &dyn ToSql,
             ]
         );
         res.map_err(db_error::SqliteError)?;

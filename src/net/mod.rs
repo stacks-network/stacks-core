@@ -1082,10 +1082,6 @@ pub struct AccountEntryResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GetNameResponse {
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PostAttachmentResponse {
 }
 
@@ -1234,7 +1230,6 @@ pub enum HttpRequestType {
         Option<StacksBlockId>,
     ),
     OptionsPreflight(HttpRequestMetadata, String),
-    GetName(HttpRequestMetadata, String, Option<StacksBlockId>),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, Option<StacksBlockId>, HashSet<u32>),
     PostAttachment(HttpRequestMetadata, Attachment),
@@ -1327,7 +1322,6 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
-    GetName(HttpResponseMetadata, GetNameResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     PostAttachment(HttpResponseMetadata, PostAttachmentResponse),

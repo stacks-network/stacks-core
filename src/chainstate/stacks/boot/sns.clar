@@ -53,12 +53,12 @@
 (define-constant name-preorder-claimability-ttl u10)
 (define-constant name-grace-period-duration u5)
 
-(define-constant zonefiles-inv-page-size u512)
-(define-data-var zonefiles-inv-index-cursor uint u0)
-(define-data-var zonefiles-inv-page-cursor uint u0)
-(define-map zonefiles-inv 
+(define-constant attachments-inv-page-size u8)
+(define-data-var attachments-inv-index-cursor uint u0)
+(define-data-var attachments-inv-page-cursor uint u0)
+(define-map attachments-inv 
     ((page uint) (index uint)) 
-    ((zonefile-hash (buff 20))))
+    ((content-hash (buff 20))))
 
 ;; Price tables
 (define-constant namespace-prices-tiers (list
@@ -107,7 +107,7 @@
 (define-private (max (a uint) (b uint))
   (if (> a b) a b))
 
-(define-private (compute-namespace-price? (namespace (buff 19)))
+(define-read-only (compute-namespace-price? (namespace (buff 19)))
   (let ((namespace-len (len namespace)))
     (asserts!
       (> namespace-len u0)
@@ -235,7 +235,7 @@
           (ok (> block-height (+ lifetime registered-at))))))))
 
 ;; todo(ludo): should be refactored - based on (is-name-lease-expired?)
-(define-private (is-name-in-grace-period? (namespace (buff 19)) (name (buff 16)))
+(define-read-only (is-name-in-grace-period? (namespace (buff 19)) (name (buff 16)))
   (let (
     (namespace-props (unwrap! 
       (map-get? namespaces ((namespace namespace))) 
@@ -279,13 +279,13 @@
                                            (revoked-at (optional uint)) 
                                            (zonefile-hash (buff 20)))
   (let 
-    ((current-page (var-get zonefiles-inv-page-cursor))
-    (current-index (var-get zonefiles-inv-index-cursor)))
+    ((current-page (var-get attachments-inv-page-cursor))
+    (current-index (var-get attachments-inv-index-cursor)))
     (let 
-      ((next-page (if (is-eq (+ current-index u1) zonefiles-inv-page-size)
+      ((next-page (if (is-eq (+ current-index u1) attachments-inv-page-size)
         (+ current-page u1)
         current-page))
-      (next-index (mod (+ current-index u1) zonefiles-inv-page-size)))
+      (next-index (mod (+ current-index u1) attachments-inv-page-size)))
       ;; Emit event used as a system hinter
       (print { 
         hash: zonefile-hash,
@@ -295,13 +295,13 @@
           name: name,
           namespace: namespace,
         }})
-      ;; Update zonefiles-inv
-      (map-set zonefiles-inv
+      ;; Update attachments-inv
+      (map-set attachments-inv
         ((page next-page) (index next-index))
-        ((zonefile-hash zonefile-hash)))
+        ((content-hash zonefile-hash)))
       ;; Update cursors
-      (var-set zonefiles-inv-page-cursor next-page)
-      (var-set zonefiles-inv-index-cursor next-index)
+      (var-set attachments-inv-page-cursor next-page)
+      (var-set attachments-inv-index-cursor next-index)
       (map-set name-properties
         ((namespace namespace) (name name))
         ((registered-at registered-at)
@@ -311,9 +311,9 @@
 
 (define-read-only (get-attachments-inv-info)
   (ok { 
-    pages-count: (+ (var-get zonefiles-inv-page-cursor) u1),
-    last-page-len: (var-get zonefiles-inv-index-cursor),
-    page-size: zonefiles-inv-page-size
+    pages-count: (+ (var-get attachments-inv-page-cursor) u1),
+    last-page-len: (var-get attachments-inv-index-cursor),
+    page-size: attachments-inv-page-size
   }))
 
 ;;;; NAMESPACES
@@ -763,7 +763,7 @@
           (get imported-at name-props)
           none
           (if (is-none zonefile-hash)
-            0x00 ;; todo(ludo): probably something to update
+            0x
             (unwrap! zonefile-hash (err err-panic))))
       (ok true))))
 
@@ -811,7 +811,7 @@
         (get registered-at name-props)
         (get imported-at name-props)
         (some block-height)
-        0x00)
+        0x)
     (ok true)))
 
 ;; NAME_RENEWAL
@@ -932,7 +932,7 @@
       ;; Is lease expired?
       (is-name-lease-expired? namespace name))))
 
-(define-public (name-resolve (namespace (buff 19)) (name (buff 16)))
+(define-read-only (name-resolve (namespace (buff 19)) (name (buff 16)))
   (let (
     (owner (unwrap!
       (nft-get-owner? names (tuple (name name) (namespace namespace)))

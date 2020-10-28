@@ -1,8 +1,8 @@
 pub mod db;
-pub mod sns;
+pub mod onchain;
 pub mod inv;
 
-pub use self::sns::SNSContractReader;
+pub use self::onchain::OnchainInventoryLookup;
 pub use self::db::AtlasDB;
 use self::inv::AttachmentInstance;
 

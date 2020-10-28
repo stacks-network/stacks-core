@@ -53,7 +53,7 @@ use net::MAX_NEIGHBORS_DATA_LEN;
 use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetAttachmentsInvResponse, PostAttachmentResponse, GetAttachmentResponse, AttachmentPage, AttachmentData};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
-use net::atlas::{AtlasDB, SNSContractReader, Attachment};
+use net::atlas::{AtlasDB, OnchainInventoryLookup, Attachment};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::collections::HashSet;
@@ -573,7 +573,7 @@ impl ConversationHttp {
             // present on the canonical chain.
             let res = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                 let cost_tracker = LimitedCostTracker::new(options.read_only_call_limit.clone());
-                SNSContractReader::get_attachments_inv_info(cost_tracker, clarity_tx)
+                OnchainInventoryLookup::get_attachments_inv_info(cost_tracker, clarity_tx)
             });
             match res {
                 Ok(inv_info) => {
@@ -677,6 +677,7 @@ impl ConversationHttp {
         content_hash: Hash160,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
+        println!("Getting /v2/attachments");
 
         match atlasdb.find_attachment(&content_hash) {
             Ok(Some(attachment)) => {
@@ -1648,6 +1649,7 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::GetAttachment(ref _md, ref content_hash) => {
+                println!("Get /v2/attachments/{:?}", content_hash);
                 ConversationHttp::handle_getattachment(
                     &mut self.connection.protocol,
                     &mut reply,
@@ -1679,10 +1681,6 @@ impl ConversationHttp {
                         &self.connection.options,
                     )?;
                 }
-                None
-            }
-            HttpRequestType::GetName(ref _md, ref name, ref tip_opt) => {
-                // todo(ludo): implement
                 None
             }
             HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {

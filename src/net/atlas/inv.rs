@@ -39,7 +39,6 @@ pub struct AttachmentInstance {
     pub block_height: u64,
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
-    pub burn_block_height: u32,
     pub metadata: String,
 }
 
@@ -61,7 +60,7 @@ pub enum InvAttachmentWorkState {
 }
 
 #[derive(Debug)]
-pub struct AttachmentInvState {
+pub struct AttachmentsInvState {
     /// Accumulated knowledge of which peers have which attachments.
     pub attachments_stats: HashMap<NeighborKey, NeighborAttachmentStats>,
     /// Request queue 
@@ -82,13 +81,13 @@ pub struct AttachmentInvState {
     last_rescanned_at: u64,
 }
 
-impl AttachmentInvState {
+impl AttachmentsInvState {
 
     pub fn new(
         request_timeout: u64,
         sync_interval: u64,
-    ) -> AttachmentInvState {
-        AttachmentInvState {
+    ) -> AttachmentsInvState {
+        AttachmentsInvState {
             attachments_stats: HashMap::new(),
             inv_request_queue: HashSet::new(),
             requests_in_progress: HashSet::new(),
@@ -107,7 +106,7 @@ pub struct NeighborAttachmentStats {
     /// Who are we talking to?
     pub nk: NeighborKey,
     /// What blocks do we know this peer has?
-    // pub inv: ZonefileHashInventory, // todo(ludo): merge remote inventories
+    // pub inv: OnchainAttachmentsInventory, // todo(ludo): merge remote inventories
     /// Scan state
     pub state: InvAttachmentWorkState,
     /// Peer status
@@ -127,7 +126,7 @@ impl NeighborAttachmentStats {
     pub fn new(nk: NeighborKey) -> NeighborAttachmentStats {
         NeighborAttachmentStats {
             nk: nk,
-            // inv: ZonefileHashInventory::empty(),
+            // inv: OnchainAttachmentsInventory::empty(),
             state: InvAttachmentWorkState::GetAttachmentsInvBegin,
             status: NodeStatus::Online,
             request: None,
@@ -145,95 +144,4 @@ impl NeighborAttachmentStats {
         self.request = None;
         self.state = InvAttachmentWorkState::GetAttachmentsInvBegin;
     }
-
-    // Proceed to get block inventories
-    // pub fn getattachmentsinv_begin(
-    //     &mut self,
-    //     request: ReplyHandleHttp,
-    //     // target_block_reward_cycle: u64,
-    //     // num_blocks_expected: u16,
-    // ) {
-    //     assert!(!self.done);
-    //     assert_eq!(self.state, InvAttachmentWorkState::GetAttachmentsInvBegin);
-
-    //     self.request = Some(request);
-    //     // self.target_block_reward_cycle = target_block_reward_cycle;
-    //     // self.num_blocks_expected = num_blocks_expected as u64;
-
-    //     self.state = InvAttachmentWorkState::GetAttachmentsInvFinish;
-    // }
-
-    // Try to finish getting all BlocksInvData requests.
-    // Return true if this method is done -- i.e. all requests have been handled.
-    // Return false if we're not done.
-    // pub fn getattachmentsinv_try_finish(
-    //     &mut self,
-    //     network: &mut PeerNetwork,
-    // ) -> Result<bool, (/* todo(ludo) */)> {
-    //     assert!(!self.done);
-    //     assert_eq!(self.state, InvAttachmentWorkState::GetAttachmentsInvFinish);
-
-    //     let mut request = self.request.take().expect("BUG: request not set");
-    //     // if let Err(e) = network.saturate_p2p_socket(request.get_event_id(), &mut request) {
-    //     //     self.status = NodeStatus::Dead;
-    //     //     return Err(());
-    //     // }
-
-    //     let next_request = match request.try_send_recv() {
-    //         Ok(message) => {
-    //             // match message {
-    //             //     StacksMessageType::BlocksInv(blocks_inv_data) => {
-    //             //         // got a BlocksInv!
-    //             //         // but, did we get all the bits we asked for?
-    //             //         if blocks_inv_data.bitlen as u64 != self.num_blocks_expected {
-    //             //             info!(
-    //             //                 "Got invalid BlocksInv response: expected {} bits, got {}",
-    //             //                 self.num_blocks_expected, blocks_inv_data.bitlen
-    //             //             );
-    //             //             self.status = NodeStatus::Broken;
-    //             //         } else {
-    //             //             debug!("Got BlocksInv response from {:?} at reward cycle {} at ({},{}): {:?}", &self.nk, self.target_block_reward_cycle, message.preamble.burn_block_height, message.preamble.burn_stable_block_height, &blocks_inv_data);
-    //             //             self.blocks_inv = Some(blocks_inv_data);
-    //             //         }
-    //             //     }
-    //             //     StacksMessageType::Nack(nack_data) => {
-    //             //         debug!("Remote neighbor {:?} nack'ed our GetBlocksInv at reward cycle {}: NACK code {}", &self.nk, self.target_block_reward_cycle, nack_data.error_code);
-    //             //         self.handle_nack(&network.chain_view, &message.preamble, nack_data);
-    //             //     }
-    //             //     _ => {
-    //             //         // unexpected reply
-    //             //         debug!(
-    //             //             "Remote neighbor {:?} sent an unexpected reply of '{}'",
-    //             //             &self.nk,
-    //             //             message.get_message_name()
-    //             //         );
-    //             //         self.status = NodeStatus::Broken;
-    //             //     }
-    //             // }
-    //             None
-    //         }
-    //         Err(req_res) => match req_res {
-    //             Ok(same_req) => Some(same_req),
-    //             Err(e) => {
-    //                 debug!(
-    //                     "Failed to send/receive GetBlocksInv/BlocksInv from {:?}: {:?}",
-    //                     &self.nk, &e
-    //                 );
-    //                 self.status = NodeStatus::Dead;
-    //                 None
-    //             }
-    //         },
-    //     };
-
-    //     if let Some(next_request) = next_request {
-    //         debug!("Still waiting for BlocksInv reply from {:?}", &self.nk);
-    //         self.request = Some(next_request);
-    //         Ok(false)
-    //     } else {
-    //         self.state = InvAttachmentWorkState::Done;
-    //         Ok(true)
-    //     }
-    // }
-
-
 }

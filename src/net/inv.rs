@@ -35,8 +35,8 @@ use net::GetBlocksInv;
 use net::StacksMessage;
 use net::StacksP2P;
 use net::download::BlockDownloader;
-use net::atlas::inv::{AttachmentInvState, NeighborAttachmentStats, InvAttachmentWorkState};
-use net::atlas::{inv::AttachmentInstance, AttachmentsInvRequest, ExpectedAttachmentState, SNSContractReader};
+use net::atlas::inv::{AttachmentsInvState, NeighborAttachmentStats, InvAttachmentWorkState};
+use net::atlas::{inv::AttachmentInstance, AttachmentsInvRequest, ExpectedAttachmentState};
 
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
@@ -1562,7 +1562,6 @@ impl PeerNetwork {
         PeerNetwork::with_inv_states(self, |network, _, attachments_inv_state| {
             let mut inv_request = AttachmentsInvRequest::new();
             for attachment in new_attachments.into_iter() {
-
                 // test 1
                 if let Ok(Some(entry)) = network.atlasdb.find_attachment(&attachment.content_hash) { // todo(ludo)
                     network.atlasdb.insert_new_attachment_instance(attachment, true);
@@ -1944,7 +1943,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
     ) -> Result<(bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
-        PeerNetwork::with_inv_states(self, |network, inv_state, attachment_inv_state| {
+        PeerNetwork::with_inv_states(self, |network, inv_state, attachments_inv_state| {
             let mut all_done = true;
 
             if !inv_state.hint_do_full_rescan
@@ -2004,7 +2003,7 @@ impl PeerNetwork {
 
             if all_done {
                 let new_sync_peers = network.get_outbound_sync_peers();
-                let broken_peers = inv_state.get_broken_peers(); // todo(ludo) there could be something funky here
+                let broken_peers = inv_state.get_broken_peers();
                 let dead_peers = inv_state.get_dead_peers();
 
                 if !inv_state.hint_learned_data && inv_state.block_stats.len() > 0 {
@@ -2028,8 +2027,8 @@ impl PeerNetwork {
                     );
                 }
 
-                network.cull_bad_peers(inv_state, attachment_inv_state); // todo(ludo): fix pattern instead?
-                network.reset_sync_peers(new_sync_peers, inv_state, attachment_inv_state);
+                network.cull_bad_peers(inv_state, attachments_inv_state);
+                network.reset_sync_peers(new_sync_peers, inv_state, attachments_inv_state);
 
                 Ok((true, broken_peers, dead_peers))
             } else {
@@ -2040,14 +2039,14 @@ impl PeerNetwork {
 
     pub fn with_inv_states<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut InvState, &mut AttachmentInvState) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork, &mut InvState, &mut AttachmentsInvState) -> Result<R, net_error>,
     {
         let mut inv_state = network.inv_state.take();
-        let mut attachment_inv_state = network.attachments_inv_state.take();
+        let mut attachments_inv_state = network.attachments_inv_state.take();
 
         let res = match inv_state {
-            Some(ref mut invs) => match attachment_inv_state {
-                Some(ref mut attachment_invs) => handler(network, invs, attachment_invs),
+            Some(ref mut invs) => match attachments_inv_state {
+                Some(ref mut attachments_invs) => handler(network, invs, attachments_invs),
                 None => {
                     debug!("{:?}: attachment inv state not connected", &network.local_peer);
                     Err(net_error::NotConnected)
@@ -2059,7 +2058,7 @@ impl PeerNetwork {
             }
         };
         network.inv_state = inv_state;
-        network.attachments_inv_state = attachment_inv_state;
+        network.attachments_inv_state = attachments_inv_state;
         res
     }
 
@@ -2110,7 +2109,7 @@ impl PeerNetwork {
             self.connection_opts.inv_sync_interval,
         ));
 
-        self.attachments_inv_state = Some(AttachmentInvState::new(
+        self.attachments_inv_state = Some(AttachmentsInvState::new(
             self.connection_opts.timeout,
             self.connection_opts.inv_sync_interval,
         ));
