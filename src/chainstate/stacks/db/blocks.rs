@@ -3676,9 +3676,11 @@ impl StacksChainState {
         let cur_blocks = sort_db.get_blocks_with_stacks_txs(false, &chain_tip)?;
 
         let parent_tip = StacksBlockId::new(parent_consensus_hash, parent_block_hash);
-        let processed_blocks = clarity_db
-            .read_only_connection(&parent_tip, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
-            .with_clarity_db_readonly(|db| db.get_stx_btc_ops_processed());
+        let mut connection =
+            clarity_db.read_only_connection(&parent_tip, &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let processed_blocks =
+            connection.with_clarity_db_readonly(|db| db.get_stx_btc_ops_processed());
+        connection.done();
 
         let mut stacking_ops = vec![];
         // process the interval (processed_block, cur_blocks]
@@ -3689,9 +3691,33 @@ impl StacksChainState {
         Ok((cur_blocks, stacking_ops))
     }
 
+    /// Returns the total number of blocks with Stacking bitcoin ops processed,
+    ///  and the new Stacking bitcoin ops that must be processed in this block.
+    pub fn get_stacking_ops_with_conn(
+        connection: &mut ClarityReadOnlyConnection,
+        sort_db: &SortitionDBConn,
+        parent_consensus_hash: &ConsensusHash,
+    ) -> Result<(u64, Vec<StackStxOp>), Error> {
+        let chain_tip =
+            SortitionDB::get_sortition_id_by_consensus(sort_db.conn(), parent_consensus_hash)?
+                .expect("BUG: failed to find SortitionID for current consensus hash");
+        let cur_blocks = sort_db.get_blocks_with_stacks_txs(true, &chain_tip)?;
+
+        let processed_blocks =
+            connection.with_clarity_db_readonly(|db| db.get_stx_btc_ops_processed());
+
+        let mut stacking_ops = vec![];
+        // process the interval (processed_block, cur_blocks]
+        for block_to_fetch in (processed_blocks + 1)..(cur_blocks + 1) {
+            let ops = sort_db.get_stack_stx_ops_for_block(block_to_fetch, &chain_tip)?;
+            stacking_ops.extend(ops.into_iter());
+        }
+        Ok((cur_blocks, stacking_ops))
+    }
+
     /// Process any Stacking-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
-    fn process_stacking_ops(
+    pub fn process_stacking_ops(
         clarity_tx: &mut ClarityTx,
         operations: Vec<StackStxOp>,
         processed_total: u64,

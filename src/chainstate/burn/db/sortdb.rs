@@ -2074,6 +2074,54 @@ impl<'a> SortitionDBConn<'a> {
         }
     }
 
+    ///
+    /// Returns the number of blocks in this Sortition fork with Stacking-related
+    ///   bitcoin operations.
+    ///  the `next` parameter controls whether or not to return the value used for the
+    ///   block chosen in the current sortition or the value that should be used for blocks
+    ///   in the subsequent sortition
+    ///
+    pub fn get_blocks_with_stacks_txs(
+        &self,
+        next: bool,
+        chain_tip: &SortitionId,
+    ) -> Result<u64, db_error> {
+        let key = if next {
+            db_keys::next_blocks_with_stacking_txs()
+        } else {
+            db_keys::cur_blocks_with_stacking_txs()
+        };
+
+        let entry_str = self
+            .get_indexed(&chain_tip, key)?
+            .expect("CORRUPTION: expected to find blocks_with_stacking_tx entry, but none found");
+        Ok(entry_str
+            .parse()
+            .expect("CORRUPTION: bad u64 formatting in sortition db"))
+    }
+
+    pub fn get_stack_stx_ops_for_block(
+        &self,
+        block_number: u64,
+        chain_tip: &SortitionId,
+    ) -> Result<Vec<StackStxOp>, db_error> {
+        let burn_header_hash = BurnchainHeaderHash::from_hex(
+            &self
+                .get_indexed(
+                    chain_tip,
+                    &db_keys::burn_header_hash_for_stacking_tx_block(block_number),
+                )?
+                .expect("CORRUPTION: expected to find burnchain header entry, but none found"),
+        )
+        .expect("CORRUPTION: bad BurnchainHeaderHash written to sortition db");
+
+        query_rows(
+            self.conn(),
+            "SELECT * FROM stack_stx WHERE burn_header_hash = ?",
+            &[&burn_header_hash],
+        )
+    }
+
     /// Given a burnchain consensus hash,
     ///    go get the last N Stacks block headers that won sortition
     /// leading up to the given header hash.  The ith slot in the vector will be Some(...) if there

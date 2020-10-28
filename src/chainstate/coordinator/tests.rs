@@ -132,6 +132,7 @@ pub fn setup_states(
     vrf_keys: &[VRFPrivateKey],
     committers: &[StacksPrivateKey],
     pox_consts: Option<PoxConstants>,
+    initial_balances: Option<Vec<(PrincipalData, u64)>>,
 ) {
     let mut burn_block = None;
     let mut others = vec![];
@@ -208,7 +209,6 @@ pub fn setup_states(
         others.iter_mut(),
     );
 
-    let initial_balances = Some(vec![]);
     let block_limit = ExecutionCost::max_value();
 
     for path in paths.iter() {
@@ -592,7 +592,7 @@ fn test_simple_setup() {
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path, path_blinded], &vrf_keys, &committers, None);
+    setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
 
     let mut coord = make_coordinator(path);
     let mut coord_blind = make_coordinator(path_blinded);
@@ -788,7 +788,7 @@ fn test_sortition_with_reward_set() {
         .map(|_| p2pkh_from(&StacksPrivateKey::new()))
         .collect();
 
-    setup_states(&[path], &vrf_keys, &committers, None);
+    setup_states(&[path], &vrf_keys, &committers, None, None);
 
     let mut coord = make_reward_set_coordinator(path, reward_set, None);
 
@@ -1036,7 +1036,7 @@ fn test_sortition_with_burner_reward_set() {
         .collect();
     reward_set.push(p2pkh_from(&StacksPrivateKey::new()));
 
-    setup_states(&[path], &vrf_keys, &committers, None);
+    setup_states(&[path], &vrf_keys, &committers, None, None);
 
     let mut coord = make_reward_set_coordinator(path, reward_set, None);
 
@@ -1246,6 +1246,227 @@ fn test_sortition_with_burner_reward_set() {
 }
 
 #[test]
+fn test_pox_btc_ops() {
+    let path = "/tmp/stacks-blockchain-pox-btc-ops";
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 10, sunset_ht));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::new()).collect();
+
+    setup_states(&[path], &vrf_keys, &committers, pox_consts.clone(), None);
+
+    let mut coord = make_coordinator(path);
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    let mut started_first_reward_cycle = false;
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+    let mut anchor_blocks = vec![];
+
+    // split up the vrf keys and committers so that we have some that will be mining "correctly"
+    //   and some that will be producing bad outputs
+
+    let WRONG_OUTS_OFFSET = 100;
+    let vrf_key_wrong_outs = vrf_keys.split_off(WRONG_OUTS_OFFSET);
+    let miner_wrong_outs = committers.split_off(WRONG_OUTS_OFFSET);
+
+    // track the reward set consumption
+    let mut reward_recipients = HashSet::new();
+    for ix in 0..vrf_keys.len() {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let vrf_wrong_out = &vrf_key_wrong_outs[ix];
+        let miner_wrong_out = &miner_wrong_outs[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+        if reward_cycle_info.is_some() {
+            // did we process a reward set last cycle? check if the
+            //  recipient set size matches our expectation
+            if started_first_reward_cycle {
+                assert_eq!(reward_recipients.len(), 0);
+            }
+            // clear the reward recipients tracker, since those
+            //  recipients are now eligible again in the new reward cycle
+            reward_recipients.clear();
+        }
+        let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
+            .test_get_next_block_recipients(reward_cycle_info.as_ref(), sunset_ht)
+            .unwrap();
+        if next_mock_header.block_height >= sunset_ht {
+            assert!(next_block_recipients.is_none());
+        }
+
+        if let Some(ref next_block_recipients) = next_block_recipients {
+            for (addr, _) in next_block_recipients.recipients.iter() {
+                if !addr.is_burn() {
+                    assert!(
+                        !reward_recipients.contains(addr),
+                        "Reward set should not already contain address {}",
+                        addr
+                    );
+                }
+                eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
+                reward_recipients.insert(addr.clone());
+            }
+        }
+
+        let sunset_burn = burnchain_conf.expected_sunset_burn(next_mock_header.block_height, 10000);
+        let rest_commit = 10000 - sunset_burn;
+
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        } else {
+            make_stacks_block_with_recipients_and_sunset_burn(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                rest_commit,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+                sunset_burn + (rand::random::<u8>() as u64),
+                next_mock_header.block_height >= sunset_ht,
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let mut ops = vec![good_op];
+
+        if sunset_burn > 0 {
+            let (bad_outs_op, _) = make_stacks_block_with_recipients_and_sunset_burn(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_wrong_out,
+                (ix + WRONG_OUTS_OFFSET) as u32,
+                next_block_recipients.as_ref(),
+                sunset_burn - 1,
+                false,
+            );
+            ops.push(bad_outs_op);
+        }
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let b = get_burnchain(path, pox_consts.clone());
+        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
+            if new_burnchain_tip.block_height < sunset_ht {
+                started_first_reward_cycle = true;
+                // store the anchor block for this sortition for later checking
+                let ic = sort_db.index_handle_at_tip();
+                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
+                anchor_blocks.push(bhh);
+            } else {
+                // store the anchor block for this sortition for later checking
+                let ic = sort_db.index_handle_at_tip();
+                assert!(
+                    ic.get_last_anchor_block_hash().unwrap().is_none(),
+                    "No PoX anchor block should be chosen after PoX sunset"
+                );
+            }
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+    }
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let mut chainstate = get_chainstate(path);
+    assert_eq!(
+        chainstate.with_read_only_clarity_tx(
+            &sort_db.index_conn(),
+            &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+            |conn| conn
+                .with_readonly_clarity_env(
+                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                    LimitedCostTracker::new_max_limit(),
+                    |env| env.eval_raw("block-height")
+                )
+                .unwrap()
+        ),
+        Value::UInt(100)
+    );
+
+    {
+        let ic = sort_db.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "111111111111111111111",
+                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+    }
+}
+
+#[test]
 fn test_sortition_with_sunset() {
     let path = "/tmp/stacks-blockchain-sortition-with-sunset";
     let _r = std::fs::remove_dir_all(path);
@@ -1262,7 +1483,7 @@ fn test_sortition_with_sunset() {
         .map(|_| p2pkh_from(&StacksPrivateKey::new()))
         .collect();
 
-    setup_states(&[path], &vrf_keys, &committers, pox_consts.clone());
+    setup_states(&[path], &vrf_keys, &committers, pox_consts.clone(), None);
 
     let mut coord = make_reward_set_coordinator(path, reward_set, pox_consts.clone());
 
@@ -1499,7 +1720,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
     let vrf_keys: Vec<_> = (0..12).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..12).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path, path_blinded], &vrf_keys, &committers, None);
+    setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
 
     let mut coord = make_coordinator(path);
     let mut coord_blind = make_coordinator(path_blinded);
@@ -1740,7 +1961,7 @@ fn test_pox_no_anchor_selected() {
     let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path, path_blinded], &vrf_keys, &committers, None);
+    setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
 
     let mut coord = make_coordinator(path);
     let mut coord_blind = make_coordinator(path_blinded);
@@ -1941,7 +2162,7 @@ fn test_pox_fork_out_of_order() {
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path, path_blinded], &vrf_keys, &committers, None);
+    setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
 
     let mut coord = make_coordinator(path);
     let mut coord_blind = make_coordinator(path_blinded);
