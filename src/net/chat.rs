@@ -1027,7 +1027,13 @@ impl ConversationP2P {
         peerdb: &mut PeerDB,
         chain_view: &BurnchainView,
         message: &mut StacksMessage,
+        authenticated: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
+        if !authenticated && self.connection.options.disable_inbound_handshakes {
+            debug!("{:?}: blocking inbound unauthenticated handshake", &self);
+            return Ok((None, true));
+        }
+
         let res = self.validate_handshake(local_peer, chain_view, message);
         match res {
             Ok(_) => {}
@@ -1235,13 +1241,12 @@ impl ConversationP2P {
     /// Returns a reply handle to the generated message (possibly a nack)
     /// Only returns up to $reward_cycle_length bits
     pub fn make_getblocksinv_response(
-        local_peer: &LocalPeer,
+        _local_peer: &LocalPeer,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &StacksChainState,
         header_cache: &mut BlockHeaderCache,
         get_blocks_inv: &GetBlocksInv,
-        connection_opts: &ConnectionOptions,
     ) -> Result<StacksMessageType, net_error> {
         // must not ask for more than a reasonable number of blocks
         if get_blocks_inv.num_blocks == 0
@@ -1269,7 +1274,7 @@ impl ConversationP2P {
         if !base_snapshot.pox_valid {
             test_debug!(
                 "{:?}: Snapshot for {:?} is not on the valid PoX fork",
-                local_peer,
+                _local_peer,
                 base_snapshot.consensus_hash
             );
             return Ok(StacksMessageType::Nack(NackData::new(
@@ -1284,7 +1289,7 @@ impl ConversationP2P {
         {
             test_debug!(
                 "{:?}: Snapshot for {:?} is at height {}, which is not aligned to a reward cycle",
-                local_peer,
+                _local_peer,
                 base_snapshot.consensus_hash,
                 base_snapshot.block_height
             );
@@ -1308,7 +1313,7 @@ impl ConversationP2P {
                 None => {
                     test_debug!(
                         "{:?}: No block known for base {} + num_blocks {} = {} block height",
-                        local_peer,
+                        _local_peer,
                         base_snapshot.block_height,
                         get_blocks_inv.num_blocks,
                         base_snapshot.block_height + (get_blocks_inv.num_blocks as u64)
@@ -1324,16 +1329,6 @@ impl ConversationP2P {
             let num_headers = cmp::min(
                 burnchain.pox_constants.reward_cycle_length as u64,
                 get_blocks_inv.num_blocks as u64,
-            );
-
-            test_debug!(
-                "{:?}: Got {:?} height {}, replying with min({},{}) = {} blocks",
-                local_peer,
-                get_blocks_inv,
-                base_snapshot.block_height,
-                burnchain.pox_constants.reward_cycle_length,
-                get_blocks_inv.num_blocks,
-                num_headers
             );
 
             let ic = sortdb.index_conn();
@@ -1354,42 +1349,12 @@ impl ConversationP2P {
             }
         }?;
 
-        if block_hashes.len() > 0 {
-            test_debug!(
-                "{:?}: Generated BlocksInv {:?} - {:?} starting at {},{}",
-                local_peer,
-                block_hashes.first().as_ref().unwrap(),
-                block_hashes.last().as_ref().unwrap(),
-                base_snapshot.consensus_hash,
-                base_snapshot.block_height
-            );
-        }
-
         // update cache
         SortitionDB::merge_block_header_cache(header_cache, &block_hashes);
 
-        let mut blocks_inv_data: BlocksInvData = chainstate
+        let blocks_inv_data: BlocksInvData = chainstate
             .get_blocks_inventory(&block_hashes)
             .map_err(|e| net_error::from(e))?;
-
-        debug!(
-            "{:?}: Handled GetBlocksInv. Reply {:?} to request {:?}",
-            &local_peer, &blocks_inv_data, get_blocks_inv
-        );
-
-        if connection_opts.disable_inv_chat {
-            // never reply that we have blocks
-            test_debug!(
-                "{:?}: Disable inv chat -- pretend like we have nothing",
-                local_peer
-            );
-            for i in 0..blocks_inv_data.block_bitvec.len() {
-                blocks_inv_data.block_bitvec[i] = 0;
-            }
-            for i in 0..blocks_inv_data.microblocks_bitvec.len() {
-                blocks_inv_data.microblocks_bitvec[i] = 0;
-            }
-        }
 
         Ok(StacksMessageType::BlocksInv(blocks_inv_data))
     }
@@ -1407,15 +1372,36 @@ impl ConversationP2P {
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<ReplyHandleP2P, net_error> {
         monitoring::increment_p2p_msg_get_blocks_inv_received_counter();
-        let response = ConversationP2P::make_getblocksinv_response(
+        let mut response = ConversationP2P::make_getblocksinv_response(
             local_peer,
             &self.burnchain,
             sortdb,
             chainstate,
             header_cache,
             get_blocks_inv,
-            &self.connection.options,
         )?;
+
+        if let StacksMessageType::BlocksInv(ref mut blocks_inv_data) = &mut response {
+            debug!(
+                "{:?}: Handled GetBlocksInv. Reply {:?} to request {:?}",
+                &local_peer, &blocks_inv_data, get_blocks_inv
+            );
+
+            if self.connection.options.disable_inv_chat {
+                // never reply that we have blocks
+                test_debug!(
+                    "{:?}: Disable inv chat -- pretend like we have nothing",
+                    local_peer
+                );
+                for i in 0..blocks_inv_data.block_bitvec.len() {
+                    blocks_inv_data.block_bitvec[i] = 0;
+                }
+                for i in 0..blocks_inv_data.microblocks_bitvec.len() {
+                    blocks_inv_data.microblocks_bitvec[i] = 0;
+                }
+            }
+        }
+
         self.sign_and_reply(local_peer, burnchain_view, preamble, response)
     }
 
@@ -1957,7 +1943,7 @@ impl ConversationP2P {
 
                 debug!("{:?}: Got Handshake", &self);
                 let (handshake_opt, handled) =
-                    self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
+                    self.handle_handshake(local_peer, peerdb, burnchain_view, msg, true)?;
                 consume = handled;
                 Ok(handshake_opt)
             }
@@ -2028,7 +2014,7 @@ impl ConversationP2P {
 
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
                 let (reply_opt, handled) =
-                    self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
+                    self.handle_handshake(local_peer, peerdb, burnchain_view, msg, false)?;
                 consume = handled;
                 Ok(reply_opt)
             }
