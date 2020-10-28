@@ -1132,8 +1132,8 @@ impl PeerNetwork {
         }
         for nk in to_remove.into_iter() {
             inv_state.block_stats.remove(&nk);
+            attachments_inv_state.attachments_stats.remove(&nk);
         }
-        // todo(ludo): do something
 
         for (_, stats) in inv_state.block_stats.iter_mut() {
             if stats.status != NodeStatus::Online {
@@ -1142,7 +1142,14 @@ impl PeerNetwork {
             stats.done = false;
             stats.learned_data = false;
         }
-        // todo(ludo): do something
+
+        for (_, stats) in attachments_inv_state.attachments_stats.iter_mut() {
+            if stats.status != NodeStatus::Online {
+                stats.status = NodeStatus::Online;
+            }
+            stats.done = false;
+            stats.learned_data = false;
+        }
 
         for peer in self.sync_peers.iter() {
             if let Some(stats) = inv_state.block_stats.get_mut(peer) {
@@ -1155,7 +1162,7 @@ impl PeerNetwork {
                 attachments_inv_state.attachments_stats.insert(
                     peer.clone(),
                     NeighborAttachmentStats::new(peer.clone()),
-                ); // todo(ludo): deduplicate
+                );
             }
         }
     }
@@ -1174,7 +1181,16 @@ impl PeerNetwork {
                 bad_peers.insert(nk.clone());
             }
         }
-        // todo(ludo): handle attachments_inv_state
+        for (nk, stats) in attachments_inv_state.attachments_stats.iter() {
+            if stats.status == NodeStatus::Broken || stats.status == NodeStatus::Dead {
+                warn!(
+                    "Peer {:?} has node status {:?}; culling...",
+                    nk, &stats.status
+                );
+                self.sync_peers.remove(&nk);
+                bad_peers.insert(nk.clone());
+            }
+        }
 
         for bad_peer in bad_peers.into_iter() {
             inv_state.block_stats.remove(&bad_peer);

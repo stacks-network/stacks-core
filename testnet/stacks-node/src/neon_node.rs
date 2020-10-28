@@ -301,7 +301,7 @@ fn spawn_peer(
             let expected_attachments = match attachments_rx.try_recv() {
                 Ok(expected_attachments) => expected_attachments,
                 _ => {
-                    error!("Failed to receive attachments from channel");
+                    debug!("Atlas: attachment channel is empty");
                     HashSet::new()
                 }
             };

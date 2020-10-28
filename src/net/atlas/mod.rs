@@ -64,11 +64,6 @@ impl Attachment {
             content,
         }
     }
-
-    pub fn is_hash_valid(&self) -> bool {
-        // let content_hash = Hash160::from_hex(&self.content_hash).unwrap(); // todo(ludo)
-        true
-    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
