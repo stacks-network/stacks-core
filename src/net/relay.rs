@@ -1497,38 +1497,10 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Announce zonefiles that we have to a subset of inbound and outbound peers.
-    /// * Outbound peers receive announcements for zonefiles that we know they don't have, based on
-    /// the inv state we synchronized from them.
-    /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.
-    pub fn advertize_zonefiles(&mut self) -> Result<(), net_error> {
-        // todo(ludo): implement
-        // let (mut outbound_recipients, mut inbound_recipients) =
-        //     self.find_block_recipients(&availability_data)?;
-        // for recipient in outbound_recipients.drain(..) {
-        //     debug!(
-        //         "{:?}: Advertize {} confirmed microblock streams to outbound peer {}",
-        //         &self.local_peer,
-        //         availability_data.len(),
-        //         &recipient
-        //     );
-        //     self.advertize_to_outbound_peer(&recipient, &availability_data, true)?;
-        // }
-        // for recipient in inbound_recipients.drain(..) {
-        //     debug!(
-        //         "{:?}: Advertize {} confirmed microblock streams to inbound peer {}",
-        //         &self.local_peer,
-        //         availability_data.len(),
-        //         &recipient
-        //     );
-        //     self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| {
-        //         StacksMessageType::MicroblocksAvailable(payload)
-        //     })?;
-        // }
+    // todo(ludo): open question - should nodes be advertising the fact that they just received an attachment?
+    pub fn advertize_attachments(&mut self) -> Result<(), net_error> {
         Ok(())
     }
-
 
     /// Update accounting information for relayed messages from a network result.
     /// This influences selecting next-hop neighbors to get data from us.

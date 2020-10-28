@@ -73,10 +73,11 @@ pub struct OnchainInventoryLookup {
 impl OnchainInventoryLookup {
 
     pub fn get_attachment_content_hashes_at_page_index(page_index: u32,
-                                              sortdb: &SortitionDB,
-                                              chainstate: &mut StacksChainState,
-                                              tip: &StacksBlockId,
-                                              options: &ConnectionOptions) -> Result<OnchainAttachmentsInventory, net_error> {
+                                                       sortdb: &SortitionDB,
+                                                       chainstate: &mut StacksChainState,
+                                                       tip: &StacksBlockId,
+                                                       options: &ConnectionOptions) -> Result<OnchainAttachmentsInventory, net_error> 
+    {
         chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             let cost_tracker = LimitedCostTracker::new(options.read_only_call_limit.clone());
 
@@ -85,7 +86,7 @@ impl OnchainInventoryLookup {
             
             // Read expected_page
             let expected_page = clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                OnchainInventoryLookup::get_attachment_content_hashes(page_index, &info, tip, clarity_db)
+                OnchainInventoryLookup::get_attachment_content_hashes(page_index, &info, clarity_db)
             })?;
 
             let pages_indexes = vec![expected_page.index];
@@ -101,8 +102,9 @@ impl OnchainInventoryLookup {
         })
     }
 
-    pub fn get_attachments_inv_info(cost_tracker: LimitedCostTracker, clarity_tx: &mut ClarityReadOnlyConnection) -> Result<OnchainAttachmentsInventoryInfo, net_error> {
-
+    pub fn get_attachments_inv_info(cost_tracker: LimitedCostTracker, 
+                                    clarity_tx: &mut ClarityReadOnlyConnection) -> Result<OnchainAttachmentsInventoryInfo, net_error> 
+    {
         let contract_identifier = boot::boot_code_id("sns");
         let function = "get-attachments-inv-info";
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
@@ -138,11 +140,9 @@ impl OnchainInventoryLookup {
         })
     }
 
-    pub fn get_attachments_inventory(
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
-        tip: &StacksBlockId,
-    ) -> Result<OnchainAttachmentsInventory, net_error> 
+    pub fn get_attachments_inventory(sortdb: &SortitionDB,
+                                     chainstate: &mut StacksChainState,
+                                     tip: &StacksBlockId) -> Result<OnchainAttachmentsInventory, net_error> 
     {
         chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
             let cost_tracker = LimitedCostTracker::new(ExecutionCost::max_value());
@@ -154,7 +154,7 @@ impl OnchainInventoryLookup {
                 let mut pages_indexes = vec![];
                 let mut pages = HashMap::new();
                 for page_index in 0..info.pages_count {
-                    let page = match OnchainInventoryLookup::get_attachment_content_hashes(page_index, &info, tip, clarity_db) {
+                    let page = match OnchainInventoryLookup::get_attachment_content_hashes(page_index, &info, clarity_db) {
                         Ok(page) => page,
                         Err(e) => return Err(e)
                     };
@@ -174,10 +174,9 @@ impl OnchainInventoryLookup {
     }
 
     fn get_attachment_content_hashes(page_index: u32,
-                            info: &OnchainAttachmentsInventoryInfo,
-                            tip: &StacksBlockId,
-                            clarity_db: &mut ClarityDatabase) -> Result<OnchainAttachmentPage, net_error> {
-        
+                                     info: &OnchainAttachmentsInventoryInfo,
+                                     clarity_db: &mut ClarityDatabase) -> Result<OnchainAttachmentPage, net_error>
+    {    
         let contract_identifier = boot::boot_code_id("sns");
         let map_name = "attachments-inv";
 
@@ -223,13 +222,6 @@ impl OnchainInventoryLookup {
                     return Err(net_error::ChainstateError("".to_string()))
                 }
             };
-
-            let zonefile_hash = clarity_db
-                .get::<Value>(&key)
-                .unwrap_or_else(|| {
-                    test_debug!("No value for '{}' in {}", &key, tip);
-                    Value::none()
-            });
 
             page.entries.push(content_hash);
         }

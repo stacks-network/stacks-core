@@ -3052,8 +3052,8 @@ impl HttpResponseType {
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
-        fd: &mut R,
-        len_hint: Option<usize>,
+        _fd: &mut R,
+        _len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
         let res = PostAttachmentResponse {};
         Ok(HttpResponseType::PostAttachment(
@@ -3459,9 +3459,9 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpResponseType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpResponseType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
-                HttpResponseType::PostAttachment(ref md, _) => "HTTP(PostAttachment)",
-                HttpResponseType::GetAttachment(ref md, _) => "HTTP(GetAttachment)",
-                HttpResponseType::GetAttachmentsInv(ref md, _) => "HTTP(GetAttachmentsInv)",
+                HttpResponseType::PostAttachment(_, _) => "HTTP(PostAttachment)",
+                HttpResponseType::GetAttachment(_, _) => "HTTP(GetAttachment)",
+                HttpResponseType::GetAttachmentsInv(_, _) => "HTTP(GetAttachmentsInv)",
                 HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::PoxInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::Neighbors(_, _) => "HTTP(Neighbors)",

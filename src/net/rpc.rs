@@ -655,14 +655,13 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         atlasdb: &mut AtlasDB,
-        chainstate: &mut StacksChainState,
         attachment: Attachment,
-        options: &ConnectionOptions,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
-        atlasdb.insert_new_inboxed_attachment(attachment);
-        
+        atlasdb.insert_new_inboxed_attachment(attachment)
+            .map_err(|e| net_error::DBError(e))?;
+
         let content = PostAttachmentResponse {};
 
         let response = HttpResponseType::PostAttachment(response_metadata, content);
@@ -1636,9 +1635,7 @@ impl ConversationHttp {
                     &mut reply,
                     &req,
                     atlasdb,
-                    chainstate,
                     attachment.clone(),
-                    &self.connection.options,
                 )?;
 
                 ret = Some(StacksMessageType::Attachment(AttachmentData {

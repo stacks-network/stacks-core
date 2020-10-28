@@ -3295,7 +3295,12 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        self.update_attachments_inventory(attachment_requests, sortdb, chainstate);
+        match self.update_attachments_inventory(attachment_requests, sortdb, chainstate) {
+            Ok(_) => {},
+            Err(e) => {
+                error!("Updating attachment inventory failed {}", e);
+            }
+        }
 
         let mut result = NetworkResult::new();
 

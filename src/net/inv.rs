@@ -1553,7 +1553,7 @@ impl PeerNetwork {
         }
     }
 
-    pub fn update_attachments_inventory(&mut self, new_attachments: HashSet<AttachmentInstance>, sortdb: &SortitionDB, chainstate: &mut StacksChainState,) -> Result<(), net_error> {
+    pub fn update_attachments_inventory(&mut self, new_attachments: HashSet<AttachmentInstance>, sortdb: &SortitionDB, _chainstate: &mut StacksChainState,) -> Result<(), net_error> {
         // let mut attachments_to_download = vec![];
         if new_attachments.is_empty() {
             return Ok(())
@@ -1564,14 +1564,17 @@ impl PeerNetwork {
             for attachment in new_attachments.into_iter() {
                 // test 1
                 if let Ok(Some(entry)) = network.atlasdb.find_attachment(&attachment.content_hash) { // todo(ludo)
-                    network.atlasdb.insert_new_attachment_instance(attachment, true);
+                    network.atlasdb.insert_new_attachment_instance(attachment, true)
+                        .map_err(|e| net_error::DBError(e))?;
                     continue;
                 }
 
                 // test 2
                 if let Ok(Some(entry)) = network.atlasdb.find_inboxed_attachment(&attachment.content_hash) { // todo(ludo)
-                    network.atlasdb.import_attachment_from_inbox(&attachment.content_hash);
-                    network.atlasdb.insert_new_attachment_instance(attachment, true);
+                    network.atlasdb.import_attachment_from_inbox(&attachment.content_hash)
+                        .map_err(|e| net_error::DBError(e))?;
+                    network.atlasdb.insert_new_attachment_instance(attachment, true)
+                        .map_err(|e| net_error::DBError(e))?;
                     continue;
                 }
 
@@ -1581,7 +1584,8 @@ impl PeerNetwork {
 
                 // test 5
                 inv_request.add_request(&attachment, sortdb);
-                network.atlasdb.insert_new_attachment_instance(attachment, false);
+                network.atlasdb.insert_new_attachment_instance(attachment, false)
+                    .map_err(|e| net_error::DBError(e))?;
             }
 
             if !inv_request.missing_attachments.is_empty() {

@@ -110,7 +110,7 @@ impl AttachmentsInvRequest {
         }
     }
 
-    pub fn is_request_in_same_fork(&self, attachment: &AttachmentInstance, sortdb: &SortitionDB) -> bool {
+    pub fn is_request_in_same_fork(&self, attachment: &AttachmentInstance, _sortdb: &SortitionDB) -> bool {
         // todo(ludo): check if there's a descendant / ancestor relationship 
         //     let height_result = self
         //     .admitter
@@ -126,9 +126,9 @@ impl AttachmentsInvRequest {
         self.block_header_hash == attachment.block_header_hash && self.consensus_hash == attachment.consensus_hash
     }
 
-    pub fn add_request(&mut self, attachment: &AttachmentInstance, sortdb: &SortitionDB) -> Result<(), ()> {
+    pub fn add_request(&mut self, attachment: &AttachmentInstance, sortdb: &SortitionDB) -> bool {
         if !self.missing_attachments.is_empty() && !self.is_request_in_same_fork(attachment, sortdb) {
-            return Err(())
+            return false
         }
 
         let key = (attachment.page_index, attachment.position_in_page);
@@ -138,7 +138,7 @@ impl AttachmentsInvRequest {
             self.consensus_hash = attachment.consensus_hash.clone();
             self.block_header_hash = attachment.block_header_hash;
         }
-        Ok(())
+        true
     }
 
     pub fn get_pages_indexes(&self) -> HashSet<u32> {

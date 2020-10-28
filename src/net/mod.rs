@@ -1366,7 +1366,7 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
-    Attachment = 21,
+    Attachment = 19,
     Reserved = 255,
 }
 
