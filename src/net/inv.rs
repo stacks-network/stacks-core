@@ -2157,21 +2157,27 @@ impl PeerNetwork {
         let target_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
 
         // if this succeeds, then we should be able to make a BlocksInv
-        let ancestor_sn = self.get_ancestor_sortition_snapshot(sortdb, target_block_height)
+        let ancestor_sn = self
+            .get_ancestor_sortition_snapshot(sortdb, target_block_height)
             .map_err(|e| {
-                debug!("Failed to load ancestor sortition snapshot at height {}: {:?}", target_block_height, &e);
+                debug!(
+                    "Failed to load ancestor sortition snapshot at height {}: {:?}",
+                    target_block_height, &e
+                );
                 e
             })?;
 
-        let tip_sn = self.get_tip_sortition_snapshot(sortdb)
-            .map_err(|e| {
-                debug!("Failed to load tip sortition snapshot: {:?}", &e);
-                e
-            })?;
+        let tip_sn = self.get_tip_sortition_snapshot(sortdb).map_err(|e| {
+            debug!("Failed to load tip sortition snapshot: {:?}", &e);
+            e
+        })?;
 
         let getblocksinv = GetBlocksInv {
             consensus_hash: ancestor_sn.consensus_hash,
-            num_blocks: cmp::min(tip_sn.block_height.saturating_sub(ancestor_sn.block_height), self.burnchain.pox_constants.reward_cycle_length as u64) as u16,
+            num_blocks: cmp::min(
+                tip_sn.block_height.saturating_sub(ancestor_sn.block_height),
+                self.burnchain.pox_constants.reward_cycle_length as u64,
+            ) as u16,
         };
 
         let blocks_inv = ConversationP2P::make_getblocksinv_response(
@@ -2181,8 +2187,12 @@ impl PeerNetwork {
             chainstate,
             &mut self.header_cache,
             &getblocksinv,
-        ).map_err(|e| {
-            debug!("Failed to load blocks inventory at reward cycle {} ({:?}): {:?}", reward_cycle, &ancestor_sn.consensus_hash, &e);
+        )
+        .map_err(|e| {
+            debug!(
+                "Failed to load blocks inventory at reward cycle {} ({:?}): {:?}",
+                reward_cycle, &ancestor_sn.consensus_hash, &e
+            );
             e
         })?;
 

@@ -454,7 +454,7 @@ impl std::default::Default for ConnectionOptions {
             disable_inbound_walks: false,
             disable_natpunch: false,
             disable_inbound_handshakes: false,
-            force_disconnect_interval: None
+            force_disconnect_interval: None,
         }
     }
 }

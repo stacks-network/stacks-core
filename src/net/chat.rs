@@ -1264,7 +1264,10 @@ impl ConversationP2P {
         )? {
             Some(sn) => sn,
             None => {
-                debug!("{:?}: No such block snapshot for {}", &_local_peer, &get_blocks_inv.consensus_hash);
+                debug!(
+                    "{:?}: No such block snapshot for {}",
+                    &_local_peer, &get_blocks_inv.consensus_hash
+                );
                 return Ok(StacksMessageType::Nack(NackData::new(
                     NackErrorCodes::NoSuchBurnchainBlock,
                 )));
@@ -1275,8 +1278,7 @@ impl ConversationP2P {
         if !base_snapshot.pox_valid {
             debug!(
                 "{:?}: Snapshot for {:?} is not on the valid PoX fork",
-                _local_peer,
-                base_snapshot.consensus_hash
+                _local_peer, base_snapshot.consensus_hash
             );
             return Ok(StacksMessageType::Nack(NackData::new(
                 NackErrorCodes::InvalidPoxFork,
@@ -1290,9 +1292,7 @@ impl ConversationP2P {
         {
             debug!(
                 "{:?}: Snapshot for {:?} is at height {}, which is not aligned to a reward cycle",
-                _local_peer,
-                base_snapshot.consensus_hash,
-                base_snapshot.block_height
+                _local_peer, base_snapshot.consensus_hash, base_snapshot.block_height
             );
             return Ok(StacksMessageType::Nack(NackData::new(
                 NackErrorCodes::InvalidPoxFork,
@@ -1341,7 +1341,10 @@ impl ConversationP2P {
             match res {
                 Ok(hashes) => Ok(hashes),
                 Err(db_error::NotFoundError) => {
-                    debug!("{:?}: Failed to load ancestor hashes from {}", &_local_peer, &tip_snapshot.consensus_hash);
+                    debug!(
+                        "{:?}: Failed to load ancestor hashes from {}",
+                        &_local_peer, &tip_snapshot.consensus_hash
+                    );
 
                     // make this into a NACK
                     return Ok(StacksMessageType::Nack(NackData::new(

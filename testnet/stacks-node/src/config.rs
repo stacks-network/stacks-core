@@ -961,7 +961,7 @@ pub struct ConnectionOptionsFile {
     pub public_ip_address: Option<String>,
     pub disable_inbound_walks: Option<bool>,
     pub disable_inbound_handshakes: Option<bool>,
-    pub force_disconnect_interval: Option<u64>
+    pub force_disconnect_interval: Option<u64>,
 }
 
 #[derive(Clone, Default, Deserialize)]

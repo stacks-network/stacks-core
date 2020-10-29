@@ -412,8 +412,8 @@ impl PeerNetwork {
             antientropy_microblocks: HashMap::new(),
 
             pending_messages: HashMap::new(),
-    
-            fault_last_disconnect: 0
+
+            fault_last_disconnect: 0,
         }
     }
 
@@ -2590,7 +2590,11 @@ impl PeerNetwork {
             neighbor_keys.push(nk.clone());
         }
 
-        debug!("{:?}: Run anti-entropy protocol for {} neighbors", &self.local_peer, &neighbor_keys.len());
+        debug!(
+            "{:?}: Run anti-entropy protocol for {} neighbors",
+            &self.local_peer,
+            &neighbor_keys.len()
+        );
         if neighbor_keys.len() == 0 {
             return Ok(());
         }
@@ -2600,12 +2604,18 @@ impl PeerNetwork {
             {
                 Ok(inv) => inv,
                 Err(e) => {
-                    debug!("{:?}: Failed to load local blocks inventory for reward cycle {}: {:?}", &self.local_peer, reward_cycle, &e);
+                    debug!(
+                        "{:?}: Failed to load local blocks inventory for reward cycle {}: {:?}",
+                        &self.local_peer, reward_cycle, &e
+                    );
                     continue;
                 }
             };
 
-            debug!("{:?}: Local blocks inventory for reward cycle {} is {:?}", &self.local_peer, reward_cycle, &local_blocks_inv);
+            debug!(
+                "{:?}: Local blocks inventory for reward cycle {} is {:?}",
+                &self.local_peer, reward_cycle, &local_blocks_inv
+            );
 
             let mut blocks_to_broadcast = HashMap::new();
             let mut microblocks_to_broadcast = HashMap::new();
@@ -3165,25 +3175,38 @@ impl PeerNetwork {
 
             if let StacksMessageType::BlocksAvailable(_) = &msg.payload {
                 if blocks_available >= self.connection_opts.max_buffered_blocks_available {
-                    debug!("{:?}: Drop BlocksAvailable from event {} -- already have {} buffered", &self.local_peer, event_id, blocks_available);
+                    debug!(
+                        "{:?}: Drop BlocksAvailable from event {} -- already have {} buffered",
+                        &self.local_peer, event_id, blocks_available
+                    );
                     return;
                 }
             }
             if let StacksMessageType::MicroblocksAvailable(_) = &msg.payload {
-                if microblocks_available >= self.connection_opts.max_buffered_microblocks_available {
-                    debug!("{:?}: Drop MicroblocksAvailable from event {} -- already have {} buffered", &self.local_peer, event_id, microblocks_available);
+                if microblocks_available >= self.connection_opts.max_buffered_microblocks_available
+                {
+                    debug!(
+                        "{:?}: Drop MicroblocksAvailable from event {} -- already have {} buffered",
+                        &self.local_peer, event_id, microblocks_available
+                    );
                     return;
                 }
             }
             if let StacksMessageType::Blocks(_) = &msg.payload {
                 if blocks_data >= self.connection_opts.max_buffered_blocks {
-                    debug!("{:?}: Drop BlocksData from event {} -- already have {} buffered", &self.local_peer, event_id, blocks_data);
+                    debug!(
+                        "{:?}: Drop BlocksData from event {} -- already have {} buffered",
+                        &self.local_peer, event_id, blocks_data
+                    );
                     return;
                 }
             }
             if let StacksMessageType::Microblocks(_) = &msg.payload {
                 if microblocks_data >= self.connection_opts.max_buffered_microblocks {
-                    debug!("{:?}: Drop MicroblocksData from event {} -- already have {} buffered", &self.local_peer, event_id, microblocks_data);
+                    debug!(
+                        "{:?}: Drop MicroblocksData from event {} -- already have {} buffered",
+                        &self.local_peer, event_id, microblocks_data
+                    );
                     return;
                 }
             }
@@ -3812,8 +3835,7 @@ impl PeerNetwork {
 
             // try processing previously-buffered messages (best-effort)
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
-            ret =
-                self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, false)?;
+            ret = self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, false)?;
         }
         Ok(ret)
     }
@@ -3944,7 +3966,10 @@ impl PeerNetwork {
         // fault injection -- periodically disconnect from everyone
         if let Some(disconnect_interval) = self.connection_opts.force_disconnect_interval {
             if self.fault_last_disconnect + disconnect_interval < get_epoch_time_secs() {
-                debug!("{:?}: Fault injection: forcing disconnect", &self.local_peer);
+                debug!(
+                    "{:?}: Fault injection: forcing disconnect",
+                    &self.local_peer
+                );
                 self.disconnect_all();
                 self.fault_last_disconnect = get_epoch_time_secs();
             }
