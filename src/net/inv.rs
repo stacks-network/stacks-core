@@ -1584,7 +1584,7 @@ impl PeerNetwork {
                 }
 
                 // Do we already have a matching inboxed attachment
-                if let Ok(Some(_entry)) = network.atlasdb.find_inboxed_attachment(&attachment.content_hash) { // todo(ludo)
+                if let Ok(Some(_entry)) = network.atlasdb.find_inboxed_attachment(&attachment.content_hash) {
                     network.atlasdb.import_attachment_from_inbox(&attachment.content_hash)
                         .map_err(|e| net_error::DBError(e))?;
                     network.atlasdb.insert_new_attachment_instance(&attachment, true)

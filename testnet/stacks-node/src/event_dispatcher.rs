@@ -398,11 +398,6 @@ impl EventDispatcher {
             .registered_observers
             .iter()
             .enumerate()
-            // todo(ludo): only notify sns contract observers
-            // .filter(|(obs_id, _observer)| {
-            //     self.mempool_observers_lookup.contains(&(*obs_id as u16))
-            //         || self.any_event_observers_lookup.contains(&(*obs_id as u16))
-            // })
             .collect();
         if interested_observers.len() < 1 {
             return;

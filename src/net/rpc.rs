@@ -658,8 +658,6 @@ impl ConversationHttp {
         content_hash: Hash160,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        println!("Getting /v2/attachments");
-
         match atlasdb.find_attachment(&content_hash) {
             Ok(Some(attachment)) => {
                 let content = GetAttachmentResponse { attachment };
@@ -1622,7 +1620,6 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::GetAttachment(ref _md, ref content_hash) => {
-                println!("Get /v2/attachments/{:?}", content_hash);
                 ConversationHttp::handle_getattachment(
                     &mut self.connection.protocol,
                     &mut reply,

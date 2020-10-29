@@ -209,16 +209,10 @@ impl AtlasDB {
         for page_index in pages_indexes {
             let page = self.get_attachments_missing_at_page_index(*page_index, blocks_ids)?;
             let mut bit_vector = vec![];
-            let mut byte: u8 = 0;
-            for (index, is_attachment_missing) in page.iter().enumerate() {
-                if (index + 1) % 8 == 0 {
-                    bit_vector.push(byte);
-                    byte = 0;
-                }
-                byte <<= 1;
-                byte ^= if *is_attachment_missing {0} else {1};
+            for (_index, is_attachment_missing) in page.iter().enumerate() {
+                // todo(ludo): use a bitvector instead
+                bit_vector.push(if *is_attachment_missing {0} else {1});
             }
-            bit_vector.push(byte);
             pages.push(bit_vector);
         }
         Ok(pages)

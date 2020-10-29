@@ -289,15 +289,15 @@
       ;; Emit event used as a system hinter
       (print { 
         hash: zonefile-hash,
-        page-index: next-page,
-        position-in-page: next-index,
+        page-index: current-page,
+        position-in-page: current-index,
         metadata: {
           name: name,
           namespace: namespace,
         }})
       ;; Update attachments-inv
       (map-set attachments-inv
-        ((page next-page) (index next-index))
+        ((page current-page) (index current-index))
         ((content-hash zonefile-hash)))
       ;; Update cursors
       (var-set attachments-inv-page-cursor next-page)
