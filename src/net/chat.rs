@@ -1264,6 +1264,7 @@ impl ConversationP2P {
         )? {
             Some(sn) => sn,
             None => {
+                debug!("{:?}: No such block snapshot for {}", &_local_peer, &get_blocks_inv.consensus_hash);
                 return Ok(StacksMessageType::Nack(NackData::new(
                     NackErrorCodes::NoSuchBurnchainBlock,
                 )));
@@ -1272,7 +1273,7 @@ impl ConversationP2P {
 
         // must be on the main PoX fork
         if !base_snapshot.pox_valid {
-            test_debug!(
+            debug!(
                 "{:?}: Snapshot for {:?} is not on the valid PoX fork",
                 _local_peer,
                 base_snapshot.consensus_hash
@@ -1287,7 +1288,7 @@ impl ConversationP2P {
         if base_snapshot.block_height > burnchain.first_block_height + 1
             && !burnchain.is_reward_cycle_start(base_snapshot.block_height)
         {
-            test_debug!(
+            debug!(
                 "{:?}: Snapshot for {:?} is at height {}, which is not aligned to a reward cycle",
                 _local_peer,
                 base_snapshot.consensus_hash,
@@ -1311,7 +1312,7 @@ impl ConversationP2P {
             )? {
                 Some(sn) => sn,
                 None => {
-                    test_debug!(
+                    debug!(
                         "{:?}: No block known for base {} + num_blocks {} = {} block height",
                         _local_peer,
                         base_snapshot.block_height,
@@ -1340,6 +1341,8 @@ impl ConversationP2P {
             match res {
                 Ok(hashes) => Ok(hashes),
                 Err(db_error::NotFoundError) => {
+                    debug!("{:?}: Failed to load ancestor hashes from {}", &_local_peer, &tip_snapshot.consensus_hash);
+
                     // make this into a NACK
                     return Ok(StacksMessageType::Nack(NackData::new(
                         NackErrorCodes::NoSuchBurnchainBlock,
@@ -1416,9 +1419,9 @@ impl ConversationP2P {
     ) -> Result<StacksMessageType, net_error> {
         if pox_id.len() <= 1 {
             // not initialized yet
-            test_debug!("{:?}: PoX not initialized yet", local_peer);
+            debug!("{:?}: PoX not initialized yet", local_peer);
             return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::Throttled,
+                NackErrorCodes::InvalidPoxFork,
             )));
         }
         // consensus hash in getpoxinv must exist on the canonical chain tip
