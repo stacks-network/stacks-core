@@ -2392,7 +2392,7 @@ pub mod tests {
                 in_type: BitcoinInputType::Standard,
                 keys: vec![bitcoin_publickey.clone()],
                 num_required: 1,
-                tx_ref: Txid([0; 32]),
+                tx_ref: (Txid([0; 32]), 0),
             };
 
             leader_bitcoin_addresses.push(

@@ -522,7 +522,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
-                tx_ref: Txid([0; 32]),
+                tx_ref: (Txid([0; 32]), 1),
             }],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
@@ -544,7 +544,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
-                tx_ref: pre_stack_stx_0_txid.clone(),
+                tx_ref: (pre_stack_stx_0_txid.clone(), 1),
             }],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
@@ -566,7 +566,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
-                tx_ref: pre_stack_stx_0_txid.clone(),
+                tx_ref: (pre_stack_stx_0_txid.clone(), 1),
             }],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
@@ -588,7 +588,29 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
-                tx_ref: Txid([0; 32]),
+                tx_ref: (Txid([0; 32]), 1),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }],
+        };
+
+        // this one won't use the correct output
+        let stack_stx_2 = BitcoinTransaction {
+            txid: Txid([8; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::StackStx as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (pre_stack_stx_0_txid.clone(), 2),
             }],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
@@ -602,7 +624,7 @@ mod tests {
 
         let ops_0 = vec![pre_stack_stx_0, stack_stx_0];
 
-        let ops_1 = vec![stack_stx_1, stack_stx_0_second_attempt];
+        let ops_1 = vec![stack_stx_1, stack_stx_0_second_attempt, stack_stx_2];
 
         let block_height_0 = 501;
         let block_hash_0 = BurnchainHeaderHash([2; 32]);

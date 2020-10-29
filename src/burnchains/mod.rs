@@ -229,7 +229,7 @@ impl BurnchainTransaction {
         }
     }
 
-    pub fn get_input_tx_ref(&self, input: usize) -> Option<&Txid> {
+    pub fn get_input_tx_ref(&self, input: usize) -> Option<&(Txid, u32)> {
         match self {
             BurnchainTransaction::Bitcoin(ref btc) => {
                 btc.inputs.get(input).map(|txin| &txin.tx_ref)

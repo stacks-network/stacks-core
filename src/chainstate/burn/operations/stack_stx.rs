@@ -191,10 +191,22 @@ impl StackStxOp {
     }
 
     pub fn get_sender_txid(tx: &BurnchainTransaction) -> Result<&Txid, op_error> {
-        tx.get_input_tx_ref(0).ok_or_else(|| {
-            warn!("Invalid tx: StackStxOp must have at least one input");
-            op_error::InvalidInput
-        })
+        match tx.get_input_tx_ref(0) {
+            Some((ref txid, vout)) => {
+                if *vout != 1 {
+                    warn!(
+                        "Invalid tx: StackStxOp must spend the second output of the PreStackStxOp"
+                    );
+                    Err(op_error::InvalidInput)
+                } else {
+                    Ok(txid)
+                }
+            }
+            None => {
+                warn!("Invalid tx: StackStxOp must have at least one input");
+                Err(op_error::InvalidInput)
+            }
+        }
     }
 
     pub fn from_tx(
@@ -370,7 +382,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
-                tx_ref: Txid([0; 32]),
+                tx_ref: (Txid([0; 32]), 0),
             }],
             outputs: vec![
                 BitcoinTxOutput {
@@ -429,7 +441,7 @@ mod tests {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
-                tx_ref: Txid([0; 32]),
+                tx_ref: (Txid([0; 32]), 0),
             }],
             outputs: vec![
                 BitcoinTxOutput {
