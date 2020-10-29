@@ -76,7 +76,7 @@ use std::io::Write;
 
 use std::convert::TryFrom;
 
-use util::hash::to_hex;
+use util::hash::{to_hex, MerkleHashFunc};
 use util::log;
 
 /// This module is responsible for synchronizing block inventories with other peers
@@ -1553,38 +1553,51 @@ impl PeerNetwork {
         }
     }
 
-    pub fn update_attachments_inventory(&mut self, new_attachments: HashSet<AttachmentInstance>, sortdb: &SortitionDB, _chainstate: &mut StacksChainState,) -> Result<(), net_error> {
-        // let mut attachments_to_download = vec![];
+    pub fn update_attachments_inventory(&mut self, 
+                                        network_result: &mut NetworkResult,
+                                        new_attachments: &mut HashSet<AttachmentInstance>) -> Result<(), net_error> 
+    {
         if new_attachments.is_empty() {
             return Ok(())
         }
 
         PeerNetwork::with_inv_states(self, |network, _, attachments_inv_state| {
             let mut inv_request = AttachmentsInvRequest::new();
-            for attachment in new_attachments.into_iter() {
-                // test 1
-                if let Ok(Some(entry)) = network.atlasdb.find_attachment(&attachment.content_hash) { // todo(ludo)
-                    network.atlasdb.insert_new_attachment_instance(attachment, true)
+            for attachment in new_attachments.drain() {
+                // Are we dealing with an empty hash - allowed for undoing onchain binding
+                if attachment.content_hash == Hash160::empty() {
+                    // todo(ludo) insert or update ?
+                    network.atlasdb.insert_new_attachment_instance(&attachment, true)
                         .map_err(|e| net_error::DBError(e))?;
+                    debug!("Atlas: inserting and pairing new attachment instance with empty hash");
+                    network_result.attachments.push(attachment);
+                    continue;
+                }
+                
+                // Do we already have a matching validated attachment
+                if let Ok(Some(_entry)) = network.atlasdb.find_attachment(&attachment.content_hash) {
+                    network.atlasdb.insert_new_attachment_instance(&attachment, true)
+                        .map_err(|e| net_error::DBError(e))?;
+                    debug!("Atlas: inserting and pairing new attachment instance to existing attachment");
+                    network_result.attachments.push(attachment);
                     continue;
                 }
 
-                // test 2
-                if let Ok(Some(entry)) = network.atlasdb.find_inboxed_attachment(&attachment.content_hash) { // todo(ludo)
+                // Do we already have a matching inboxed attachment
+                if let Ok(Some(_entry)) = network.atlasdb.find_inboxed_attachment(&attachment.content_hash) { // todo(ludo)
                     network.atlasdb.import_attachment_from_inbox(&attachment.content_hash)
                         .map_err(|e| net_error::DBError(e))?;
-                    network.atlasdb.insert_new_attachment_instance(attachment, true)
+                    network.atlasdb.insert_new_attachment_instance(&attachment, true)
                         .map_err(|e| net_error::DBError(e))?;
+                    debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
+                    network_result.attachments.push(attachment);
                     continue;
                 }
 
-                // test 3
-
-                // test 4
-
-                // test 5
-                inv_request.add_request(&attachment, sortdb);
-                network.atlasdb.insert_new_attachment_instance(attachment, false)
+                // This attachment in refering to an unknown attachment. 
+                // Let's append it to the inv_request being formulated in this routine.
+                inv_request.add_request(&attachment);
+                network.atlasdb.insert_new_attachment_instance(&attachment, false)
                     .map_err(|e| net_error::DBError(e))?;
             }
 

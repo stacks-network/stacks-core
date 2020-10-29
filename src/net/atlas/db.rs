@@ -38,7 +38,7 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
     r#"
     CREATE TABLE attachment_instances(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        content_hash TEXT NOT NULL,
+        content_hash TEXT,
         created_at INTEGER NOT NULL,
         consensus_hash STRING NOT NULL,
         block_header_hash STRING NOT NULL,
@@ -285,7 +285,7 @@ impl AtlasDB {
         Ok(row)
     }
 
-    pub fn insert_new_attachment_instance(&mut self, attachment: AttachmentInstance, is_available: bool) -> Result<(), db_error> {
+    pub fn insert_new_attachment_instance(&mut self, attachment: &AttachmentInstance, is_available: bool) -> Result<(), db_error> {
         let hex_content_hash = to_hex(&attachment.content_hash.0[..]);
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;

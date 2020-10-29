@@ -115,7 +115,7 @@ fn spawn_peer(
                         continue;
                     }
                 };
-
+            let mut attachments = HashSet::new();
             let net_result = this
                 .run(
                     &sortdb,
@@ -125,7 +125,7 @@ fn spawn_peer(
                     false,
                     poll_timeout,
                     &handler_args,
-                    HashSet::new(),
+                    &mut attachments,
                 )
                 .unwrap();
             if net_result.has_transactions() {

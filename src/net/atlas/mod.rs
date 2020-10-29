@@ -105,24 +105,12 @@ impl AttachmentsInvRequest {
         }
     }
 
-    pub fn is_request_in_same_fork(&self, attachment: &AttachmentInstance, _sortdb: &SortitionDB) -> bool {
-        // todo(ludo): check if there's a descendant / ancestor relationship 
-        //     let height_result = self
-        //     .admitter
-        //     .chainstate
-        //     .with_clarity_marf(|marf| marf.get_block_height_of(&index_block, &admitter_block));
-        // match height_result {
-        //     Ok(x) => {
-        //         eprintln!("{} from {} => {:?}", &index_block, &admitter_block, x);
-        //         Ok(x.is_some())
-        //     }
-        //     Err(x) => Err(db_error::IndexError(x)),
-        // }
+    pub fn is_attachment_in_same_block(&self, attachment: &AttachmentInstance) -> bool {
         self.block_header_hash == attachment.block_header_hash && self.consensus_hash == attachment.consensus_hash
     }
 
-    pub fn add_request(&mut self, attachment: &AttachmentInstance, sortdb: &SortitionDB) -> bool {
-        if !self.missing_attachments.is_empty() && !self.is_request_in_same_fork(attachment, sortdb) {
+    pub fn add_request(&mut self, attachment: &AttachmentInstance) -> bool {
+        if !self.missing_attachments.is_empty() && !self.is_attachment_in_same_block(attachment) {
             return false
         }
 

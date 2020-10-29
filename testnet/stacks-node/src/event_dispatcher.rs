@@ -39,7 +39,7 @@ const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
-pub const PATH_ATTACHMENT_PROCESSED: &str = "new_attachment";
+pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 
 impl EventObserver {
     fn send_payload(&self, payload: &serde_json::Value, path: &str) {
@@ -170,7 +170,7 @@ impl EventObserver {
     }
 
     fn send_new_attachments(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
+        self.send_payload(payload, PATH_ATTACHMENT_PROCESSED);
     }
 
     fn send_new_mempool_txs(&self, payload: &serde_json::Value) {

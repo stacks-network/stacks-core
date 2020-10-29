@@ -3290,7 +3290,7 @@ impl PeerNetwork {
         download_backpressure: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
-        attachment_requests: HashSet<AttachmentInstance>
+        attachment_requests: &mut HashSet<AttachmentInstance>
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
@@ -3311,14 +3311,17 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        match self.update_attachments_inventory(attachment_requests, sortdb, chainstate) {
+        let mut network_result = NetworkResult::new();
+
+        // This operation needs to be performed before any early return:
+        // Events are being parsed and dispatched here once and we want to
+        // enqueue them.
+        match self.update_attachments_inventory(&mut network_result, attachment_requests) {
             Ok(_) => {},
             Err(e) => {
-                error!("Updating attachment inventory failed {}", e);
+                error!("Atlas: updating attachment inventory failed {}", e);
             }
         }
-
-        let mut result = NetworkResult::new();
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = network.http.run(
@@ -3333,12 +3336,12 @@ impl PeerNetwork {
                 http_poll_state,
                 handler_args,
             )?;
-            result.consume_http_uploads(http_stacks_msgs);
+            network_result.consume_http_uploads(http_stacks_msgs);
             Ok(())
         })?;
 
         self.dispatch_network(
-            &mut result,
+            &mut network_result,
             sortdb,
             chainstate,
             dns_client_opt,
@@ -3347,7 +3350,7 @@ impl PeerNetwork {
         )?;
 
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
-        Ok(result)
+        Ok(network_result)
     }
 }
 

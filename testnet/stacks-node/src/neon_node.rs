@@ -298,7 +298,7 @@ fn spawn_peer(
                 .refresh_unconfirmed_state_readonly(canonical_tip)
                 .expect("Failed to open unconfirmed Clarity state");
 
-            let expected_attachments = match attachments_rx.try_recv() {
+            let mut expected_attachments = match attachments_rx.try_recv() {
                 Ok(expected_attachments) => expected_attachments,
                 _ => {
                     debug!("Atlas: attachment channel is empty");
@@ -314,7 +314,7 @@ fn spawn_peer(
                 download_backpressure,
                 poll_ms,
                 &handler_args,
-                expected_attachments,
+                &mut expected_attachments,
             ) {
                 Ok(res) => res,
                 Err(e) => {
