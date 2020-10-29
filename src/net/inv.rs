@@ -2890,14 +2890,12 @@ mod test {
                     // existing consensus hash, but too far ahead (mock)
                     inv.block_stats.get_mut(&nk).unwrap().inv.num_reward_cycles = 0;
                     let sh = inv
-                        .set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash)
-                        .unwrap();
-                    assert!(sh.is_none());
+                        .set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash);
+                    assert_eq!(Err(net_error::NotFoundError), sh);
 
                     let sh = inv
-                        .set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash)
-                        .unwrap();
-                    assert!(sh.is_none());
+                        .set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash);
+                    assert_eq!(Err(net_error::NotFoundError), sh);
                 }
                 None => {
                     panic!("No inv state");
