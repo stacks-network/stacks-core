@@ -21,6 +21,7 @@ process_exit_at_block_height = @@PROCESS_EXIT_AT_BLOCK_HEIGHT@@
 [connection_options]
 inv_sync_interval = 10
 download_interval = 10
+walk_interval = 10
 disable_inbound_handshakes = @@DISABLE_INBOUND_HANDSHAKES@@
 disable_inbound_walks = @@DISABLE_INBOUND_WALKS@@
 
