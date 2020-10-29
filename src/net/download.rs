@@ -870,7 +870,7 @@ impl BlockDownloader {
                 }
             }
 
-            // was recently requested?  could still be bufferred up for storage
+            // was recently requested?  could still be buffered up for storage
             if let Some(fetched_ts) = self.requested_microblocks.get(index_hash) {
                 if get_epoch_time_secs() < fetched_ts + BLOCK_REREQUEST_INTERVAL {
                     return true;
@@ -885,7 +885,7 @@ impl BlockDownloader {
                 }
             }
 
-            // was recently requested?  could still be bufferred up for storage
+            // was recently requested?  could still be buffered up for storage
             if let Some(fetched_ts) = self.requested_blocks.get(index_hash) {
                 if get_epoch_time_secs() < fetched_ts + BLOCK_REREQUEST_INTERVAL {
                     return true;

@@ -3420,14 +3420,14 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_get_blocks_and_microblocks_2_peers_bufferred_messages() {
+    fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
         with_timeout(600, move || {
             let sortitions = RefCell::new(vec![]);
             let blocks_and_microblocks = RefCell::new(vec![]);
             let idx = RefCell::new(0usize);
             let pushed_idx = RefCell::new(0usize);
             run_get_blocks_and_microblocks(
-                "test_get_blocks_and_microblocks_2_peers_bufferred_messages",
+                "test_get_blocks_and_microblocks_2_peers_buffered_messages",
                 4242,
                 2,
                 |ref mut peer_configs| {

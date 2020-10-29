@@ -288,7 +288,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         Ok(())
     }
 
-    /// Walk through the bufferred TrieNodes and dump them to f.
+    /// Walk through the buffered TrieNodes and dump them to f.
     fn dump_traverse<F: Write + Seek>(
         &mut self,
         f: &mut F,
@@ -918,7 +918,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     fn inner_flush(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
-        // save the currently-bufferred Trie to disk, and atomically put it into place (possibly to
+        // save the currently-buffered Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.
         // Panics on a failure to rename the Trie file into place (i.e. if the the actual commitment
@@ -1588,7 +1588,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             }
         }
 
-        panic!("Tried to write to another Trie besides the currently-bufferred one.  This should never happen -- only flush() can write to disk!");
+        panic!("Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!");
     }
 
     pub fn write_node<N: TrieNode + std::fmt::Debug>(

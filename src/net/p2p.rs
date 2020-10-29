@@ -3140,7 +3140,7 @@ impl PeerNetwork {
             // at most 1 BlocksAvailable
             // at most 1 MicroblocksAvailable
             // at most 1 BlocksData
-            // at most $self.connection_opts.max_bufferred_microblocks MicroblocksDatas
+            // at most $self.connection_opts.max_buffered_microblocks MicroblocksDatas
             let mut blocks_available = 0;
             let mut microblocks_available = 0;
             let mut blocks_data = 0;
@@ -3164,32 +3164,32 @@ impl PeerNetwork {
             }
 
             if let StacksMessageType::BlocksAvailable(_) = &msg.payload {
-                if blocks_available >= self.connection_opts.max_bufferred_blocks_available {
-                    debug!("{:?}: Drop BlocksAvailable from event {} -- already have {} bufferred", &self.local_peer, event_id, blocks_available);
+                if blocks_available >= self.connection_opts.max_buffered_blocks_available {
+                    debug!("{:?}: Drop BlocksAvailable from event {} -- already have {} buffered", &self.local_peer, event_id, blocks_available);
                     return;
                 }
             }
             if let StacksMessageType::MicroblocksAvailable(_) = &msg.payload {
-                if microblocks_available >= self.connection_opts.max_bufferred_microblocks_available {
-                    debug!("{:?}: Drop MicroblocksAvailable from event {} -- already have {} bufferred", &self.local_peer, event_id, microblocks_available);
+                if microblocks_available >= self.connection_opts.max_buffered_microblocks_available {
+                    debug!("{:?}: Drop MicroblocksAvailable from event {} -- already have {} buffered", &self.local_peer, event_id, microblocks_available);
                     return;
                 }
             }
             if let StacksMessageType::Blocks(_) = &msg.payload {
-                if blocks_data >= self.connection_opts.max_bufferred_blocks {
-                    debug!("{:?}: Drop BlocksData from event {} -- already have {} bufferred", &self.local_peer, event_id, blocks_data);
+                if blocks_data >= self.connection_opts.max_buffered_blocks {
+                    debug!("{:?}: Drop BlocksData from event {} -- already have {} buffered", &self.local_peer, event_id, blocks_data);
                     return;
                 }
             }
             if let StacksMessageType::Microblocks(_) = &msg.payload {
-                if microblocks_data >= self.connection_opts.max_bufferred_microblocks {
-                    debug!("{:?}: Drop MicroblocksData from event {} -- already have {} bufferred", &self.local_peer, event_id, microblocks_data);
+                if microblocks_data >= self.connection_opts.max_buffered_microblocks {
+                    debug!("{:?}: Drop MicroblocksData from event {} -- already have {} buffered", &self.local_peer, event_id, microblocks_data);
                     return;
                 }
             }
             msgs.push(msg);
             debug!(
-                "{:?}: Event {} has {} messages bufferred",
+                "{:?}: Event {} has {} messages buffered",
                 &self.local_peer,
                 event_id,
                 msgs.len()
@@ -3197,7 +3197,7 @@ impl PeerNetwork {
         } else {
             self.pending_messages.insert(event_id, vec![msg]);
             debug!(
-                "{:?}: Event {} has 1 messages bufferred",
+                "{:?}: Event {} has 1 messages buffered",
                 &self.local_peer, event_id
             );
         }
@@ -3811,9 +3811,9 @@ impl PeerNetwork {
             self.chain_view = new_chain_view;
 
             // try processing previously-buffered messages (best-effort)
-            let bufferred_messages = mem::replace(&mut self.pending_messages, HashMap::new());
+            let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
             ret =
-                self.handle_unsolicited_messages(sortdb, chainstate, bufferred_messages, false)?;
+                self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, false)?;
         }
         Ok(ret)
     }
@@ -3841,8 +3841,8 @@ impl PeerNetwork {
         self.refresh_local_peer()?;
 
         // update burnchain view
-        let unsolicited_bufferred_messages = self.refresh_burnchain_view(sortdb, chainstate)?;
-        network_result.consume_unsolicited(unsolicited_bufferred_messages);
+        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate)?;
+        network_result.consume_unsolicited(unsolicited_buffered_messages);
 
         // update PoX view
         self.refresh_sortition_view(sortdb)?;

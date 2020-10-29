@@ -151,7 +151,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     }
 
     /// Try to flush and receive.
-    /// Only call this once all sender data is bufferred up.
+    /// Only call this once all sender data is buffered up.
     /// Consumed the handle if it succeeds in both emptying the message buffer and getting a message.
     /// Returns itself if it still has data to flush, or if it's still waiting for a reply.
     pub fn try_send_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
@@ -162,7 +162,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                         // flushed all data; try to receive a reply.
                         self.try_recv()
                     } else {
-                        // still have bufferred data
+                        // still have buffered data
                         Err(Ok(self))
                     }
                 }
@@ -361,10 +361,10 @@ pub struct ConnectionOptions {
     pub max_block_push: u64,
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
-    pub max_bufferred_blocks_available: u64,
-    pub max_bufferred_microblocks_available: u64,
-    pub max_bufferred_blocks: u64,
-    pub max_bufferred_microblocks: u64,
+    pub max_buffered_blocks_available: u64,
+    pub max_buffered_microblocks_available: u64,
+    pub max_buffered_blocks: u64,
+    pub max_buffered_microblocks: u64,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -436,10 +436,10 @@ impl std::default::Default for ConnectionOptions {
             max_block_push: 10, // maximum number of blocksData messages to push out via our anti-entropy protocol
             max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entrop protocol
             antientropy_retry: 3600 * 24, // retry pushing data only once every day
-            max_bufferred_blocks_available: 1,
-            max_bufferred_microblocks_available: 1,
-            max_bufferred_blocks: 1,
-            max_bufferred_microblocks: 10,
+            max_buffered_blocks_available: 1,
+            max_buffered_microblocks_available: 1,
+            max_buffered_blocks: 1,
+            max_buffered_microblocks: 10,
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -575,9 +575,9 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     /// buffer up bytes for a message
     fn buffer_message_bytes(&mut self, bytes: &[u8], message_len_opt: Option<usize>) -> usize {
         let message_len = message_len_opt.unwrap_or(MAX_MESSAGE_LEN as usize);
-        let bufferred_so_far = self.buf[self.message_ptr..].len();
+        let buffered_so_far = self.buf[self.message_ptr..].len();
         let mut to_consume = bytes.len();
-        let total_avail: u128 = (bufferred_so_far as u128) + (to_consume as u128); // can't overflow
+        let total_avail: u128 = (buffered_so_far as u128) + (to_consume as u128); // can't overflow
         if total_avail > message_len as u128 {
             trace!(
                 "self.message_ptr = {}, message_len = {}, to_consume = {}",
@@ -586,8 +586,8 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 to_consume
             );
 
-            to_consume = if message_len > bufferred_so_far {
-                message_len - bufferred_so_far
+            to_consume = if message_len > buffered_so_far {
+                message_len - buffered_so_far
             } else {
                 // can happen if we receive so much data when parsing the preamble that we've
                 // also already received the message, and part of the next preamble (or more).
@@ -659,7 +659,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         }
     }
 
-    /// Try to consume bufferred data to form a message, where we don't know how long the message
+    /// Try to consume buffered data to form a message, where we don't know how long the message
     /// is.  Stream it into the protocol, and see what the protocol spits out.
     fn consume_payload_unknown_length(
         &mut self,
@@ -705,7 +705,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             None => {
                 // not enough data
                 test_debug!(
-                    "Got preamble {:?}, but no streamed message (bufferred {} bytes)",
+                    "Got preamble {:?}, but no streamed message (buffered {} bytes)",
                     &preamble,
                     bytes_consumed
                 );
@@ -715,7 +715,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         Ok(ret)
     }
 
-    /// Try to consume bufferred data to form a message.
+    /// Try to consume buffered data to form a message.
     /// This method may consume enough data to form multiple messages; in that case, this will
     /// return the first such message.  Call this repeatedly with an empty bytes array to get all
     /// messages.
@@ -825,7 +825,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     self.preamble = preamble_opt;
                     if self.preamble.is_some() {
                         test_debug!(
-                            "Consumed bufferred message preamble in {} bytes",
+                            "Consumed buffered message preamble in {} bytes",
                             _bytes_consumed
                         );
                     }
@@ -839,7 +839,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                         match message_opt {
                             Some(message) => {
                                 // queue up
-                                test_debug!("Consumed bufferred message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
+                                test_debug!("Consumed buffered message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
                                 self.inbox.push_back(message);
                                 consumed_message = true;
                             }
@@ -1815,7 +1815,7 @@ mod test {
         // 4 messages queued
         assert_eq!(conn.outbox.outbox.len(), 4);
 
-        // 1 message serialized and bufferred out, and it should be our ping.
+        // 1 message serialized and buffered out, and it should be our ping.
         assert_eq!(
             StacksMessage::consensus_deserialize(&mut io::Cursor::new(
                 &write_buf.get_ref().to_vec()
