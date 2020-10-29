@@ -261,15 +261,7 @@ impl LeaderBlockCommitOp {
             (vec![address], 0, amount)
         } else {
             // check if this transaction provided a sunset burn
-            let sunset_burn = if let Some(sunset_burn_output) = outputs.get(OUTPUTS_PER_COMMIT) {
-                if sunset_burn_output.address.is_burn() {
-                    sunset_burn_output.amount
-                } else {
-                    0
-                }
-            } else {
-                0
-            };
+            let sunset_burn = tx.get_burn_amount();
 
             let mut commit_outs = vec![];
             let mut pox_fee = None;
@@ -698,6 +690,7 @@ mod tests {
     #[test]
     fn test_parse_sunset_end() {
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -751,6 +744,7 @@ mod tests {
         });
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -805,6 +799,7 @@ mod tests {
     #[test]
     fn test_parse_pox_commits() {
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 30,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -858,6 +853,7 @@ mod tests {
         assert_eq!(op.sunset_burn, 30);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -902,6 +898,7 @@ mod tests {
         };
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -971,6 +968,7 @@ mod tests {
         assert_eq!(op.sunset_burn, 0);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -1005,6 +1003,7 @@ mod tests {
         };
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
@@ -1049,6 +1048,7 @@ mod tests {
         };
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,

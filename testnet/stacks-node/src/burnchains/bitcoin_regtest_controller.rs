@@ -574,8 +574,14 @@ impl BitcoinRegtestController {
             buffer
         };
 
+        let sunset_burn = if payload.sunset_burn > 0 {
+            cmp::max(payload.sunset_burn, DUST_UTXO_LIMIT)
+        } else {
+            0
+        };
+
         let consensus_output = TxOut {
-            value: 0,
+            value: sunset_burn,
             script_pubkey: Builder::new()
                 .push_opcode(opcodes::All::OP_RETURN)
                 .push_slice(&op_bytes)
@@ -593,15 +599,6 @@ impl BitcoinRegtestController {
             tx.output
                 .push(commit_to.to_bitcoin_tx_out(value_per_transfer));
         }
-
-        let sunset_burn = if payload.sunset_burn > 0 {
-            let burn_amt = cmp::max(payload.sunset_burn, DUST_UTXO_LIMIT);
-            tx.output
-                .push(StacksAddress::burn_address(false).to_bitcoin_tx_out(burn_amt));
-            burn_amt
-        } else {
-            0
-        };
 
         self.finalize_tx(
             &mut tx,
