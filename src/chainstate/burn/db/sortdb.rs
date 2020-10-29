@@ -478,6 +478,22 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
+    CREATE TABLE stack_stx (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+        sortition_id TEXT NOT NULL,
+
+        sender_addr TEXT NOT NULL,
+        reward_addr TEXT NOT NULL,
+        stacked_ustx TEXT NOT NULL,
+        num_cycles INTEGER NOT NULL,
+
+        PRIMARY KEY(txid,sortition_id),
+        FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
+    );"#,
+    r#"
     CREATE TABLE canonical_accepted_stacks_blocks(
         tip_consensus_hash TEXT NOT NULL,
         consensus_hash TEXT NOT NULL,

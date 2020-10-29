@@ -212,12 +212,37 @@ pub fn setup_states(
     let block_limit = ExecutionCost::max_value();
 
     for path in paths.iter() {
+        let burnchain = get_burnchain(path, pox_consts.clone());
+
         let (chain_state_db, _) = StacksChainState::open_and_exec(
             false,
             0x80000000,
             &format!("{}/chainstate/", path),
             initial_balances.clone(),
-            |_| {},
+            |clarity_tx| {
+                let contract = QualifiedContractIdentifier::parse(&format!(
+                    "{}.pox",
+                    STACKS_BOOT_CODE_CONTRACT_ADDRESS_STR
+                ))
+                .expect("Failed to construct boot code contract address");
+                let sender = PrincipalData::from(contract.clone());
+
+                clarity_tx.connection().as_transaction(|conn| {
+                    conn.run_contract_call(
+                        &sender,
+                        &contract,
+                        "set-burnchain-parameters",
+                        &[
+                            Value::UInt(burnchain.first_block_height as u128),
+                            Value::UInt(burnchain.pox_constants.prepare_length as u128),
+                            Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
+                            Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
+                        ],
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX contract");
+                });
+            },
             block_limit.clone(),
         )
         .unwrap();
@@ -1254,10 +1279,22 @@ fn test_pox_btc_ops() {
     let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 10, sunset_ht));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
-    let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::new()).collect();
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path], &vrf_keys, &committers, pox_consts.clone(), None);
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let rewards = p2pkh_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+    );
 
     let mut coord = make_coordinator(path);
 
@@ -1282,21 +1319,12 @@ fn test_pox_btc_ops() {
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
     let mut anchor_blocks = vec![];
 
-    // split up the vrf keys and committers so that we have some that will be mining "correctly"
-    //   and some that will be producing bad outputs
-
-    let WRONG_OUTS_OFFSET = 100;
-    let vrf_key_wrong_outs = vrf_keys.split_off(WRONG_OUTS_OFFSET);
-    let miner_wrong_outs = committers.split_off(WRONG_OUTS_OFFSET);
-
     // track the reward set consumption
+    let mut reward_cycle_count = 0;
     let mut reward_recipients = HashSet::new();
     for ix in 0..vrf_keys.len() {
         let vrf_key = &vrf_keys[ix];
         let miner = &committers[ix];
-
-        let vrf_wrong_out = &vrf_key_wrong_outs[ix];
-        let miner_wrong_out = &miner_wrong_outs[ix];
 
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
@@ -1320,8 +1348,9 @@ fn test_pox_btc_ops() {
         if reward_cycle_info.is_some() {
             // did we process a reward set last cycle? check if the
             //  recipient set size matches our expectation
-            if started_first_reward_cycle {
-                assert_eq!(reward_recipients.len(), 0);
+            reward_cycle_count += 1;
+            if reward_cycle_count > 2 && reward_cycle_count < 6 {
+                assert_eq!(reward_recipients.len(), 1);
             }
             // clear the reward recipients tracker, since those
             //  recipients are now eligible again in the new reward cycle
@@ -1336,20 +1365,10 @@ fn test_pox_btc_ops() {
 
         if let Some(ref next_block_recipients) = next_block_recipients {
             for (addr, _) in next_block_recipients.recipients.iter() {
-                if !addr.is_burn() {
-                    assert!(
-                        !reward_recipients.contains(addr),
-                        "Reward set should not already contain address {}",
-                        addr
-                    );
-                }
                 eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
                 reward_recipients.insert(addr.clone());
             }
         }
-
-        let sunset_burn = burnchain_conf.expected_sunset_burn(next_mock_header.block_height, 10000);
-        let rest_commit = 10000 - sunset_burn;
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
@@ -1363,37 +1382,75 @@ fn test_pox_btc_ops() {
                 next_block_recipients.as_ref(),
             )
         } else {
-            make_stacks_block_with_recipients_and_sunset_burn(
+            make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
                 &parent,
                 miner,
-                rest_commit,
+                1000,
                 vrf_key,
                 ix as u32,
                 next_block_recipients.as_ref(),
-                sunset_burn + (rand::random::<u8>() as u64),
-                next_mock_header.block_height >= sunset_ht,
             )
         };
 
         let expected_winner = good_op.txid();
         let mut ops = vec![good_op];
 
-        if sunset_burn > 0 {
-            let (bad_outs_op, _) = make_stacks_block_with_recipients_and_sunset_burn(
-                &sort_db,
-                &mut chainstate,
-                &parent,
-                miner,
-                10000,
-                vrf_wrong_out,
-                (ix + WRONG_OUTS_OFFSET) as u32,
-                next_block_recipients.as_ref(),
-                sunset_burn - 1,
-                false,
+        if ix == 0 {
+            // add a pre-stack-stx op
+            ops.push(BlockstackOperationType::PreStackStx(PreStackStxOp {
+                output: stacker.clone(),
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 1 {
+            ops.push(BlockstackOperationType::StackStx(StackStxOp {
+                sender: stacker.clone(),
+                reward_addr: rewards.clone(),
+                stacked_ustx: stacked_amt,
+                num_cycles: 4,
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        }
+
+        // check our locked balance
+        if ix > 0 {
+            let stacks_tip =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+            let mut chainstate = get_chainstate(path);
+            let (stacker_balance, burn_height) = chainstate.with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| {
+                    conn.with_clarity_db_readonly(|db| {
+                        (
+                            db.get_account_stx_balance(&stacker.clone().into()),
+                            db.get_current_block_height(),
+                        )
+                    })
+                },
             );
-            ops.push(bad_outs_op);
+
+            if ix > 2 && reward_cycle_count < 6 {
+                assert_eq!(
+                    stacker_balance.amount_unlocked,
+                    (balance as u128) - stacked_amt,
+                    "Lock should be active"
+                );
+                assert_eq!(stacker_balance.amount_locked, stacked_amt);
+            } else {
+                assert_eq!(
+                    stacker_balance.get_available_balance_at_block(burn_height as u64),
+                    balance as u128,
+                    "No lock should be active"
+                );
+            }
         }
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
@@ -1454,15 +1511,15 @@ fn test_pox_btc_ops() {
                 )
                 .unwrap()
         ),
-        Value::UInt(100)
+        Value::UInt(50)
     );
 
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
-                   "111111111111111111111",
-                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+                   "11111111111",
+                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
 
@@ -1577,7 +1634,6 @@ fn test_sortition_with_sunset() {
                         addr
                     );
                 }
-                eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
                 reward_recipients.insert(addr.clone());
             }
         }

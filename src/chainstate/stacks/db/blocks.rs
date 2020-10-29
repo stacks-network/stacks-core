@@ -3742,11 +3742,11 @@ impl StacksChainState {
                     "stack-stx",
                     &[
                         Value::UInt(stacked_ustx),
-                        StandardPrincipalData::from(reward_addr).into(),
+                        reward_addr.as_clarity_tuple().into(),
                         Value::UInt(u128::from(block_height)),
                         Value::UInt(u128::from(num_cycles)),
                     ],
-                    |_, _| true,
+                    |_, _| false,
                 )
             });
             match result {

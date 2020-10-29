@@ -646,8 +646,8 @@ impl<'a> ClarityDatabase<'a> {
             .unwrap_or(0)
     }
 
-    pub fn set_stx_btc_ops_processed(&mut self, next_to_process: u64) {
-        self.put("vm_pox::stx_btc_ops::processed_blocks", &next_to_process);
+    pub fn set_stx_btc_ops_processed(&mut self, processed: u64) {
+        self.put("vm_pox::stx_btc_ops::processed_blocks", &processed);
     }
 }
 
@@ -1105,6 +1105,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
+        debug!("Fetching account balance"; "principal" => %principal.to_string());
         let result = self.get(&key);
         match result {
             None => STXBalance::zero(),

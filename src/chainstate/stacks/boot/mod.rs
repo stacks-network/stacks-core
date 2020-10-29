@@ -86,6 +86,19 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
     )
 }
 
+impl StacksAddress {
+    pub fn as_clarity_tuple(&self) -> TupleData {
+        let version = Value::buff_from_byte(AddressHashMode::from_version(self.version) as u8);
+        let hashbytes = Value::buff_from(Vec::from(self.bytes.0.clone()))
+            .expect("BUG: hash160 bytes do not fit in Clarity Value");
+        TupleData::from_data(vec![
+            ("version".into(), version),
+            ("hashbytes".into(), hashbytes),
+        ])
+        .expect("BUG: StacksAddress byte representation does not fit in Clarity Value")
+    }
+}
+
 /// Extract a PoX address from its tuple representation
 fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
     let version_value = tuple_data
