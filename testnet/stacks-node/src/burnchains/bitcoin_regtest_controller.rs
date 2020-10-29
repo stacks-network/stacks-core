@@ -10,6 +10,8 @@ use http_types::{Method, Request, Url};
 use serde::Serialize;
 use serde_json::value::RawValue;
 
+use std::cmp;
+
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
@@ -29,10 +31,10 @@ use stacks::burnchains::PoxConstants;
 use stacks::burnchains::PublicKey;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    leader_block_commit::OUTPUTS_PER_COMMIT, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::StacksAddress;
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
 use stacks::deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
@@ -572,8 +574,14 @@ impl BitcoinRegtestController {
             buffer
         };
 
+        let sunset_burn = if payload.sunset_burn > 0 {
+            cmp::max(payload.sunset_burn, DUST_UTXO_LIMIT)
+        } else {
+            0
+        };
+
         let consensus_output = TxOut {
-            value: 0,
+            value: sunset_burn,
             script_pubkey: Builder::new()
                 .push_opcode(opcodes::All::OP_RETURN)
                 .push_slice(&op_bytes)
@@ -582,17 +590,8 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
-        if OUTPUTS_PER_COMMIT < payload.commit_outs.len() {
-            error!("Generated block commit with more commit outputs than OUTPUTS_PER_COMMIT");
-            return None;
-        }
-
-        if OUTPUTS_PER_COMMIT != payload.commit_outs.len() {
-            error!("Generated block commit with wrong OUTPUTS_PER_COMMIT");
-            return None;
-        }
-        let value_per_transfer = payload.burn_fee / (OUTPUTS_PER_COMMIT as u64);
-        if value_per_transfer < 5500 {
+        let value_per_transfer = payload.burn_fee / (payload.commit_outs.len() as u64);
+        if value_per_transfer < DUST_UTXO_LIMIT {
             error!("Total burn fee not enough for number of outputs");
             return None;
         }
@@ -601,7 +600,13 @@ impl BitcoinRegtestController {
                 .push(commit_to.to_bitcoin_tx_out(value_per_transfer));
         }
 
-        self.finalize_tx(&mut tx, payload.burn_fee, utxos, signer, attempt)?;
+        self.finalize_tx(
+            &mut tx,
+            payload.burn_fee + sunset_burn,
+            utxos,
+            signer,
+            attempt,
+        )?;
 
         increment_btc_ops_sent_counter();
 

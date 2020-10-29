@@ -771,7 +771,7 @@ fn pox_integration_test() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut burnchain_config = btc_regtest_controller.get_burnchain();
-    let pox_constants = PoxConstants::new(10, 5, 4, 5, 15);
+    let pox_constants = PoxConstants::new(10, 5, 4, 5, 15, 239, 250);
     burnchain_config.pox_constants = pox_constants;
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -845,7 +845,7 @@ fn pox_integration_test() {
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
-            Value::UInt(3),
+            Value::UInt(6),
         ],
     );
 
@@ -903,7 +903,7 @@ fn pox_integration_test() {
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
-            Value::UInt(3),
+            Value::UInt(6),
         ],
     );
 
@@ -946,7 +946,7 @@ fn pox_integration_test() {
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
-            Value::UInt(3),
+            Value::UInt(6),
         ],
     );
 
@@ -991,6 +991,7 @@ fn pox_integration_test() {
         "Should have received no outputs during PoX reward cycle"
     );
 
+    // before sunset
     // mine until the end of the next reward cycle,
     //   the participation threshold now should be met.
     while sort_height < 239 {
@@ -1021,7 +1022,73 @@ fn pox_integration_test() {
         "Should have received three outputs during PoX reward cycle"
     );
 
-    // okay, the threshold for participation should be
+    // get the canonical chain tip
+    let path = format!("{}/v2/info", &http_origin);
+    let tip_info = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPeerInfoData>()
+        .unwrap();
+
+    assert_eq!(tip_info.stacks_tip_height, 36);
+
+    // now let's mine into the sunset
+    while sort_height < 249 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    // get the canonical chain tip
+    let path = format!("{}/v2/info", &http_origin);
+    let tip_info = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPeerInfoData>()
+        .unwrap();
+
+    assert_eq!(tip_info.stacks_tip_height, 46);
+
+    let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
+
+    // should receive more rewards during this cycle...
+    eprintln!("Got UTXOs: {}", utxos.len());
+    assert_eq!(
+        utxos.len(),
+        14,
+        "Should have received more outputs during the sunsetting PoX reward cycle"
+    );
+
+    // and after sunset
+    while sort_height < 259 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
+
+    // should *not* receive more rewards during the after sunset cycle...
+    eprintln!("Got UTXOs: {}", utxos.len());
+    assert_eq!(
+        utxos.len(),
+        14,
+        "Should have received no more outputs after sunset PoX reward cycle"
+    );
+
+    // should have progressed the chain, though!
+    // get the canonical chain tip
+    let path = format!("{}/v2/info", &http_origin);
+    let tip_info = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPeerInfoData>()
+        .unwrap();
+
+    assert_eq!(tip_info.stacks_tip_height, 56);
 
     channel.stop_chains_coordinator();
 }

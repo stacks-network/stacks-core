@@ -21,8 +21,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 
 use chainstate::burn::operations::{
-    BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 
 use util::db::DBConn;
@@ -227,16 +226,14 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
     }
 }
 
-impl BlockstackOperation for LeaderKeyRegisterOp {
-    fn from_tx(
+impl LeaderKeyRegisterOp {
+    pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderKeyRegisterOp, op_error> {
         LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
-}
 
-impl LeaderKeyRegisterOp {
     pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
         /////////////////////////////////////////////////////////////////
         // Keys must be unique -- no one can register the same key twice
@@ -294,8 +291,7 @@ pub mod tests {
     use util::log;
 
     use chainstate::burn::operations::{
-        BlockstackOperation, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-        UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
 
     pub struct OpFixture {

@@ -182,6 +182,8 @@ pub struct BitcoinTransaction {
     pub vtxindex: u32,
     pub opcode: u8,
     pub data: Vec<u8>,
+    /// how much BTC was sent to the data output
+    pub data_amt: u64,
     pub inputs: Vec<BitcoinTxInput>,
     pub outputs: Vec<BitcoinTxOutput>,
 }

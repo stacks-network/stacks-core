@@ -490,7 +490,6 @@ Due to the costs of remaining vigilent, this proposal recomments _R = 0.25_.
 At the time of this writing, this is higher than any single STX allocation, but
 not so high that large-scale cooperation is needed to stop a mining cartel.
 
-
 # Bitcoin Wire Formats
 
 Supporting PoX in the Stacks blockchain requires modifications to the
@@ -521,3 +520,16 @@ the second through nth outputs:
        block commit transaction must burn BTC by including (M-N) burn outputs.
 2. Otherwise, the second through (M+1)th output must be burn addresses, and the amount burned by
    these outputs will be counted as the amount committed to by the block commit.
+
+In addition, during the sunset phase (i.e., between the 100,000th and 500,000th burn block in the chain),
+the miner must include a _sunset burn_ output. This is an M+1 indexed output that includes the burn amount
+required to fulfill the sunset burn ratio, and must be sent to the burn address:
+
+```
+sunset_burn_amount = (total_block_commit_amount) * (reward_cycle_start_height - 100,000) / (400,000)
+```
+
+Where `total_block_commit_amount` is equal to the sum of outputs [1, M+1].
+
+After the sunset phase _ends_ (i.e., blocks >= 500,000th burn block), block commits are _only_ burns, with
+a single burn output at index 1.

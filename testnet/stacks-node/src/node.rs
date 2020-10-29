@@ -696,6 +696,7 @@ impl Node {
         let commit_outs = RewardSetInfo::into_commit_outs(None, false);
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash,
             burn_fee,
             input: self.keychain.get_burnchain_signer(),

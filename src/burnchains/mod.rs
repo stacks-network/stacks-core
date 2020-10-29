@@ -20,12 +20,12 @@ pub mod burnchain;
 pub mod db;
 pub mod indexer;
 
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::default::Default;
 use std::error;
 use std::fmt;
 use std::io;
-
-use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use self::bitcoin::Error as btc_error;
@@ -238,6 +238,12 @@ impl BurnchainTransaction {
                 .collect(),
         }
     }
+
+    pub fn get_burn_amount(&self) -> u64 {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.data_amt,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -284,6 +290,10 @@ pub struct PoxConstants {
     /// percentage of liquid STX that must participate for PoX
     ///  to occur
     pub pox_participation_threshold_pct: u64,
+    /// last+1 block height of sunset phase
+    pub sunset_end: u64,
+    /// first block height of sunset phase
+    pub sunset_start: u64,
     _shadow: PhantomData<()>,
 }
 
@@ -294,8 +304,12 @@ impl PoxConstants {
         anchor_threshold: u32,
         pox_rejection_fraction: u64,
         pox_participation_threshold_pct: u64,
+        sunset_start: u64,
+        sunset_end: u64,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
+
+        assert!(sunset_start <= sunset_end);
 
         PoxConstants {
             reward_cycle_length,
@@ -303,12 +317,14 @@ impl PoxConstants {
             anchor_threshold,
             pox_rejection_fraction,
             pox_participation_threshold_pct,
+            sunset_start,
+            sunset_end,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        PoxConstants::new(10, 5, 3, 25, 5)
+        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000)
     }
 
     pub fn reward_slots(&self) -> u32 {
@@ -326,11 +342,27 @@ impl PoxConstants {
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(1000, 240, 192, 25, 5)
+        PoxConstants::new(
+            POX_REWARD_CYCLE_LENGTH,
+            POX_PREPARE_WINDOW_LENGTH,
+            192,
+            25,
+            5,
+            POX_SUNSET_START,
+            POX_SUNSET_END,
+        )
     }
 
     pub fn testnet_default() -> PoxConstants {
-        PoxConstants::new(120, 30, 20, 3333333333333333, 5) // total liquid supply is 40000000000000000 µSTX
+        PoxConstants::new(
+            120,
+            30,
+            20,
+            3333333333333333,
+            5,
+            POX_SUNSET_START,
+            POX_SUNSET_END,
+        ) // total liquid supply is 40000000000000000 µSTX
     }
 }
 
