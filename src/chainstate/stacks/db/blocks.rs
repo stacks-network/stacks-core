@@ -3721,7 +3721,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         operations: Vec<StackStxOp>,
         processed_total: u64,
-    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+    ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
         let mut cost_so_far = clarity_tx.cost_so_far();
         for stack_stx_op in operations.into_iter() {
@@ -3800,7 +3800,7 @@ impl StacksChainState {
             })
             .expect("BUG: failed to set stx burn ops proceessed");
 
-        Ok(all_receipts)
+        all_receipts
     }
 
     /// Process a single anchored block.
@@ -4029,21 +4029,11 @@ impl StacksChainState {
                    "microblock_parent_count" => %microblocks.len());
 
             // process stacking operations from bitcoin ops
-            let mut receipts = match StacksChainState::process_stacking_ops(
+            let mut receipts = StacksChainState::process_stacking_ops(
                 &mut clarity_tx,
                 stacking_burn_ops,
                 processed_total,
-            ) {
-                Err(e) => {
-                    let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
-                    warn!("Invalid stacks block";
-                          "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
-                          "cause" => %format!("{:?}", e));
-                    clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock(msg));
-                }
-                Ok(x) => x,
-            };
+            );
 
             // process anchored block
             let (block_fees, block_burns, txs_receipts) =

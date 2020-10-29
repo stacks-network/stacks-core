@@ -483,15 +483,13 @@ const BURNDB_SETUP: &'static [&'static str] = &[
         vtxindex INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
-        sortition_id TEXT NOT NULL,
 
         sender_addr TEXT NOT NULL,
         reward_addr TEXT NOT NULL,
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
 
-        PRIMARY KEY(txid,sortition_id),
-        FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
+        PRIMARY KEY(txid)
     );"#,
     r#"
     CREATE TABLE canonical_accepted_stacks_blocks(
@@ -3191,7 +3189,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "ACCEPTED({}) stack stx opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_stack_stx(op, sort_id)
+                self.insert_stack_stx(op)
             }
             BlockstackOperationType::PreStackStx(ref op) => {
                 info!(
@@ -3232,8 +3230,8 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
-    /// Insert a pre-stack-stx op
-    fn insert_stack_stx(&mut self, op: &StackStxOp, sort_id: &SortitionId) -> Result<(), db_error> {
+    /// Insert a stack-stx op
+    fn insert_stack_stx(&mut self, op: &StackStxOp) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
             &op.vtxindex,
@@ -3243,10 +3241,9 @@ impl<'a> SortitionHandleTx<'a> {
             &op.reward_addr.to_string(),
             &op.stacked_ustx.to_string(),
             &op.num_cycles,
-            sort_id,
         ];
 
-        self.execute("INSERT INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }

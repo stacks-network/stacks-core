@@ -82,7 +82,7 @@ impl PreStackStxOp {
         )
     }
 
-    /// parse a LeaderBlockCommitOp
+    /// parse a PreStackStxOp
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
@@ -182,7 +182,7 @@ impl StackStxOp {
         }
 
         let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
-        let num_cycles = data[16].clone();
+        let num_cycles = data[16];
 
         Some(ParsedData {
             stacked_ustx,
@@ -224,7 +224,7 @@ impl StackStxOp {
         )
     }
 
-    /// parse a LeaderBlockCommitOp
+    /// parse a StackStxOp
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
@@ -378,6 +378,7 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::PreStackStx as u8,
             data: vec![1; 80],
+            data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
                 num_required: 0,
@@ -437,6 +438,7 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
+            data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
                 num_required: 0,

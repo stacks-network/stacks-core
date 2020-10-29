@@ -518,6 +518,7 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::PreStackStx as u8,
             data: vec![0; 80],
+            data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
                 num_required: 0,
@@ -540,6 +541,7 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
+            data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
                 num_required: 0,
@@ -562,6 +564,7 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
+            data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
                 num_required: 0,
@@ -584,6 +587,7 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
+            data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
                 num_required: 0,
@@ -606,6 +610,7 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
+            data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
                 num_required: 0,

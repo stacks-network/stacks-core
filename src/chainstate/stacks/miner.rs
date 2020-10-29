@@ -834,16 +834,7 @@ impl StacksBlockBuilder {
             parent_microblocks.len()
         );
 
-        match StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops, processed_total) {
-            Err(e) => {
-                let msg = format!("Failure processing stacking ops in miner epoch: {:?}", &e);
-                warn!("Failure processing stacking ops in miner epoch";
-                      "cause" => %format!("{:?}", e));
-                tx.rollback_block();
-                return Err(Error::InvalidStacksBlock(msg));
-            }
-            Ok(x) => x,
-        };
+        StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops, processed_total);
 
         Ok(tx)
     }
