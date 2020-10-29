@@ -308,6 +308,9 @@ pub struct PeerNetwork {
     // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
     // can't process yet, but might be able to process on the next chain view update
     pub pending_messages: HashMap<usize, Vec<StacksMessage>>,
+
+    // fault injection -- force disconnects
+    fault_last_disconnect: u64,
 }
 
 impl PeerNetwork {
@@ -409,6 +412,8 @@ impl PeerNetwork {
             antientropy_microblocks: HashMap::new(),
 
             pending_messages: HashMap::new(),
+    
+            fault_last_disconnect: 0
         }
     }
 
@@ -2121,6 +2126,18 @@ impl PeerNetwork {
         return Ok(true);
     }
 
+    /// Disconnect from all peers
+    fn disconnect_all(&mut self) -> () {
+        let mut all_event_ids = vec![];
+        for (eid, _) in self.peers.iter() {
+            all_event_ids.push(*eid);
+        }
+
+        for eid in all_event_ids.into_iter() {
+            self.deregister_peer(eid);
+        }
+    }
+
     /// Learn this peer's public IP address.
     /// If it was given to us directly, then we can just skip this step.
     /// Once learned, we'll confirm it by trying to self-connect.
@@ -2169,15 +2186,8 @@ impl PeerNetwork {
                             Some((data.addrbytes, self.bind_nk.port));
 
                         if old_ip != self.local_peer.public_ip_address {
-                            let mut all_event_ids = vec![];
-                            for (eid, _) in self.peers.iter() {
-                                all_event_ids.push(*eid);
-                            }
-
                             info!("IP address changed from {:?} to {:?}; closing all connections and re-establishing them", &old_ip, &self.local_peer.public_ip_address);
-                            for eid in all_event_ids.into_iter() {
-                                self.deregister_peer(eid);
-                            }
+                            self.disconnect_all();
                         }
                         return Ok(true);
                     }
@@ -2580,14 +2590,22 @@ impl PeerNetwork {
             neighbor_keys.push(nk.clone());
         }
 
+        debug!("{:?}: Run anti-entropy protocol for {} neighbors", &self.local_peer, &neighbor_keys.len());
+        if neighbor_keys.len() == 0 {
+            return Ok(());
+        }
+
         for reward_cycle in (0..(self.pox_id.len() as u64)).rev() {
             let local_blocks_inv = match self.get_local_blocks_inv(sortdb, chainstate, reward_cycle)
             {
                 Ok(inv) => inv,
-                Err(_e) => {
+                Err(e) => {
+                    debug!("{:?}: Failed to load local blocks inventory for reward cycle {}: {:?}", &self.local_peer, reward_cycle, &e);
                     continue;
                 }
             };
+
+            debug!("{:?}: Local blocks inventory for reward cycle {} is {:?}", &self.local_peer, reward_cycle, &local_blocks_inv);
 
             let mut blocks_to_broadcast = HashMap::new();
             let mut microblocks_to_broadcast = HashMap::new();
@@ -3118,6 +3136,57 @@ impl PeerNetwork {
     /// Buffer a message for re-processing once the burnchain view updates
     fn buffer_data_message(&mut self, event_id: usize, msg: StacksMessage) -> () {
         if let Some(msgs) = self.pending_messages.get_mut(&event_id) {
+            // check limits:
+            // at most 1 BlocksAvailable
+            // at most 1 MicroblocksAvailable
+            // at most 1 BlocksData
+            // at most $self.connection_opts.max_bufferred_microblocks MicroblocksDatas
+            let mut blocks_available = 0;
+            let mut microblocks_available = 0;
+            let mut blocks_data = 0;
+            let mut microblocks_data = 0;
+            for msg in msgs.iter() {
+                match &msg.payload {
+                    StacksMessageType::BlocksAvailable(_) => {
+                        blocks_available += 1;
+                    }
+                    StacksMessageType::MicroblocksAvailable(_) => {
+                        microblocks_available += 1;
+                    }
+                    StacksMessageType::Blocks(_) => {
+                        blocks_data += 1;
+                    }
+                    StacksMessageType::Microblocks(_) => {
+                        microblocks_data += 1;
+                    }
+                    _ => {}
+                }
+            }
+
+            if let StacksMessageType::BlocksAvailable(_) = &msg.payload {
+                if blocks_available >= self.connection_opts.max_bufferred_blocks_available {
+                    debug!("{:?}: Drop BlocksAvailable from event {} -- already have {} bufferred", &self.local_peer, event_id, blocks_available);
+                    return;
+                }
+            }
+            if let StacksMessageType::MicroblocksAvailable(_) = &msg.payload {
+                if microblocks_available >= self.connection_opts.max_bufferred_microblocks_available {
+                    debug!("{:?}: Drop MicroblocksAvailable from event {} -- already have {} bufferred", &self.local_peer, event_id, microblocks_available);
+                    return;
+                }
+            }
+            if let StacksMessageType::Blocks(_) = &msg.payload {
+                if blocks_data >= self.connection_opts.max_bufferred_blocks {
+                    debug!("{:?}: Drop BlocksData from event {} -- already have {} bufferred", &self.local_peer, event_id, blocks_data);
+                    return;
+                }
+            }
+            if let StacksMessageType::Microblocks(_) = &msg.payload {
+                if microblocks_data >= self.connection_opts.max_bufferred_microblocks {
+                    debug!("{:?}: Drop MicroblocksData from event {} -- already have {} bufferred", &self.local_peer, event_id, microblocks_data);
+                    return;
+                }
+            }
             msgs.push(msg);
             debug!(
                 "{:?}: Event {} has {} messages bufferred",
@@ -3871,6 +3940,15 @@ impl PeerNetwork {
         // finally, handle network I/O requests from other threads, and get back reply handles to them.
         // do this after processing new sockets, so we don't accidentally re-use an event ID.
         self.dispatch_requests();
+
+        // fault injection -- periodically disconnect from everyone
+        if let Some(disconnect_interval) = self.connection_opts.force_disconnect_interval {
+            if self.fault_last_disconnect + disconnect_interval < get_epoch_time_secs() {
+                debug!("{:?}: Fault injection: forcing disconnect", &self.local_peer);
+                self.disconnect_all();
+                self.fault_last_disconnect = get_epoch_time_secs();
+            }
+        }
 
         Ok(())
     }
