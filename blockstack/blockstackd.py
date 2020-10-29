@@ -24,6 +24,7 @@
 import os
 import sys
 import signal
+import pipes
 import json
 import traceback
 import time
@@ -3613,7 +3614,6 @@ def run_blockstackd():
         if not which_tools(['sqlite3']):
             print_status('Could not find sqlite3 on system path')
             sys.exit(1)
-        import pipes
         subdomain_db_path = os.path.abspath(os.path.join(working_dir, 'subdomains.db'))
         subdomain_csv_path = os.path.abspath(args.output_path) + '.subdomains.csv'
         subdomain_query_str = 'SELECT zonefile_hash, fully_qualified_subdomain, owner from subdomain_records ORDER BY owner, fully_qualified_subdomain;'
@@ -3621,9 +3621,11 @@ def run_blockstackd():
             pipes.quote(subdomain_db_path), 
             pipes.quote(subdomain_csv_path), 
             subdomain_query_str)
-        rc = os.system(cmd)
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p_res = p.communicate()
+        rc = p.returncode
         if rc != 0:
-            print_status('Subdomain sqlite data dump failed with error code {}'.format(rc))
+            print_status('Subdomain sqlite data dump failed with error {}: {}'.format(rc, p_res[1]))
             sys.exit(1)
 
         print_status("Writing subdomains csv file hash...")
@@ -3746,7 +3748,23 @@ def run_blockstackd():
                 hash_out.write(json_hash)
                 hash_out.flush()
         
-        print_status("Files exported to {}".format(os.path.abspath(args.output_path)))
+        # compress into tar.gz
+        print_status("Compressing export data into archive file...")
+        export_archive = os.path.abspath(args.output_path) + '.tar.gz'
+        if not which_tools(['tar']):
+            print_status('Could not find "tar" utility on system path')
+            sys.exit(1)
+        cmd = "tar -czSf {} -C {} .".format(
+            pipes.quote(export_archive), 
+            pipes.quote(os.path.dirname(os.path.abspath(args.output_path))))
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p_res = p.communicate()
+        rc = p.returncode
+        if rc != 0:
+            print_status('Export archive process with "tar" failed with error {}: {}'.format(rc, p_res[1]))
+            sys.exit(1)
+
+        print_status("Files exported to {}".format(export_archive))
         print "Migration data export complete"
 
     elif args.action == 'fast_sync':
