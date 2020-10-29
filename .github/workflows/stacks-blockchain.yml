@@ -44,6 +44,16 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+  
+  # Run net-tests
+  nettest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run network relay tests
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.net-tests .
 
   # rustfmt checking
   rustfmt:
