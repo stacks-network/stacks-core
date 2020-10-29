@@ -941,7 +941,7 @@ impl BlockDownloader {
                         }
                         Some(http_response) => match http_response {
                             HttpResponseType::GetAttachment(_md, response) => {
-                                println!("Receiving response from GET /v2/attachments {:?}", response);
+                                info!("Atlas: receiving response from GET /v2/attachments {:?}", response);
                                 self.attachments.insert((request_key, content_hash), response.attachment);
                             }
                             HttpResponseType::NotFound(_, _) => {
@@ -2400,7 +2400,6 @@ impl PeerNetwork {
                     },
                 ) {
                     Some((key, handle)) => {
-                        println!("Inserting {:?}", key);
                         requests.insert(key.clone(), handle);
                     }
                     None => {}
@@ -2416,7 +2415,6 @@ impl PeerNetwork {
         &mut self,
     ) -> Result<bool, net_error> {
         PeerNetwork::with_downloader_state(self, |network, downloader| {
-            println!(">>>> block_getattachmentsinv_try_finish");
             downloader.getattachmentsinv_try_finish(&mut network.http)
         })
     }
@@ -2451,8 +2449,8 @@ impl PeerNetwork {
                             };
 
                             if !has_attachment {
-                                println!("Peer does not have attachment in its inventory :(");
-                                // todo(ludo) continue;
+                                info!("Atlas: peer does not have attachment ({}, {}) in its inventory {:?}", page_index, position_in_page, attachments_inv_response.pages);
+                                continue;
                             }
 
                             let data_url = match network.get_data_url(&nk) {

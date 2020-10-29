@@ -564,7 +564,7 @@ impl ConversationHttp {
             &tip_consensus_hash,
             &tip_block_hash,
         );
-        println!("Getting /v2/attachments/inv {:?} {:?}", tip, pages_indexes);
+        info!("Getting /v2/attachments/inv {:?} {:?}", tip, pages_indexes);
 
         let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
             (*pages_indexes.first().unwrap(), *pages_indexes.last().unwrap(), pages_indexes.clone())
