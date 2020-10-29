@@ -609,6 +609,7 @@ impl Config {
                     public_ip_address: ip_addr,
                     disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
                     disable_inbound_handshakes: opts.disable_inbound_handshakes.unwrap_or(false),
+                    force_disconnect_interval: opts.force_disconnect_interval,
                     ..ConnectionOptions::default()
                 }
             }
@@ -960,6 +961,7 @@ pub struct ConnectionOptionsFile {
     pub public_ip_address: Option<String>,
     pub disable_inbound_walks: Option<bool>,
     pub disable_inbound_handshakes: Option<bool>,
+    pub force_disconnect_interval: Option<u64>
 }
 
 #[derive(Clone, Default, Deserialize)]
