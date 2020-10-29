@@ -3608,7 +3608,7 @@ def run_blockstackd():
             else:
                 print_status("Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash))
                 sys.exit(1)
-
+        
         print_status("Exporting subdomain metadata to csv...")
         if not which_tools(['sqlite3']):
             print_status('Could not find sqlite3 on system path')
@@ -3616,7 +3616,7 @@ def run_blockstackd():
         import pipes
         subdomain_db_path = os.path.abspath(os.path.join(working_dir, 'subdomains.db'))
         subdomain_csv_path = os.path.abspath(args.output_path) + '.subdomains.csv'
-        subdomain_query_str = 'SELECT fully_qualified_subdomain, owner, zonefile_hash from subdomain_records ORDER BY owner, fully_qualified_subdomain;'
+        subdomain_query_str = 'SELECT zonefile_hash, fully_qualified_subdomain, owner from subdomain_records ORDER BY owner, fully_qualified_subdomain;'
         cmd = 'sqlite3 {} -cmd ".headers on" -cmd ".mode csv" -cmd ".output {}" "{}"'.format(
             pipes.quote(subdomain_db_path), 
             pipes.quote(subdomain_csv_path), 
@@ -3635,6 +3635,34 @@ def run_blockstackd():
             print_status("Subdomain csv data sha256 hash: {}".format(file_hash))
             with open(hash_file_name, 'w') as hash_out:
                 hash_out.write(file_hash)
+                hash_out.flush()
+
+        print_status("Exporting subdomain zonefiles...")
+        if not which_tools(['awk']):
+            print_status('Could not find "awk" utility on system path')
+            sys.exit(1)
+        # Watch out, the following awk code is so fast you might miss it if you blink.
+        # Reduce 10GB disk space of zonefiles into a 300MB txt file.
+        awk_export_cmd = """awk -F, 'BEGIN {OFS=","} NR>1 {
+            save_rs = RS
+            RS = "^$"
+            file_path = "%s/" substr($1,0,2) "/" substr($1,2,2) "/" $1 ".txt"
+            getline zonefile < file_path
+            gsub(/\\n/,"/n",zonefile)
+            close(file_path)
+            print $1
+            print zonefile
+            RS = save_rs
+        }' %s""" % (os.path.abspath(os.path.join(working_dir, 'zonefiles')), pipes.quote(subdomain_csv_path))
+        subdomain_zonefile_txt_path = os.path.abspath(args.output_path) + '.subdomain_zonefiles.txt'
+        with open(subdomain_zonefile_txt_path, 'wb') as writer:
+            p = subprocess.Popen(awk_export_cmd, shell=True, stdout=writer, stderr=subprocess.PIPE)
+            p_res = p.communicate()
+            writer.flush()
+            rc = p.returncode
+            if rc != 0:
+                print_status('Subdomain zonefile export via "awk" failed with error {}: {}'.format(rc, p_res[1]))
+                sys.exit(1)
 
         print_status("Querying namespace IDs...")
         namespaces_entries = db.get_all_namespace_ids()
@@ -3704,6 +3732,7 @@ def run_blockstackd():
         json_output_path = args.output_path + '.json'
         with open(json_output_path, 'w') as json_out:
             json.dump(json_data, json_out, separators=(',', ':'), check_circular=False, ensure_ascii=False)
+            json_out.flush()
 
         # also output the sha256 hash
         print_status("Writing json file hash...")
@@ -3715,6 +3744,7 @@ def run_blockstackd():
             print_status("Migration json data sha256 hash: {}".format(json_hash))
             with open(hash_file_name, 'w') as hash_out:
                 hash_out.write(json_hash)
+                hash_out.flush()
         
         print_status("Files exported to {}".format(os.path.abspath(args.output_path)))
         print "Migration data export complete"
