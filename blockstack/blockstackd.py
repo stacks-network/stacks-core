@@ -3584,6 +3584,10 @@ def run_blockstackd():
             print "Fast-sync import does not match consensus hash!"
             sys.exit(1)
 
+        output_dir = os.path.dirname(os.path.abspath(args.output_path))
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
         if args.verify:
             db_verified = False
             print "Running database verification..."
@@ -3600,6 +3604,23 @@ def run_blockstackd():
             else:
                 print "Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash)
                 sys.exit(1)
+
+        print "Exporting subdomain metadata..."
+        if not which_tools(['sqlite3']):
+            print 'Could not find sqlite3 on system path'
+            sys.exit(1)
+        import pipes
+        subdomain_db_path = os.path.abspath(os.path.join(working_dir, 'subdomains.db'))
+        subdomain_csv_path = os.path.abspath(args.output_path) + '.subdomains.csv'
+        subdomain_query_str = 'SELECT fully_qualified_subdomain, owner, zonefile_hash from subdomain_records ORDER BY owner, fully_qualified_subdomain;'
+        cmd = 'sqlite3 {} -cmd ".headers on" -cmd ".mode csv" -cmd ".output {}" "{}"'.format(
+            pipes.quote(subdomain_db_path), 
+            pipes.quote(subdomain_csv_path), 
+            subdomain_query_str)
+        rc = os.system(cmd)
+        if rc != 0:
+            print 'Subdomain sqlite data dump failed with error code {}'.format(rc)
+            sys.exit(1)
 
         print "Querying namespace IDs..."
         namespaces_entries = db.get_all_namespace_ids()
@@ -3665,17 +3686,17 @@ def run_blockstackd():
         json_data['names'] = names
 
         # write the json output file
-        print "Writing migration data to {}".format(args.output_path)
-        with open(args.output_path, 'w') as json_out:
+        json_output_path = args.output_path + '.json'
+        print "Writing migration json data to {}".format(json_output_path)
+        with open(json_output_path, 'w') as json_out:
             json.dump(json_data, json_out, separators=(',', ':'))
 
         # also output the sha256 hash
         from hashlib import sha256
-        with open(args.output_path, 'rb') as f:
+        with open(json_output_path, 'rb') as f:
             file_bytes = f.read()
             json_hash = sha256(file_bytes).hexdigest()
-            output_path, ext = os.path.splitext(args.output_path)
-            hash_file_name = output_path + '.sha256'
+            hash_file_name = json_output_path + '.sha256'
             print "Migration data sha256 hash: {}".format(json_hash)
             with open(hash_file_name, 'w') as hash_out:
                 hash_out.write(json_hash)
