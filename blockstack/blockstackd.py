@@ -3605,7 +3605,7 @@ def run_blockstackd():
                 print "Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash)
                 sys.exit(1)
 
-        print "Exporting subdomain metadata..."
+        print "Exporting subdomain metadata to csv..."
         if not which_tools(['sqlite3']):
             print 'Could not find sqlite3 on system path'
             sys.exit(1)
@@ -3621,6 +3621,16 @@ def run_blockstackd():
         if rc != 0:
             print 'Subdomain sqlite data dump failed with error code {}'.format(rc)
             sys.exit(1)
+
+        print "Writing subdomains csv file hash..."
+        from hashlib import sha256
+        with open(subdomain_csv_path, 'rb') as f:
+            file_bytes = f.read()
+            file_hash = sha256(file_bytes).hexdigest()
+            hash_file_name = subdomain_csv_path + '.sha256'
+            print "Subdomain csv data sha256 hash: {}".format(file_hash)
+            with open(hash_file_name, 'w') as hash_out:
+                hash_out.write(file_hash)
 
         print "Querying namespace IDs..."
         namespaces_entries = db.get_all_namespace_ids()
@@ -3644,8 +3654,8 @@ def run_blockstackd():
             name['address'] = b58ToC32(str(name_info['address']))
             name['expire_block'] = name_info['expire_block']
             if 'zonefile' not in name_info or name_info['zonefile'] is None:
-                print 'missing zonefile for {}'.format(name)
-                name['zonefile'] = "__MISSING__"
+                # print 'missing zonefile for {}'.format(name)
+                name['zonefile'] = ""
             else:
                 name['zonefile'] = name_info['zonefile']
             names.append(name)
@@ -3686,22 +3696,23 @@ def run_blockstackd():
         json_data['names'] = names
 
         # write the json output file
+        print "Writing on-chain migration data to json..."
         json_output_path = args.output_path + '.json'
-        print "Writing migration json data to {}".format(json_output_path)
         with open(json_output_path, 'w') as json_out:
             json.dump(json_data, json_out, separators=(',', ':'))
 
         # also output the sha256 hash
+        print "Writing json file hash..."
         from hashlib import sha256
         with open(json_output_path, 'rb') as f:
             file_bytes = f.read()
             json_hash = sha256(file_bytes).hexdigest()
             hash_file_name = json_output_path + '.sha256'
-            print "Migration data sha256 hash: {}".format(json_hash)
+            print "Migration json data sha256 hash: {}".format(json_hash)
             with open(hash_file_name, 'w') as hash_out:
                 hash_out.write(json_hash)
-                print "Migration data sha256 hash wrote to file {}".format(hash_file_name)
-
+        
+        print "Files exported to {}".format(os.path.abspath(args.output_path))
         print "Migration data export complete"
 
     elif args.action == 'fast_sync':
