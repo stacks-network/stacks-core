@@ -361,6 +361,10 @@ pub struct ConnectionOptions {
     pub max_block_push: u64,
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
+    pub max_bufferred_blocks_available: u64,
+    pub max_bufferred_microblocks_available: u64,
+    pub max_bufferred_blocks: u64,
+    pub max_bufferred_microblocks: u64,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -375,6 +379,7 @@ pub struct ConnectionOptions {
     pub disable_inbound_walks: bool,
     pub disable_natpunch: bool,
     pub disable_inbound_handshakes: bool,
+    pub force_disconnect_interval: Option<u64>,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -431,6 +436,10 @@ impl std::default::Default for ConnectionOptions {
             max_block_push: 10, // maximum number of blocksData messages to push out via our anti-entropy protocol
             max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entrop protocol
             antientropy_retry: 3600 * 24, // retry pushing data only once every day
+            max_bufferred_blocks_available: 1,
+            max_bufferred_microblocks_available: 1,
+            max_bufferred_blocks: 1,
+            max_bufferred_microblocks: 10,
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -445,6 +454,7 @@ impl std::default::Default for ConnectionOptions {
             disable_inbound_walks: false,
             disable_natpunch: false,
             disable_inbound_handshakes: false,
+            force_disconnect_interval: None
         }
     }
 }
