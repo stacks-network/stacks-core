@@ -3559,8 +3559,12 @@ def run_blockstackd():
            sys.exit(1)
 
     elif args.action == 'export_migration_json':
+
+        def print_status(msg):
+            print "[{}] {}".format(int(round(time.time())), msg)
+
         path = str(args.path)
-        print "Importing fast-sync dump {} into {}".format(path, working_dir)
+        print_status("Importing fast-sync dump {} into {}".format(path, working_dir))
         rc = True
         rc = fast_sync_import(working_dir, path, public_keys=[], num_required=0, verbose=True, delete_file=False)
         if not rc:
@@ -3568,7 +3572,7 @@ def run_blockstackd():
            sys.exit(1)
 
         # treat this as a recovery
-        print "Running setup recovery..."
+        print_status("Running setup recovery...")
         setup_recovery(working_dir)
 
         block = int(args.block_height)
@@ -3581,7 +3585,7 @@ def run_blockstackd():
         db = get_db_state(working_dir)
         ch = db.get_consensus_at(block)
         if str(ch) != consensus_hash:
-            print "Fast-sync import does not match consensus hash!"
+            print_status("Fast-sync import does not match consensus hash!")
             sys.exit(1)
 
         output_dir = os.path.dirname(os.path.abspath(args.output_path))
@@ -3590,24 +3594,24 @@ def run_blockstackd():
 
         if args.verify:
             db_verified = False
-            print "Running database verification..."
+            print_status("Running database verification...")
             tmpdir = tempfile.mkdtemp('blockstack-verify-chainstate-XXXXXX')
             try:
                 db_verified = verify_database(consensus_hash, block, working_dir, tmpdir, start_block=FIRST_BLOCK_MAINNET)
             except Exception as e:
-                print "Exception during database verification"
+                print_status("Exception during database verification")
                 print e
                 traceback.print_exc()
             shutil.rmtree(tmpdir)
             if db_verified:
-                print "Database is consistent with %s" % args.consensus_hash
+                print_status("Database is consistent with %s" % args.consensus_hash)
             else:
-                print "Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash)
+                print_status("Database is NOT CONSISTENT with block {} and consensus hash {}".format(block, args.consensus_hash))
                 sys.exit(1)
 
-        print "Exporting subdomain metadata to csv..."
+        print_status("Exporting subdomain metadata to csv...")
         if not which_tools(['sqlite3']):
-            print 'Could not find sqlite3 on system path'
+            print_status('Could not find sqlite3 on system path')
             sys.exit(1)
         import pipes
         subdomain_db_path = os.path.abspath(os.path.join(working_dir, 'subdomains.db'))
@@ -3619,20 +3623,20 @@ def run_blockstackd():
             subdomain_query_str)
         rc = os.system(cmd)
         if rc != 0:
-            print 'Subdomain sqlite data dump failed with error code {}'.format(rc)
+            print_status('Subdomain sqlite data dump failed with error code {}'.format(rc))
             sys.exit(1)
 
-        print "Writing subdomains csv file hash..."
+        print_status("Writing subdomains csv file hash...")
         from hashlib import sha256
         with open(subdomain_csv_path, 'rb') as f:
             file_bytes = f.read()
             file_hash = sha256(file_bytes).hexdigest()
             hash_file_name = subdomain_csv_path + '.sha256'
-            print "Subdomain csv data sha256 hash: {}".format(file_hash)
+            print_status("Subdomain csv data sha256 hash: {}".format(file_hash))
             with open(hash_file_name, 'w') as hash_out:
                 hash_out.write(file_hash)
 
-        print "Querying namespace IDs..."
+        print_status("Querying namespace IDs...")
         namespaces_entries = db.get_all_namespace_ids()
         namespaces_entries.sort()
         namespaces = []
@@ -3643,7 +3647,7 @@ def run_blockstackd():
             namespace['address'] = b58ToC32(str(namespace_info['address']))
             namespaces.append(namespace)
 
-        print "Querying names..."
+        print_status("Querying names...")
         name_entries = db.get_all_names()
         name_entries.sort()
         names = []
@@ -3660,10 +3664,10 @@ def run_blockstackd():
                 name['zonefile'] = name_info['zonefile']
             names.append(name)
 
-        print "Querying account addresses..."
+        print_status("Querying account addresses...")
         addresses = db.get_all_account_addresses(from_cli=True)
         addresses.sort()
-        print "Querying account balances..."
+        print_status("Querying account balances...")
         stx_balances = []
         for addr in addresses:
             account = db.get_account(str(addr), TOKEN_TYPE_STACKS)
@@ -3676,7 +3680,7 @@ def run_blockstackd():
                         'balance': str(balance)
                     })
 
-        print "Querying account vesting addresses..."
+        print_status("Querying account vesting addresses...")
         vesting_entries = db.get_account_vesting_addresses(block)
         vesting_entries.sort()
         vesting = []
@@ -3696,23 +3700,23 @@ def run_blockstackd():
         json_data['names'] = names
 
         # write the json output file
-        print "Writing on-chain migration data to json..."
+        print_status("Writing on-chain migration data to json...")
         json_output_path = args.output_path + '.json'
         with open(json_output_path, 'w') as json_out:
-            json.dump(json_data, json_out, separators=(',', ':'))
+            json.dump(json_data, json_out, separators=(',', ':'), check_circular=False, ensure_ascii=False)
 
         # also output the sha256 hash
-        print "Writing json file hash..."
+        print_status("Writing json file hash...")
         from hashlib import sha256
         with open(json_output_path, 'rb') as f:
             file_bytes = f.read()
             json_hash = sha256(file_bytes).hexdigest()
             hash_file_name = json_output_path + '.sha256'
-            print "Migration json data sha256 hash: {}".format(json_hash)
+            print_status("Migration json data sha256 hash: {}".format(json_hash))
             with open(hash_file_name, 'w') as hash_out:
                 hash_out.write(json_hash)
         
-        print "Files exported to {}".format(os.path.abspath(args.output_path))
+        print_status("Files exported to {}".format(os.path.abspath(args.output_path)))
         print "Migration data export complete"
 
     elif args.action == 'fast_sync':
