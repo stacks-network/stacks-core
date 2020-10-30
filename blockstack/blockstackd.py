@@ -3644,11 +3644,11 @@ def run_blockstackd():
             print_status('Could not find "awk" utility on system path')
             sys.exit(1)
         # Watch out, the following awk code is so fast you might miss it if you blink.
-        # Reduce 10GB disk space of zonefiles into a 300MB txt file.
+        # Reduce 10GB disk space of zonefiles into a 400MB txt file.
         awk_export_cmd = """awk -F, 'BEGIN {OFS=","} NR>1 {
             save_rs = RS
             RS = "^$"
-            file_path = "%s/" substr($1,0,2) "/" substr($1,2,2) "/" $1 ".txt"
+            file_path = "%s/" substr($1,0,2) "/" substr($1,3,2) "/" $1 ".txt"
             getline zonefile < file_path
             gsub(/\\n/,"/n",zonefile)
             close(file_path)
