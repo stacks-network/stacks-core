@@ -66,7 +66,16 @@ mod test_observer {
 
     lazy_static! {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    }
+
+    async fn handle_burn_block(
+        burn_block: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let mut blocks = BURN_BLOCKS.lock().unwrap();
+        blocks.push(burn_block);
+        Ok(warp::http::StatusCode::OK)
     }
 
     async fn handle_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
@@ -105,8 +114,13 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mempool_txs);
+        let new_burn_blocks = warp::path!("new_burn_block")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_burn_block);
+
         info!("Spawning warp server");
-        warp::serve(new_blocks.or(mempool_txs))
+        warp::serve(new_blocks.or(mempool_txs).or(new_burn_blocks))
             .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
             .await
     }

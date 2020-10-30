@@ -631,8 +631,12 @@ impl Node {
             receipts,
         };
 
-        self.event_dispatcher
-            .process_chain_tip(&chain_tip, &parent_index_hash, Txid([0; 32]));
+        self.event_dispatcher.process_chain_tip(
+            &chain_tip,
+            &parent_index_hash,
+            Txid([0; 32]),
+            vec![],
+        );
 
         self.chain_tip = Some(chain_tip.clone());
 

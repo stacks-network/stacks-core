@@ -148,6 +148,7 @@ pub struct StacksHeaderInfo {
 pub struct StacksEpochReceipt {
     pub header: StacksHeaderInfo,
     pub tx_receipts: Vec<StacksTransactionReceipt>,
+    pub matured_rewards: Vec<MinerReward>,
     pub parent_microblocks_cost: ExecutionCost,
     pub anchored_block_cost: ExecutionCost,
 }

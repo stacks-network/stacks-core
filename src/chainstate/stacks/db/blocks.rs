@@ -3897,11 +3897,11 @@ impl StacksChainState {
 
             // grant matured miner rewards
             let new_liquid_miner_ustx =
-                if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
+                if let Some(ref mature_miner_rewards) = matured_miner_rewards_opt {
                     // grant in order by miner, then users
                     StacksChainState::process_matured_miner_rewards(
                         &mut clarity_tx,
-                        &mature_miner_rewards,
+                        mature_miner_rewards,
                     )?
                 } else {
                     0
@@ -3999,6 +3999,7 @@ impl StacksChainState {
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
             tx_receipts: txs_receipts,
+            matured_rewards: matured_miner_rewards_opt.unwrap_or_else(|| vec![]),
             parent_microblocks_cost: microblock_execution_cost,
             anchored_block_cost: block_execution_cost,
         };
