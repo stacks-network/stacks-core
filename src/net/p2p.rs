@@ -199,7 +199,7 @@ pub enum PeerNetworkWorkState {
     GetPublicIP,
     BlockInvSync,
     BlockDownload,
-    Antientropy,
+    AntiEntropy,
     Prune,
 }
 
@@ -2895,7 +2895,7 @@ impl PeerNetwork {
                                 network_result,
                             )? {
                                 // advance work state
-                                self.work_state = PeerNetworkWorkState::Antientropy;
+                                self.work_state = PeerNetworkWorkState::AntiEntropy;
                             }
                         }
                         None => {
@@ -2904,11 +2904,11 @@ impl PeerNetwork {
                                 "{:?}: no DNS client provided; skipping block download",
                                 &self.local_peer
                             );
-                            self.work_state = PeerNetworkWorkState::Antientropy;
+                            self.work_state = PeerNetworkWorkState::AntiEntropy;
                         }
                     }
                 }
-                PeerNetworkWorkState::Antientropy => {
+                PeerNetworkWorkState::AntiEntropy => {
                     match self.try_push_local_data(sortdb, chainstate) {
                         Ok(_) => {}
                         Err(e) => {
