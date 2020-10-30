@@ -21,7 +21,7 @@ use stacks::chainstate::stacks::{
     db::accounts::MinerReward, StacksAddress, StacksBlockId, StacksTransaction,
 };
 use stacks::net::StacksMessageCodec;
-use stacks::util::hash::{bytes_to_hex, to_hex};
+use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
@@ -131,7 +131,7 @@ impl EventObserver {
             .collect();
 
         json!({
-            "burn_block_hash": burn_block.to_string(),
+            "burn_block_hash": format!("0x{}", burn_block),
             "reward_recipients": serde_json::Value::Array(reward_recipients),
             "burn_amount": burns
         })
@@ -416,15 +416,17 @@ impl EventDispatcher {
         }
 
         if dispatch_matrix.len() > 0 {
-            let mature_rewards_vec = mature_rewards.iter()
-                .map(|reward|
-                     json!({
-                         "recipient": reward.address.to_string(),
-                         "coinbase_amount": format!("0x{}", to_hex(&reward.coinbase.to_be_bytes())),
-                         "tx_fees_anchored_shared": format!("0x{}", to_hex(&reward.tx_fees_anchored_shared.to_be_bytes())),
-                         "tx_fees_anchored_exclusive": format!("0x{}", to_hex(&reward.tx_fees_anchored_exclusive.to_be_bytes())),
-                         "tx_fees_streamed_confirmed": format!("0x{}", to_hex(&reward.tx_fees_streamed_confirmed.to_be_bytes()))
-                     }))
+            let mature_rewards_vec = mature_rewards
+                .iter()
+                .map(|reward| {
+                    json!({
+                        "recipient": reward.address.to_string(),
+                        "coinbase_amount": reward.coinbase.to_string(),
+                        "tx_fees_anchored_shared": reward.tx_fees_anchored_shared.to_string(),
+                        "tx_fees_anchored_exclusive": reward.tx_fees_anchored_exclusive.to_string(),
+                        "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string()
+                    })
+                })
                 .collect();
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
 

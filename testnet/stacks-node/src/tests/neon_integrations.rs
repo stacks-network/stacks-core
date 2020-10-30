@@ -105,6 +105,10 @@ mod test_observer {
         NEW_BLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_burn_blocks() -> Vec<serde_json::Value> {
+        BURN_BLOCKS.lock().unwrap().clone()
+    }
+
     async fn serve() {
         let new_blocks = warp::path!("new_block")
             .and(warp::post())
@@ -488,6 +492,20 @@ fn microblock_integration_test() {
     );
     assert_eq!(blocks_observed.len() as u64, tip_info.stacks_tip_height);
 
+    let burn_blocks_observed = test_observer::get_burn_blocks();
+    let burn_blocks_with_burns: Vec<_> = burn_blocks_observed
+        .into_iter()
+        .filter(|block| block.get("burn_amount").unwrap().as_u64().unwrap() > 0)
+        .collect();
+    assert!(
+        burn_blocks_with_burns.len() >= 3,
+        "Burn block sortitions {} should be >= 3",
+        burn_blocks_with_burns.len()
+    );
+    for burn_block in burn_blocks_with_burns {
+        eprintln!("{}", burn_block);
+    }
+
     let mut prior = None;
     for block in blocks_observed.iter() {
         let parent_index_hash = block
@@ -507,8 +525,6 @@ fn microblock_integration_test() {
         }
 
         // make sure we have a burn_block_hash, burn_block_height and miner_txid
-
-        eprintln!("{}", block);
 
         let _burn_block_hash = block.get("burn_block_hash").unwrap().as_str().unwrap();
 

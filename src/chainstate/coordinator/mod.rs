@@ -515,6 +515,10 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         for unprocessed_block in sortitions_to_process.drain(..) {
             let BurnchainBlockData { header, ops } = unprocessed_block;
 
+            if let Some(dispatcher) = self.dispatcher {
+                dispatcher_announce_burn_ops(dispatcher, &header, &ops);
+            }
+
             let sortition_tip_snapshot = SortitionDB::get_block_snapshot(
                 self.sortition_db.conn(),
                 &canonical_sortition_tip,
