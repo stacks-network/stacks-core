@@ -79,7 +79,7 @@ use util::log;
 #[cfg(not(test))]
 pub const INV_SYNC_INTERVAL: u64 = 150;
 #[cfg(test)]
-pub const INV_SYNC_INTERVAL: u64 = 10;
+pub const INV_SYNC_INTERVAL: u64 = 0;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeerBlocksInv {
@@ -265,7 +265,7 @@ impl PeerBlocksInv {
     /// Invalidate block and microblock inventories as a result of learning a new reward cycle's status.
     /// Drop all blocks and microblocks at and after the given reward cycle.
     /// Returns how many bits were dropped.
-    fn truncate_block_inventories(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> u64 {
+    pub fn truncate_block_inventories(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> u64 {
         // invalidate all blocks and microblocks that come after this
         let highest_agreed_block_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
@@ -305,7 +305,7 @@ impl PeerBlocksInv {
 
     /// Invalidate PoX inventories as a result of learning a new reward cycle's status
     /// Returns how many bits were dropped
-    fn truncate_pox_inventory(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> u64 {
+    pub fn truncate_pox_inventory(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> u64 {
         let highest_agreed_block_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
         assert!(
@@ -487,6 +487,11 @@ impl PeerBlocksInv {
                 pox_id.has_ith_anchor_block(self.num_reward_cycles as usize),
             ))
         }
+    }
+
+    /// What's the block height represented here?
+    pub fn get_block_height(&self) -> u64 {
+        self.first_block_height + self.num_sortitions
     }
 }
 
@@ -1091,6 +1096,8 @@ impl InvState {
     /// Drops if the message refers to a block height
     /// Returns the optional block sortition height at which the block or confirmed microblock stream resides in the blockchain (returns
     /// None if its bit was already set).
+    /// Returns NotFoundError if the consensus hash is not recognized, but may be recognized in the
+    /// future
     fn set_data_available(
         &mut self,
         burnchain: &Burnchain,
@@ -1106,15 +1113,16 @@ impl InvState {
                         "Unknown consensus hash {}: not on valid PoX fork",
                         consensus_hash
                     );
+                    // absorb
                     return Ok(None);
                 }
                 sn
             }
             None => {
-                // we don't know about this block -- the sending node is probably on a different
-                // PoX fork (or is too far ahead of us)
+                // we don't know about this block -- the sending node is probably too far ahead of
+                // us.
                 debug!("Unknown consensus hash {}", consensus_hash);
-                return Ok(None);
+                return Err(net_error::NotFoundError);
             }
         };
 
@@ -1132,18 +1140,19 @@ impl InvState {
                 let reward_cycle = match burnchain.block_height_to_reward_cycle(sn.block_height) {
                     Some(rc) => rc,
                     None => {
-                        info!(
+                        debug!(
                             "Block {} ({}) does not correspond to a reward cycle",
                             sn.block_height, sn.consensus_hash
                         );
-                        return Ok(None);
+                        return Err(net_error::NotFoundError);
                     }
                 };
 
                 if reward_cycle > stats.inv.num_reward_cycles {
-                    info!("Cannot set {} for {} available: it comes from reward cycle {}, but we have only scanned up to {}",
+                    // too far ahead
+                    debug!("Cannot set {} for {} available: it comes from reward cycle {}, but we have only scanned up to {}",
                           if microblocks { "confirmed microblock stream" } else { "block" }, sn.consensus_hash, reward_cycle, stats.inv.num_reward_cycles);
-                    return Ok(None);
+                    return Err(net_error::NotFoundError);
                 }
 
                 // NOTE: block heights are 1-indexed in the burn DB, since the 0th snapshot block is the
@@ -1229,12 +1238,16 @@ impl PeerNetwork {
     }
 
     /// Get an ancestor snapshot, accounting for PoX invalidation
-    fn get_ancestor_sortition_snapshot(
+    pub fn get_ancestor_sortition_snapshot(
         &self,
         sortdb: &SortitionDB,
         height: u64,
     ) -> Result<BlockSnapshot, net_error> {
         let sn = self.get_tip_sortition_snapshot(sortdb)?;
+        if sn.block_height < height {
+            return Err(net_error::NotFoundError);
+        }
+
         let ic = sortdb.index_conn();
         match SortitionDB::get_ancestor_snapshot(&ic, height, &sn.sortition_id)? {
             Some(sn) => {
@@ -1954,11 +1967,11 @@ impl PeerNetwork {
     }
 
     /// Drive all state machines.
-    /// returns (done?, peers-to-disconnect, peers-that-are-dead)
+    /// returns (done?, throttled?, peers-to-disconnect, peers-that-are-dead)
     pub fn sync_inventories(
         &mut self,
         sortdb: &SortitionDB,
-    ) -> Result<(bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
+    ) -> Result<(bool, bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             let mut all_done = true;
 
@@ -1973,7 +1986,7 @@ impl PeerNetwork {
                     &network.local_peer,
                     inv_state.last_rescanned_at + inv_state.sync_interval
                 );
-                return Ok((true, vec![], vec![]));
+                return Ok((true, true, vec![], vec![]));
             }
 
             for (nk, stats) in inv_state.block_stats.iter_mut() {
@@ -1989,7 +2002,7 @@ impl PeerNetwork {
                                 inv_state.hint_learned_data = true;
                                 true
                             }
-                            Err(net_error::PeerNotConnected) => {
+                            Err(net_error::PeerNotConnected) | Err(net_error::SendError(..)) => {
                                 stats.status = NodeStatus::Dead;
                                 true
                             }
@@ -2046,9 +2059,9 @@ impl PeerNetwork {
                 inv_state.cull_bad_peers();
                 inv_state.reset_sync_peers(new_sync_peers);
 
-                Ok((true, broken_peers, dead_peers))
+                Ok((true, false, broken_peers, dead_peers))
             } else {
-                Ok((false, vec![], vec![]))
+                Ok((false, false, vec![], vec![]))
             }
         })
     }
@@ -2114,6 +2127,84 @@ impl PeerNetwork {
             self.connection_opts.inv_sync_interval,
             cur_neighbors,
         ));
+    }
+
+    /// Run a function over a given neighbor's inventory
+    pub fn with_neighbor_blocks_inv<F, R>(
+        &mut self,
+        nk: &NeighborKey,
+        func: F,
+    ) -> Result<R, net_error>
+    where
+        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> Result<R, net_error>,
+    {
+        PeerNetwork::with_inv_state(self, |network, inv_state| {
+            if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
+                func(network, nstats)
+            } else {
+                Err(net_error::PeerNotConnected)
+            }
+        })
+    }
+
+    /// Get the local block inventory for a reward cycle
+    pub fn get_local_blocks_inv(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        reward_cycle: u64,
+    ) -> Result<BlocksInvData, net_error> {
+        let target_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
+
+        // if this succeeds, then we should be able to make a BlocksInv
+        let ancestor_sn = self
+            .get_ancestor_sortition_snapshot(sortdb, target_block_height)
+            .map_err(|e| {
+                debug!(
+                    "Failed to load ancestor sortition snapshot at height {}: {:?}",
+                    target_block_height, &e
+                );
+                e
+            })?;
+
+        let tip_sn = self.get_tip_sortition_snapshot(sortdb).map_err(|e| {
+            debug!("Failed to load tip sortition snapshot: {:?}", &e);
+            e
+        })?;
+
+        let getblocksinv = GetBlocksInv {
+            consensus_hash: ancestor_sn.consensus_hash,
+            num_blocks: cmp::min(
+                tip_sn.block_height.saturating_sub(ancestor_sn.block_height),
+                self.burnchain.pox_constants.reward_cycle_length as u64,
+            ) as u16,
+        };
+
+        let blocks_inv = ConversationP2P::make_getblocksinv_response(
+            &self.local_peer,
+            &self.burnchain,
+            sortdb,
+            chainstate,
+            &mut self.header_cache,
+            &getblocksinv,
+        )
+        .map_err(|e| {
+            debug!(
+                "Failed to load blocks inventory at reward cycle {} ({:?}): {:?}",
+                reward_cycle, &ancestor_sn.consensus_hash, &e
+            );
+            e
+        })?;
+
+        match blocks_inv {
+            StacksMessageType::BlocksInv(blocks_inv) => {
+                return Ok(blocks_inv);
+            }
+            _ => {
+                debug!("Failed to produce blocks inventory; got {:?}", &blocks_inv);
+                return Err(net_error::NotFoundError);
+            }
+        }
     }
 }
 
@@ -2733,11 +2824,14 @@ mod test {
                         sn
                     };
 
-                    // non-existent consensus hash
-                    let sh = inv
-                        .set_block_available(&burnchain, &nk, &sortdb, &ConsensusHash([0xfe; 20]))
-                        .unwrap();
-                    assert_eq!(None, sh);
+                    // non-existent consensus has
+                    let sh = inv.set_block_available(
+                        &burnchain,
+                        &nk,
+                        &sortdb,
+                        &ConsensusHash([0xfe; 20]),
+                    );
+                    assert_eq!(Err(net_error::NotFoundError), sh);
                     assert!(!inv
                         .block_stats
                         .get(&nk)
@@ -2795,15 +2889,12 @@ mod test {
 
                     // existing consensus hash, but too far ahead (mock)
                     inv.block_stats.get_mut(&nk).unwrap().inv.num_reward_cycles = 0;
-                    let sh = inv
-                        .set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash)
-                        .unwrap();
-                    assert!(sh.is_none());
+                    let sh = inv.set_block_available(&burnchain, &nk, &sortdb, &sn.consensus_hash);
+                    assert_eq!(Err(net_error::NotFoundError), sh);
 
-                    let sh = inv
-                        .set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash)
-                        .unwrap();
-                    assert!(sh.is_none());
+                    let sh =
+                        inv.set_microblocks_available(&burnchain, &nk, &sortdb, &sn.consensus_hash);
+                    assert_eq!(Err(net_error::NotFoundError), sh);
                 }
                 None => {
                     panic!("No inv state");
@@ -2847,9 +2938,9 @@ mod test {
         };
 
         peer_1
-            .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
+            .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 network.refresh_local_peer().unwrap();
-                network.refresh_burnchain_view(sortdb).unwrap();
+                network.refresh_burnchain_view(sortdb, chainstate).unwrap();
                 network.refresh_sortition_view(sortdb).unwrap();
                 Ok(())
             })
@@ -3020,7 +3111,6 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3075,7 +3165,6 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3131,7 +3220,6 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3185,7 +3273,6 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts,
                 )
             })
             .unwrap();
@@ -3224,7 +3311,6 @@ mod test {
                     chainstate,
                     &mut network.header_cache,
                     &getblocksinv_request,
-                    &network.connection_opts,
                 )
             })
             .unwrap();

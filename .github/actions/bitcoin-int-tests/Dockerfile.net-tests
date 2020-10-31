@@ -11,11 +11,11 @@ RUN ln -s /bitcoin-0.20.0/bin/bitcoind /bin/
 RUN ln -s /bitcoin-0.20.0/bin/bitcoin-cli /bin/
 
 RUN apt-get update
-RUN apt-get install -y jq screen net-tools ncat
+RUN apt-get install -y jq screen net-tools ncat sqlite3 xxd openssl curl
 
 RUN cargo build --workspace
 
 ENV PATH="/src/target/debug:/src/net-test/bin:${PATH}"
 
-WORKDIR /src/net-test/bin
-RUN bash
+WORKDIR /src/net-test/tests
+RUN ./run.sh

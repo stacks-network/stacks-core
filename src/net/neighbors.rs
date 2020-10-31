@@ -2684,8 +2684,8 @@ impl PeerNetwork {
                 if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
                     self.instantiate_walk()
                 } else {
-                    if cfg!(test) && self.connection_opts.disable_inbound_walks {
-                        test_debug!(
+                    if self.connection_opts.disable_inbound_walks {
+                        debug!(
                             "{:?}: disabled inbound neighbor walks for testing",
                             &self.local_peer
                         );
