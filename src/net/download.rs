@@ -1423,6 +1423,11 @@ impl PeerNetwork {
                         }
                     }
 
+                    if max_mblock_height == 0 && next_microblocks_to_try.len() == 0 {
+                        // have no microblocks to try in the first place
+                        max_mblock_height = max_height;
+                    }
+
                     test_debug!("{:?}: at {},{}: {} blocks to get, {} microblock streams to get (up to {},{})", 
                                 &network.local_peer, next_block_sortition_height, next_microblock_sortition_height, next_blocks_to_try.len(), next_microblocks_to_try.len(), max_height, max_mblock_height);
 
@@ -1515,7 +1520,7 @@ impl PeerNetwork {
 
                         if downloader.microblocks_to_try.contains_key(&mblock_height) {
                             mblock_height += 1;
-                            debug!("Microblocks download already in-flight for {}", height);
+                            debug!("Microblocks download already in-flight for {}", mblock_height);
                             continue;
                         }
 
@@ -1542,7 +1547,7 @@ impl PeerNetwork {
                                     "{:?}: already inflight: {}",
                                     &network.local_peer, &index_block_hash
                                 );
-                                height += 1;
+                                mblock_height += 1;
                                 continue;
                             }
                         }
