@@ -1520,7 +1520,10 @@ impl PeerNetwork {
 
                         if downloader.microblocks_to_try.contains_key(&mblock_height) {
                             mblock_height += 1;
-                            debug!("Microblocks download already in-flight for {}", mblock_height);
+                            debug!(
+                                "Microblocks download already in-flight for {}",
+                                mblock_height
+                            );
                             continue;
                         }
 

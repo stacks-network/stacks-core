@@ -402,7 +402,9 @@ impl PoxSyncWatchdog {
             waited = true;
         }
 
-        if burnchain_tip.block_snapshot.block_height + (burnchain.pox_constants.reward_cycle_length as u64) >= burnchain_height
+        if burnchain_tip.block_snapshot.block_height
+            + (burnchain.pox_constants.reward_cycle_length as u64)
+            >= burnchain_height
         {
             // unconditionally download if we're within the last reward cycle (after the poll timeout)
             if !waited {

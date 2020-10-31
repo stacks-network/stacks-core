@@ -361,15 +361,17 @@ impl BitcoinIndexer {
                 })?;
 
                 // set timeout
-                s.set_read_timeout(Some(Duration::from_secs(self.runtime.timeout))).map_err(|_e| {
-                    test_debug!("Failed to set TCP read timeout: {:?}", &_e);
-                    btc_error::ConnectionError
-                })?;
+                s.set_read_timeout(Some(Duration::from_secs(self.runtime.timeout)))
+                    .map_err(|_e| {
+                        test_debug!("Failed to set TCP read timeout: {:?}", &_e);
+                        btc_error::ConnectionError
+                    })?;
 
-                s.set_write_timeout(Some(Duration::from_secs(self.runtime.timeout))).map_err(|_e| {
-                    test_debug!("Failed to set TCP write timeout: {:?}", &_e);
-                    btc_error::ConnectionError
-                })?;
+                s.set_write_timeout(Some(Duration::from_secs(self.runtime.timeout)))
+                    .map_err(|_e| {
+                        test_debug!("Failed to set TCP write timeout: {:?}", &_e);
+                        btc_error::ConnectionError
+                    })?;
 
                 match self.runtime.sock.take() {
                     Some(s) => {
