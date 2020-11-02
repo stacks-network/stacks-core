@@ -3232,7 +3232,7 @@ def run_blockstackd():
         help='validate a fast-sync file and export as JSON for Stacks 2.0 migration')
     parser.add_argument(
         'path', nargs='?',
-        help='the path to the fastdump file')
+        help='the path to the fast-sync dump file')
     parser.add_argument(
         'block_height', nargs='?',
         help='the block height to export from')
@@ -3241,7 +3241,7 @@ def run_blockstackd():
         help='the known-good consensus hash string or file path')
     parser.add_argument(
         'output_path', nargs='?',
-        help='the migration JSON output file path')
+        help='the output directory for the exported data')
     parser.add_argument(
         '--verify', action='store_true',
         help='Run a full database verification against the consensus hash')
@@ -3589,7 +3589,7 @@ def run_blockstackd():
             print_status("Fast-sync import does not match consensus hash!")
             sys.exit(1)
 
-        output_dir = os.path.dirname(os.path.abspath(args.output_path))
+        output_dir = os.path.abspath(args.output_path)
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
@@ -3615,7 +3615,8 @@ def run_blockstackd():
             print_status('Could not find sqlite3 on system path')
             sys.exit(1)
         subdomain_db_path = os.path.abspath(os.path.join(working_dir, 'subdomains.db'))
-        subdomain_csv_path = os.path.abspath(args.output_path) + '.subdomains.csv'
+        subdomain_csv_path = os.path.join(output_dir, 'subdomains.csv')
+        subdomain_csv_hash_path = subdomain_csv_path + '.sha256'
         subdomain_query_str = 'SELECT zonefile_hash, fully_qualified_subdomain, owner from subdomain_records ORDER BY owner, fully_qualified_subdomain;'
         cmd = 'sqlite3 {} -cmd ".headers on" -cmd ".mode csv" -cmd ".output {}" "{}"'.format(
             pipes.quote(subdomain_db_path), 
@@ -3633,38 +3634,75 @@ def run_blockstackd():
         with open(subdomain_csv_path, 'rb') as f:
             file_bytes = f.read()
             file_hash = sha256(file_bytes).hexdigest()
-            hash_file_name = subdomain_csv_path + '.sha256'
             print_status("Subdomain csv data sha256 hash: {}".format(file_hash))
-            with open(hash_file_name, 'w') as hash_out:
+            with open(subdomain_csv_hash_path, 'w') as hash_out:
                 hash_out.write(file_hash)
                 hash_out.flush()
 
         print_status("Exporting subdomain zonefiles...")
-        if not which_tools(['awk']):
-            print_status('Could not find "awk" utility on system path')
-            sys.exit(1)
-        # Watch out, the following awk code is so fast you might miss it if you blink.
         # Reduce 10GB disk space of zonefiles into a 400MB txt file.
-        awk_export_cmd = """awk -F, 'BEGIN {OFS=","} NR>1 {
-            save_rs = RS
-            RS = "^$"
-            file_path = "%s/" substr($1,0,2) "/" substr($1,3,2) "/" $1 ".txt"
-            getline zonefile < file_path
-            gsub(/\\n/,"/n",zonefile)
-            close(file_path)
-            print $1
-            print zonefile
-            RS = save_rs
-        }' %s""" % (os.path.abspath(os.path.join(working_dir, 'zonefiles')), pipes.quote(subdomain_csv_path))
-        subdomain_zonefile_txt_path = os.path.abspath(args.output_path) + '.subdomain_zonefiles.txt'
-        with open(subdomain_zonefile_txt_path, 'wb') as writer:
-            p = subprocess.Popen(awk_export_cmd, shell=True, stdout=writer, stderr=subprocess.PIPE)
+        subdomain_zonefile_txt_path = os.path.join(output_dir, 'subdomain_zonefiles.txt')
+        zonefile_dir = os.path.abspath(os.path.join(working_dir, 'zonefiles'))
+        # First, try using a csharp script if dotnet is available (this is the fastest option, ~2 minutes)
+        if which_tools(['dotnet']):
+            cs_script = """
+                using System.Collections.Generic;
+                using System.IO;
+                using System.Linq;
+                class Program {
+                    static void Main(string[] args) {
+                        IEnumerable<string> EnumLines(StreamReader fp) {
+                            while (!fp.EndOfStream) yield return fp.ReadLine();
+                        }
+                        using var reader = new StreamReader(args[0]);
+                        using var writer = new StreamWriter(args[2]);
+                        var entries = EnumLines(reader).Skip(1).AsParallel().Select(line => {
+                            var hash = line.Substring(0, 40);
+                            var zfPath = Path.Join(args[1], hash.Substring(0, 2), hash.Substring(2, 2), hash + ".txt");
+                            return hash + "\\n" + File.ReadAllText(zfPath).Replace("\\n", "\\\\n");
+                        });
+                        foreach (var entry in entries) writer.WriteLine(entry);
+                    }
+                }"""
+            cs_proj = """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>
+                    <OutputType>Exe</OutputType><TargetFramework>netcoreapp3.1</TargetFramework>
+                </PropertyGroup></Project>"""
+            tmpdir = tempfile.mkdtemp('blockstack-cs-subdomain-agg')
+            with open(os.path.join(tmpdir, "Program.cs"), "w") as cs_file:
+                cs_file.write(cs_script)
+            with open(os.path.join(tmpdir, "Program.csproj"), "w") as cs_prog_file:
+                cs_prog_file.write(cs_proj)
+            cs_script_args = ["dotnet", "run", "-c=Release", "--", subdomain_csv_path, zonefile_dir, subdomain_zonefile_txt_path]
+            p = subprocess.Popen(cs_script_args, shell=False, cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             p_res = p.communicate()
-            writer.flush()
             rc = p.returncode
             if rc != 0:
-                print_status('Subdomain zonefile export via "awk" failed with error {}: {}'.format(rc, p_res[1]))
+                print_status('Subdomain zonefile export via "dotnet" failed with error {}: {}'.format(rc, p_res[1]))
                 sys.exit(1)
+        # Otherwise, try using an awk script, takes ~25 minutes.
+        elif which_tools(['awk']):
+            awk_export_cmd = """awk -F, 'BEGIN {OFS=","} NR>1 {
+                save_rs = RS
+                RS = "^$"
+                file_path = "%s/" substr($1,0,2) "/" substr($1,3,2) "/" $1 ".txt"
+                getline zonefile < file_path
+                gsub(/\\n/,"/n",zonefile)
+                close(file_path)
+                print $1
+                print zonefile
+                RS = save_rs
+            }' %s""" % (zonefile_dir, pipes.quote(subdomain_csv_path))
+            with open(subdomain_zonefile_txt_path, 'wb') as writer:
+                p = subprocess.Popen(awk_export_cmd, shell=True, stdout=writer, stderr=subprocess.PIPE)
+                p_res = p.communicate()
+                writer.flush()
+                rc = p.returncode
+                if rc != 0:
+                    print_status('Subdomain zonefile export via "awk" failed with error {}: {}'.format(rc, p_res[1]))
+                    sys.exit(1)
+        else:
+            print_status('Could not find "awk" or "dotnet" on PATH, subdomain zonefiles cannot be exported')
+            sys.exit(1)
 
         print_status("Querying namespace IDs...")
         namespaces_entries = db.get_all_namespace_ids()
@@ -3731,7 +3769,8 @@ def run_blockstackd():
 
         # write the json output file
         print_status("Writing on-chain migration data to json...")
-        json_output_path = args.output_path + '.json'
+        json_output_path = os.path.join(output_dir, 'chainstate.json')
+        json_hash_output_path = json_output_path + '.sha256'
         with open(json_output_path, 'w') as json_out:
             json.dump(json_data, json_out, separators=(',', ':'), check_circular=False, ensure_ascii=False)
             json_out.flush()
@@ -3742,21 +3781,26 @@ def run_blockstackd():
         with open(json_output_path, 'rb') as f:
             file_bytes = f.read()
             json_hash = sha256(file_bytes).hexdigest()
-            hash_file_name = json_output_path + '.sha256'
             print_status("Migration json data sha256 hash: {}".format(json_hash))
-            with open(hash_file_name, 'w') as hash_out:
+            with open(json_hash_output_path, 'w') as hash_out:
                 hash_out.write(json_hash)
                 hash_out.flush()
         
         # compress into tar.gz
         print_status("Compressing export data into archive file...")
-        export_archive = os.path.abspath(args.output_path) + '.tar.gz'
+        export_archive = os.path.join(output_dir, 'export-data.tar.gz')
         if not which_tools(['tar']):
             print_status('Could not find "tar" utility on system path')
             sys.exit(1)
-        cmd = "tar -czSf {} -C {} .".format(
+        cmd = "tar -czSf {} -C {} {} {} {} {} {}".format(
             pipes.quote(export_archive), 
-            pipes.quote(os.path.dirname(os.path.abspath(args.output_path))))
+            pipes.quote(output_dir),
+            os.path.basename(subdomain_csv_path),
+            os.path.basename(subdomain_csv_hash_path),
+            os.path.basename(json_output_path),
+            os.path.basename(json_hash_output_path),
+            os.path.basename(subdomain_zonefile_txt_path)
+        )
         p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p_res = p.communicate()
         rc = p.returncode
