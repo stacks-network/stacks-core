@@ -565,8 +565,22 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
             log.error("FATAL: failed to update subdomains db at {}".format(block_height))
             os.abort()
 
+        def perform_export():
+            # emit parsable log entry and export datafile
+            log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_height))
+            db_state.perform_v2_upgrade_datafile_export(block_height, consensus_hash)
+            log.warn('[v2-upgrade] migration datafile export successful')
 
-        # TODO: create a new RPC endpoint to expose the state changes below, for testing when namespace signal threshold reached, and when import block is reached
+        # if the v2_migration_export_test_interval flag is set, perform a datafile export at a block interval
+        test_interval = db_state.v2_migration_export_test_interval
+        if test_interval is not None and test_interval > 0 and block_height % test_interval == 0:
+            log.warn('[v2-upgrade] triggering export test at block: {}'.format(block_height))
+            try:
+                perform_export()
+            except Exception as e:
+                log.exception(e)
+                log.error("FATAL: failed to export at block {}".format(block_height))
+                log.error("\n".join(traceback.format_stack()))
 
         # namespace to watch for miner signals to perform v2 upgrade
         v2_upgrade_signal_namespace = 'miner'
@@ -584,11 +598,8 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
             if import_block is None:
                 # check if the required number of blocks have been mined since threshold crossed
                 if (block_height - threshold_block_id == v2_upgrade_signal_import_threshold):
-                    # emit parsable log entry and export datafile
-                    log.warn('[v2-upgrade] import threshold reached at block: {}'.format(block_height))
                     db_state.set_v2_import_block_reached(block_height)
-                    db_state.perform_v2_upgrade_datafile_export(block_height, consensus_hash)
-                    log.warn('[v2-upgrade] migration datafile export successful')
+                    perform_export()
 
         else:
             # check if threshold is reached at current block height

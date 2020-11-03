@@ -1057,8 +1057,8 @@ def namedb_get_v2_import_block_reached(con):
 
 def namedb_set_v2_import_block_reached(con, block_id):
     existing_block = namedb_get_v2_import_block_reached(con)
-    if existing_block is not None and existing_block != block_id:
-        raise Exception('v2_upgrade_import_block has already been set')
+    if existing_block is not None:
+        raise Exception('v2_upgrade_import_block has already been set to {}'.format(existing_block))
     namedb_query_execute(con, 'UPDATE v2_upgrade_signal SET import_block_id = ? WHERE id = 1', (block_id,))
 
 def namedb_open( path ):

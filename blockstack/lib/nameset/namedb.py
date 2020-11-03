@@ -148,6 +148,7 @@ class BlockstackDB(virtualchain.StateEngine):
         self.set_backup_max_age( blockstack_opts['backup_max_age'] )
 
         self.v2_migration_export = blockstack_opts['v2_migration_export']
+        self.v2_migration_export_test_interval = blockstack_opts['v2_migration_export_test_interval']
 
     @classmethod
     def get_readonly_instance(cls, working_dir, expected_snapshots={}):
@@ -1166,10 +1167,10 @@ class BlockstackDB(virtualchain.StateEngine):
         if not self.v2_migration_export:
             return
 
-        export_file_path = os.path.join( self.working_dir, 'v2_migration_data.tar.bz2')
-        consensus_hash_file_path = os.path.join( self.working_dir, 'v2_migration_data.consensus_hash.txt')
+        export_file_path = os.path.abspath(os.path.join( self.working_dir, 'v2_migration_data.tar.gz'))
+        consensus_hash_file_path = os.path.abspath(os.path.join( self.working_dir, 'v2_migration_data.consensus_hash.txt'))
         if os.path.exists(export_file_path):
-            log.warning('v2_migration_data already exists at {}'.format(export_file_path))
+            log.warn('v2_migration_data already exists at {}'.format(export_file_path))
             return
 
         # override backup frequency to force a backup _now_

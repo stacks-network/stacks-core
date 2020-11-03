@@ -52,6 +52,7 @@ BACKUP_MAX_AGE_ENV_VAR = 'BLOCKSTACK_DB_MAX_AGE'
 SAVE_REJECTED_ENV_VAR = 'BLOCKSTACK_DB_SAVE_REJECTED'
 
 V2_MIGRATION_EXPORT_ENV_VAR = 'V2_MIGRATION_EXPORT'
+V2_MIGRATION_EXPORT_TEST_INTERVAL_ENV_VAR = 'V2_MIGRATION_EXPORT_TEST_INTERVAL'
 
 # namespace version bits
 NAMESPACE_VERSION_PAY_TO_BURN = 0x1     # in epoch 4, this means "burn either bitcoin or stacks"
@@ -1811,7 +1812,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
    or from sane defaults.
    """
 
-   global RPC_SERVER_IP, RPC_SERVER_PORT, BACKUP_FREQUENCY_ENV_VAR, BACKUP_MAX_AGE_ENV_VAR, SAVE_REJECTED_ENV_VAR, V2_MIGRATION_EXPORT_ENV_VAR
+   global RPC_SERVER_IP, RPC_SERVER_PORT, BACKUP_FREQUENCY_ENV_VAR, BACKUP_MAX_AGE_ENV_VAR, SAVE_REJECTED_ENV_VAR, V2_MIGRATION_EXPORT_ENV_VAR, V2_MIGRATION_EXPORT_TEST_INTERVAL_ENV_VAR
 
    from .util import url_to_host_port
    from .scripts import is_name_valid
@@ -1828,11 +1829,13 @@ def default_blockstack_opts( working_dir, config_file=None ):
    backup_max_age = 10008       # about 1 week
    save_rejected = False        # save rejected transactions?
    v2_migration_export = False
+   v2_migration_export_test_interval = 0
 
    backup_frequency_environ = False
    backup_max_age_environ = False
    save_rejected_environ = False
    v2_migration_export_environ = False
+   v2_migration_export_test_interval_environ = False
 
    try:
        backup_frequency = int(os.environ.get(BACKUP_FREQUENCY_ENV_VAR, None))
@@ -1857,6 +1860,12 @@ def default_blockstack_opts( working_dir, config_file=None ):
        v2_migration_export_value = int(os.environ.get(V2_MIGRATION_EXPORT_ENV_VAR, None))
        v2_migration_export = v2_migration_export_value != 0
        v2_migration_export_environ = True
+   except:
+       pass
+
+   try:
+       v2_migration_export_test_interval = int(os.environ.get(V2_MIGRATION_EXPORT_TEST_INTERVAL_ENV_VAR, None))
+       v2_migration_export_test_interval_environ = True
    except:
        pass
 
@@ -1958,6 +1967,9 @@ def default_blockstack_opts( working_dir, config_file=None ):
           else:
               v2_migration_export = False
 
+      if parser.has_option('blockstack', 'v2_migration_export_test_interval') and not v2_migration_export_test_interval_environ:
+          v2_migration_export_test_interval = int(parser.get('blockstack', 'v2_migration_export_test_interval'))
+
    if os.environ.get(ATLAS_SEEDS_ENV_VAR, False):
        atlas_seed_peers = os.environ[ATLAS_SEEDS_ENV_VAR]
        check_hostport_list(atlas_seed_peers)
@@ -2031,6 +2043,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
        'subdomaindb_path': subdomaindb_path,
        'save_rejected': save_rejected,
        'v2_migration_export': v2_migration_export,
+       'v2_migration_export_test_interval': v2_migration_export_test_interval,
        'enabled': run_indexer
    }
 
