@@ -66,8 +66,11 @@ fn test_at_block_mutations() {
         owned_env.initialize_contract(c.clone(), &contract).unwrap();
     }
 
-
-    fn branch(owned_env: &mut OwnedEnvironment, expected_value: i128, to_exec: &str) -> Result<Value> {
+    fn branch(
+        owned_env: &mut OwnedEnvironment,
+        expected_value: i128,
+        to_exec: &str,
+    ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str);
         eprintln!("Branched execution...");
@@ -79,30 +82,40 @@ fn test_at_block_mutations() {
             assert_eq!(value, Value::Int(expected_value));
         }
 
-        owned_env.execute_transaction(p1, c, to_exec, &vec![])
+        owned_env
+            .execute_transaction(p1, c, to_exec, &vec![])
             .map(|(x, _, _)| x)
     }
 
     with_separate_forks_environment(
         initialize,
         |x| {
-            assert_eq!(branch(x, 1, "working").unwrap(),
-                       Value::okay(Value::Int(1)).unwrap());
-            assert_eq!(branch(x, 1, "broken").unwrap(),
-                       Value::okay(Value::Int(10)).unwrap());
-            assert_eq!(branch(x, 10, "working").unwrap(),
-                       Value::okay(Value::Int(1)).unwrap());
+            assert_eq!(
+                branch(x, 1, "working").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+            assert_eq!(
+                branch(x, 1, "broken").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
+            assert_eq!(
+                branch(x, 10, "working").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
             // make this test fail: this assertion _should_ be
             //  true, but at-block is broken. when a context
             //  switches to an at-block context, _any_ of the db
             //  wrapping that the Clarity VM does needs to be
             //  ignored.
-            assert_eq!(branch(x, 10, "broken").unwrap(),
-                       Value::okay(Value::Int(1)).unwrap());
+            assert_eq!(
+                branch(x, 10, "broken").unwrap(),
+                Value::okay(Value::Int(1)).unwrap()
+            );
         },
-        |_x| {}, |_x| {});
+        |_x| {},
+        |_x| {},
+    );
 }
-
 
 #[test]
 fn test_at_block_good() {
