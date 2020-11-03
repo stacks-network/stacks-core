@@ -704,6 +704,7 @@ impl Relayer {
                         block.block_hash(),
                         neighbor_key
                     );
+                    let bhh = block.block_hash();
                     match Relayer::process_new_anchored_block(
                         sort_ic,
                         chainstate,
@@ -713,6 +714,7 @@ impl Relayer {
                     ) {
                         Ok(accepted) => {
                             if accepted {
+                                debug!("Accepted block {}/{} from {}", &consensus_hash, &bhh, &neighbor_key);
                                 new_blocks.insert(consensus_hash.clone());
                             }
                         }
@@ -1440,6 +1442,8 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
+        debug!("{:?}: Advertize {} blocks to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
+
         for recipient in outbound_recipients.drain(..) {
             debug!(
                 "{:?}: Advertize {} blocks to outbound peer {}",
@@ -1474,6 +1478,8 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
+        debug!("{:?}: Advertize {} confirmed microblock streams to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
+
         for recipient in outbound_recipients.drain(..) {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to outbound peer {}",

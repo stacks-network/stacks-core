@@ -304,6 +304,7 @@ pub struct PeerNetwork {
     // when did we send it?
     antientropy_blocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
     antientropy_microblocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
+    antientropy_last_burnchain_tip: BurnchainHeaderHash,
 
     // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
     // can't process yet, but might be able to process on the next chain view update
@@ -410,6 +411,7 @@ impl PeerNetwork {
 
             antientropy_blocks: HashMap::new(),
             antientropy_microblocks: HashMap::new(),
+            antientropy_last_burnchain_tip: BurnchainHeaderHash([0u8; 32]),
 
             pending_messages: HashMap::new(),
 
@@ -2555,6 +2557,12 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
     ) -> Result<(), net_error> {
+        // only run anti-entropy once our burnchain view changes
+        if self.chain_view.burn_block_hash == self.antientropy_last_burnchain_tip {
+            return Ok(());
+        }
+        self.antientropy_last_burnchain_tip = self.chain_view.burn_block_hash;
+
         let num_public_inbound = self.count_public_inbound();
         debug!(
             "{:?}: Number of public inbound neighbors: {}",
