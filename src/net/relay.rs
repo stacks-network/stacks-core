@@ -714,7 +714,10 @@ impl Relayer {
                     ) {
                         Ok(accepted) => {
                             if accepted {
-                                debug!("Accepted block {}/{} from {}", &consensus_hash, &bhh, &neighbor_key);
+                                debug!(
+                                    "Accepted block {}/{} from {}",
+                                    &consensus_hash, &bhh, &neighbor_key
+                                );
                                 new_blocks.insert(consensus_hash.clone());
                             }
                         }
@@ -1442,7 +1445,13 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
-        debug!("{:?}: Advertize {} blocks to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
+        debug!(
+            "{:?}: Advertize {} blocks to {} inbound peers, {} outbound peers",
+            &self.local_peer,
+            availability_data.len(),
+            outbound_recipients.len(),
+            inbound_recipients.len()
+        );
 
         for recipient in outbound_recipients.drain(..) {
             debug!(
