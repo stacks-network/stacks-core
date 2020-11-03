@@ -664,7 +664,7 @@ impl BitcoinRegtestController {
 
         // RBF
         let tx_fee = self.config.burnchain.burnchain_op_tx_fee
-            + ((attempt.saturating_sub(1) * self.last_tx_len * self.min_relay_fee) / 1024);
+            + ((attempt.saturating_sub(1) * self.last_tx_len * self.min_relay_fee) / 1000);
 
         let public_key = signer.get_public_key();
         let mut total_consumed = 0;
