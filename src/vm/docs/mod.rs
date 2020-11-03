@@ -621,13 +621,8 @@ const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
     description: "The `tuple` special form constructs a typed tuple from the supplied key and expression pairs.
 A `get` function can use typed tuples as input to select specific values from a given tuple.
 Key names may not appear multiple times in the same tuple definition. Supplied expressions are evaluated and
-associated with the expressions' paired key name.
-
-As a shorthand the name `tuple` can be removed, or curly brackets can be used as shown in the examples.",
-    example: "(tuple (name \"blockstack\") (id 1337)) ;; using tuple
-((name \"blockstack\") (id 1337)) ;; using shorthand
-{name: \"blockstack\", id: 1337};; using curly brackets
-",
+associated with the expressions' paired key name.",
+    example: "(tuple (name \"blockstack\") (id 1337))",
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
