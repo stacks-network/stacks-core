@@ -33,10 +33,6 @@ use net::Neighbor;
 use net::NeighborKey;
 use net::PeerAddress;
 use std::hash::{Hash, Hasher};
-use net::atlas::{Attachment, AttachmentsInvRequest};
-use net::atlas::inv::{NeighborAttachmentStats, InvAttachmentWorkState};
-
-use net::inv::NodeStatus;
 
 use net::codec::*;
 use net::dns::*;
@@ -123,6 +119,12 @@ pub const BLOCK_REREQUEST_INTERVAL: u64 = 30;
 /// inventory state (see src/net/inv.rs)
 
 #[derive(Debug, PartialEq, Clone, Hash, Eq)]
+pub enum BlockRequestKeyKind {
+    Block,
+    ConfirmedMicroblock,
+}
+
+#[derive(Debug, PartialEq, Clone, Hash, Eq)]
 pub struct BlockRequestKey {
     pub neighbor: NeighborKey,
     pub data_url: UrlString,
@@ -132,6 +134,7 @@ pub struct BlockRequestKey {
     pub child_block_header: Option<StacksBlockHeader>, // only used if asking for a microblock; used to confirm the stream's continuity
     pub sortition_height: u64,
     pub download_start: u64,
+    pub kind: BlockRequestKeyKind,
 }
 
 impl BlockRequestKey {
@@ -143,6 +146,7 @@ impl BlockRequestKey {
         index_block_hash: StacksBlockId,
         child_block_header: Option<StacksBlockHeader>,
         sortition_height: u64,
+        kind: BlockRequestKeyKind,
     ) -> BlockRequestKey {
         BlockRequestKey {
             neighbor: neighbor,
@@ -153,6 +157,7 @@ impl BlockRequestKey {
             child_block_header: child_block_header,
             sortition_height: sortition_height,
             download_start: get_epoch_time_secs(),
+            kind,
         }
     }
 }
@@ -164,10 +169,16 @@ impl Requestable for BlockRequestKey {
     }
 
     fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
-        HttpRequestType::GetBlock(
-            HttpRequestMetadata::from_host(peer_host),
-            self.index_block_hash,
-        )
+        match self.kind {
+            BlockRequestKeyKind::Block => HttpRequestType::GetBlock(
+                HttpRequestMetadata::from_host(peer_host),
+                self.index_block_hash,
+            ),
+            BlockRequestKeyKind::ConfirmedMicroblock => HttpRequestType::GetMicroblocksConfirmed(
+                HttpRequestMetadata::from_host(peer_host),
+                self.index_block_hash,
+            ),
+        }
     }
 }
 
@@ -185,10 +196,6 @@ pub enum BlockDownloaderState {
     GetBlocksFinish,
     GetMicroblocksBegin,
     GetMicroblocksFinish,
-    GetAttachmentsInvBegin,
-    GetAttachmentsInvFinish,
-    GetAttachmentsBegin,
-    GetAttachmentsFinish,
     Done,
 }
 
@@ -206,7 +213,6 @@ pub struct BlockDownloader {
     /// How many blocks downloaded since we re-scanned the chain?
     num_blocks_downloaded: u64,
     num_microblocks_downloaded: u64,
-    num_attachments_downloaded: u64,
 
     /// How many times have we tried to download blocks, only to find nothing?
     empty_block_download_passes: u64,
@@ -226,10 +232,6 @@ pub struct BlockDownloader {
     /// Microblock requests to try, grouped by block, keyed by sortition height
     microblocks_to_try: HashMap<u64, VecDeque<BlockRequestKey>>,
 
-    /// Attachments requests to try, grouped by block, keyed by content hash
-    attachments_invs_to_try: HashMap<AttachmentsInvRequest, VecDeque<BlockRequestKey>>,
-    attachments_to_try: HashMap<Hash160, VecDeque<BlockRequestKey>>,
-
     /// In-flight requests for DNS names
     parsed_urls: HashMap<UrlString, DNSRequest>,
     dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
@@ -241,12 +243,6 @@ pub struct BlockDownloader {
     getmicroblocks_requests: HashMap<BlockRequestKey, usize>,
     blocks: HashMap<BlockRequestKey, StacksBlock>,
     microblocks: HashMap<BlockRequestKey, Vec<StacksMicroblock>>,
-
-    getattachmentsinv_requests: HashMap<BlockRequestKey, usize>,
-    getattachmentsinv_reverse_lookup: HashMap<BlockRequestKey, AttachmentsInvRequest>,
-    getattachments_requests: HashMap<(BlockRequestKey, Hash160), usize>,
-    attachments_invs: HashMap<BlockRequestKey, GetAttachmentsInvResponse>,
-    attachments: HashMap<(BlockRequestKey, Hash160), Attachment>,
 
     /// statistics on peers' data-plane endpoints
     dead_peers: Vec<usize>,
@@ -280,7 +276,6 @@ impl BlockDownloader {
 
             num_blocks_downloaded: 0,
             num_microblocks_downloaded: 0,
-            num_attachments_downloaded: 0,
             empty_block_download_passes: 0,
             empty_microblock_download_passes: 0,
             finished_scan_at: 0,
@@ -289,9 +284,6 @@ impl BlockDownloader {
             max_inflight_requests: max_inflight_requests,
             blocks_to_try: HashMap::new(),
             microblocks_to_try: HashMap::new(),
-            attachments_to_try: HashMap::new(),
-            attachments_invs_to_try: HashMap::new(),
-            getattachmentsinv_reverse_lookup: HashMap::new(),
 
             parsed_urls: HashMap::new(),
             dns_lookups: HashMap::new(),
@@ -299,12 +291,8 @@ impl BlockDownloader {
 
             getblock_requests: HashMap::new(),
             getmicroblocks_requests: HashMap::new(),
-            getattachmentsinv_requests: HashMap::new(),
-            getattachments_requests: HashMap::new(),
             blocks: HashMap::new(),
             microblocks: HashMap::new(),
-            attachments_invs: HashMap::new(),
-            attachments: HashMap::new(),
 
             dead_peers: vec![],
             broken_peers: vec![],
@@ -326,16 +314,10 @@ impl BlockDownloader {
 
         self.getblock_requests.clear();
         self.getmicroblocks_requests.clear();
-        self.getattachmentsinv_requests.clear();
-        self.getattachments_requests.clear();
         self.blocks_to_try.clear();
         self.microblocks_to_try.clear();
-        self.attachments_to_try.clear();
-        self.attachments_invs_to_try.clear();
         self.blocks.clear();
         self.microblocks.clear();
-        self.attachments_invs.clear();
-        self.attachments.clear();
 
         self.dead_peers.clear();
         self.broken_peers.clear();
@@ -642,7 +624,7 @@ impl BlockDownloader {
 
         // are we done?
         if pending_microblock_requests.len() == 0 {
-            self.state = BlockDownloaderState::GetAttachmentsInvBegin;
+            self.state = BlockDownloaderState::Done;
             return Ok(true);
         }
 
@@ -827,178 +809,6 @@ impl BlockDownloader {
             &neighbors
         );
         Ok(neighbors)
-    }
-
-    pub fn getattachmentsinv_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
-        assert_eq!(self.state, BlockDownloaderState::GetAttachmentsInvBegin);
-
-        self.getattachmentsinv_requests = requests;
-        self.state = BlockDownloaderState::GetAttachmentsInvFinish;
-    }
-
-    pub fn getattachmentsinv_try_finish(&mut self, http: &mut HttpPeer) -> Result<bool, net_error> {
-        assert_eq!(self.state, BlockDownloaderState::GetAttachmentsInvFinish);
-
-        // requests that are still pending
-        let mut pending_attachment_requests = HashMap::new();
-
-        for (request_key, event_id) in self.getattachmentsinv_requests.drain() {
-            match http.get_conversation(event_id) {
-                None => {
-                    if http.is_connecting(event_id) {
-                        info!(
-                            "Event {} ({:?}, {:?} for block {} is not connected yet",
-                            event_id,
-                            &request_key.neighbor,
-                            &request_key.data_url,
-                            &request_key.index_block_hash
-                        );
-                        pending_attachment_requests.insert(request_key, event_id);
-                    } else {
-                        info!("Event {} ({:?}, {:?} for block {} failed to connect. Temporarily blocking URL", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
-                        self.dead_peers.push(event_id);
-
-                        // don't try this again for a while
-                        self.blocked_urls.insert(
-                            request_key.data_url,
-                            get_epoch_time_secs() + BLOCK_DOWNLOAD_BAN_URL,
-                        );
-                    }
-                }
-                Some(ref mut convo) => {
-                    match convo.try_get_response() {
-                        None => {
-                            // still waiting
-                            info!("Event {} ({:?}, {:?} for block {}) is still waiting for a response", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
-                            pending_attachment_requests.insert(request_key, event_id);
-                        }
-                        Some(http_response) => match http_response {
-                            HttpResponseType::GetAttachmentsInv(_md, response) => {
-                                info!("Got attachments_inv {:?}", response);
-
-                                self.attachments_invs.insert(request_key, response);
-                            }
-                            // TODO: redirect?
-                            HttpResponseType::NotFound(_, _) => {
-                                // remote peer didn't have the block
-                                info!("Remote neighbor {:?} ({:?}) does not actually have attachment {} indexed at {} ({})", &request_key.neighbor, &request_key.data_url, request_key.sortition_height, &request_key.index_block_hash, &request_key.consensus_hash);
-
-                                // the fact that we asked this peer means that it's block inv indicated
-                                // it was present, so the absence is the mark of a broken peer
-                                self.broken_peers.push(event_id);
-                                self.broken_neighbors.push(request_key.neighbor.clone());
-                            }
-                            _ => {
-                                // wrong message response
-                                info!(
-                                    "Got bad HTTP response from {:?}: {:?}",
-                                    &request_key.data_url, &http_response
-                                );
-                                self.broken_peers.push(event_id);
-                                self.broken_neighbors.push(request_key.neighbor.clone());
-                            }
-                        },
-                    }
-                }
-            }
-        }
-
-        // are we done?
-        if pending_attachment_requests.len() == 0 {
-            self.state = BlockDownloaderState::GetAttachmentsBegin;
-            return Ok(true)
-        }
-
-        // still have more to go
-        for (request_key, event_id) in pending_attachment_requests.drain() {
-            self.getattachmentsinv_requests.insert(request_key, event_id);
-        }
-        return Ok(false);
-    }
-
-    pub fn getattachments_begin(&mut self, requests: HashMap<(BlockRequestKey, Hash160), usize>) -> () {
-        assert_eq!(self.state, BlockDownloaderState::GetAttachmentsBegin);
-
-        self.getattachments_requests = requests;
-        self.state = BlockDownloaderState::GetAttachmentsFinish;
-    }
-
-    pub fn getattachments_try_finish(&mut self, http: &mut HttpPeer) -> Result<bool, net_error> {
-        assert_eq!(self.state, BlockDownloaderState::GetAttachmentsFinish);
-
-        // requests that are still pending
-        let mut pending_attachment_requests = HashMap::new();
-
-        for ((request_key, content_hash), event_id) in self.getattachments_requests.drain() {
-            match http.get_conversation(event_id) {
-                None => {
-                    if http.is_connecting(event_id) {
-                        info!(
-                            "Event {} ({:?}, {:?} for attachment {} is not connected yet",
-                            event_id,
-                            &request_key.neighbor,
-                            &request_key.data_url,
-                            &request_key.index_block_hash
-                        );
-                        pending_attachment_requests.insert((request_key, content_hash), event_id);
-                    } else {
-                        info!("Event {} ({:?}, {:?} for attachment {} failed to connect. Temporarily blocking URL", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
-                        self.dead_peers.push(event_id);
-
-                        // don't try this again for a while
-                        self.blocked_urls.insert(
-                            request_key.data_url,
-                            get_epoch_time_secs() + BLOCK_DOWNLOAD_BAN_URL,
-                        );
-                    }
-                }
-                Some(ref mut convo) => {
-                    match convo.try_get_response() {
-                        None => {
-                            // still waiting
-                            info!("Event {} ({:?}, {:?} for attachment {}) is still waiting for a response", event_id, &request_key.neighbor, &request_key.data_url, &request_key.index_block_hash);
-                            pending_attachment_requests.insert((request_key, content_hash), event_id);
-                        }
-                        Some(http_response) => match http_response {
-                            HttpResponseType::GetAttachment(_md, response) => {
-                                info!("Atlas: receiving response from GET /v2/attachments {:?}", response);
-                                self.attachments.insert((request_key, content_hash), response.attachment);
-                            }
-                            HttpResponseType::NotFound(_, _) => {
-                                // remote peer didn't have the block
-                                info!("Remote neighbor {:?} ({:?}) does not actually have attachment {} indexed at {} ({})", &request_key.neighbor, &request_key.data_url, request_key.sortition_height, &request_key.index_block_hash, &request_key.consensus_hash);
-
-                                // the fact that we asked this peer means that it's inv indicated
-                                // it was present, so the absence is the mark of a broken peer
-                                self.broken_peers.push(event_id);
-                                self.broken_neighbors.push(request_key.neighbor.clone());
-                            }
-                            _ => {
-                                // wrong message response
-                                info!(
-                                    "Got bad HTTP response from {:?}: {:?}",
-                                    &request_key.data_url, &http_response
-                                );
-                                self.broken_peers.push(event_id);
-                                self.broken_neighbors.push(request_key.neighbor.clone());
-                            }
-                        },
-                    }
-                }
-            }
-        }
-
-        // are we done?
-        if pending_attachment_requests.len() == 0 {
-            self.state = BlockDownloaderState::Done;
-            return Ok(true)
-        }
-
-        // still have more to go
-        for (request_key, event_id) in pending_attachment_requests.drain() {
-            self.getattachments_requests.insert(request_key, event_id);
-        }
-        return Ok(false);
     }
 
     /// Clear out broken peers that told us they had blocks, but didn't serve them.
@@ -1234,7 +1044,7 @@ impl PeerNetwork {
         );
 
         let mut availability =
-            PeerNetwork::with_inv_states(self, |network, inv_state, _| {
+            PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| { 
                 BlockDownloader::get_block_availability(
                     inv_state,
                     sortdb,
@@ -1511,6 +1321,7 @@ impl PeerNetwork {
                     target_index_block_hash.clone(),
                     child_block_header.clone(),
                     (i as u64) + start_sortition_height,
+                    if microblocks { BlockRequestKeyKind::ConfirmedMicroblock } else { BlockRequestKeyKind::Block },
                 );
                 requests.push_back(request);
             }
@@ -1519,41 +1330,6 @@ impl PeerNetwork {
         }
 
         Ok(blocks_to_try)
-    }
-
-
-    fn make_attachments_inv_requests(&mut self) -> Result<(), net_error> {
-        PeerNetwork::with_downloader_state(self, |network, downloader| {
-
-            PeerNetwork::with_inv_states(network, |network, _, attachments_inv_state| {
-                
-                for inv_request in attachments_inv_state.inv_request_queue.iter() {
-                    let peers = network.sync_peers.clone();
-                    let mut request_keys = VecDeque::new();
-                    for nk in peers {
-                        let data_url = match network.get_data_url(&nk) {
-                            Some(url) if url.len() > 0 => url,
-                            _ => {
-                                continue;
-                            }
-                        };
-                        let request_key = BlockRequestKey::new(
-                            nk,
-                            data_url,
-                            inv_request.consensus_hash.clone(),
-                            inv_request.block_header_hash.clone(),
-                            inv_request.get_stacks_block_id(),
-                            None,
-                        0,
-                        );
-                        downloader.getattachmentsinv_reverse_lookup.insert(request_key.clone(), inv_request.clone());
-                        request_keys.push_front(request_key);
-                    }
-                    downloader.attachments_invs_to_try.insert(inv_request.clone(), request_keys);
-                }
-                Ok(())
-            })
-        })
     }
 
     /// Make requests for missing anchored blocks
@@ -1869,8 +1645,6 @@ impl PeerNetwork {
             test_debug!("{:?}: does NOT need blocks", &self.local_peer);
         }
 
-        self.make_attachments_inv_requests()?;
-
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             let mut urlset = HashSet::new();
             for (_, requests) in downloader.blocks_to_try.iter() {
@@ -1880,18 +1654,6 @@ impl PeerNetwork {
             }
 
             for (_, requests) in downloader.microblocks_to_try.iter() {
-                for request in requests.iter() {
-                    urlset.insert(request.data_url.clone());
-                }
-            }
-
-            for (_, requests) in downloader.attachments_to_try.iter() {
-                for request in requests.iter() {
-                    urlset.insert(request.data_url.clone());
-                }
-            }
-
-            for (_, requests) in downloader.attachments_invs_to_try.iter() {
                 for request in requests.iter() {
                     urlset.insert(request.data_url.clone());
                 }
@@ -2118,13 +1880,11 @@ impl PeerNetwork {
             Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
-            Vec<AttachmentInstance>
         ),
         net_error,
     > {
         let mut blocks = vec![];
         let mut microblocks = vec![];
-        let mut attachments = vec![];
         let mut done = false;
         let mut old_pox_id = None;
 
@@ -2206,20 +1966,9 @@ impl PeerNetwork {
                     .remove(&request_key.sortition_height);
             }
 
-            for (_, attachment) in downloader.attachments.drain() {
-                downloader.num_attachments_downloaded += 1;
-                let mut attachments_instances = network.atlasdb.find_all_attachment_instances(&attachment.hash)
-                    .map_err(|e| net_error::DBError(e))?;
-                network.atlasdb.insert_new_attachment(&attachment.hash, &attachment.content, true)
-                    .map_err(|e| net_error::DBError(e))?;
-                attachments.append(&mut attachments_instances);
-                downloader.attachments_to_try.remove(&attachment.hash);
-            }
-
             // clear empties
             let mut blocks_empty = vec![];
             let mut microblocks_empty = vec![];
-            let mut attachments_empty = vec![];
 
             for (height, requests) in downloader.blocks_to_try.iter() {
                 if requests.len() == 0 {
@@ -2231,11 +1980,6 @@ impl PeerNetwork {
                     microblocks_empty.push(*height);
                 }
             }
-            for (content_hash, requests) in downloader.attachments_to_try.iter() {
-                if requests.len() == 0 {
-                    attachments_empty.push(content_hash.clone());
-                }
-            }
 
             for height in blocks_empty.drain(..) {
                 downloader.blocks_to_try.remove(&height);
@@ -2245,17 +1989,12 @@ impl PeerNetwork {
                 downloader.microblocks_to_try.remove(&height);
             }
 
-            for content_hash in attachments_empty.drain(..) {
-                downloader.attachments_to_try.remove(&content_hash);
-            }
-
             debug!(
-                "Blocks to try: {}; Microblocks to try: {}; Attachments to try: {}",
+                "Blocks to try: {}; Microblocks to try: {}",
                 downloader.blocks_to_try.len(),
                 downloader.microblocks_to_try.len(),
-                downloader.attachments_to_try.len(),
             );
-            if downloader.blocks_to_try.is_empty() && downloader.microblocks_to_try.is_empty() && downloader.attachments_to_try.is_empty() {
+            if downloader.blocks_to_try.is_empty() && downloader.microblocks_to_try.is_empty() {
                 // advance downloader state
                 done = true;
 
@@ -2354,146 +2093,11 @@ impl PeerNetwork {
                             .collect::<Vec<UrlString>>()
                     );
                 }
-                for (content_hash, requests) in downloader.attachments_to_try.iter() {
-                    assert!(
-                        requests.len() > 0,
-                        format!("Empty attachment requests at height {}", content_hash)
-                    );
-                }
 
                 downloader.state = BlockDownloaderState::GetBlocksBegin;
             }
 
-            Ok((done, old_pox_id, blocks, microblocks, attachments))
-        })
-    }
-
-    pub fn block_getattachmentsinv_begin(
-        &mut self,
-        chainstate: &mut StacksChainState
-    ) -> Result<(), net_error> {
-        PeerNetwork::with_downloader_state(self, |network, downloader| {
-            let mut requests = HashMap::new();
-            for (inv_request, ref mut request_keys) in downloader.attachments_invs_to_try.iter_mut() {
-                let pages_indexes = inv_request.get_pages_indexes();
-                match PeerNetwork::begin_request(
-                    network,
-                    &downloader.dns_lookups,
-                    "GetAttachmentsInv",
-                    request_keys,
-                    chainstate) 
-                {
-                    Some((key, handle)) => {
-                        requests.insert(key.clone(), handle);
-                    }
-                    None => {}
-                };    
-            }
-            downloader.getattachmentsinv_begin(requests);
-
-            Ok(())
-        })
-    }
-    
-    pub fn block_getattachmentsinv_try_finish(
-        &mut self,
-    ) -> Result<bool, net_error> {
-        PeerNetwork::with_downloader_state(self, |network, downloader| {
-            downloader.getattachmentsinv_try_finish(&mut network.http)
-        })
-    }
-
-    pub fn block_getattachments_begin(
-        &mut self,
-        chainstate: &mut StacksChainState
-    ) -> Result<bool, net_error> {
-        PeerNetwork::with_downloader_state(self, |network, downloader| {
-            PeerNetwork::with_inv_states(network, |network, _, attachments_inv_state| {
-                let mut requests = HashMap::new();
-                let peers = network.sync_peers.clone();
-                for (request_key, attachments_inv_response) in downloader.attachments_invs.iter() {
-                    let inv_request = match downloader.getattachmentsinv_reverse_lookup.remove(request_key) {
-                        Some(inv_request) => inv_request,
-                        _ => continue
-                    };
-                    attachments_inv_state.inv_request_queue.remove(&inv_request);
-
-                    let mut attachments_sources = HashMap::new();
-                    for ((page_index, position_in_page), _) in inv_request.missing_attachments.iter() {
-                        let mut candidates = VecDeque::new();
-                        for nk in peers.iter() {        
-                            let index = attachments_inv_response.pages.iter()
-                                .position(|page| page.index == *page_index);
-                            let has_attachment = match index {
-                                Some(index) => match attachments_inv_response.pages[index].inventory.get(*position_in_page as usize) {
-                                    Some(result) if *result == 1 => true,
-                                    _ => false
-                                }
-                                None => false,
-                            };
-
-                            if !has_attachment {
-                                info!("Atlas: peer does not have attachment ({}, {}) in its inventory {:?}", page_index, position_in_page, attachments_inv_response.pages);
-                                continue;
-                            }
-
-                            let data_url = match network.get_data_url(&nk) {
-                                Some(url) if url.len() > 0 => url,
-                                _ => continue
-                            };
-
-                            let request_key = BlockRequestKey::new(
-                                nk.clone(),
-                                data_url,
-                                inv_request.consensus_hash.clone(),
-                                inv_request.block_header_hash.clone(),
-                                inv_request.get_stacks_block_id(),
-                                None,
-                            0,
-                            );
-                            candidates.push_front(request_key);
-                        }
-                        attachments_sources.insert((*page_index, *position_in_page), candidates);
-                    } 
-
-                    let ordered_indexes = PeerNetwork::prioritize_requests::<(u32, u32)>(&attachments_sources);
-                    
-                    for (page_index, position_in_page) in ordered_indexes {
-                        let key = (page_index, position_in_page);
-                        let (mut request_keys, attachment_hash) = match (attachments_sources.get_mut(&key), inv_request.missing_attachments.get(&key)) {
-                            (Some(request_keys), Some(attachment_hash)) => (request_keys, attachment_hash),
-                            _ => {
-                                error!("Atlas: could not retrieve ordered data");
-                                continue;
-                            }
-                        };
-
-                        match PeerNetwork::begin_request(
-                            network,
-                            &downloader.dns_lookups,
-                            "GetAttachment",
-                            &mut request_keys,
-                            chainstate) 
-                        {
-                            Some((key, handle)) => {
-                                requests.insert((key.clone(), attachment_hash.clone()), handle);
-                            }
-                            None => {}
-                        };
-                    }
-                }
-
-                downloader.getattachments_begin(requests);
-                Ok(true)
-            })
-        })
-    }
-
-    pub fn block_getattachments_try_finish(&mut self) -> Result<bool, net_error> {
-
-        PeerNetwork::with_downloader_state(self, |network, downloader| {
-            downloader.getattachments_try_finish(&mut network.http)?;
-            Ok(true)
+            Ok((done, old_pox_id, blocks, microblocks))
         })
     }
 
@@ -2521,7 +2125,6 @@ impl PeerNetwork {
             Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
-            Vec<AttachmentInstance>,
             Vec<usize>,
             Vec<NeighborKey>,
         ),
@@ -2553,7 +2156,7 @@ impl PeerNetwork {
                             &self.local_peer,
                             downloader.finished_scan_at + downloader.download_interval
                         );
-                        return Ok((true, None, vec![], vec![], vec![], vec![], vec![]));
+                        return Ok((true, None, vec![], vec![], vec![], vec![]));
                     } else {
                         // start a rescan -- we've waited long enough
                         debug!(
@@ -2577,7 +2180,6 @@ impl PeerNetwork {
 
         let mut blocks = vec![];
         let mut microblocks = vec![];
-        let mut attachments = vec![];
         let mut old_pox_id = None;
 
         let mut done_cycle = false;
@@ -2604,18 +2206,6 @@ impl PeerNetwork {
                 BlockDownloaderState::GetMicroblocksFinish => {
                     self.block_getmicroblocks_try_finish()?;
                 }
-                BlockDownloaderState::GetAttachmentsInvBegin => {
-                    self.block_getattachmentsinv_begin(chainstate)?;
-                }
-                BlockDownloaderState::GetAttachmentsInvFinish => {
-                    self.block_getattachmentsinv_try_finish()?;
-                }
-                BlockDownloaderState::GetAttachmentsBegin => {
-                    self.block_getattachments_begin(chainstate)?;
-                }
-                BlockDownloaderState::GetAttachmentsFinish => {
-                    self.block_getattachments_try_finish()?;
-                }
                 BlockDownloaderState::Done => {
                     // did a pass.
                     // do we have more requests?
@@ -2624,13 +2214,11 @@ impl PeerNetwork {
                         downloader_pox_id,
                         mut successful_blocks,
                         mut successful_microblocks,
-                        mut successful_attachments,
                     ) = self.finish_downloads(sortdb, chainstate)?;
 
                     old_pox_id = downloader_pox_id;
                     blocks.append(&mut successful_blocks);
                     microblocks.append(&mut successful_microblocks);
-                    attachments.append(&mut successful_attachments);
                     done = blocks_done;
 
                     done_cycle = true;
@@ -2662,7 +2250,6 @@ impl PeerNetwork {
             old_pox_id,
             blocks,
             microblocks,
-            attachments,
             broken_http_peers,
             broken_p2p_peers,
         ))

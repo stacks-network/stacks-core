@@ -689,7 +689,6 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             .chain_state_db
                             .get_parent(&stacks_block)
                             .expect("BUG: failed to get parent for processed block");
-                        
                         dispatcher.announce_block(
                             block,
                             block_receipt.header,
@@ -697,7 +696,6 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             &parent,
                             winner_txid,
                         );
-
                     }
 
                     // if, just after processing the block, we _know_ that this block is a pox anchor, that means

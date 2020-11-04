@@ -20,7 +20,6 @@ use std::fmt;
 use std::cmp::Ordering;
 use std::net::{IpAddr, SocketAddr};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
-use std::ops::Deref;
 use std::collections::hash_map::Entry;
 use std::hash::{Hash, Hasher};
 

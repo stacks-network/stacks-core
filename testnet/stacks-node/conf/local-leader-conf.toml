@@ -11,7 +11,7 @@ wait_time_for_microblocks = 0
 
 [burnchain]
 chain = "bitcoin"
-mode = "neon"
+mode = "krypton"
 peer_host = "127.0.0.1"
 rpc_port = 28443
 peer_port = 18444

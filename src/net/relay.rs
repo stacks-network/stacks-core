@@ -1267,7 +1267,7 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
     ) -> Result<(Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
         let outbound_recipients_set =
-            PeerNetwork::with_inv_states(self, |_network, inv_state, _| {
+            PeerNetwork::with_inv_state(self, |_network, inv_state| {
                 let mut recipients = HashSet::new();
                 for (neighbor, stats) in inv_state.block_stats.iter() {
                     for (_, (block_height, _)) in available.iter() {
@@ -1369,7 +1369,7 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
         microblocks: bool,
     ) -> Result<(), net_error> {
-        let wanted = PeerNetwork::with_inv_states(self, |_network, inv_state, _| {
+        let wanted = PeerNetwork::with_inv_state(self, |_network, inv_state| {
             let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {

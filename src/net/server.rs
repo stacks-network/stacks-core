@@ -1229,6 +1229,7 @@ mod test {
                         51061,
                     )),
                     signed_contract_tx,
+                    None,
                 );
                 request.metadata_mut().keep_alive = false;
 

@@ -51,7 +51,7 @@ use net::server::*;
 
 use net::relay::*;
 
-use net::atlas::inv::{AttachmentsInvState, NeighborAttachmentStats, AttachmentInstance};
+use net::atlas::inv::{AttachmentInstance};
 use net::atlas::download::AttachmentsDownloader;
 
 use util::db::DBConn;
@@ -258,13 +258,8 @@ pub struct PeerNetwork {
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
 
-    pub sync_peers: HashSet<NeighborKey>,
-
     // peer block inventory state
     pub inv_state: Option<InvState>,
-
-    // peer attachments inventory state
-    pub attachments_inv_state: Option<AttachmentsInvState>,
 
     // cached view of PoX database
     pub tip_sort_id: SortitionId,
@@ -361,9 +356,7 @@ impl PeerNetwork {
             walk_pingbacks: HashMap::new(),
             walk_result: NeighborWalkResult::new(),
 
-            sync_peers: HashSet::new(),
             inv_state: None,
-            attachments_inv_state: None,
             pox_id: PoxId::initial(),
             tip_sort_id: SortitionId([0x00; 32]),
             header_cache: BlockHeaderCache::new(),
@@ -1141,84 +1134,6 @@ impl PeerNetwork {
     /// Get number of inbound connections we're servicing
     pub fn num_peers(&self) -> usize {
         self.sockets.len()
-    }
-
-    pub fn reset_sync_peers(&mut self, peers: HashSet<NeighborKey>, inv_state: &mut InvState, attachments_inv_state: &mut AttachmentsInvState) {
-        self.sync_peers.clear();
-        self.sync_peers = peers;
-
-        // clear out block_stats for peers we aren't talking to anymore
-        let mut to_remove = HashSet::new();
-        for (nk, _) in inv_state.block_stats.iter() {
-            if !self.sync_peers.contains(&nk) {
-                to_remove.insert(nk.clone());
-            }
-        }
-        for nk in to_remove.into_iter() {
-            inv_state.block_stats.remove(&nk);
-            attachments_inv_state.attachments_stats.remove(&nk);
-        }
-
-        for (_, stats) in inv_state.block_stats.iter_mut() {
-            if stats.status != NodeStatus::Online {
-                stats.status = NodeStatus::Online;
-            }
-            stats.done = false;
-            stats.learned_data = false;
-        }
-
-        for (_, stats) in attachments_inv_state.attachments_stats.iter_mut() {
-            if stats.status != NodeStatus::Online {
-                stats.status = NodeStatus::Online;
-            }
-            stats.done = false;
-            stats.learned_data = false;
-        }
-
-        for peer in self.sync_peers.iter() {
-            if let Some(stats) = inv_state.block_stats.get_mut(peer) {
-                stats.reset_pox_scan(0);
-            } else {
-                inv_state.block_stats.insert(
-                    peer.clone(),
-                    NeighborBlockStats::new(peer.clone(), inv_state.first_block_height),
-                );
-                attachments_inv_state.attachments_stats.insert(
-                    peer.clone(),
-                    NeighborAttachmentStats::new(peer.clone()),
-                );
-            }
-        }
-    }
-
-    /// Cull broken peers and purge their stats
-    pub fn cull_bad_peers(&mut self, inv_state: &mut InvState, attachments_inv_state: &mut AttachmentsInvState) {
-        let mut bad_peers = HashSet::new();
-
-        for (nk, stats) in inv_state.block_stats.iter() {
-            if stats.status == NodeStatus::Broken || stats.status == NodeStatus::Dead {
-                warn!(
-                    "Peer {:?} has node status {:?}; culling...",
-                    nk, &stats.status
-                );
-                self.sync_peers.remove(&nk);
-                bad_peers.insert(nk.clone());
-            }
-        }
-        for (nk, stats) in attachments_inv_state.attachments_stats.iter() {
-            if stats.status == NodeStatus::Broken || stats.status == NodeStatus::Dead {
-                warn!(
-                    "Peer {:?} has node status {:?}; culling...",
-                    nk, &stats.status
-                );
-                self.sync_peers.remove(&nk);
-                bad_peers.insert(nk.clone());
-            }
-        }
-
-        for bad_peer in bad_peers.into_iter() {
-            inv_state.block_stats.remove(&bad_peer);
-        }
     }
 
     /// Is a node with the given public key hash registered?
@@ -2440,7 +2355,6 @@ impl PeerNetwork {
             old_pox_id,
             mut blocks,
             mut microblocks,
-            mut attachments,
             mut broken_http_peers,
             mut broken_p2p_peers,
         ) = self.download_blocks(sortdb, chainstate, dns_client)?;
@@ -2450,7 +2364,6 @@ impl PeerNetwork {
         network_result
             .confirmed_microblocks
             .append(&mut microblocks);
-        network_result.attachments.append(&mut attachments);
 
         if cfg!(test) {
             let mut block_set = HashSet::new();
@@ -3346,7 +3259,6 @@ impl PeerNetwork {
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
-
         match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
             let mut known_attachments = attachments_downloader.enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
             network_result.attachments.append(&mut known_attachments);
