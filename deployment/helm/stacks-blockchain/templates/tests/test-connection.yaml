@@ -1,0 +1,20 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "stacks-blockchain.fullname" . }}-test-connection"
+  labels:
+    {{- include "stacks-blockchain.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - '{{ include "stacks-blockchain.fullname" . }}:{{ .Values.service.rpcPort | default .Values.node.rpcPort }}/v2/info'
+        - -qO
+        - '-'
+  restartPolicy: Never
