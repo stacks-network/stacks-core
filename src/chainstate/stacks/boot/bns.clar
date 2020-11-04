@@ -287,13 +287,15 @@
         current-page))
       (next-index (mod (+ current-index u1) attachments-inv-page-size)))
       ;; Emit event used as a system hinter
-      (print { 
-        hash: zonefile-hash,
-        page-index: current-page,
-        position-in-page: current-index,
-        metadata: {
-          name: name,
-          namespace: namespace,
+      (print {
+        attachment: {
+          hash: zonefile-hash,
+          page-index: current-page,
+          position-in-page: current-index,
+          metadata: {
+            name: name,
+            namespace: namespace,
+          }
         }})
       ;; Update attachments-inv
       (map-set attachments-inv
