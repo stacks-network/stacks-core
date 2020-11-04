@@ -1650,6 +1650,8 @@ pub struct NetworkResult {
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
+    pub uploaded_attachments: Vec<AttachmentData>,    // attachments sent to us by the http server
+    pub attachments: Vec<AttachmentInstance>,
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
 }
@@ -1666,6 +1668,8 @@ impl NetworkResult {
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
             uploaded_microblocks: vec![],
+            uploaded_attachments: vec![],
+            attachments: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
         }

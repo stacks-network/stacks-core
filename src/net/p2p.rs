@@ -4061,7 +4061,7 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        let mut result =
+        let mut network_result =
             NetworkResult::new(self.num_state_machine_passes, self.num_inv_sync_passes);
 
         // This operation needs to be performed before any early return:
