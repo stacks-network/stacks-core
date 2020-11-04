@@ -894,7 +894,7 @@ pub mod test {
             let liquid_ustx = get_liquid_ustx(&mut peer);
             assert_eq!(liquid_ustx, expected_liquid_ustx);
 
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) as usize {
+            if tenure_id >= MINER_REWARD_MATURITY as usize {
                 // add mature coinbases
                 expected_liquid_ustx += 500 * 1000000;
             }
@@ -1073,7 +1073,7 @@ pub mod test {
             let liquid_ustx = get_liquid_ustx(&mut peer);
             assert_eq!(liquid_ustx, expected_liquid_ustx);
 
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW) as usize {
+            if tenure_id >= MINER_REWARD_MATURITY as usize {
                 // add mature coinbases
                 expected_liquid_ustx += 500 * 1000000;
             }
@@ -1251,7 +1251,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -1450,7 +1450,7 @@ pub mod test {
                     // alice's tokens are locked for only one reward cycle
                     if cur_reward_cycle == alice_reward_cycle {
                         // this will grow as more miner rewards are unlocked, so be wary
-                        if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                        if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                             // height at which earliest miner rewards mature.
                             // miner rewards increased liquid supply, so less than 25% is locked.
                             // minimum participation decreases.
@@ -1716,7 +1716,7 @@ pub mod test {
 
                 if cur_reward_cycle >= first_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -2086,7 +2086,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -2376,7 +2376,7 @@ pub mod test {
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
             // this will grow as more miner rewards are unlocked, so be wary
-            if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+            if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                 // miner rewards increased liquid supply, so less than 25% is locked.
                 // minimum participation decreases.
                 assert!(total_liquid_ustx > 4 * 1024 * 1000000);
@@ -3272,7 +3272,7 @@ pub mod test {
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
-                    if tenure_id >= (MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1) as usize {
+                    if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
                         // miner rewards increased liquid supply, so less than 25% is locked.
                         // minimum participation decreases.
                         assert!(total_liquid_ustx > 4 * 1024 * 1000000);
