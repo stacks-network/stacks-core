@@ -125,7 +125,7 @@ pub struct BlockRequestKey {
     pub consensus_hash: ConsensusHash,
     pub anchor_block_hash: BlockHeaderHash,
     pub index_block_hash: StacksBlockId,
-    pub child_block_header: Option<StacksBlockHeader>, // only used if asking for a microblock; used to confirm the stream's continuity
+    pub parent_block_header: Option<StacksBlockHeader>, // only used if asking for a microblock; used to confirm the stream's continuity
     pub sortition_height: u64,
     pub download_start: u64,
 }
@@ -137,7 +137,7 @@ impl BlockRequestKey {
         consensus_hash: ConsensusHash,
         anchor_block_hash: BlockHeaderHash,
         index_block_hash: StacksBlockId,
-        child_block_header: Option<StacksBlockHeader>,
+        parent_block_header: Option<StacksBlockHeader>,
         sortition_height: u64,
     ) -> BlockRequestKey {
         BlockRequestKey {
@@ -146,7 +146,7 @@ impl BlockRequestKey {
             consensus_hash: consensus_hash,
             anchor_block_hash: anchor_block_hash,
             index_block_hash: index_block_hash,
-            child_block_header: child_block_header,
+            parent_block_header: parent_block_header,
             sortition_height: sortition_height,
             download_start: get_epoch_time_secs(),
         }
@@ -1047,7 +1047,7 @@ impl PeerNetwork {
                 }
             };
 
-            let mut child_block_header = None;
+            let mut parent_block_header = None;
             let index_block_hash =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
             if downloader.is_inflight(&index_block_hash, microblocks) {
@@ -1147,26 +1147,9 @@ impl PeerNetwork {
                 };
 
                 if let Some((parent_header, parent_consensus_hash)) = parent_header_opt {
-                    if StacksChainState::get_microblock_stream_head_hash(
-                        &chainstate.blocks_db,
-                        &parent_consensus_hash,
-                        &parent_header.block_hash(),
-                    )?
-                    .is_some()
-                    {
-                        // we already have the first block in the stream that descends from the parent, which indicates that we have already fetched this stream (but possibly out-of-order).
-                        // Verify this by checking that we also have the tail that connects to this anchored block.
-                        if StacksChainState::load_staging_microblock(
-                            &chainstate.blocks_db,
-                            &parent_consensus_hash,
-                            &parent_header.block_hash(),
-                            &block_header.parent_microblock,
-                        )?
-                        .is_some()
-                        {
-                            test_debug!("{:?}: Already have microblock stream confirmed by {}/{} (built by {}/{})", &self.local_peer, &consensus_hash, &block_hash, &parent_consensus_hash, &parent_header.block_hash());
-                            continue;
-                        }
+                    if chainstate.has_processed_microblocks(&index_block_hash)? {
+                        test_debug!("{:?}: Already have microblock stream confirmed by {}/{} (built by {}/{})", &self.local_peer, &consensus_hash, &block_hash, &parent_consensus_hash, &parent_header.block_hash());
+                        continue;
                     }
 
                     // ask for the microblocks _confirmed_ by this block (by asking for the
@@ -1194,8 +1177,8 @@ impl PeerNetwork {
                         &block_hash
                     );
 
-                    child_block_header = Some(block_header);
-                    (parent_consensus_hash, parent_header.block_hash())
+                    parent_block_header = Some(parent_header);
+                    (consensus_hash, block_hash)
                 } else {
                     // we don't have the block that produced this stream
                     test_debug!(
@@ -1283,7 +1266,7 @@ impl PeerNetwork {
                     target_consensus_hash.clone(),
                     target_block_hash.clone(),
                     target_index_block_hash.clone(),
-                    child_block_header.clone(),
+                    parent_block_header.clone(),
                     (i as u64) + start_sortition_height,
                 );
                 requests.push_back(request);
@@ -1916,14 +1899,14 @@ impl PeerNetwork {
                 ));
 
                 assert!(
-                    request_key.child_block_header.is_some(),
+                    request_key.parent_block_header.is_some(),
                     "BUG: requested a microblock but didn't set the child block header"
                 );
-                let child_block_header = request_key.child_block_header.unwrap();
+                let parent_block_header = request_key.parent_block_header.unwrap();
 
                 if StacksChainState::validate_parent_microblock_stream(
+                    &parent_block_header,
                     &block_header,
-                    &child_block_header,
                     &microblock_stream,
                     true,
                 )
@@ -2643,7 +2626,7 @@ pub mod test {
                             }
                         }
                     }
-                    for b in 0..(num_blocks - 1) {
+                    for b in 1..(num_blocks - 1) {
                         if !peer_invs[i].has_ith_microblock_stream(
                             ((b as u64) + first_stacks_block_height - first_sortition_height)
                                 as u16,
