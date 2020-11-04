@@ -157,6 +157,26 @@ impl BlockRequestKey {
     }
 }
 
+impl Requestable for BlockRequestKey {
+
+    fn get_url(&self) -> &UrlString {
+        &self.data_url
+    }
+
+    fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
+        HttpRequestType::GetBlock(
+            HttpRequestMetadata::from_host(peer_host),
+            self.index_block_hash,
+        )
+    }
+}
+
+impl std::fmt::Display for BlockRequestKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<Request<Block>: {} {} {:?}>", self.index_block_hash, self.neighbor, self.data_url)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum BlockDownloaderState {
     DNSLookupBegin,
@@ -1122,7 +1142,7 @@ impl PeerNetwork {
     }
 
     /// Get the data URL for a neighbor
-    fn get_data_url(&self, neighbor_key: &NeighborKey) -> Option<UrlString> {
+    pub fn get_data_url(&self, neighbor_key: &NeighborKey) -> Option<UrlString> {
         match self.events.get(neighbor_key) {
             Some(ref event_id) => match self.peers.get(event_id) {
                 Some(ref convo) => {
@@ -1535,7 +1555,7 @@ impl PeerNetwork {
             })
         })
     }
-    
+
     /// Make requests for missing anchored blocks
     fn make_block_requests(
         &mut self,
@@ -1937,66 +1957,49 @@ impl PeerNetwork {
     /// create the HTTP request.  Pops requests off the front of request_keys, and returns once it successfully
     /// sends out a request via the HTTP peer.  Returns the event ID in the http peer that's
     /// handling the request.
-    fn begin_request<F>(
+    pub fn begin_request<T: Requestable + std::fmt::Display>(
         network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         request_name: &str,
-        request_keys: &mut VecDeque<BlockRequestKey>,
+        requestables: &mut VecDeque<T>,
         chainstate: &mut StacksChainState,
-        request_factory: F,
-    ) -> Option<(BlockRequestKey, usize)>
-    where
-        F: Fn(PeerHost, StacksBlockId) -> HttpRequestType,
+    ) -> Option<(T, usize)>
     {
         loop {
-            match request_keys.pop_front() {
-                Some(key) => {
-                    if let Some(Some(ref sockaddrs)) = dns_lookups.get(&key.data_url) {
+            match requestables.pop_front() {
+                Some(requestable) => {
+                    if let Some(Some(ref sockaddrs)) = dns_lookups.get(requestable.get_url()) {
                         assert!(sockaddrs.len() > 0);
 
-                        let peerhost = match PeerHost::try_from_url(&key.data_url) {
+                        let peerhost = match PeerHost::try_from_url(requestable.get_url()) {
                             Some(ph) => ph,
                             None => {
-                                warn!("Unparseable URL {:?}", &key.data_url);
+                                warn!("Unparseable URL {:?}", requestable.get_url());
                                 continue;
                             }
                         };
 
                         for addr in sockaddrs.iter() {
-                            let request =
-                                request_factory(peerhost.clone(), key.index_block_hash.clone());
+                            let request = requestable.get_request_type(peerhost.clone());
                             match network.connect_or_send_http_request(
-                                key.data_url.clone(),
+                                requestable.get_url().clone(),
                                 addr.clone(),
                                 request,
                                 chainstate,
                             ) {
                                 Ok(handle) => {
-                                    debug!(
-                                        "{:?}: Begin HTTP request for {} {} to {:?} ({:?})",
-                                        &network.local_peer,
-                                        request_name,
-                                        &key.index_block_hash,
-                                        &key.neighbor,
-                                        &key.data_url
-                                    );
-                                    return Some((key, handle));
+                                    debug!("{:?}: Begin HTTP request {}", &network.local_peer, requestable);
+                                    return Some((requestable, handle));
                                 }
                                 Err(e) => {
-                                    debug!("{:?}: Failed to connect or send HTTP request for {} to {:?} ({:?}, {:?}): {:?}", &network.local_peer, request_name, &key.neighbor, &key.data_url, addr, &e);
+                                    debug!("{:?}: Failed to connect or send HTTP request {}: {:?}", &network.local_peer, requestable, &e);
                                 }
                             }
                         }
 
-                        debug!(
-                            "{:?}: Failed request for {} {:?} from {:?}",
-                            &network.local_peer, request_name, &key.index_block_hash, sockaddrs
-                        );
+                        debug!("{:?}: Failed request for {} from {:?}", &network.local_peer, requestable, sockaddrs);
                     } else {
-                        debug!(
-                            "{:?}: Will not request {} {:?}: failed to look up DNS name in {:?}",
-                            &network.local_peer, request_name, &key.index_block_hash, &key.data_url
-                        );
+                        debug!("{:?}: Will not request {}: failed to look up DNS name", &network.local_peer, requestable);
                     }
                 }
                 None => {
@@ -2025,13 +2028,7 @@ impl PeerNetwork {
                             &downloader.dns_lookups,
                             "anchored block",
                             keys,
-                            chainstate,
-                            |peerhost, index_block_hash| {
-                                HttpRequestType::GetBlock(
-                                    HttpRequestMetadata::from_host(peerhost),
-                                    index_block_hash,
-                                )
-                            },
+                            chainstate
                         ) {
                             Some((key, handle)) => {
                                 requests.insert(key.clone(), handle);
@@ -2078,14 +2075,8 @@ impl PeerNetwork {
                             &downloader.dns_lookups,
                             "microblock stream",
                             keys,
-                            chainstate,
-                            |peerhost, index_block_hash| {
-                                HttpRequestType::GetMicroblocksConfirmed(
-                                    HttpRequestMetadata::from_host(peerhost),
-                                    index_block_hash,
-                                )
-                            },
-                        ) {
+                            chainstate) 
+                        {
                             Some((key, handle)) => {
                                 requests.insert(key.clone(), handle);
                             }
@@ -2390,15 +2381,8 @@ impl PeerNetwork {
                     &downloader.dns_lookups,
                     "GetAttachmentsInv",
                     request_keys,
-                    chainstate,
-                    |peerhost, block_id| {
-                        HttpRequestType::GetAttachmentsInv(
-                            HttpRequestMetadata::from_host(peerhost),
-                            Some(block_id),
-                            pages_indexes.clone(),
-                        )
-                    },
-                ) {
+                    chainstate) 
+                {
                     Some((key, handle)) => {
                         requests.insert(key.clone(), handle);
                     }
@@ -2489,14 +2473,8 @@ impl PeerNetwork {
                             &downloader.dns_lookups,
                             "GetAttachment",
                             &mut request_keys,
-                            chainstate,
-                            |peerhost, _| {
-                                HttpRequestType::GetAttachment(
-                                    HttpRequestMetadata::from_host(peerhost),
-                                    attachment_hash.clone()
-                                )
-                            },
-                        ) {
+                            chainstate) 
+                        {
                             Some((key, handle)) => {
                                 requests.insert((key.clone(), attachment_hash.clone()), handle);
                             }

@@ -1765,6 +1765,13 @@ impl NetworkResult {
     }
 }
 
+pub trait Requestable {
+
+    fn get_url(&self) -> &UrlString;
+
+    fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType;
+}
+
 #[cfg(test)]
 pub mod test {
     use super::*;
@@ -2419,7 +2426,7 @@ pub mod test {
                 false,
                 10,
                 &RPCHandlerArgs::default(),
-                HashSet::new(),
+                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);
@@ -2442,7 +2449,7 @@ pub mod test {
                 false,
                 10,
                 &RPCHandlerArgs::default(),
-                HashSet::new(),
+                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);
