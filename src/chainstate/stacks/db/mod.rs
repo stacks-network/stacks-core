@@ -103,7 +103,6 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    cached_miner_payments: MinerPaymentCache,
     pub block_limit: ExecutionCost,
     pub unconfirmed_state: Option<UnconfirmedState>,
 }
@@ -343,7 +342,6 @@ pub struct ChainstateTx<'a> {
     pub config: DBConfig,
     pub headers_tx: StacksDBTx<'a>,
     pub blocks_tx: BlocksDBTx<'a>,
-    pub miner_payment_cache: &'a mut MinerPaymentCache,
 }
 
 impl<'a> ChainstateTx<'a> {
@@ -387,19 +385,35 @@ impl<'a> ChainstateTx<'a> {
 /// Opaque structure for streaming block and microblock data from disk
 #[derive(Debug, PartialEq, Clone)]
 pub struct BlockStreamData {
-    block_hash: StacksBlockId, // index block hash of the block or microblock stream head
-    rowid: Option<i64>,        // used when reading a blob out of staging
-    offset: u64, // offset into whatever is being read (the blob, or the file in the chunk store)
-    total_bytes: u64, // total number of bytes read.
+    index_block_hash: StacksBlockId,    // index block hash of the block to download
+    rowid: Option<i64>,                 // used when reading a blob out of staging
+    offset: u64,                        // offset into whatever is being read (the blob, or the file in the chunk store)
+    total_bytes: u64,                   // total number of bytes read.
 
     // used only for microblocks
     is_microblock: bool,
-    seq: u16,
-    in_staging: bool,
+    microblock_hash: BlockHeaderHash,
+    parent_index_block_hash: StacksBlockId,
+    seq: u16,       // only used for unconfirmed microblocks
+    unconfirmed: bool,
+    num_mblocks_buf: [u8; 4],
+    num_mblocks_ptr: usize
 }
 
-// TODO: keep track of when microblock equivocations occur (maybe in the MARF?), so that once we
-// process a PoisonMicroblock transaction, no further blocks may build off of any descendent fork.
+/// Microblock stream poison record
+#[derive(Debug, PartialEq, Clone)]
+pub struct MicroblockStreamPoison {
+    pub parent_consensus_hash: ConsensusHash,
+    pub parent_block_hash: BlockHeaderHash,
+    pub child_consensus_hash: ConsensusHash,
+    pub child_block_hash: BlockHeaderHash,
+    pub child_burn_block_height: u64,
+    pub fork_seq: u16,
+    pub address: Option<StacksAddress>,
+    pub tx: Option<StacksTransaction>,
+    pub parent_index_block_hash: StacksBlockId
+}
+
 const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
     r#"
@@ -478,6 +492,29 @@ const STACKS_CHAIN_STATE_SQL: &'static [&'static str] = &[
     );
     "#,
     r#"
+    -- microblock stream poisons (witnessed or not)
+    CREATE TABLE stream_poisons(
+        -- parent anchor block and consensus hash (who gets slashed)
+        parent_consensus_hash TEXT NOT NULL,
+        parent_block_hash TEXT NOT NULL,
+
+        -- confirming child that reported it
+        child_burn_block_height INT NOT NULL,
+        child_consensus_hash TEXT NOT NULL,
+        child_block_hash TEXT NOT NULL,
+
+        -- poison info
+        fork_seq INT NOT NULL,          -- sequence number of the stream fork
+        address TEXT NOT NULL,          -- principal that sent the poison-microblock tx (burn address if auto-detected)
+        tx BLOB,                        -- PoisonMicroblock transaction (may be None if auto-detected)
+
+        -- internal use
+        parent_index_block_hash TEXT NOT NULL,     -- NOTE: can't enforce UNIQUE here, because there will be multiple entries per block
+
+        PRIMARY KEY(parent_index_block_hash,child_burn_block_height,fork_seq)
+    );
+    "#,
+    r#"
     -- users who supported miners
     CREATE TABLE user_supporters(
         address TEXT NOT NULL,
@@ -502,15 +539,12 @@ pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes
 #[cfg(not(test))]
 pub const MINER_REWARD_MATURITY: u64 = 100;
 
-#[cfg(test)]
-pub const MINER_REWARD_WINDOW: u64 = 5; // small for testing purposes
-
-#[cfg(not(test))]
-pub const MINER_REWARD_WINDOW: u64 = 16;
-
 pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
 
 pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
+
+// fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
+pub const POISON_MICROBLOCK_COMMISSION_FRACTION : u128 = 5;
 
 impl StacksChainState {
     fn instantiate_headers_db(
@@ -927,7 +961,6 @@ impl StacksChainState {
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
-            cached_miner_payments: MinerPaymentCache::new(),
             block_limit: block_limit,
             unconfirmed_state: None,
         };
@@ -982,7 +1015,6 @@ impl StacksChainState {
             config: config,
             headers_tx: headers_tx,
             blocks_tx: blocks_tx,
-            miner_payment_cache: &mut self.cached_miner_payments,
         };
 
         Ok((chainstate_tx, clarity_instance))
