@@ -2,8 +2,8 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use crate::config::HELIUM_BLOCK_LIMIT;
 use crate::run_loop::RegisteredKey;
 
-use std::collections::{VecDeque, HashSet};
 use std::cmp;
+use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
@@ -29,13 +29,13 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    db::{LocalPeer, PeerDB},
+    atlas::inv::AttachmentInstance,
     atlas::AtlasDB,
+    db::{LocalPeer, PeerDB},
     dns::DNSResolver,
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
-    atlas::inv::AttachmentInstance,
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
 use stacks::util::get_epoch_time_secs;
@@ -312,7 +312,7 @@ fn spawn_peer(
                     HashSet::new()
                 }
             };
-        
+
             let network_result = match this.run(
                 &sortdb,
                 &mut chainstate,
@@ -438,7 +438,7 @@ fn spawn_miner_relayer(
                     if mempool_txs_added > 0 {
                         event_dispatcher.process_new_mempool_txs(net_receipts.mempool_txs_added);
                     }
-                    
+
                     // Dispatch retrieved attachments, if any.
                     if net_result.has_attachments() {
                         event_dispatcher.process_new_attachments(&net_result.attachments);
@@ -644,7 +644,7 @@ impl InitializedNeonNode {
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
         burnchain: Burnchain,
-        attachments_rx: Receiver<HashSet<AttachmentInstance>>
+        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -724,11 +724,7 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
-        let atlasdb = AtlasDB::connect(
-            &config.get_atlas_db_path(),
-            true
-        )
-        .unwrap();
+        let atlasdb = AtlasDB::connect(&config.get_atlas_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -1268,7 +1264,7 @@ impl NeonGenesisNode {
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
-        attachments_rx: Receiver<HashSet<AttachmentInstance>>
+        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1284,7 +1280,7 @@ impl NeonGenesisNode {
             coord_comms,
             sync_comms,
             self.burnchain,
-            attachments_rx
+            attachments_rx,
         )
     }
 

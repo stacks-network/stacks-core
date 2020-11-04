@@ -1,19 +1,19 @@
-use super::{AtlasDB, ExpectedAttachment, AttachmentsInvRequest};
-use util::db::FromRow;
-use rusqlite::Row;
-use util::db::Error as db_error;
-use util::hash::Hash160;
-use net::Neighbor;
-use net::inv::NodeStatus;
-use net::connection::ReplyHandleHttp;
-use net::NeighborKey;
-use net::p2p::PeerNetwork;
-use chainstate::burn::{ConsensusHash, BlockHeaderHash};
+use super::{AtlasDB, AttachmentsInvRequest, ExpectedAttachment};
 use burnchains::BurnchainHeaderHash;
-use chainstate::stacks::{StacksBlockId, StacksBlockHeader};
-use vm::types::QualifiedContractIdentifier;
-use std::collections::{HashSet, HashMap};
+use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
+use net::connection::ReplyHandleHttp;
+use net::inv::NodeStatus;
+use net::p2p::PeerNetwork;
+use net::Neighbor;
+use net::NeighborKey;
+use rusqlite::Row;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
+use util::db::Error as db_error;
+use util::db::FromRow;
+use util::hash::Hash160;
+use vm::types::QualifiedContractIdentifier;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum AttachmentState {
@@ -44,12 +44,8 @@ pub struct AttachmentInstance {
 }
 
 impl AttachmentInstance {
-
     pub fn get_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockHeader::make_index_block_hash(
-            &self.consensus_hash,
-            &self.block_header_hash
-        )
+        StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
     }
 }
 
@@ -64,10 +60,10 @@ pub enum InvAttachmentWorkState {
 pub struct AttachmentsInvState {
     /// Accumulated knowledge of which peers have which attachments.
     pub attachments_stats: HashMap<NeighborKey, NeighborAttachmentStats>,
-    /// Request queue 
+    /// Request queue
     pub inv_request_queue: HashSet<AttachmentsInvRequest>,
     /// Request queue
-    pub requests_in_progress: HashSet<AttachmentsInvRequest>, 
+    pub requests_in_progress: HashSet<AttachmentsInvRequest>,
     /// How long is a request allowed to take?
     pub request_timeout: u64,
     /// Last time we learned about new blocks
@@ -83,11 +79,7 @@ pub struct AttachmentsInvState {
 }
 
 impl AttachmentsInvState {
-
-    pub fn new(
-        request_timeout: u64,
-        sync_interval: u64,
-    ) -> AttachmentsInvState {
+    pub fn new(request_timeout: u64, sync_interval: u64) -> AttachmentsInvState {
         AttachmentsInvState {
             attachments_stats: HashMap::new(),
             inv_request_queue: HashSet::new(),
@@ -123,7 +115,6 @@ pub struct NeighborAttachmentStats {
 }
 
 impl NeighborAttachmentStats {
-
     pub fn new(nk: NeighborKey) -> NeighborAttachmentStats {
         NeighborAttachmentStats {
             nk: nk,

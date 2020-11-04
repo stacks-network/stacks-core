@@ -1,51 +1,51 @@
-use super::{AttachmentInstance, AtlasDB};
-use net::Error as net_error;
+use super::{AtlasDB, AttachmentInstance};
+use chainstate::burn::{BlockHeaderHash, ConsensusHash};
+use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
+use net::connection::ConnectionOptions;
 use net::dns::*;
 use net::p2p::PeerNetwork;
-use net::{HttpRequestType, HttpResponseType, PeerHost, HttpRequestMetadata, Requestable};
-use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
 use net::server::HttpPeer;
-use net::connection::ConnectionOptions;
+use net::Error as net_error;
 use net::NeighborKey;
-use vm::types::QualifiedContractIdentifier;
-use vm::representations::UrlString;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::{StacksBlockId, StacksBlockHeader};
-use chainstate::burn::{ConsensusHash, BlockHeaderHash};
-use util::{get_epoch_time_ms, get_epoch_time_secs};
-use util::strings;
+use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
+use net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use util::hash::{Hash160, MerkleHashFunc};
+use util::strings;
+use util::{get_epoch_time_ms, get_epoch_time_secs};
+use vm::representations::UrlString;
+use vm::types::QualifiedContractIdentifier;
 
-use std::fmt;
 use std::cmp::Ordering;
-use std::net::{IpAddr, SocketAddr};
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::collections::hash_map::Entry;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::net::{IpAddr, SocketAddr};
 
 #[derive(Debug)]
 pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
     ongoing_batch: Option<AttachmentsBatchStateMachine>,
-    processed_batches: Vec<AttachmentsBatch>
+    processed_batches: Vec<AttachmentsBatch>,
 }
 
 impl AttachmentsDownloader {
-
     pub fn new() -> AttachmentsDownloader {
         AttachmentsDownloader {
             priority_queue: BinaryHeap::new(),
             ongoing_batch: None,
-            processed_batches: vec![]
+            processed_batches: vec![],
         }
     }
 
-    pub fn run(&mut self, 
-               dns_client: &mut DNSClient, 
-               chainstate: &mut StacksChainState, 
-               network: &mut PeerNetwork) -> Result<Vec<AttachmentInstance>, net_error> 
-    {    
-        let mut resolved_attachments = vec![];        
+    pub fn run(
+        &mut self,
+        dns_client: &mut DNSClient,
+        chainstate: &mut StacksChainState,
+        network: &mut PeerNetwork,
+    ) -> Result<Vec<AttachmentInstance>, net_error> {
+        let mut resolved_attachments = vec![];
 
         let ongoing_fsm = match self.ongoing_batch.take() {
             Some(batch) => batch,
@@ -59,35 +59,37 @@ impl AttachmentsDownloader {
                         }
                     }
                     let ctx = AttachmentsBatchStateContext::new(
-                        attachments_batch, 
+                        attachments_batch,
                         peers,
-                        &network.connection_opts);
+                        &network.connection_opts,
+                    );
                     AttachmentsBatchStateMachine::new(ctx)
                 }
                 None => {
                     // Nothing to do!
-                    return Ok(vec![])
+                    return Ok(vec![]);
                 }
-            }
+            },
         };
 
-        let mut progress = AttachmentsBatchStateMachine::try_proceed(
-            ongoing_fsm,
-            dns_client, 
-            network,
-            chainstate);
-        
+        let mut progress =
+            AttachmentsBatchStateMachine::try_proceed(ongoing_fsm, dns_client, network, chainstate);
+
         match progress {
             AttachmentsBatchStateMachine::Done(ref mut context) => {
                 for (_, response) in context.attachments.drain() {
                     let attachment = response.attachment;
-                    let mut attachments_instances = network.atlasdb.find_all_attachment_instances(&attachment.hash)
+                    let mut attachments_instances = network
+                        .atlasdb
+                        .find_all_attachment_instances(&attachment.hash)
                         .map_err(|e| net_error::DBError(e))?;
-                    network.atlasdb.insert_new_attachment(&attachment.hash, &attachment.content, true)
+                    network
+                        .atlasdb
+                        .insert_new_attachment(&attachment.hash, &attachment.content, true)
                         .map_err(|e| net_error::DBError(e))?;
                     resolved_attachments.append(&mut attachments_instances);
                 }
-    
+
                 // At the end of the process, the batch should be simplified if did not succeed.
                 // Priority queue: combination of retry count and block height.
             }
@@ -99,50 +101,59 @@ impl AttachmentsDownloader {
         Ok(resolved_attachments)
     }
 
-
-    pub fn enqueue_new_attachments(&mut self, new_attachments: &mut HashSet<AttachmentInstance>, atlasdb: &mut AtlasDB) -> Result<Vec<AttachmentInstance>, net_error> 
-    {
+    pub fn enqueue_new_attachments(
+        &mut self,
+        new_attachments: &mut HashSet<AttachmentInstance>,
+        atlasdb: &mut AtlasDB,
+    ) -> Result<Vec<AttachmentInstance>, net_error> {
         if new_attachments.is_empty() {
-            return Ok(vec![])
-        }        
+            return Ok(vec![]);
+        }
 
-        let mut resolved_attachments = vec![];        
+        let mut resolved_attachments = vec![];
         let mut attachments_batch = AttachmentsBatch::new();
         for attachment in new_attachments.drain() {
             // Are we dealing with an empty hash - allowed for undoing onchain binding
             if attachment.content_hash == Hash160::empty() {
                 // todo(ludo) insert or update ?
-                atlasdb.insert_new_attachment_instance(&attachment, true)
+                atlasdb
+                    .insert_new_attachment_instance(&attachment, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!("Atlas: inserting and pairing new attachment instance with empty hash");
                 resolved_attachments.push(attachment);
                 continue;
             }
-            
+
             // Do we already have a matching validated attachment
             if let Ok(Some(_entry)) = atlasdb.find_attachment(&attachment.content_hash) {
-                atlasdb.insert_new_attachment_instance(&attachment, true)
+                atlasdb
+                    .insert_new_attachment_instance(&attachment, true)
                     .map_err(|e| net_error::DBError(e))?;
-                debug!("Atlas: inserting and pairing new attachment instance to existing attachment");
+                debug!(
+                    "Atlas: inserting and pairing new attachment instance to existing attachment"
+                );
                 resolved_attachments.push(attachment);
                 continue;
             }
 
             // Do we already have a matching inboxed attachment
             if let Ok(Some(_entry)) = atlasdb.find_inboxed_attachment(&attachment.content_hash) {
-                atlasdb.import_attachment_from_inbox(&attachment.content_hash)
+                atlasdb
+                    .import_attachment_from_inbox(&attachment.content_hash)
                     .map_err(|e| net_error::DBError(e))?;
-                atlasdb.insert_new_attachment_instance(&attachment, true)
+                atlasdb
+                    .insert_new_attachment_instance(&attachment, true)
                     .map_err(|e| net_error::DBError(e))?;
                 debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
                 resolved_attachments.push(attachment);
                 continue;
             }
 
-            // This attachment in refering to an unknown attachment. 
+            // This attachment in refering to an unknown attachment.
             // Let's append it to the batch being constructed in this routine.
             attachments_batch.track_attachment_instance(&attachment);
-            atlasdb.insert_new_attachment_instance(&attachment, false)
+            atlasdb
+                .insert_new_attachment_instance(&attachment, false)
                 .map_err(|e| net_error::DBError(e))?;
         }
 
@@ -160,13 +171,17 @@ struct AttachmentsBatchStateContext {
     pub peers: HashMap<NeighborKey, UrlString>,
     pub connection_options: ConnectionOptions,
     pub dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
-    pub inventories: HashMap<AttachmentsInventoryRequest, HashMap<UrlString, GetAttachmentsInvResponse>>,
-    pub attachments: HashMap<AttachmentRequest, GetAttachmentResponse>
+    pub inventories:
+        HashMap<AttachmentsInventoryRequest, HashMap<UrlString, GetAttachmentsInvResponse>>,
+    pub attachments: HashMap<AttachmentRequest, GetAttachmentResponse>,
 }
 
 impl AttachmentsBatchStateContext {
-
-    pub fn new(attachments_batch: AttachmentsBatch, peers: HashMap<NeighborKey, UrlString>, connection_options: &ConnectionOptions) -> AttachmentsBatchStateContext {
+    pub fn new(
+        attachments_batch: AttachmentsBatch,
+        peers: HashMap<NeighborKey, UrlString>,
+        connection_options: &ConnectionOptions,
+    ) -> AttachmentsBatchStateContext {
         AttachmentsBatchStateContext {
             attachments_batch,
             peers,
@@ -181,17 +196,21 @@ impl AttachmentsBatchStateContext {
         self.peers.values().map(|e| e.clone()).collect()
     }
 
-    pub fn get_prioritized_attachments_inventory_requests(&self) -> BinaryHeap<AttachmentsInventoryRequest> {
+    pub fn get_prioritized_attachments_inventory_requests(
+        &self,
+    ) -> BinaryHeap<AttachmentsInventoryRequest> {
         let mut queue = BinaryHeap::new();
         for (contract_id, _) in self.attachments_batch.attachments_instances.iter() {
             for (_, peer_url) in self.peers.iter() {
                 let request = AttachmentsInventoryRequest {
                     url: peer_url.clone(),
                     contract_id: contract_id.clone(),
-                    pages: self.attachments_batch.get_missing_pages_for_contract_id(contract_id),
-                    block_height: self.attachments_batch.block_height,    
+                    pages: self
+                        .attachments_batch
+                        .get_missing_pages_for_contract_id(contract_id),
+                    block_height: self.attachments_batch.block_height,
                     consensus_hash: self.attachments_batch.consensus_hash,
-                    block_header_hash: self.attachments_batch.block_header_hash,            
+                    block_header_hash: self.attachments_batch.block_header_hash,
                 };
                 queue.push(request);
             }
@@ -202,7 +221,11 @@ impl AttachmentsBatchStateContext {
     pub fn get_prioritized_attachments_requests(&self) -> BinaryHeap<AttachmentRequest> {
         let mut queue = BinaryHeap::new();
         for (inventory_request, peers_responses) in self.inventories.iter() {
-            let missing_attachments = match self.attachments_batch.attachments_instances.get(&inventory_request.contract_id) {
+            let missing_attachments = match self
+                .attachments_batch
+                .attachments_instances
+                .get(&inventory_request.contract_id)
+            {
                 None => continue,
                 Some(missing_attachments) => missing_attachments,
             };
@@ -210,21 +233,27 @@ impl AttachmentsBatchStateContext {
                 let mut urls = vec![];
 
                 for (peer_url, response) in peers_responses.iter() {
-
-                    let index = response.pages
+                    let index = response
+                        .pages
                         .iter()
                         .position(|page| page.index == *page_index);
-                    
+
                     let has_attachment = match index {
-                        Some(index) => match response.pages[index].inventory.get(*position_in_page as usize) {
+                        Some(index) => match response.pages[index]
+                            .inventory
+                            .get(*position_in_page as usize)
+                        {
                             Some(result) if *result == 1 => true,
-                            _ => false
-                        }
+                            _ => false,
+                        },
                         None => false,
                     };
 
                     if !has_attachment {
-                        info!("Atlas: peer does not have attachment ({}, {}) in its inventory {:?}", page_index, position_in_page, response.pages);
+                        info!(
+                            "Atlas: peer does not have attachment ({}, {}) in its inventory {:?}",
+                            page_index, position_in_page, response.pages
+                        );
                         continue;
                     }
 
@@ -234,9 +263,9 @@ impl AttachmentsBatchStateContext {
                 if urls.len() > 0 {
                     let request = AttachmentRequest {
                         urls,
-                        content_hash: content_hash.clone()
+                        content_hash: content_hash.clone(),
                     };
-                    queue.push(request);    
+                    queue.push(request);
                 } else {
                     warn!("Atlas: -"); // todo(ludo)
                 }
@@ -245,14 +274,20 @@ impl AttachmentsBatchStateContext {
         queue
     }
 
-    pub fn extend_with_dns_lookups(mut self, results: &mut BatchedDNSLookupsResults) -> AttachmentsBatchStateContext {
+    pub fn extend_with_dns_lookups(
+        mut self,
+        results: &mut BatchedDNSLookupsResults,
+    ) -> AttachmentsBatchStateContext {
         for (k, v) in results.dns_lookups.drain() {
             self.dns_lookups.insert(k, v);
         }
         self
     }
 
-    pub fn extend_with_inventories(mut self, results: &mut BatchedRequestsResult<AttachmentsInventoryRequest>) -> AttachmentsBatchStateContext {
+    pub fn extend_with_inventories(
+        mut self,
+        results: &mut BatchedRequestsResult<AttachmentsInventoryRequest>,
+    ) -> AttachmentsBatchStateContext {
         for (k, mut v) in results.succeeded.drain() {
             let mut responses = HashMap::new();
             for (url, response) in v.drain() {
@@ -265,7 +300,10 @@ impl AttachmentsBatchStateContext {
         self
     }
 
-    pub fn extend_with_attachments(mut self, results: &mut BatchedRequestsResult<AttachmentRequest>) -> AttachmentsBatchStateContext {
+    pub fn extend_with_attachments(
+        mut self,
+        results: &mut BatchedRequestsResult<AttachmentRequest>,
+    ) -> AttachmentsBatchStateContext {
         for (k, mut v) in results.succeeded.drain() {
             for (_, response) in v.drain() {
                 if let Some(HttpResponseType::GetAttachment(_, response)) = response {
@@ -282,40 +320,67 @@ impl AttachmentsBatchStateContext {
 enum AttachmentsBatchStateMachine {
     Initialized(AttachmentsBatchStateContext),
     DNSLookup((BatchedDNSLookupsState, AttachmentsBatchStateContext)),
-    DownloadingAttachmentsInv((BatchedRequestsState<AttachmentsInventoryRequest>, AttachmentsBatchStateContext)),
-    DownloadingAttachment((BatchedRequestsState<AttachmentRequest>, AttachmentsBatchStateContext)),
+    DownloadingAttachmentsInv(
+        (
+            BatchedRequestsState<AttachmentsInventoryRequest>,
+            AttachmentsBatchStateContext,
+        ),
+    ),
+    DownloadingAttachment(
+        (
+            BatchedRequestsState<AttachmentRequest>,
+            AttachmentsBatchStateContext,
+        ),
+    ),
     Done(AttachmentsBatchStateContext), // At the end of the process, the batch should be simplified if did not succeed
 }
 
 impl AttachmentsBatchStateMachine {
-
     pub fn new(ctx: AttachmentsBatchStateContext) -> AttachmentsBatchStateMachine {
         AttachmentsBatchStateMachine::Initialized(ctx)
     }
 
-    fn try_proceed(fsm: AttachmentsBatchStateMachine, dns_client: &mut DNSClient, network: &mut PeerNetwork, chainstate: &mut StacksChainState) -> AttachmentsBatchStateMachine {
+    fn try_proceed(
+        fsm: AttachmentsBatchStateMachine,
+        dns_client: &mut DNSClient,
+        network: &mut PeerNetwork,
+        chainstate: &mut StacksChainState,
+    ) -> AttachmentsBatchStateMachine {
         match fsm {
             AttachmentsBatchStateMachine::Initialized(context) => {
                 let sub_state = BatchedDNSLookupsState::new(context.get_peers_urls());
                 AttachmentsBatchStateMachine::DNSLookup((sub_state, context))
             }
             AttachmentsBatchStateMachine::DNSLookup((dns_lookup_state, context)) => {
-                match BatchedDNSLookupsState::try_proceed(dns_lookup_state, dns_client, &context.connection_options) {
+                match BatchedDNSLookupsState::try_proceed(
+                    dns_lookup_state,
+                    dns_client,
+                    &context.connection_options,
+                ) {
                     BatchedDNSLookupsState::Done(ref mut results) => {
                         let context = context.extend_with_dns_lookups(results);
                         let sub_state = {
-                            let requests_queue = context.get_prioritized_attachments_inventory_requests();
+                            let requests_queue =
+                                context.get_prioritized_attachments_inventory_requests();
                             BatchedRequestsState::Initialized(requests_queue)
                         };
-                        AttachmentsBatchStateMachine::DownloadingAttachmentsInv((sub_state, context))
+                        AttachmentsBatchStateMachine::DownloadingAttachmentsInv((
+                            sub_state, context,
+                        ))
                     }
-                    state => {
-                        AttachmentsBatchStateMachine::DNSLookup((state, context))
-                    }
+                    state => AttachmentsBatchStateMachine::DNSLookup((state, context)),
                 }
             }
-            AttachmentsBatchStateMachine::DownloadingAttachmentsInv((attachments_invs_requests, context)) => {
-                match BatchedRequestsState::try_proceed(attachments_invs_requests, &context.dns_lookups, network, chainstate) {
+            AttachmentsBatchStateMachine::DownloadingAttachmentsInv((
+                attachments_invs_requests,
+                context,
+            )) => {
+                match BatchedRequestsState::try_proceed(
+                    attachments_invs_requests,
+                    &context.dns_lookups,
+                    network,
+                    chainstate,
+                ) {
                     BatchedRequestsState::Done(ref mut results) => {
                         let context = context.extend_with_inventories(results);
                         let sub_state = {
@@ -329,15 +394,21 @@ impl AttachmentsBatchStateMachine {
                     }
                 }
             }
-            AttachmentsBatchStateMachine::DownloadingAttachment((attachments_requests, context)) => {
-                match BatchedRequestsState::try_proceed(attachments_requests, &context.dns_lookups, network, chainstate) {
+            AttachmentsBatchStateMachine::DownloadingAttachment((
+                attachments_requests,
+                context,
+            )) => {
+                match BatchedRequestsState::try_proceed(
+                    attachments_requests,
+                    &context.dns_lookups,
+                    network,
+                    chainstate,
+                ) {
                     BatchedRequestsState::Done(ref mut results) => {
                         let context = context.extend_with_attachments(results);
                         AttachmentsBatchStateMachine::Done(context)
                     }
-                    state => {
-                        AttachmentsBatchStateMachine::DownloadingAttachment((state, context))
-                    }
+                    state => AttachmentsBatchStateMachine::DownloadingAttachment((state, context)),
                 }
             }
             AttachmentsBatchStateMachine::Done(context) => {
@@ -353,20 +424,22 @@ impl AttachmentsBatchStateMachine {
 enum BatchedDNSLookupsState {
     Initialized(Vec<UrlString>),
     Resolving(BatchedDNSLookupsResults),
-    Done(BatchedDNSLookupsResults)
+    Done(BatchedDNSLookupsResults),
 }
 
 impl BatchedDNSLookupsState {
-    
     pub fn new(urls: Vec<UrlString>) -> BatchedDNSLookupsState {
         BatchedDNSLookupsState::Initialized(urls)
     }
-    
-    fn try_proceed(fsm: BatchedDNSLookupsState, dns_client: &mut DNSClient, connection_options: &ConnectionOptions) -> BatchedDNSLookupsState {
+
+    fn try_proceed(
+        fsm: BatchedDNSLookupsState,
+        dns_client: &mut DNSClient,
+        connection_options: &ConnectionOptions,
+    ) -> BatchedDNSLookupsState {
         let mut fsm = fsm;
         match fsm {
             BatchedDNSLookupsState::Initialized(ref mut urls) => {
-                
                 let mut state = BatchedDNSLookupsResults::default();
 
                 for url_str in urls.drain(..) {
@@ -398,21 +471,27 @@ impl BatchedDNSLookupsState {
                             match res {
                                 Ok(_) => {
                                     state.dns_lookups.insert(url_str.clone(), None);
-                                    state.parsed_urls
-                                        .insert(url_str, DNSRequest::new(domain.to_string(), port, 0));        
-                                },
+                                    state.parsed_urls.insert(
+                                        url_str,
+                                        DNSRequest::new(domain.to_string(), port, 0),
+                                    );
+                                }
                                 Err(e) => {
                                     state.errors.insert(url_str.clone(), e);
                                 }
                             }
                         }
                         Some(url::Host::Ipv4(addr)) => {
-                            state.dns_lookups
-                                .insert(url_str, Some(vec![SocketAddr::new(IpAddr::V4(addr), port)]));
+                            state.dns_lookups.insert(
+                                url_str,
+                                Some(vec![SocketAddr::new(IpAddr::V4(addr), port)]),
+                            );
                         }
                         Some(url::Host::Ipv6(addr)) => {
-                            state.dns_lookups
-                                .insert(url_str, Some(vec![SocketAddr::new(IpAddr::V6(addr), port)]));
+                            state.dns_lookups.insert(
+                                url_str,
+                                Some(vec![SocketAddr::new(IpAddr::V6(addr), port)]),
+                            );
                         }
                         None => {
                             warn!("Atlas: Unsupported URL {:?}", &url_str);
@@ -425,7 +504,7 @@ impl BatchedDNSLookupsState {
                 if let Err(e) = dns_client.try_recv() {
                     warn!("Atlas: DNS client unable to receive data {}", e);
                     // todo(ludo): retry count?
-                    return fsm
+                    return fsm;
                 }
 
                 let mut inflight = 0;
@@ -439,7 +518,10 @@ impl BatchedDNSLookupsState {
                                         *dns_result = Some(addrs);
                                     }
                                     Err(msg) => {
-                                        warn!("Atlas: DNS failed to look up {:?}: {}", &url_str, msg);
+                                        warn!(
+                                            "Atlas: DNS failed to look up {:?}: {}",
+                                            &url_str, msg
+                                        );
                                     }
                                 }
                             }
@@ -455,9 +537,9 @@ impl BatchedDNSLookupsState {
                 }
 
                 if inflight > 0 {
-                    return fsm
+                    return fsm;
                 }
-                
+
                 // Step successfully completed - todo(ludo) find a better approach - maybe deref?
                 let mut result = BatchedDNSLookupsResults::default();
                 for (k, v) in state.errors.drain() {
@@ -465,29 +547,31 @@ impl BatchedDNSLookupsState {
                 }
                 for (k, v) in state.dns_lookups.drain() {
                     result.dns_lookups.insert(k, v);
-                }                
+                }
                 for (k, v) in state.parsed_urls.drain() {
                     result.parsed_urls.insert(k, v);
                 }
                 BatchedDNSLookupsState::Done(result)
             }
-            BatchedDNSLookupsState::Done(state) => {
-                unimplemented!()
-            }
+            BatchedDNSLookupsState::Done(state) => unimplemented!(),
         }
     }
 }
 
 #[derive(Debug)]
-enum BatchedRequestsState <T: Ord + Requestable + fmt::Display + std::hash::Hash> {
+enum BatchedRequestsState<T: Ord + Requestable + fmt::Display + std::hash::Hash> {
     Initialized(BinaryHeap<T>),
     Downloading(BatchedRequestsResult<T>),
     Done(BatchedRequestsResult<T>),
 }
 
-impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState <T> {
-
-    fn try_proceed(fsm: BatchedRequestsState<T>, dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>, network: &mut PeerNetwork, chainstate: &mut StacksChainState) -> BatchedRequestsState<T> {
+impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState<T> {
+    fn try_proceed(
+        fsm: BatchedRequestsState<T>,
+        dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
+        network: &mut PeerNetwork,
+        chainstate: &mut StacksChainState,
+    ) -> BatchedRequestsState<T> {
         let mut fsm = fsm;
 
         match fsm {
@@ -497,11 +581,12 @@ impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsStat
                     let mut requestables = VecDeque::new();
                     requestables.push_back(requestable); // todo(ludo): revisit this design
                     let res = PeerNetwork::begin_request(
-                        network, 
+                        network,
                         dns_lookups,
                         "Request", // todo(ludo)
-                        &mut requestables, 
-                        chainstate);
+                        &mut requestables,
+                        chainstate,
+                    );
                     if let Some((request, event_id)) = res {
                         requests.insert(event_id, request);
                     }
@@ -510,7 +595,6 @@ impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsStat
                 BatchedRequestsState::Downloading(next_state)
             }
             BatchedRequestsState::Downloading(ref mut state) => {
-                
                 let mut pending_requests = HashMap::new();
 
                 for (event_id, request) in state.remaining.drain() {
@@ -520,8 +604,11 @@ impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsStat
                                 info!("Atlas: Request {} is still connecting", request);
                                 pending_requests.insert(event_id, request);
                             } else {
-                                info!("Atlas: Request {} failed to connect. Temporarily blocking URL", request);
-                                
+                                info!(
+                                    "Atlas: Request {} failed to connect. Temporarily blocking URL",
+                                    request
+                                );
+
                                 // todo(ludo): restore
                                 // self.dead_peers.push(event_id);
                                 // don't try this again for a while
@@ -535,7 +622,10 @@ impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsStat
                             match convo.try_get_response() {
                                 None => {
                                     // still waiting
-                                    info!("Atlas: Request {} is still waiting for a response", request);
+                                    info!(
+                                        "Atlas: Request {} is still waiting for a response",
+                                        request
+                                    );
                                     pending_requests.insert(event_id, request);
                                 }
                                 Some(response) => {
@@ -550,11 +640,16 @@ impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsStat
                                         continue;
                                     }
 
-                                    info!("Atlas: Request {} received response {:?}", request, response);
+                                    info!(
+                                        "Atlas: Request {} received response {:?}",
+                                        request, response
+                                    );
                                     let request_url = request.get_url().clone();
                                     match state.succeeded.entry(request) {
                                         Entry::Occupied(responses) => {
-                                            responses.into_mut().insert(request_url, Some(response));
+                                            responses
+                                                .into_mut()
+                                                .insert(request_url, Some(response));
                                         }
                                         Entry::Vacant(v) => {
                                             let mut responses = HashMap::new();
@@ -562,7 +657,7 @@ impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsStat
                                             v.insert(responses);
                                         }
                                     };
-                                    
+
                                     // todo(ludo): restore
                                     // _ => {
                                     //     // wrong message response
@@ -573,18 +668,18 @@ impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsStat
                                     //     self.broken_peers.push(event_id);
                                     //     self.broken_neighbors.push(request_key.neighbor.clone());
                                     // }
-                                },
+                                }
                             }
                         }
                     }
                 }
-        
+
                 // We completed this step
                 if pending_requests.len() > 0 {
                     for (event_id, request) in pending_requests.drain() {
                         state.remaining.insert(event_id, request);
                     }
-                    return fsm    
+                    return fsm;
                 }
 
                 // Step successfully completed - todo(ludo) find a better approach
@@ -597,9 +692,7 @@ impl <T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsStat
                 }
                 BatchedRequestsState::Done(result)
             }
-            BatchedRequestsState::Done(done_state) => {
-                unimplemented!()
-            }
+            BatchedRequestsState::Done(done_state) => unimplemented!(),
         }
     }
 }
@@ -612,19 +705,18 @@ struct BatchedDNSLookupsResults {
 }
 
 #[derive(Debug, Clone)]
-struct BatchedRequestsInitializedState <T: Ord + Requestable> {
+struct BatchedRequestsInitializedState<T: Ord + Requestable> {
     pub queue: BinaryHeap<T>,
 }
 
 #[derive(Debug, Default)]
-struct BatchedRequestsResult <T: Requestable> {
+struct BatchedRequestsResult<T: Requestable> {
     pub remaining: HashMap<usize, T>,
     pub succeeded: HashMap<T, HashMap<UrlString, Option<HttpResponseType>>>,
     pub errors: HashMap<T, HashMap<UrlString, net_error>>,
 }
 
-
-impl <T: Requestable> BatchedRequestsResult <T> {
+impl<T: Requestable> BatchedRequestsResult<T> {
     pub fn new(remaining: HashMap<usize, T>) -> BatchedRequestsResult<T> {
         BatchedRequestsResult {
             remaining,
@@ -647,7 +739,7 @@ struct AttachmentsInventoryRequest {
     url: UrlString,
     contract_id: QualifiedContractIdentifier,
     pages: Vec<u32>,
-    block_height: u64,    
+    block_height: u64,
     consensus_hash: ConsensusHash,
     block_header_hash: BlockHeaderHash,
 }
@@ -675,7 +767,6 @@ impl PartialOrd for AttachmentsInventoryRequest {
 }
 
 impl Requestable for AttachmentsInventoryRequest {
-
     fn get_url(&self) -> &UrlString {
         &self.url
     }
@@ -720,16 +811,12 @@ impl PartialOrd for AttachmentRequest {
 }
 
 impl Requestable for AttachmentRequest {
-
     fn get_url(&self) -> &UrlString {
         &self.urls[0] // todo(ludo)
     }
 
     fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
-        HttpRequestType::GetAttachment(
-            HttpRequestMetadata::from_host(peer_host),
-            self.content_hash,
-        )
+        HttpRequestType::GetAttachment(HttpRequestMetadata::from_host(peer_host), self.content_hash)
     }
 }
 
@@ -741,7 +828,7 @@ impl std::fmt::Display for AttachmentRequest {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AttachmentsBatch {
-    pub block_height: u64,    
+    pub block_height: u64,
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<(u32, u32), Hash160>>,
@@ -749,14 +836,13 @@ pub struct AttachmentsBatch {
 }
 
 impl AttachmentsBatch {
-
     pub fn new() -> AttachmentsBatch {
         AttachmentsBatch {
             block_height: 0,
             consensus_hash: ConsensusHash::empty(),
             block_header_hash: BlockHeaderHash([0u8; 32]),
             attachments_instances: HashMap::new(),
-            retry_count: 0
+            retry_count: 0,
         }
     }
 
@@ -772,9 +858,14 @@ impl AttachmentsBatch {
         }
 
         let inner_key = (attachment.page_index, attachment.position_in_page);
-        match self.attachments_instances.entry(attachment.contract_id.clone()) {
+        match self
+            .attachments_instances
+            .entry(attachment.contract_id.clone())
+        {
             Entry::Occupied(missing_attachments) => {
-                missing_attachments.into_mut().insert(inner_key, attachment.content_hash.clone());
+                missing_attachments
+                    .into_mut()
+                    .insert(inner_key, attachment.content_hash.clone());
             }
             Entry::Vacant(v) => {
                 let mut missing_attachments = HashMap::new();
@@ -784,27 +875,29 @@ impl AttachmentsBatch {
         };
     }
 
-    pub fn get_missing_pages_for_contract_id(&self, contract_id: &QualifiedContractIdentifier) -> Vec<u32> {
+    pub fn get_missing_pages_for_contract_id(
+        &self,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> Vec<u32> {
         let mut pages_indexes = vec![];
         if let Some(missing_attachments) = self.attachments_instances.get(&contract_id) {
             for ((page_index, _), _) in missing_attachments.iter() {
                 pages_indexes.push(*page_index);
-            }    
+            }
         }
         pages_indexes
     }
 
     pub fn get_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockHeader::make_index_block_hash(
-            &self.consensus_hash,
-            &self.block_header_hash
-        )
+        StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
     }
 }
 
 impl Ord for AttachmentsBatch {
     fn cmp(&self, other: &AttachmentsBatch) -> Ordering {
-        other.block_height.cmp(&self.block_height)
+        other
+            .block_height
+            .cmp(&self.block_height)
             .then_with(|| self.retry_count.cmp(&other.retry_count))
     }
 }
@@ -815,8 +908,7 @@ impl PartialOrd for AttachmentsBatch {
     }
 }
 
-struct ResolvedAttachment {
-}
+struct ResolvedAttachment {}
 
 struct AttachmentsAnalytics {
     pub total_attachments_inv_requested: u32,

@@ -999,7 +999,7 @@ impl StacksMessageType {
             StacksMessageType::NatPunchRequest(ref m) => format!("NatPunchRequest({})", m),
             StacksMessageType::NatPunchReply(ref m) => {
                 format!("NatPunchReply({},{}:{})", m.nonce, &m.addrbytes, m.port)
-            },
+            }
             StacksMessageType::Attachment(ref m) => format!("Attachment({})", m.hash),
         }
     }

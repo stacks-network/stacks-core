@@ -30,6 +30,12 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
+use burnchains::{Address, Txid};
+use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::{
+    StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock, StacksPublicKey, StacksTransaction,
+};
+use net::atlas::{Attachment, SNS_NAME_REGEX};
 use net::codec::{read_next, write_next};
 use net::CallReadOnlyRequestBody;
 use net::ClientError;
@@ -56,12 +62,6 @@ use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use net::atlas::{SNS_NAME_REGEX, Attachment};
-use burnchains::{Address, Txid};
-use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::{
-    StacksAddress, StacksBlock, StacksBlockId, StacksMicroblock, StacksPublicKey, StacksTransaction,
-};
 
 use util::hash::hex_bytes;
 use util::hash::to_hex;
@@ -88,7 +88,6 @@ use url::{form_urlencoded, Url};
 use deps::httparse;
 use std::time::SystemTime;
 use time;
-
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
@@ -130,7 +129,8 @@ lazy_static! {
     .unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
     static ref PATH_GET_ATTACHMENTS_INV: Regex = Regex::new("^/v2/attachments/inv$").unwrap();
-    static ref PATH_GET_ATTACHMENT: Regex = Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
+    static ref PATH_GET_ATTACHMENT: Regex =
+        Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
@@ -1507,7 +1507,7 @@ impl HttpRequestType {
                 "GET",
                 &PATH_GET_ATTACHMENTS_INV,
                 &HttpRequestType::parse_get_attachments_inv,
-            )
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -1989,7 +1989,6 @@ impl HttpRequestType {
         _query: Option<&str>,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
-
         if preamble.get_content_length() == 0 {
             return Err(net_error::DeserializeError(
                 "Invalid Http request: expected non-zero-length body for PostTransaction"
@@ -2005,15 +2004,13 @@ impl HttpRequestType {
             }
             Some(HttpContentType::Bytes) => {
                 HttpRequestType::parse_posttransaction_octets(preamble, fd)
-
             }
             Some(HttpContentType::JSON) => {
                 HttpRequestType::parse_posttransaction_json(preamble, fd)
             }
             _ => {
                 return Err(net_error::DeserializeError(
-                    "Wrong Content-Type for transaction; expected application/json"
-                        .to_string(),
+                    "Wrong Content-Type for transaction; expected application/json".to_string(),
                 ));
             }
         }
@@ -2065,8 +2062,9 @@ impl HttpRequestType {
         let attachment = match body.attachment {
             None => None,
             Some(attachment_content) => {
-                let content = hex_bytes(&attachment_content)
-                    .map_err(|_e| net_error::DeserializeError("Failed to parse attachment".into()))?;
+                let content = hex_bytes(&attachment_content).map_err(|_e| {
+                    net_error::DeserializeError("Failed to parse attachment".into())
+                })?;
                 let hash = Hash160::from_data(&content[..]);
                 Some(Attachment::new(content, hash))
             }
@@ -2077,7 +2075,6 @@ impl HttpRequestType {
             tx,
             attachment,
         ))
-
     }
 
     fn parse_postmicroblock<R: Read>(
@@ -2140,14 +2137,14 @@ impl HttpRequestType {
             ))?
             .as_str();
 
-        let content_hash = Hash160::from_hex(&hex_content_hash)
-            .map_err(|_| net_error::DeserializeError(
-                "Failed to construct hash160 from inputs".to_string(),
-            ))?;
+        let content_hash = Hash160::from_hex(&hex_content_hash).map_err(|_| {
+            net_error::DeserializeError("Failed to construct hash160 from inputs".to_string())
+        })?;
 
         Ok(HttpRequestType::GetAttachment(
             HttpRequestMetadata::from_preamble(preamble),
-            content_hash))
+            content_hash,
+        ))
     }
 
     fn parse_get_attachments_inv<R: Read>(
@@ -2171,11 +2168,10 @@ impl HttpRequestType {
                 if key == "tip" {
                     tip = match StacksBlockId::from_hex(&value) {
                         Ok(tip) => Some(tip),
-                        _ => None
+                        _ => None,
                     };
-
                 } else if key == "pages_indexes" {
-                    if let Ok(pages_indexes_value) = value.parse::<String>()  {
+                    if let Ok(pages_indexes_value) = value.parse::<String>() {
                         for entry in pages_indexes_value.split(",") {
                             if let Ok(page_index) = entry.parse::<u32>() {
                                 pages_indexes.insert(page_index);
@@ -2188,7 +2184,8 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetAttachmentsInv(
             HttpRequestMetadata::from_preamble(preamble),
             tip,
-            pages_indexes))
+            pages_indexes,
+        ))
     }
 
     fn parse_options_preflight<R: Read>(
@@ -2345,7 +2342,11 @@ impl HttpRequestType {
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
             HttpRequestType::GetAttachmentsInv(_md, tip_opt, pages_indexes) => {
-                let pages_indexes = pages_indexes.iter().map(|i| format!("{}", i)).collect::<Vec<String>>().join(",");
+                let pages_indexes = pages_indexes
+                    .iter()
+                    .map(|i| format!("{}", i))
+                    .collect::<Vec<String>>()
+                    .join(",");
                 let prefix = if tip_opt.is_some() { "&" } else { "?" };
                 format!(
                     "/v2/attachments/inv{}{}{}",
@@ -2354,7 +2355,9 @@ impl HttpRequestType {
                     pages_indexes,
                 )
             }
-            HttpRequestType::GetAttachment(_, content_hash) => format!("/v2/attachments/{}", to_hex(&content_hash.0[..])),
+            HttpRequestType::GetAttachment(_, content_hash) => {
+                format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
+            }
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
@@ -2365,14 +2368,13 @@ impl HttpRequestType {
     pub fn send<W: Write>(&self, _protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match self {
             HttpRequestType::PostTransaction(md, tx, attachment) => {
-                
                 let mut tx_bytes = vec![];
                 write_next(&mut tx_bytes, tx)?;
                 let tx_hex = to_hex(&tx_bytes[..]);
 
                 let attachment_hex = match attachment {
                     None => None,
-                    Some(attachment) => Some(to_hex(&attachment.content[..]))
+                    Some(attachment) => Some(to_hex(&attachment.content[..])),
                 };
 
                 let request_body = PostTransactionRequestBody {
@@ -2401,8 +2403,6 @@ impl HttpRequestType {
                 )?;
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
-
-
             }
             HttpRequestType::PostMicroblock(md, mb, ..) => {
                 let mut mb_bytes = vec![];
@@ -2768,8 +2768,14 @@ impl HttpResponseType {
                 &PATH_POST_CALL_READ_ONLY,
                 &HttpResponseType::parse_call_read_only,
             ),
-            (&PATH_GET_ATTACHMENT, &HttpResponseType::parse_get_attachment),
-            (&PATH_GET_ATTACHMENTS_INV, &HttpResponseType::parse_get_attachments_inv),
+            (
+                &PATH_GET_ATTACHMENT,
+                &HttpResponseType::parse_get_attachment,
+            ),
+            (
+                &PATH_GET_ATTACHMENTS_INV,
+                &HttpResponseType::parse_get_attachments_inv,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -3034,7 +3040,8 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res: GetAttachmentResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        let res: GetAttachmentResponse =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
 
         Ok(HttpResponseType::GetAttachment(
             HttpResponseMetadata::from_preamble(request_version, preamble),
@@ -3049,7 +3056,8 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let res: GetAttachmentsInvResponse = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        let res: GetAttachmentsInvResponse =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
 
         Ok(HttpResponseType::GetAttachmentsInv(
             HttpResponseMetadata::from_preamble(request_version, preamble),

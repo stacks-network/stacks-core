@@ -394,11 +394,7 @@ impl EventDispatcher {
     }
 
     pub fn process_new_attachments(&self, attachments: &Vec<AttachmentInstance>) {
-        let interested_observers: Vec<_> = self
-            .registered_observers
-            .iter()
-            .enumerate()
-            .collect();
+        let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
         if interested_observers.len() < 1 {
             return;
         }

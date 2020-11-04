@@ -163,7 +163,6 @@ impl BlockRequestKey {
 }
 
 impl Requestable for BlockRequestKey {
-
     fn get_url(&self) -> &UrlString {
         &self.data_url
     }
@@ -184,7 +183,11 @@ impl Requestable for BlockRequestKey {
 
 impl std::fmt::Display for BlockRequestKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<Request<Block>: {} {} {:?}>", self.index_block_hash, self.neighbor, self.data_url)
+        write!(
+            f,
+            "<Request<Block>: {} {} {:?}>",
+            self.index_block_hash, self.neighbor, self.data_url
+        )
     }
 }
 
@@ -1050,7 +1053,7 @@ impl PeerNetwork {
         );
 
         let mut availability =
-            PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| { 
+            PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
                 BlockDownloader::get_block_availability(
                     inv_state,
                     sortdb,
@@ -1327,7 +1330,11 @@ impl PeerNetwork {
                     target_index_block_hash.clone(),
                     child_block_header.clone(),
                     (i as u64) + start_sortition_height,
-                    if microblocks { BlockRequestKeyKind::ConfirmedMicroblock } else { BlockRequestKeyKind::Block },
+                    if microblocks {
+                        BlockRequestKeyKind::ConfirmedMicroblock
+                    } else {
+                        BlockRequestKeyKind::Block
+                    },
                 );
                 requests.push_back(request);
             }
@@ -1739,8 +1746,7 @@ impl PeerNetwork {
         request_name: &str,
         requestables: &mut VecDeque<T>,
         chainstate: &mut StacksChainState,
-    ) -> Option<(T, usize)>
-    {
+    ) -> Option<(T, usize)> {
         loop {
             match requestables.pop_front() {
                 Some(requestable) => {
@@ -1764,18 +1770,30 @@ impl PeerNetwork {
                                 chainstate,
                             ) {
                                 Ok(handle) => {
-                                    debug!("{:?}: Begin HTTP request {}", &network.local_peer, requestable);
+                                    debug!(
+                                        "{:?}: Begin HTTP request {}",
+                                        &network.local_peer, requestable
+                                    );
                                     return Some((requestable, handle));
                                 }
                                 Err(e) => {
-                                    debug!("{:?}: Failed to connect or send HTTP request {}: {:?}", &network.local_peer, requestable, &e);
+                                    debug!(
+                                        "{:?}: Failed to connect or send HTTP request {}: {:?}",
+                                        &network.local_peer, requestable, &e
+                                    );
                                 }
                             }
                         }
 
-                        debug!("{:?}: Failed request for {} from {:?}", &network.local_peer, requestable, sockaddrs);
+                        debug!(
+                            "{:?}: Failed request for {} from {:?}",
+                            &network.local_peer, requestable, sockaddrs
+                        );
                     } else {
-                        debug!("{:?}: Will not request {}: failed to look up DNS name", &network.local_peer, requestable);
+                        debug!(
+                            "{:?}: Will not request {}: failed to look up DNS name",
+                            &network.local_peer, requestable
+                        );
                     }
                 }
                 None => {
@@ -1804,7 +1822,7 @@ impl PeerNetwork {
                             &downloader.dns_lookups,
                             "anchored block",
                             keys,
-                            chainstate
+                            chainstate,
                         ) {
                             Some((key, handle)) => {
                                 requests.insert(key.clone(), handle);
@@ -1841,7 +1859,8 @@ impl PeerNetwork {
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests::<u64>(&downloader.microblocks_to_try);
+            let mut priority =
+                PeerNetwork::prioritize_requests::<u64>(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
@@ -1851,8 +1870,8 @@ impl PeerNetwork {
                             &downloader.dns_lookups,
                             "microblock stream",
                             keys,
-                            chainstate) 
-                        {
+                            chainstate,
+                        ) {
                             Some((key, handle)) => {
                                 requests.insert(key.clone(), handle);
                             }

@@ -9,8 +9,8 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{ChainsCoordinator, CoordinatorCommunication};
 use std::cmp;
-use std::thread;
 use std::sync::mpsc::sync_channel;
+use std::thread;
 
 use super::RunLoopCallbacks;
 

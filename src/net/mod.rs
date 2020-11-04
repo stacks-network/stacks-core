@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod asn;
+pub mod atlas;
 pub mod chat;
 pub mod codec;
 pub mod connection;
@@ -30,7 +31,6 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
-pub mod atlas;
 
 use std::borrow::Borrow;
 use std::cmp::PartialEq;
@@ -110,7 +110,7 @@ use vm::clarity::Error as clarity_error;
 
 use self::dns::*;
 
-use net::atlas::{Attachment, inv::AttachmentInstance};
+use net::atlas::{inv::AttachmentInstance, Attachment};
 
 use core::POX_REWARD_CYCLE_LENGTH;
 
@@ -1093,7 +1093,7 @@ pub struct PostTransactionRequestBody {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetAttachmentResponse {
-    attachment: Attachment
+    attachment: Attachment,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1105,7 +1105,7 @@ pub struct GetAttachmentsInvResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttachmentPage {
     pub index: u32,
-    pub inventory: Vec<u8>
+    pub inventory: Vec<u8>,
 }
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
@@ -1650,7 +1650,7 @@ pub struct NetworkResult {
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
-    pub uploaded_attachments: Vec<AttachmentData>,    // attachments sent to us by the http server
+    pub uploaded_attachments: Vec<AttachmentData>,     // attachments sent to us by the http server
     pub attachments: Vec<AttachmentInstance>,
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
@@ -1702,7 +1702,10 @@ impl NetworkResult {
     }
 
     pub fn has_data_to_store(&self) -> bool {
-        self.has_blocks() || self.has_microblocks() || self.has_transactions() || self.has_attachments()
+        self.has_blocks()
+            || self.has_microblocks()
+            || self.has_transactions()
+            || self.has_attachments()
     }
 
     pub fn consume_unsolicited(
@@ -1774,7 +1777,6 @@ impl NetworkResult {
 }
 
 pub trait Requestable {
-
     fn get_url(&self) -> &UrlString;
 
     fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType;
@@ -1784,6 +1786,7 @@ pub trait Requestable {
 pub mod test {
     use super::*;
     use net::asn::*;
+    use net::atlas::AtlasDB;
     use net::chat::*;
     use net::codec::*;
     use net::connection::*;
@@ -1794,7 +1797,6 @@ pub mod test {
     use net::relay::*;
     use net::rpc::RPCHandlerArgs;
     use net::Error as net_error;
-    use net::atlas::AtlasDB;
 
     use core::NETWORK_P2P_PORT;
 
@@ -1842,8 +1844,8 @@ pub mod test {
     use std::net::*;
     use std::ops::Deref;
     use std::ops::DerefMut;
-    use std::thread;
     use std::sync::mpsc::sync_channel;
+    use std::thread;
 
     use std::fs;
 
@@ -2264,12 +2266,7 @@ pub mod test {
             .unwrap();
 
             let atlasdb_path = format!("{}/atlas.db", &test_path);
-            let mut atlasdb = AtlasDB::connect(
-                &atlasdb_path,
-                true
-            )
-            .unwrap();
-
+            let mut atlasdb = AtlasDB::connect(&atlasdb_path, true).unwrap();
 
             let init_code = config.setup_code.clone();
             let (chainstate, _) = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()),

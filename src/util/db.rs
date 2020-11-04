@@ -194,10 +194,12 @@ impl FromColumn<i64> for i64 {
 }
 
 impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<QualifiedContractIdentifier, Error> {
+    fn from_column<'a>(
+        row: &'a Row,
+        column_name: &str,
+    ) -> Result<QualifiedContractIdentifier, Error> {
         let value: String = row.get(column_name);
-        QualifiedContractIdentifier::parse(&value)
-            .map_err(|_| Error::ParseError)
+        QualifiedContractIdentifier::parse(&value).map_err(|_| Error::ParseError)
     }
 }
 

@@ -1,21 +1,21 @@
 pub mod db;
-pub mod onchain;
-pub mod inv;
 pub mod download;
+pub mod inv;
+pub mod onchain;
 
-pub use self::onchain::OnchainInventoryLookup;
 pub use self::db::AtlasDB;
 use self::inv::AttachmentInstance;
+pub use self::onchain::OnchainInventoryLookup;
 
-use chainstate::stacks::{StacksBlockId, StacksBlockHeader};
 use chainstate::stacks::boot::boot_code_id;
+use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 
-use chainstate::burn::{ConsensusHash, BlockHeaderHash};
 use chainstate::burn::db::sortdb::SortitionDB;
-use vm::types::{TupleData, QualifiedContractIdentifier};
+use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use util::hash::Hash160;
+use vm::types::{QualifiedContractIdentifier, TupleData};
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 pub const SNS_NAMESPACE_MIN_LEN: usize = 1;
@@ -24,14 +24,9 @@ pub const SNS_NAME_MIN_LEN: usize = 1;
 pub const SNS_NAME_MAX_LEN: usize = 16;
 
 lazy_static! {
-
     pub static ref SNS_NAME_REGEX: String = format!(
         r#"([a-z0-9]|[-_]){{{},{}}}\.([a-z0-9]|[-_]){{{},{}}}(\.([a-z0-9]|[-_]){{{},{}}})?"#,
-        SNS_NAMESPACE_MIN_LEN,
-        SNS_NAMESPACE_MAX_LEN,
-        SNS_NAME_MIN_LEN,
-        SNS_NAME_MAX_LEN,
-        1, 128
+        SNS_NAMESPACE_MIN_LEN, SNS_NAMESPACE_MAX_LEN, SNS_NAME_MIN_LEN, SNS_NAME_MAX_LEN, 1, 128
     );
 }
 
@@ -41,7 +36,6 @@ pub struct AtlasConfig {
 }
 
 impl AtlasConfig {
-
     pub fn default() -> AtlasConfig {
         let mut contracts = HashSet::new();
         contracts.insert(boot_code_id("sns"));
@@ -60,10 +54,7 @@ pub struct Attachment {
 
 impl Attachment {
     pub fn new(content: Vec<u8>, hash: Hash160) -> Attachment {
-        Attachment {
-            hash,
-            content,
-        }
+        Attachment { hash, content }
     }
 }
 
@@ -73,7 +64,7 @@ pub enum ExpectedAttachmentState {
     Inventoried,
     Enqueued,
     Downloaded(Vec<u8>),
-    Processed
+    Processed,
 }
 
 #[derive(Debug, Clone)]
@@ -87,7 +78,7 @@ pub struct ExpectedAttachment {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AttachmentsInvRequest {
-    pub block_height: u64,    
+    pub block_height: u64,
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub burn_block_height: u64,
@@ -95,7 +86,6 @@ pub struct AttachmentsInvRequest {
 }
 
 impl AttachmentsInvRequest {
-
     pub fn new() -> AttachmentsInvRequest {
         AttachmentsInvRequest {
             block_height: 0,
@@ -107,16 +97,18 @@ impl AttachmentsInvRequest {
     }
 
     pub fn is_attachment_in_same_block(&self, attachment: &AttachmentInstance) -> bool {
-        self.block_header_hash == attachment.block_header_hash && self.consensus_hash == attachment.consensus_hash
+        self.block_header_hash == attachment.block_header_hash
+            && self.consensus_hash == attachment.consensus_hash
     }
 
     pub fn add_request(&mut self, attachment: &AttachmentInstance) -> bool {
         if !self.missing_attachments.is_empty() && !self.is_attachment_in_same_block(attachment) {
-            return false
+            return false;
         }
 
         let key = (attachment.page_index, attachment.position_in_page);
-        self.missing_attachments.insert(key, attachment.content_hash.clone());
+        self.missing_attachments
+            .insert(key, attachment.content_hash.clone());
         if attachment.block_height > self.block_height {
             self.block_height = attachment.block_height.clone();
             self.consensus_hash = attachment.consensus_hash.clone();
@@ -134,10 +126,7 @@ impl AttachmentsInvRequest {
     }
 
     pub fn get_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockHeader::make_index_block_hash(
-            &self.consensus_hash,
-            &self.block_header_hash
-        )
+        StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
     }
 }
 

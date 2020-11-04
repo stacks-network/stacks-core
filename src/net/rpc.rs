@@ -24,6 +24,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 
 use core::mempool::*;
+use net::atlas::{AtlasDB, Attachment, OnchainInventoryLookup};
 use net::connection::ConnectionHttp;
 use net::connection::ConnectionOptions;
 use net::connection::ReplyHandleHttp;
@@ -50,13 +51,15 @@ use net::StacksMessageType;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse, MapEntryResponse, GetAttachmentsInvResponse, GetAttachmentResponse, AttachmentPage, AttachmentData};
+use net::{
+    AccountEntryResponse, AttachmentData, AttachmentPage, CallReadOnlyResponse,
+    ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
-use net::atlas::{AtlasDB, OnchainInventoryLookup, Attachment};
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 
 use burnchains::Burnchain;
 use burnchains::BurnchainHeaderHash;
@@ -552,7 +555,7 @@ impl ConversationHttp {
         sortdb: &SortitionDB,
         atlasdb: &AtlasDB,
         chainstate: &mut StacksChainState,
-        tip_consensus_hash: &ConsensusHash, 
+        tip_consensus_hash: &ConsensusHash,
         tip_block_hash: &BlockHeaderHash,
         pages_indexes: &HashSet<u32>,
         options: &ConnectionOptions,
@@ -560,57 +563,57 @@ impl ConversationHttp {
         let response_metadata = HttpResponseMetadata::from(req);
         let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
         pages_indexes.sort();
-        let tip = StacksBlockHeader::make_index_block_hash(
-            &tip_consensus_hash,
-            &tip_block_hash,
-        );
+        let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
         info!("Getting /v2/attachments/inv {:?} {:?}", tip, pages_indexes);
 
         let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
-            (*pages_indexes.first().unwrap(), *pages_indexes.last().unwrap(), pages_indexes.clone())
+            (
+                *pages_indexes.first().unwrap(),
+                *pages_indexes.last().unwrap(),
+                pages_indexes.clone(),
+            )
         } else {
             // Pages indexes not provided. By default, we'll return the inventory of the latest page
             // present on the canonical chain.
-            let res = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
-                let cost_tracker = LimitedCostTracker::new(options.read_only_call_limit.clone());
-                OnchainInventoryLookup::get_attachments_inv_info(cost_tracker, clarity_tx)
-            });
+            let res =
+                chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
+                    let cost_tracker =
+                        LimitedCostTracker::new(options.read_only_call_limit.clone());
+                    OnchainInventoryLookup::get_attachments_inv_info(cost_tracker, clarity_tx)
+                });
             match res {
                 Ok(inv_info) => {
                     let current_page = inv_info.pages_count - 1;
                     (current_page, current_page, vec![current_page])
                 }
                 Err(_) => {
-                    let msg = format!("Unable to read contract SNS"); 
+                    let msg = format!("Unable to read contract SNS");
                     warn!("{}", msg);
-                    let response = HttpResponseType::ServerError(
-                        response_metadata,
-                        msg.clone(),
-                    );
+                    let response = HttpResponseType::ServerError(response_metadata, msg.clone());
                     response.send(http, fd)?;
-                    return Err(net_error::ChainstateError(msg))
+                    return Err(net_error::ChainstateError(msg));
                 }
             }
         };
 
         // We need to rebuild an ancestry tree, but we're still missing some informations at this point
-        let (min_block_height, max_block_height) = match atlasdb.get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index) {
+        let (min_block_height, max_block_height) = match atlasdb
+            .get_minmax_heights_window_for_page_index(oldest_page_index, newest_page_index)
+        {
             Ok(window) => window,
             Err(e) => {
-                let msg = format!("Unable to read Atlas DB"); 
+                let msg = format!("Unable to read Atlas DB");
                 warn!("{}", msg);
-                let response = HttpResponseType::ServerError(
-                    response_metadata,
-                    msg.clone(),
-                );
+                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
                 response.send(http, fd)?;
-                return Err(net_error::DBError(e))
+                return Err(net_error::DBError(e));
             }
         };
 
         let mut blocks_ids = vec![];
         let mut headers_tx = chainstate.headers_tx_begin()?;
-        let tip_index_hash = StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
+        let tip_index_hash =
+            StacksBlockHeader::make_index_block_hash(tip_consensus_hash, tip_block_hash);
 
         for block_height in min_block_height..=max_block_height {
             match StacksChainState::get_index_tip_ancestor(
@@ -625,27 +628,25 @@ impl ConversationHttp {
 
         match atlasdb.get_attachments_available_at_pages_indexes(&pages_indexes, &blocks_ids) {
             Ok(pages) => {
-                let pages = pages.into_iter()
+                let pages = pages
+                    .into_iter()
                     .zip(pages_indexes)
                     .map(|(inventory, index)| AttachmentPage { index, inventory })
                     .collect();
-                
+
                 let content = GetAttachmentsInvResponse {
                     block_id: tip.clone(),
-                    pages
+                    pages,
                 };
                 let response = HttpResponseType::GetAttachmentsInv(response_metadata, content);
                 response.send(http, fd)
             }
             Err(e) => {
-                let msg = format!("Unable to read Atlas DB"); 
+                let msg = format!("Unable to read Atlas DB");
                 warn!("{}", msg);
-                let response = HttpResponseType::ServerError(
-                    response_metadata,
-                    msg.clone(),
-                );
+                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
                 response.send(http, fd)?;
-                return Err(net_error::DBError(e))
+                return Err(net_error::DBError(e));
             }
         }
     }
@@ -665,12 +666,9 @@ impl ConversationHttp {
                 response.send(http, fd)
             }
             _ => {
-                let msg = format!("Unable to find attachment"); 
+                let msg = format!("Unable to find attachment");
                 warn!("{}", msg);
-                let response = HttpResponseType::ServerError(
-                    response_metadata,
-                    msg.clone(),
-                );
+                let response = HttpResponseType::ServerError(response_metadata, msg.clone());
                 response.send(http, fd)
             }
         }
@@ -1269,7 +1267,8 @@ impl ConversationHttp {
 
         if let Some(attachment) = attachment {
             if accepted {
-                atlasdb.insert_new_inboxed_attachment(attachment)
+                atlasdb
+                    .insert_new_inboxed_attachment(attachment)
                     .map_err(|e| net_error::DBError(e))?;
             }
         }
@@ -1630,14 +1629,16 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::GetAttachmentsInv(ref _md, ref tip_opt, ref pages_indexes) => {
-                if let Some((tip_consensus_hash, tip_block_hash)) = ConversationHttp::handle_load_stacks_chain_tip_hashes(
-                    &mut self.connection.protocol,
-                    &mut reply,
-                    &req,
-                    tip_opt.as_ref(),
-                    sortdb,
-                    chainstate,
-                )? {
+                if let Some((tip_consensus_hash, tip_block_hash)) =
+                    ConversationHttp::handle_load_stacks_chain_tip_hashes(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        tip_opt.as_ref(),
+                        sortdb,
+                        chainstate,
+                    )?
+                {
                     ConversationHttp::handle_getattachmentsinv(
                         &mut self.connection.protocol,
                         &mut reply,
@@ -1645,7 +1646,7 @@ impl ConversationHttp {
                         sortdb,
                         atlasdb,
                         chainstate,
-                        &tip_consensus_hash, 
+                        &tip_consensus_hash,
                         &tip_block_hash,
                         pages_indexes,
                         &self.connection.options,
@@ -2141,7 +2142,11 @@ impl ConversationHttp {
 
     /// Make a new post-transaction request
     pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
-        HttpRequestType::PostTransaction(HttpRequestMetadata::from_host(self.peer_host.clone()), tx, None)
+        HttpRequestType::PostTransaction(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            tx,
+            None,
+        )
     }
 
     /// Make a new post-microblock request

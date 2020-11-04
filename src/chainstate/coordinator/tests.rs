@@ -31,8 +31,8 @@ use monitoring::increment_stx_blocks_processed_counter;
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc, RwLock,
     mpsc::sync_channel,
+    Arc, RwLock,
 };
 use util::vrf::*;
 use vm::{
@@ -267,7 +267,12 @@ fn make_reward_set_coordinator<'a>(
     addrs: Vec<StacksAddress>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider> {
     let (tx, _) = sync_channel(1);
-    ChainsCoordinator::test_new(&get_burnchain(path), path, StubbedRewardSetProvider(addrs), tx)
+    ChainsCoordinator::test_new(
+        &get_burnchain(path),
+        path,
+        StubbedRewardSetProvider(addrs),
+        tx,
+    )
 }
 
 pub fn get_burnchain(path: &str) -> Burnchain {

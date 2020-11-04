@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{VecDeque, HashSet};
+use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
-use std::time::Duration;
 use std::sync::mpsc::SyncSender;
+use std::time::Duration;
 
 use burnchains::{
     db::{BurnchainBlockData, BurnchainDB},
@@ -29,19 +29,19 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
-    boot::{STACKS_BOOT_CODE_CONTRACT_ADDRESS, boot_code_id},
+    boot::{boot_code_id, STACKS_BOOT_CODE_CONTRACT_ADDRESS},
     db::{ClarityTx, StacksChainState, StacksHeaderInfo},
+    events::StacksTransactionEvent,
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
     TransactionPayload,
-    events::StacksTransactionEvent,
 };
 use monitoring::increment_stx_blocks_processed_counter;
-use util::db::Error as DBError;
-use util::hash::{to_hex, Hash160, MerkleHashFunc};
 use net::atlas::inv::AttachmentInstance;
 use net::atlas::AtlasConfig;
 use net::StacksMessageCodec;
+use util::db::Error as DBError;
+use util::hash::{to_hex, Hash160, MerkleHashFunc};
 use vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier, SequenceData},
@@ -336,7 +336,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         burnchain: &Burnchain,
         path: &str,
         reward_set_provider: U,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,     
+        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     ) -> ChainsCoordinator<'a, T, (), U> {
         let burnchain = burnchain.clone();
 
@@ -604,49 +604,85 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     let mut attachments_requests = HashSet::new();
                     let atlas_config = AtlasConfig::default();
                     for receipt in block_receipt.tx_receipts.iter() {
-                        if let TransactionPayload::ContractCall(ref contract_call) = receipt.transaction.payload {
-                            if atlas_config.contracts.contains(&contract_call.to_clarity_contract_id()) {
+                        if let TransactionPayload::ContractCall(ref contract_call) =
+                            receipt.transaction.payload
+                        {
+                            if atlas_config
+                                .contracts
+                                .contains(&contract_call.to_clarity_contract_id())
+                            {
                                 for event in receipt.events.iter() {
-                                    if let StacksTransactionEvent::SmartContractEvent(ref event_data) = event {
-                                        if let Value::Tuple(ref attachment_data) = event_data.value {
+                                    if let StacksTransactionEvent::SmartContractEvent(
+                                        ref event_data,
+                                    ) = event
+                                    {
+                                        if let Value::Tuple(ref attachment_data) = event_data.value
+                                        {
                                             match (
                                                 attachment_data.get("hash"),
-                                                attachment_data.get("page-index"), 
-                                                attachment_data.get("position-in-page")) {
-                                                    (Ok(Value::Sequence(SequenceData::Buffer(content_hash))), Ok(Value::UInt(page_index)), Ok(Value::UInt(position_in_page))) => {
-                                                        let content_hash = if content_hash.data.is_empty() {
-                                                            Hash160::empty()
-                                                        } else {
-                                                            match Hash160::from_bytes(&content_hash.data[..]) {
-                                                                Some(content_hash) => content_hash,
-                                                                _ => {
-                                                                    error!("Attachment's event was raised, with an invalid hash160. Skipping");
-                                                                    continue;
-                                                                }
+                                                attachment_data.get("page-index"),
+                                                attachment_data.get("position-in-page"),
+                                            ) {
+                                                (
+                                                    Ok(Value::Sequence(SequenceData::Buffer(
+                                                        content_hash,
+                                                    ))),
+                                                    Ok(Value::UInt(page_index)),
+                                                    Ok(Value::UInt(position_in_page)),
+                                                ) => {
+                                                    let content_hash = if content_hash
+                                                        .data
+                                                        .is_empty()
+                                                    {
+                                                        Hash160::empty()
+                                                    } else {
+                                                        match Hash160::from_bytes(
+                                                            &content_hash.data[..],
+                                                        ) {
+                                                            Some(content_hash) => content_hash,
+                                                            _ => {
+                                                                error!("Attachment's event was raised, with an invalid hash160. Skipping");
+                                                                continue;
                                                             }
-                                                        };
-                                                        let metadata = match attachment_data.get("metadata") {
-                                                            Ok(metadata) => {
-                                                                let mut serialized = vec![];
-                                                                metadata.consensus_serialize(&mut serialized)
-                                                                    .expect("FATAL: invalid metadata");
-                                                                to_hex(&serialized[..])
-                                                            }
-                                                            _ => String::new()
-                                                        };
-                                                        let request = AttachmentInstance {
-                                                            consensus_hash: block_receipt.header.consensus_hash.clone(),
-                                                            block_header_hash: block_receipt.header.anchored_header.block_hash(),
-                                                            content_hash,
-                                                            page_index: *page_index as u32,
-                                                            position_in_page: *position_in_page as u32,
-                                                            block_height: block_receipt.header.block_height,
-                                                            metadata,
-                                                            contract_id: contract_call.to_clarity_contract_id().clone()
-                                                        };
-                                                        attachments_requests.insert(request);                
-                                                    }
-                                                    _ => {}
+                                                        }
+                                                    };
+                                                    let metadata = match attachment_data
+                                                        .get("metadata")
+                                                    {
+                                                        Ok(metadata) => {
+                                                            let mut serialized = vec![];
+                                                            metadata
+                                                                .consensus_serialize(
+                                                                    &mut serialized,
+                                                                )
+                                                                .expect("FATAL: invalid metadata");
+                                                            to_hex(&serialized[..])
+                                                        }
+                                                        _ => String::new(),
+                                                    };
+                                                    let request = AttachmentInstance {
+                                                        consensus_hash: block_receipt
+                                                            .header
+                                                            .consensus_hash
+                                                            .clone(),
+                                                        block_header_hash: block_receipt
+                                                            .header
+                                                            .anchored_header
+                                                            .block_hash(),
+                                                        content_hash,
+                                                        page_index: *page_index as u32,
+                                                        position_in_page: *position_in_page as u32,
+                                                        block_height: block_receipt
+                                                            .header
+                                                            .block_height,
+                                                        metadata,
+                                                        contract_id: contract_call
+                                                            .to_clarity_contract_id()
+                                                            .clone(),
+                                                    };
+                                                    attachments_requests.insert(request);
+                                                }
+                                                _ => {}
                                             }
                                         }
                                     }
@@ -656,7 +692,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     }
                     if !attachments_requests.is_empty() {
                         match self.attachments_tx.send(attachments_requests) {
-                            Ok(_) => {},
+                            Ok(_) => {}
                             Err(e) => {
                                 error!("Error dispatching attachments {}", e);
                             }

@@ -1,11 +1,11 @@
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::run_loop::RegisteredKey;
 
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle, time};
-use std::collections::HashSet;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -23,7 +23,8 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{
-    db::PeerDB, atlas::AtlasDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
+    atlas::AtlasDB, db::PeerDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError,
+    PeerAddress,
 };
 
 use stacks::chainstate::stacks::index::TrieHash;
@@ -335,11 +336,7 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let atlasdb = AtlasDB::connect(
-            &self.config.get_peer_db_path(),
-            true
-        )
-        .unwrap();
+        let atlasdb = AtlasDB::connect(&self.config.get_peer_db_path(), true).unwrap();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,

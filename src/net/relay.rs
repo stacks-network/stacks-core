@@ -1271,18 +1271,17 @@ impl PeerNetwork {
         &mut self,
         available: &BlocksAvailableMap,
     ) -> Result<(Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
-        let outbound_recipients_set =
-            PeerNetwork::with_inv_state(self, |_network, inv_state| {
-                let mut recipients = HashSet::new();
-                for (neighbor, stats) in inv_state.block_stats.iter() {
-                    for (_, (block_height, _)) in available.iter() {
-                        if !stats.inv.has_ith_block(*block_height) {
-                            recipients.insert((*neighbor).clone());
-                        }
+        let outbound_recipients_set = PeerNetwork::with_inv_state(self, |_network, inv_state| {
+            let mut recipients = HashSet::new();
+            for (neighbor, stats) in inv_state.block_stats.iter() {
+                for (_, (block_height, _)) in available.iter() {
+                    if !stats.inv.has_ith_block(*block_height) {
+                        recipients.insert((*neighbor).clone());
                     }
                 }
-                Ok(recipients)
-            })?;
+            }
+            Ok(recipients)
+        })?;
 
         // make a normalized random sample of inbound recipients, but don't send to an inbound peer
         // if it's already represented in the outbound set, or its reciprocal conversation is
