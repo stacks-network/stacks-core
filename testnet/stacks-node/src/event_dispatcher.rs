@@ -424,7 +424,10 @@ impl EventDispatcher {
                         "coinbase_amount": reward.coinbase.to_string(),
                         "tx_fees_anchored_shared": reward.tx_fees_anchored_shared.to_string(),
                         "tx_fees_anchored_exclusive": reward.tx_fees_anchored_exclusive.to_string(),
-                        "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string()
+                        "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),
+                        "from_stacks_block_hash": format!("0x{}", &reward.from_stacks_block_hash),
+                        "from_index_consensus_hash": format!("0x{}", StacksBlockId::new(&reward.from_block_consensus_hash,
+                                                                                        &reward.from_stacks_block_hash)),
                     })
                 })
                 .collect();

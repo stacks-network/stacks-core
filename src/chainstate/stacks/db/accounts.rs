@@ -57,6 +57,8 @@ pub struct MinerReward {
     pub tx_fees_streamed_produced: u128,
     pub tx_fees_streamed_confirmed: u128,
     pub vtxindex: u32, // will be 0 for the reward to the miner, and >0 for user burn supports
+    pub from_block_consensus_hash: ConsensusHash,
+    pub from_stacks_block_hash: BlockHeaderHash,
 }
 
 impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
@@ -116,30 +118,6 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
 }
 
 impl MinerReward {
-    pub fn empty_miner(address: &StacksAddress) -> MinerReward {
-        MinerReward {
-            address: address.clone(),
-            coinbase: 0,
-            tx_fees_anchored_shared: 0,
-            tx_fees_anchored_exclusive: 0,
-            tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: 0,
-            vtxindex: 0,
-        }
-    }
-
-    pub fn empty_user(address: &StacksAddress, vtxindex: u32) -> MinerReward {
-        MinerReward {
-            address: address.clone(),
-            coinbase: 0,
-            tx_fees_anchored_shared: 0,
-            tx_fees_anchored_exclusive: 0,
-            tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: 0,
-            vtxindex: vtxindex,
-        }
-    }
-
     pub fn total(&self) -> u128 {
         self.coinbase
             + self.tx_fees_anchored_shared
@@ -614,6 +592,8 @@ impl StacksChainState {
             tx_fees_streamed_produced: 0,
             tx_fees_streamed_confirmed: 0,
             vtxindex: miner.vtxindex,
+            from_stacks_block_hash: miner.block_hash.clone(),
+            from_block_consensus_hash: miner.consensus_hash.clone(),
         };
         miner_reward
     }
