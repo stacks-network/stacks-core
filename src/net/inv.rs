@@ -3025,7 +3025,7 @@ mod test {
             StacksMessageType::BlocksInv(blocksinv) => {
                 assert_eq!(blocksinv.bitlen, reward_cycle_length as u16);
                 assert_eq!(blocksinv.block_bitvec, vec![0x1f]);
-                assert_eq!(blocksinv.microblocks_bitvec, vec![0x1f]);
+                assert_eq!(blocksinv.microblocks_bitvec, vec![0x1e]);
             }
             x => {
                 error!("Did not get BlocksInv, but got {:?}", &x);
@@ -3079,7 +3079,7 @@ mod test {
             StacksMessageType::BlocksInv(blocksinv) => {
                 assert_eq!(blocksinv.bitlen, reward_cycle_length as u16);
                 assert_eq!(blocksinv.block_bitvec, vec![0x1f]);
-                assert_eq!(blocksinv.microblocks_bitvec, vec![0x1f]);
+                assert_eq!(blocksinv.microblocks_bitvec, vec![0x1e]);
             }
             x => {
                 error!("Did not get Nack, but got {:?}", &x);
@@ -3458,7 +3458,7 @@ mod test {
             }
 
             // peer 1 should have learned that peer 2 has all the microblock streams
-            for i in 0..(num_blocks - 1) {
+            for i in 1..(num_blocks - 1) {
                 assert!(
                     peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height),
                     format!("Missing microblock {} (+ {})", i, first_stacks_block_height)
@@ -3796,12 +3796,17 @@ mod test {
             // instability
             for i in 0..(num_blocks - 1) {
                 assert!(peer_2_inv.has_ith_block(i + first_stacks_block_height));
-                assert!(peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                if i > 0 {
+                    assert!(peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                }
+                else {
+                    assert!(!peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                }
             }
 
             for i in 0..(num_blocks - 1) {
                 assert!(peer_1_inv.has_ith_block(i + first_stacks_block_height));
-                if i != num_blocks - 2 {
+                if i > 0 && i != num_blocks - 2 {
                     // peer 1 doesn't have the final microblock stream, since no anchor block confirmed it
                     assert!(peer_1_inv.has_ith_microblock_stream(i + first_stacks_block_height));
                 }
@@ -4026,13 +4031,18 @@ mod test {
             // PoX instability between the two
             for i in 0..(reward_cycle_length * 4) {
                 assert!(peer_2_inv.has_ith_block(i + first_stacks_block_height));
-                assert!(peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                if i > 0 {
+                    assert!(peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                }
+                else {
+                    assert!(!peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
+                }
             }
 
             // peer 2 should have learned about all of peer 1's blocks
             for i in 0..(num_blocks - 2 * reward_cycle_length) {
                 assert!(peer_1_inv.has_ith_block(i + first_stacks_block_height));
-                if i != num_blocks - 2 * reward_cycle_length - 1 {
+                if i > 0 && i != num_blocks - 2 * reward_cycle_length - 1 {
                     // peer 1 doesn't have the final microblock stream, since no anchor block confirmed it
                     assert!(peer_1_inv.has_ith_microblock_stream(i + first_stacks_block_height));
                 }
