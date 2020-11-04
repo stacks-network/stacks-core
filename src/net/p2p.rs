@@ -2931,12 +2931,19 @@ impl PeerNetwork {
                             PeerNetwork::with_attachments_downloader(
                                 self,
                                 |network, attachments_downloader| {
-                                    let mut attachments = attachments_downloader
-                                        .run(dns_client, chainstate, network)?;
-                                    network_result.attachments.append(&mut attachments);
+                                    match attachments_downloader
+                                        .run(dns_client, chainstate, network)
+                                    {
+                                        Ok(ref mut attachments) => {
+                                            network_result.attachments.append(attachments);
+                                        }
+                                        Err(e) => {
+                                            warn!("Atlas: AttachmentsDownloader failed running with error {:?}", e);
+                                        }
+                                    }
                                     Ok(())
                                 },
-                            );
+                            )?;
 
                             if self.do_network_block_download(
                                 sortdb,

@@ -332,7 +332,7 @@ enum AttachmentsBatchStateMachine {
             AttachmentsBatchStateContext,
         ),
     ),
-    Done(AttachmentsBatchStateContext), // At the end of the process, the batch should be simplified if did not succeed
+    Done(AttachmentsBatchStateContext),
 }
 
 impl AttachmentsBatchStateMachine {
@@ -411,11 +411,7 @@ impl AttachmentsBatchStateMachine {
                     state => AttachmentsBatchStateMachine::DownloadingAttachment((state, context)),
                 }
             }
-            AttachmentsBatchStateMachine::Done(context) => {
-                // At the end of the process, the batch should be simplified if did not succeed
-                // priority queue: combination of retry count and block height.
-                unimplemented!()
-            }
+            AttachmentsBatchStateMachine::Done(_context) => unreachable!(),
         }
     }
 }
@@ -553,7 +549,7 @@ impl BatchedDNSLookupsState {
                 }
                 BatchedDNSLookupsState::Done(result)
             }
-            BatchedDNSLookupsState::Done(state) => unimplemented!(),
+            BatchedDNSLookupsState::Done(_) => unreachable!(),
         }
     }
 }
@@ -583,7 +579,6 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     let res = PeerNetwork::begin_request(
                         network,
                         dns_lookups,
-                        "Request", // todo(ludo)
                         &mut requestables,
                         chainstate,
                     );
@@ -692,7 +687,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                 }
                 BatchedRequestsState::Done(result)
             }
-            BatchedRequestsState::Done(done_state) => unimplemented!(),
+            BatchedRequestsState::Done(_) => unreachable!(),
         }
     }
 }

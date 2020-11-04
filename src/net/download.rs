@@ -185,8 +185,8 @@ impl std::fmt::Display for BlockRequestKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "<Request<Block>: {} {} {:?}>",
-            self.index_block_hash, self.neighbor, self.data_url
+            "<Request<{:?}>: {} {} {:?}>",
+            self.kind, self.index_block_hash, self.neighbor, self.data_url
         )
     }
 }
@@ -1743,7 +1743,6 @@ impl PeerNetwork {
     pub fn begin_request<T: Requestable + std::fmt::Display>(
         network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
-        request_name: &str,
         requestables: &mut VecDeque<T>,
         chainstate: &mut StacksChainState,
     ) -> Option<(T, usize)> {
@@ -1820,7 +1819,6 @@ impl PeerNetwork {
                         match PeerNetwork::begin_request(
                             network,
                             &downloader.dns_lookups,
-                            "anchored block",
                             keys,
                             chainstate,
                         ) {
@@ -1868,7 +1866,6 @@ impl PeerNetwork {
                         match PeerNetwork::begin_request(
                             network,
                             &downloader.dns_lookups,
-                            "microblock stream",
                             keys,
                             chainstate,
                         ) {
