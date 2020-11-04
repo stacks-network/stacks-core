@@ -36,7 +36,7 @@ use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use net::StacksPublicKeyBuffer;
 
-use chainstate::burn::db::sortdb::SortitionDBConn;
+use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
 use chainstate::burn::*;
 
@@ -780,10 +780,8 @@ impl StacksBlockBuilder {
             None => vec![],
         };
 
-        let stacking_burn_ops = StacksChainState::get_stacking_ops(
-            burn_dbconn.conn(),
-            &self.chain_tip.burn_header_hash,
-        )?;
+        let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
+        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(burn_dbconn.conn(), &burn_tip)?;
 
         let mut tx = chainstate.block_begin(
             burn_dbconn,

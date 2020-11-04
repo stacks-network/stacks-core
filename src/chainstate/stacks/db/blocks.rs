@@ -3661,15 +3661,6 @@ impl StacksChainState {
         Ok((fees, burns, receipts))
     }
 
-    /// Returns the total number of blocks with Stacking bitcoin ops processed,
-    ///  and the new Stacking bitcoin ops that must be processed in this block.
-    pub fn get_stacking_ops(
-        sort_db: &Connection,
-        parent_burn_hash: &BurnchainHeaderHash,
-    ) -> Result<Vec<StackStxOp>, Error> {
-        SortitionDB::get_stack_stx_ops(sort_db, parent_burn_hash).map_err(Error::from)
-    }
-
     /// Process any Stacking-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
     pub fn process_stacking_ops(
@@ -3919,10 +3910,17 @@ impl StacksChainState {
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
 
-            let stacking_burn_ops = StacksChainState::get_stacking_ops(
+            // get the burnchain block that precedes this block's sortition
+            let parent_burn_hash = SortitionDB::get_block_snapshot_consensus(
                 &burn_dbconn.tx(),
-                &parent_chain_tip.burn_header_hash,
-            )?;
+                &chain_tip_consensus_hash,
+            )?
+            .expect(
+                "BUG: Failed to load snapshot for block snapshot during Stacks block processing",
+            )
+            .parent_burn_header_hash;
+            let stacking_burn_ops =
+                SortitionDB::get_stack_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
 
             let mut clarity_tx = StacksChainState::chainstate_block_begin(
                 chainstate_tx,
