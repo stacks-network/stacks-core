@@ -192,11 +192,10 @@ impl UnconfirmedState {
                 }
             };
 
-        StacksChainState::load_staging_microblock_stream(
+        StacksChainState::load_descendant_staging_microblock_stream(
             &chainstate.blocks_db,
-            &chainstate.blocks_path,
-            &consensus_hash,
-            &anchored_block_hash,
+            &StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash),
+            0,
             u16::max_value(),
         )
     }
