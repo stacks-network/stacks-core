@@ -355,7 +355,10 @@ impl BlockDownloader {
             if url_str.len() == 0 {
                 continue;
             }
-            let url = url_str.parse_to_block_url()?; // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
+            let url = match url_str.parse_to_block_url() {
+                Ok(url) => url, // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
+                Err(_) => continue,
+            };
             let port = match url.port_or_known_default() {
                 Some(p) => p,
                 None => {
@@ -365,11 +368,14 @@ impl BlockDownloader {
             };
             match url.host() {
                 Some(url::Host::Domain(domain)) => {
-                    dns_client.queue_lookup(
+                    match dns_client.queue_lookup(
                         domain.clone(),
                         port,
                         get_epoch_time_ms() + self.dns_timeout,
-                    )?;
+                    ) {
+                        Ok(_) => {}
+                        Err(_) => continue,
+                    }
                     self.dns_lookups.insert(url_str.clone(), None);
                     self.parsed_urls
                         .insert(url_str, DNSRequest::new(domain.to_string(), port, 0));
