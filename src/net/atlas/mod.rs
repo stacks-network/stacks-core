@@ -18,15 +18,15 @@ use vm::types::{QualifiedContractIdentifier, TupleData};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-pub const SNS_NAMESPACE_MIN_LEN: usize = 1;
-pub const SNS_NAMESPACE_MAX_LEN: usize = 19;
-pub const SNS_NAME_MIN_LEN: usize = 1;
-pub const SNS_NAME_MAX_LEN: usize = 16;
+pub const BNS_NAMESPACE_MIN_LEN: usize = 1;
+pub const BNS_NAMESPACE_MAX_LEN: usize = 19;
+pub const BNS_NAME_MIN_LEN: usize = 1;
+pub const BNS_NAME_MAX_LEN: usize = 16;
 
 lazy_static! {
-    pub static ref SNS_NAME_REGEX: String = format!(
+    pub static ref BNS_NAME_REGEX: String = format!(
         r#"([a-z0-9]|[-_]){{{},{}}}\.([a-z0-9]|[-_]){{{},{}}}(\.([a-z0-9]|[-_]){{{},{}}})?"#,
-        SNS_NAMESPACE_MIN_LEN, SNS_NAMESPACE_MAX_LEN, SNS_NAME_MIN_LEN, SNS_NAME_MAX_LEN, 1, 128
+        BNS_NAMESPACE_MIN_LEN, BNS_NAMESPACE_MAX_LEN, BNS_NAME_MIN_LEN, BNS_NAME_MAX_LEN, 1, 128
     );
 }
 
@@ -38,7 +38,7 @@ pub struct AtlasConfig {
 impl AtlasConfig {
     pub fn default() -> AtlasConfig {
         let mut contracts = HashSet::new();
-        contracts.insert(boot_code_id("sns"));
+        contracts.insert(boot_code_id("bns"));
         AtlasConfig {
             contracts,
             attachments_max_size: 1_048_576,

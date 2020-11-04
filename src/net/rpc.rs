@@ -587,7 +587,7 @@ impl ConversationHttp {
                     (current_page, current_page, vec![current_page])
                 }
                 Err(_) => {
-                    let msg = format!("Unable to read contract SNS");
+                    let msg = format!("Unable to read contract BNS");
                     warn!("{}", msg);
                     let response = HttpResponseType::ServerError(response_metadata, msg.clone());
                     response.send(http, fd)?;

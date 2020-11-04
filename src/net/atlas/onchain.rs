@@ -102,7 +102,7 @@ impl OnchainInventoryLookup {
         cost_tracker: LimitedCostTracker,
         clarity_tx: &mut ClarityReadOnlyConnection,
     ) -> Result<OnchainAttachmentsInventoryInfo, net_error> {
-        let contract_identifier = boot::boot_code_id("sns");
+        let contract_identifier = boot::boot_code_id("bns");
         let function = "get-attachments-inv-info";
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
 
@@ -181,7 +181,7 @@ impl OnchainInventoryLookup {
         info: &OnchainAttachmentsInventoryInfo,
         clarity_db: &mut ClarityDatabase,
     ) -> Result<OnchainAttachmentPage, net_error> {
-        let contract_identifier = boot::boot_code_id("sns");
+        let contract_identifier = boot::boot_code_id("bns");
         let map_name = "attachments-inv";
 
         let limit = if page_index == info.pages_count {

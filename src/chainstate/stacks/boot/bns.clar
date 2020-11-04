@@ -318,8 +318,8 @@
 
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER
-;; This step registers the salted hash of the namespace with SNS nodes, and burns the requisite amount of cryptocurrency.
-;; Additionally, this step proves to the SNS nodes that user has honored the SNS consensus rules by including a recent
+;; This step registers the salted hash of the namespace with BNS nodes, and burns the requisite amount of cryptocurrency.
+;; Additionally, this step proves to the BNS nodes that user has honored the BNS consensus rules by including a recent
 ;; consensus hash in the transaction.
 ;; Returns pre-order's expiration date (in blocks).
 (define-public (namespace-preorder (hashed-salted-namespace (buff 20))
@@ -541,7 +541,7 @@
 ;;;; NAMES
 
 ;; NAME_PREORDER
-;; This is the first transaction to be sent. It tells all SNS nodes the salted hash of the SNS name,
+;; This is the first transaction to be sent. It tells all BNS nodes the salted hash of the BNS name,
 ;; and it pays the registration fee to the namespace owner's designated address
 (define-public (name-preorder (hashed-salted-fqn (buff 20))
                               (stx-to-burn uint))
@@ -569,7 +569,7 @@
     (ok (+ block-height name-preorder-claimability-ttl))))
 
 ;; NAME_REGISTRATION
-;; This is the second transaction to be sent. It reveals the salt and the name to all SNS nodes,
+;; This is the second transaction to be sent. It reveals the salt and the name to all BNS nodes,
 ;; and assigns the name an initial public key hash and zone file hash
 (define-public (name-register (namespace (buff 19))
                               (name (buff 16))
@@ -768,7 +768,7 @@
       (ok true))))
 
 ;; NAME_REVOKE
-;; A NAME_REVOKE transaction makes a name unresolvable. The SNS consensus rules stipulate that once a name 
+;; A NAME_REVOKE transaction makes a name unresolvable. The BNS consensus rules stipulate that once a name 
 ;; is revoked, no one can change its public key hash or its zone file hash. 
 ;; The name's zone file hash is set to null to prevent it from resolving.
 ;; You should only do this if your private key is compromised, or if you want to render your name unusable for whatever reason.
@@ -819,7 +819,7 @@
 ;; You need to send a NAME_RENEWAL every so often to keep your name.
 ;; You will pay the registration cost of your name to the namespace's designated burn address when you renew it.
 ;; When a name expires, it enters a month-long "grace period" (5000 blocks). 
-;; It will stop resolving in the grace period, and all of the above operations will cease to be honored by the SNS consensus rules.
+;; It will stop resolving in the grace period, and all of the above operations will cease to be honored by the BNS consensus rules.
 ;; You may, however, send a NAME_RENEWAL during this grace period to preserve your name.
 ;; If your name is in a namespace where names do not expire, then you never need to use this transaction.
 (define-public (name-renewal (namespace (buff 19))
