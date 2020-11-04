@@ -2,7 +2,7 @@ use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::StacksBlock;
-use stacks::net::atlas::inv::AttachmentInstance;
+use stacks::net::atlas::AttachmentInstance;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::thread::sleep;

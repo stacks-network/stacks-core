@@ -37,8 +37,7 @@ use chainstate::stacks::{
     TransactionPayload,
 };
 use monitoring::increment_stx_blocks_processed_counter;
-use net::atlas::inv::AttachmentInstance;
-use net::atlas::AtlasConfig;
+use net::atlas::{AttachmentInstance, AtlasConfig};
 use net::StacksMessageCodec;
 use util::db::Error as DBError;
 use util::hash::{to_hex, Hash160, MerkleHashFunc};

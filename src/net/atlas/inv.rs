@@ -1,4 +1,4 @@
-use super::{AtlasDB, AttachmentsInvRequest, ExpectedAttachment};
+use super::AtlasDB;
 use burnchains::BurnchainHeaderHash;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
@@ -15,55 +15,10 @@ use util::db::FromRow;
 use util::hash::Hash160;
 use vm::types::QualifiedContractIdentifier;
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum AttachmentState {
-    Signaled,
-    Inventoried,
-    Enqueued,
-    Available(String),
-    Dispatched,
-}
-
-pub struct Attachment {
-    content_hash: Hash160,
-    content: Vec<u8>,
-    state: AttachmentState,
-    coordinates: Vec<AttachmentInstance>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct AttachmentInstance {
-    pub content_hash: Hash160,
-    pub page_index: u32,
-    pub position_in_page: u32,
-    pub block_height: u64,
-    pub consensus_hash: ConsensusHash,
-    pub block_header_hash: BlockHeaderHash,
-    pub metadata: String,
-    pub contract_id: QualifiedContractIdentifier,
-}
-
-impl AttachmentInstance {
-    pub fn get_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Copy)]
-pub enum InvAttachmentWorkState {
-    GetAttachmentsInvBegin,
-    GetAttachmentsInvFinish,
-    Done,
-}
-
 #[derive(Debug)]
 pub struct AttachmentsInvState {
     /// Accumulated knowledge of which peers have which attachments.
     pub attachments_stats: HashMap<NeighborKey, NeighborAttachmentStats>,
-    /// Request queue
-    pub inv_request_queue: HashSet<AttachmentsInvRequest>,
-    /// Request queue
-    pub requests_in_progress: HashSet<AttachmentsInvRequest>,
     /// How long is a request allowed to take?
     pub request_timeout: u64,
     /// Last time we learned about new blocks
@@ -82,8 +37,6 @@ impl AttachmentsInvState {
     pub fn new(request_timeout: u64, sync_interval: u64) -> AttachmentsInvState {
         AttachmentsInvState {
             attachments_stats: HashMap::new(),
-            inv_request_queue: HashSet::new(),
-            requests_in_progress: HashSet::new(),
             request_timeout: request_timeout,
             last_change_at: 0,
             sync_interval: sync_interval,
@@ -101,8 +54,6 @@ pub struct NeighborAttachmentStats {
     /// What blocks do we know this peer has?
     // pub inv: OnchainAttachmentsInventory, // todo(ludo): merge remote inventories
     /// Scan state
-    pub state: InvAttachmentWorkState,
-    /// Peer status
     pub status: NodeStatus,
     /// Ongoing request
     pub request: Option<ReplyHandleHttp>,
@@ -119,7 +70,6 @@ impl NeighborAttachmentStats {
         NeighborAttachmentStats {
             nk: nk,
             // inv: OnchainAttachmentsInventory::empty(),
-            state: InvAttachmentWorkState::GetAttachmentsInvBegin,
             status: NodeStatus::Online,
             request: None,
             last_rescan_timestamp: 0,
@@ -134,6 +84,5 @@ impl NeighborAttachmentStats {
 
     pub fn reset(&mut self) {
         self.request = None;
-        self.state = InvAttachmentWorkState::GetAttachmentsInvBegin;
     }
 }

@@ -52,7 +52,7 @@ use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_NEIGHBORS_DATA_LEN;
 use net::{
-    AccountEntryResponse, AttachmentData, AttachmentPage, CallReadOnlyResponse,
+    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse,
     ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
 use net::{RPCNeighbor, RPCNeighborsInfo};

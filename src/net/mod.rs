@@ -110,7 +110,7 @@ use vm::clarity::Error as clarity_error;
 
 use self::dns::*;
 
-use net::atlas::{inv::AttachmentInstance, Attachment};
+use net::atlas::{AttachmentInstance, Attachment};
 
 use core::POX_REWARD_CYCLE_LENGTH;
 
@@ -739,13 +739,6 @@ pub struct MicroblocksData {
     pub microblocks: Vec<StacksMicroblock>,
 }
 
-/// Attachment pushed
-#[derive(Debug, Clone, PartialEq)]
-pub struct AttachmentData {
-    pub hash: Hash160,
-    pub content: Vec<u8>,
-}
-
 /// Block available hint
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksAvailableData {
@@ -893,7 +886,7 @@ pub enum StacksMessageType {
     Pong(PongData),
     NatPunchRequest(u32),
     NatPunchReply(NatPunchData),
-    Attachment(AttachmentData),
+    Attachment(Attachment),
 }
 
 /// Peer address variants
@@ -1650,7 +1643,7 @@ pub struct NetworkResult {
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
-    pub uploaded_attachments: Vec<AttachmentData>,     // attachments sent to us by the http server
+    pub uploaded_attachments: Vec<Attachment>,         // attachments sent to us by the http server
     pub attachments: Vec<AttachmentInstance>,
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,

@@ -26,8 +26,7 @@ use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::StacksBlockId;
 use net::StacksMessageCodec;
 
-use super::inv::AttachmentInstance;
-use super::Attachment;
+use super::{Attachment, AttachmentInstance};
 
 pub const ATLASDB_VERSION: &'static str = "23.0.0.0";
 

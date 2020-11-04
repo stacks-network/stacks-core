@@ -906,12 +906,3 @@ impl PartialOrd for AttachmentsBatch {
         Some(self.cmp(other))
     }
 }
-
-struct ResolvedAttachment {}
-
-struct AttachmentsAnalytics {
-    pub total_attachments_inv_requested: u32,
-    pub total_attachments_inv_downloaded: u32,
-    pub total_attachments_requested: u32,
-    pub total_attachments_downloaded: u32,
-}
