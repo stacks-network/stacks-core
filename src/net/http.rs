@@ -2372,23 +2372,30 @@ impl HttpRequestType {
                 write_next(&mut tx_bytes, tx)?;
                 let tx_hex = to_hex(&tx_bytes[..]);
 
-                let attachment_hex = match attachment {
-                    None => None,
-                    Some(attachment) => Some(to_hex(&attachment.content[..])),
-                };
+                let (content_type, request_body_bytes) = match attachment {
+                    None => {
+                        // Transaction does not include an attachment: HttpContentType::Bytes (more compressed)
+                        (Some(&HttpContentType::Bytes), tx_bytes)
+                    }
+                    Some(attachment) => {
+                        // Transaction is including an attachment: HttpContentType::JSON
+                        let request_body = PostTransactionRequestBody {
+                            tx: tx_hex,
+                            attachment: Some(to_hex(&attachment.content[..])),
+                        };
 
-                let request_body = PostTransactionRequestBody {
-                    tx: tx_hex,
-                    attachment: attachment_hex,
+                        let mut request_body_bytes = vec![];
+                        serde_json::to_writer(&mut request_body_bytes, &request_body).map_err(
+                            |e| {
+                                net_error::SerializeError(format!(
+                                    "Failed to serialize read-only call to JSON: {:?}",
+                                    &e
+                                ))
+                            },
+                        )?;
+                        (Some(&HttpContentType::JSON), request_body_bytes)
+                    }
                 };
-
-                let mut request_body_bytes = vec![];
-                serde_json::to_writer(&mut request_body_bytes, &request_body).map_err(|e| {
-                    net_error::SerializeError(format!(
-                        "Failed to serialize read-only call to JSON: {:?}",
-                        &e
-                    ))
-                })?;
 
                 HttpRequestPreamble::new_serialized(
                     fd,
@@ -2398,7 +2405,7 @@ impl HttpRequestType {
                     &md.peer,
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
-                    Some(&HttpContentType::JSON),
+                    content_type,
                     empty_headers,
                 )?;
                 fd.write_all(&request_body_bytes)
@@ -5077,7 +5084,6 @@ mod test {
 
         let bad_content_types = vec![
             "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\n\r\nb",
-            "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\nContent-Type: application/json\r\n\r\nb",
         ];
         for bad_content_type in bad_content_types {
             let mut http = StacksHttp::new();
