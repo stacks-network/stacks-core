@@ -617,12 +617,15 @@ If a value did not exist for this key in the data map, the function returns `fal
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
     input_type: "(key-name A), (key-name-2 B), ...",
     output_type: "(tuple (key-name A) (key-name-2 B) ...)",
-    signature: "(tuple ((key0 expr0) (key1 expr1) ...))",
-    description: "The `tuple` function constructs a typed tuple from the supplied key and expression pairs.
+    signature: "(tuple (key0 expr0) (key1 expr1) ...)",
+    description: "The `tuple` special form constructs a typed tuple from the supplied key and expression pairs.
 A `get` function can use typed tuples as input to select specific values from a given tuple.
 Key names may not appear multiple times in the same tuple definition. Supplied expressions are evaluated and
-associated with the expressions' paired key name.",
-    example: "(tuple (name \"blockstack\") (id 1337))"
+associated with the expressions' paired key name.
+
+There is a shorthand using curly brackets of the form {key0: expr0, key1: expr, ...}",
+    example: "(tuple (name \"blockstack\") (id 1337)) ;; using tuple
+    {name: \"blockstack\", id: 1337} ;; using curly brackets",
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
