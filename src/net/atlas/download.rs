@@ -767,10 +767,14 @@ impl Requestable for AttachmentsInventoryRequest {
     }
 
     fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
+        let mut pages_indexes = HashSet::new();
+        for page in self.pages.iter() {
+            pages_indexes.insert(*page);
+        }
         HttpRequestType::GetAttachmentsInv(
             HttpRequestMetadata::from_host(peer_host),
             None,
-            HashSet::new(),
+            pages_indexes,
         )
     }
 }

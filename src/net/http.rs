@@ -2342,17 +2342,27 @@ impl HttpRequestType {
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
             HttpRequestType::GetAttachmentsInv(_md, tip_opt, pages_indexes) => {
-                let pages_indexes = pages_indexes
-                    .iter()
-                    .map(|i| format!("{}", i))
-                    .collect::<Vec<String>>()
-                    .join(",");
                 let prefix = if tip_opt.is_some() { "&" } else { "?" };
+                let pages_query = match pages_indexes.len() {
+                    0 => format!(""),
+                    1 => format!(
+                        "{}pages_indexes={}",
+                        prefix,
+                        pages_indexes.iter().next().unwrap()
+                    ),
+                    _n => {
+                        let indexes = pages_indexes
+                            .iter()
+                            .map(|i| format!("{}", i))
+                            .collect::<Vec<String>>()
+                            .join(",");
+                        format!("{}pages_indexes={}", prefix, indexes)
+                    }
+                };
                 format!(
-                    "/v2/attachments/inv{}{}{}",
+                    "/v2/attachments/inv{}{}",
                     HttpRequestType::make_query_string(tip_opt.as_ref(), true),
-                    prefix,
-                    pages_indexes,
+                    pages_query,
                 )
             }
             HttpRequestType::GetAttachment(_, content_hash) => {

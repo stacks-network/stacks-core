@@ -564,7 +564,6 @@ impl ConversationHttp {
         let mut pages_indexes = pages_indexes.iter().map(|i| *i).collect::<Vec<u32>>();
         pages_indexes.sort();
         let tip = StacksBlockHeader::make_index_block_hash(&tip_consensus_hash, &tip_block_hash);
-        info!("Getting /v2/attachments/inv {:?} {:?}", tip, pages_indexes);
 
         let (oldest_page_index, newest_page_index, pages_indexes) = if pages_indexes.len() > 0 {
             (
