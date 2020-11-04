@@ -169,6 +169,17 @@ impl RunLoop {
 
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
+        let chainstate_path = self.config.get_chainstate_path();
+        let mut pox_watchdog = PoxSyncWatchdog::new(
+            mainnet,
+            chainid,
+            chainstate_path,
+            self.config.burnchain.poll_time_secs,
+            self.config.connection_options.timeout,
+            self.config.node.pox_sync_sample_secs,
+        )
+        .unwrap();
+
         // setup genesis
         let node = NeonGenesisNode::new(
             self.config.clone(),
@@ -181,12 +192,14 @@ impl RunLoop {
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
                 coordinator_senders,
+                pox_watchdog.make_comms_handle(),
             )
         } else {
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
                 coordinator_senders,
+                pox_watchdog.make_comms_handle(),
             )
         };
 
@@ -204,22 +217,14 @@ impl RunLoop {
             });
         }
 
-        let chainstate_path = self.config.get_chainstate_path();
-        let mut pox_watchdog = PoxSyncWatchdog::new(
-            mainnet,
-            chainid,
-            chainstate_path,
-            self.config.burnchain.poll_time_secs,
-            self.config.connection_options.timeout,
-            self.config.node.pox_sync_sample_secs,
-        )
-        .unwrap();
         let mut burnchain_height = 1;
 
         // prepare to fetch the first reward cycle!
         target_burnchain_block_height = pox_constants.reward_cycle_length as u64;
 
         loop {
+            // wait for the p2p state-machine to do at least one pass
+            debug!("Wait until we reach steady-state before processing more burnchain blocks...");
             // wait until it's okay to process the next sortitions
             let ibd =
                 pox_watchdog.pox_sync_wait(&burnchain_config, &burnchain_tip, burnchain_height);
@@ -234,8 +239,8 @@ impl RunLoop {
                 };
 
             target_burnchain_block_height = cmp::min(
+                next_burnchain_height,
                 target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
-                burnchain_height + 1,
             );
             debug!(
                 "Downloaded burnchain blocks up to height {}; new target height is {}",

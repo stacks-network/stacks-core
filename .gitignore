@@ -69,3 +69,10 @@ osxcross
 osxcross*.tar.xz
 .DS_Store
 testnet/stacks-node/target
+
+net-test/etc/*.toml
+net-test/etc/*.conf
+net-test/mnt/bitcoin-*
+net-test/mnt/chainstate-*
+net-test/mnt/*.log
+net-test/mnt/archive/*

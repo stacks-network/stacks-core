@@ -664,7 +664,7 @@ impl BitcoinRegtestController {
 
         // RBF
         let tx_fee = self.config.burnchain.burnchain_op_tx_fee
-            + (attempt * self.last_tx_len * self.min_relay_fee);
+            + ((attempt.saturating_sub(1) * self.last_tx_len * self.min_relay_fee) / 1000);
 
         let public_key = signer.get_public_key();
         let mut total_consumed = 0;
@@ -691,6 +691,7 @@ impl BitcoinRegtestController {
             return None;
         }
         let value = total_consumed - total_spent - tx_fee;
+        debug!("Payments value: {:?}, total_consumed: {:?}, total_spent: {:?}, tx_fee: {:?}, attempt: {:?}", value, total_consumed, total_spent, tx_fee, attempt);
         if value >= DUST_UTXO_LIMIT {
             let change_output = BitcoinAddress::to_p2pkh_tx_out(&change_address_hash, value);
             tx.output.push(change_output);

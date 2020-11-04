@@ -2,11 +2,12 @@
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 seed = "bbd40688849e9d0f3bc3132a576835df11bb84b307a5a0588d8fecc4d6ba32d201"
-miner = true
+miner = @@STACKS_MASTER_IS_MINER@@
 working_dir = "@@STACKS_CHAINSTATE_DIR@@"
 pox_sync_sample_secs = 10
 wait_time_for_microblocks = 0
 p2p_address = "@@STACKS_PUBLIC_IP@@:20444"
+deny_nodes = "@@STACKS_DENY_NODES@@"
 
 [burnchain]
 chain = "bitcoin"
@@ -15,6 +16,14 @@ peer_host = "0.0.0.0"
 rpc_port = 28443
 peer_port = 18444
 poll_time_secs = 5
+process_exit_at_block_height = @@PROCESS_EXIT_AT_BLOCK_HEIGHT@@
+
+[connection_options]
+inv_sync_interval = 10
+download_interval = 10
+walk_interval = 10
+disable_inbound_handshakes = @@DISABLE_INBOUND_HANDSHAKES@@
+disable_inbound_walks = @@DISABLE_INBOUND_WALKS@@
 
 [[mstx_balance]]
 # Private key: b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001
