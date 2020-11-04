@@ -780,16 +780,9 @@ impl StacksBlockBuilder {
             None => vec![],
         };
 
-        let (processed_total, stacking_burn_ops) = chainstate.with_read_only_clarity_tx(
-            &NULL_BURN_STATE_DB,
-            &StacksBlockId::new(&parent_consensus_hash, &parent_header_hash),
-            |conn| {
-                StacksChainState::get_stacking_ops_with_conn(
-                    conn,
-                    burn_dbconn,
-                    &parent_consensus_hash,
-                )
-            },
+        let stacking_burn_ops = StacksChainState::get_stacking_ops(
+            burn_dbconn.conn(),
+            &self.chain_tip.burn_header_hash,
         )?;
 
         let mut tx = chainstate.block_begin(
@@ -834,7 +827,7 @@ impl StacksBlockBuilder {
             parent_microblocks.len()
         );
 
-        StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops, processed_total);
+        StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
 
         Ok(tx)
     }

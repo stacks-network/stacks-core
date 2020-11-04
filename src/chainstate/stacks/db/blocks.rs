@@ -3663,56 +3663,11 @@ impl StacksChainState {
 
     /// Returns the total number of blocks with Stacking bitcoin ops processed,
     ///  and the new Stacking bitcoin ops that must be processed in this block.
-    fn get_stacking_ops(
-        clarity_db: &mut ClarityInstance,
-        sort_db: &mut SortitionHandleTx,
-        parent_consensus_hash: &ConsensusHash,
-        parent_block_hash: &BlockHeaderHash,
-        my_consensus_hash: &ConsensusHash,
-    ) -> Result<(u64, Vec<StackStxOp>), Error> {
-        let chain_tip =
-            SortitionDB::get_sortition_id_by_consensus(sort_db.tx(), my_consensus_hash)?
-                .expect("BUG: failed to find SortitionID for current consensus hash");
-        let cur_blocks = sort_db.get_blocks_with_stacks_txs(false, &chain_tip)?;
-
-        let parent_tip = StacksBlockId::new(parent_consensus_hash, parent_block_hash);
-        let mut connection =
-            clarity_db.read_only_connection(&parent_tip, &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
-        let processed_blocks =
-            connection.with_clarity_db_readonly(|db| db.get_stx_btc_ops_processed());
-        connection.done();
-
-        let mut stacking_ops = vec![];
-        // process the interval (processed_block, cur_blocks]
-        for block_to_fetch in (processed_blocks + 1)..(cur_blocks + 1) {
-            let ops = sort_db.get_stack_stx_ops_for_block(block_to_fetch)?;
-            stacking_ops.extend(ops.into_iter());
-        }
-        Ok((cur_blocks, stacking_ops))
-    }
-
-    /// Returns the total number of blocks with Stacking bitcoin ops processed,
-    ///  and the new Stacking bitcoin ops that must be processed in this block.
-    pub fn get_stacking_ops_with_conn(
-        connection: &mut ClarityReadOnlyConnection,
-        sort_db: &SortitionDBConn,
-        parent_consensus_hash: &ConsensusHash,
-    ) -> Result<(u64, Vec<StackStxOp>), Error> {
-        let chain_tip =
-            SortitionDB::get_sortition_id_by_consensus(sort_db.conn(), parent_consensus_hash)?
-                .expect("BUG: failed to find SortitionID for current consensus hash");
-        let cur_blocks = sort_db.get_blocks_with_stacks_txs(true, &chain_tip)?;
-
-        let processed_blocks =
-            connection.with_clarity_db_readonly(|db| db.get_stx_btc_ops_processed());
-
-        let mut stacking_ops = vec![];
-        // process the interval (processed_block, cur_blocks]
-        for block_to_fetch in (processed_blocks + 1)..(cur_blocks + 1) {
-            let ops = sort_db.get_stack_stx_ops_for_block(block_to_fetch, &chain_tip)?;
-            stacking_ops.extend(ops.into_iter());
-        }
-        Ok((cur_blocks, stacking_ops))
+    pub fn get_stacking_ops(
+        sort_db: &Connection,
+        parent_burn_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<StackStxOp>, Error> {
+        SortitionDB::get_stack_stx_ops(sort_db, parent_burn_hash).map_err(Error::from)
     }
 
     /// Process any Stacking-related bitcoin operations
@@ -3720,7 +3675,6 @@ impl StacksChainState {
     pub fn process_stacking_ops(
         clarity_tx: &mut ClarityTx,
         operations: Vec<StackStxOp>,
-        processed_total: u64,
     ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
         let mut cost_so_far = clarity_tx.cost_so_far();
@@ -3789,16 +3743,6 @@ impl StacksChainState {
                 }
             };
         }
-
-        clarity_tx
-            .connection()
-            .as_transaction(|tx| {
-                tx.with_clarity_db(|clarity_db| {
-                    clarity_db.set_stx_btc_ops_processed(processed_total);
-                    Ok(())
-                })
-            })
-            .expect("BUG: failed to set stx burn ops proceessed");
 
         all_receipts
     }
@@ -3975,12 +3919,9 @@ impl StacksChainState {
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
 
-            let (processed_total, stacking_burn_ops) = StacksChainState::get_stacking_ops(
-                clarity_instance,
-                burn_dbconn,
-                &parent_consensus_hash,
-                &parent_block_hash,
-                chain_tip_consensus_hash,
+            let stacking_burn_ops = StacksChainState::get_stacking_ops(
+                &burn_dbconn.tx(),
+                &parent_chain_tip.burn_header_hash,
             )?;
 
             let mut clarity_tx = StacksChainState::chainstate_block_begin(
@@ -4029,11 +3970,8 @@ impl StacksChainState {
                    "microblock_parent_count" => %microblocks.len());
 
             // process stacking operations from bitcoin ops
-            let mut receipts = StacksChainState::process_stacking_ops(
-                &mut clarity_tx,
-                stacking_burn_ops,
-                processed_total,
-            );
+            let mut receipts =
+                StacksChainState::process_stacking_ops(&mut clarity_tx, stacking_burn_ops);
 
             // process anchored block
             let (block_fees, block_burns, txs_receipts) =
