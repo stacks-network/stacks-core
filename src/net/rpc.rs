@@ -541,6 +541,23 @@ impl ConversationHttp {
         response.send(http, fd)
     }
 
+    /// Handle a not-found
+    fn handle_notfound<W: Write>(http: &mut StacksHttp, fd: &mut W, response_metadata: HttpResponseMetadata, msg: String) -> Result<Option<BlockStreamData>, net_error> {
+        let response = HttpResponseType::NotFound(response_metadata, msg);
+        return response.send(http, fd).and_then(|_| Ok(None));
+    }
+
+    /// Handle a server error
+    fn handle_server_error<W: Write>(http: &mut StacksHttp, fd: &mut W, response_metadata: HttpResponseMetadata, msg: String) -> Result<Option<BlockStreamData>, net_error> {
+        // oops
+        warn!("{}", &msg);
+        let response = HttpResponseType::ServerError(
+            response_metadata,
+            msg
+        );
+        return response.send(http, fd).and_then(|_| Ok(None));
+    }
+
     /// Handle a GET block.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
@@ -551,7 +568,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         index_block_hash: &StacksBlockId,
-        chainstate: &mut StacksChainState,
+        chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_blocks_served_counter();
 
@@ -560,12 +577,7 @@ impl ConversationHttp {
         // do we have this block?
         match StacksChainState::has_block_indexed(&chainstate.blocks_path, index_block_hash) {
             Ok(false) => {
-                // nope -- not confirmed
-                let response = HttpResponseType::NotFound(
-                    response_metadata,
-                    format!("No such block {}", index_block_hash.to_hex()),
-                );
-                response.send(http, fd).and_then(|_| Ok(None))
+                return ConversationHttp::handle_notfound(http, fd, response_metadata, format!("No such block {}", index_block_hash.to_hex()));
             }
             Err(e) => {
                 // nope -- error trying to check
@@ -595,50 +607,63 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         index_anchor_block_hash: &StacksBlockId,
-        chainstate: &mut StacksChainState,
+        chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_confirmed_micro_blocks_served_counter();
 
         let response_metadata = HttpResponseMetadata::from(req);
 
-        match chainstate.get_confirmed_microblock_index_hash(index_anchor_block_hash) {
+        match chainstate.has_processed_microblocks(index_anchor_block_hash) {
+            Ok(true) => {},
+            Ok(false) => {
+                return ConversationHttp::handle_notfound(http, fd, response_metadata, format!("No such confirmed microblock stream for anchor block {}", &index_anchor_block_hash));
+            },
             Err(e) => {
-                // oops
-                warn!(
-                    "Failed to serve confirmed microblock stream {:?}: {:?}",
-                    req, &e
-                );
-                let response = HttpResponseType::ServerError(
-                    response_metadata,
-                    format!(
-                        "Failed to query confirmed microblock stream from anchor block {}",
-                        index_anchor_block_hash.to_hex()
-                    ),
-                );
-                response.send(http, fd).and_then(|_| Ok(None))
+                return ConversationHttp::handle_server_error(http, fd, response_metadata, format!("Failed to query confirmed microblock stream {:?}: {:?}", req, &e));
+            }
+        }
+
+        match chainstate.get_tail_microblock_index_hash(index_anchor_block_hash) {
+            Err(e) => {
+                return ConversationHttp::handle_server_error(http, fd, response_metadata, format!("Failed to serve confirmed microblock stream {:?}: {:?}", req, &e));
             }
             Ok(None) => {
-                // we don't have it
-                let response = HttpResponseType::NotFound(
-                    response_metadata,
-                    format!(
-                        "No such confirmed microblock stream from anchor block {}",
-                        index_anchor_block_hash.to_hex()
-                    ),
-                );
-                response.send(http, fd).and_then(|_| Ok(None))
+                return ConversationHttp::handle_notfound(http, fd, response_metadata, format!("No such confirmed microblock stream for anchor block {}", &index_anchor_block_hash));
             }
-            Ok(Some(index_microblock_hash)) => {
-                // Have it!
-                let stream =
-                    BlockStreamData::new_microblock_confirmed(index_microblock_hash.clone());
-                let response = HttpResponseType::MicroblockStream(response_metadata);
-                response.send(http, fd).and_then(|_| Ok(Some(stream)))
+            Ok(Some(tail_index_microblock_hash)) => {
+                let (response, stream_opt) = match BlockStreamData::new_microblock_confirmed(chainstate, tail_index_microblock_hash.clone()) {
+                    Ok(stream) => (
+                        HttpResponseType::MicroblockStream(response_metadata),
+                        Some(stream)
+                    ),
+                    Err(chain_error::NoSuchBlockError) => (
+                        HttpResponseType::NotFound(
+                            response_metadata,
+                            format!(
+                                "No such confirmed microblock stream ending with {}",
+                                tail_index_microblock_hash.to_hex()
+                            ),
+                        ),
+                        None
+                    ),
+                    Err(_e) => {
+                        debug!("Failed to load confirmed microblock stream {}: {:?}", &tail_index_microblock_hash, &_e);
+                        (HttpResponseType::ServerError(
+                            response_metadata,
+                            format!(
+                                "Failed to query confirmed microblock stream {}",
+                                tail_index_microblock_hash.to_hex()
+                            ),
+                        ),
+                        None)
+                    }
+                };
+                response.send(http, fd).and_then(|_| Ok(stream_opt))
             }
         }
     }
 
-    /// Handle a GET confirmed microblock stream, by _index microblock hash_.  Start streaming the reply.
+    /// Handle a GET confirmed microblock stream, by last _index microblock hash_ in the stream.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
@@ -647,47 +672,53 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        index_microblock_hash: &StacksBlockId,
-        chainstate: &mut StacksChainState,
+        tail_index_microblock_hash: &StacksBlockId,
+        chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         monitoring::increment_stx_micro_blocks_served_counter();
 
         let response_metadata = HttpResponseMetadata::from(req);
 
-        // do we have this confirmed microblock stream?
-        match chainstate.has_confirmed_microblocks_indexed(index_microblock_hash) {
+        // do we have this processed microblock stream?
+        match chainstate.has_processed_microblocks_indexed(tail_index_microblock_hash) {
             Ok(false) => {
                 // nope
-                let response = HttpResponseType::NotFound(
-                    response_metadata,
-                    format!(
-                        "No such confirmed microblock stream {}",
-                        index_microblock_hash.to_hex()
-                    ),
-                );
-                response.send(http, fd).and_then(|_| Ok(None))
+                return ConversationHttp::handle_notfound(http, fd, response_metadata, format!("No such confirmed microblock stream ending with {}", &tail_index_microblock_hash));
             }
             Err(e) => {
                 // nope
-                warn!(
-                    "Failed to serve confirmed microblock stream {:?}: {:?}",
-                    req, &e
-                );
-                let response = HttpResponseType::ServerError(
-                    response_metadata,
-                    format!(
-                        "Failed to query confirmed microblock stream {}",
-                        index_microblock_hash.to_hex()
-                    ),
-                );
-                response.send(http, fd).and_then(|_| Ok(None))
+                return ConversationHttp::handle_server_error(http, fd, response_metadata, format!("Failed to serve confirmed microblock stream {:?}: {:?}", req, &e));
             }
             Ok(true) => {
                 // yup! start streaming it back
-                let stream =
-                    BlockStreamData::new_microblock_confirmed(index_microblock_hash.clone());
-                let response = HttpResponseType::MicroblockStream(response_metadata);
-                response.send(http, fd).and_then(|_| Ok(Some(stream)))
+                let (response, stream_opt) = match BlockStreamData::new_microblock_confirmed(chainstate, tail_index_microblock_hash.clone()) {
+                    Ok(stream) => (
+                        HttpResponseType::MicroblockStream(response_metadata),
+                        Some(stream)
+                    ),
+                    Err(chain_error::NoSuchBlockError) => (
+                        HttpResponseType::NotFound(
+                            response_metadata,
+                            format!(
+                                "No such confirmed microblock stream ending with {}",
+                                tail_index_microblock_hash.to_hex()
+                            ),
+                        ),
+                        None
+                    ),
+                    Err(_e) => {
+                        debug!("Failed to load confirmed indexed microblock stream {}: {:?}", &tail_index_microblock_hash, &_e);
+                        (HttpResponseType::ServerError(
+                            response_metadata,
+                            format!(
+                                "Failed to query confirmed microblock stream {}",
+                                tail_index_microblock_hash.to_hex()
+                            ),
+                        ),
+                        None)
+                    }
+                };
+                response.send(http, fd).and_then(|_| Ok(stream_opt))
             }
         }
     }
@@ -966,7 +997,7 @@ impl ConversationHttp {
         req: &HttpRequestType,
         index_anchor_block_hash: &StacksBlockId,
         min_seq: u16,
-        chainstate: &mut StacksChainState,
+        chainstate: &StacksChainState,
     ) -> Result<Option<BlockStreamData>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
@@ -1002,12 +1033,38 @@ impl ConversationHttp {
             }
             Ok(true) => {
                 // yup! start streaming it back
-                let stream = BlockStreamData::new_microblock_unconfirmed(
-                    index_anchor_block_hash.clone(),
-                    min_seq,
-                );
-                let response = HttpResponseType::MicroblockStream(response_metadata);
-                response.send(http, fd).and_then(|_| Ok(Some(stream)))
+                let (response, stream_opt) = match BlockStreamData::new_microblock_unconfirmed(
+                    chainstate,
+                        index_anchor_block_hash.clone(),
+                        min_seq,
+                    ) {
+                    Ok(stream) => (
+                        HttpResponseType::MicroblockStream(response_metadata),
+                        Some(stream)
+                    ),
+                    Err(chain_error::NoSuchBlockError) => (
+                        HttpResponseType::NotFound(
+                            response_metadata,
+                            format!(
+                                "No such unconfirmed microblock stream starting with {}",
+                                index_anchor_block_hash.to_hex()
+                            ),
+                        ),
+                        None
+                    ),
+                    Err(_e) => {
+                        debug!("Failed to load unconfirmed microblock stream {}: {:?}", &index_anchor_block_hash, &_e);
+                        (HttpResponseType::ServerError(
+                            response_metadata,
+                            format!(
+                                "Failed to query unconfirmed microblock stream {}",
+                                index_anchor_block_hash.to_hex()
+                            ),
+                        ),
+                        None)
+                    }
+                };
+                response.send(http, fd).and_then(|_| Ok(stream_opt))
             }
         }
     }
@@ -2800,31 +2857,72 @@ mod test {
                 )
                 .unwrap();
 
-                let consensus_hash = ConsensusHash([0x02; 20]);
-                let anchored_block_hash = BlockHeaderHash([0x03; 32]);
+                let parent_block = make_codec_test_block(25);
+                let parent_consensus_hash = ConsensusHash([0x02; 20]);
+                let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_block.block_hash(),
+                );
 
-                let mut mblocks = make_sample_microblock_stream(&privk, &anchored_block_hash);
+                let mut mblocks = make_sample_microblock_stream(&privk, &parent_block.block_hash());
                 mblocks.truncate(15);
+                
+                let mut child_block = make_codec_test_block(25);
+                let child_consensus_hash = ConsensusHash([0x03; 20]);
+
+                child_block.header.parent_block = parent_block.block_hash();
+                child_block.header.parent_microblock = mblocks.last().as_ref().unwrap().block_hash();
+                child_block.header.parent_microblock_sequence = mblocks.last().as_ref().unwrap().header.sequence;
+
+                store_staging_block(
+                    peer_server.chainstate(),
+                    &parent_consensus_hash,
+                    &parent_block,
+                    &ConsensusHash([0x01; 20]),
+                    456,
+                    123,
+                );
+                set_block_processed(
+                    peer_server.chainstate(),
+                    &parent_consensus_hash,
+                    &parent_block.block_hash(),
+                    true,
+                );
+
+                store_staging_block(
+                    peer_server.chainstate(),
+                    &child_consensus_hash,
+                    &child_block,
+                    &parent_consensus_hash,
+                    456,
+                    123,
+                );
+                set_block_processed(
+                    peer_server.chainstate(),
+                    &child_consensus_hash,
+                    &child_block.block_hash(),
+                    true,
+                );
 
                 let index_microblock_hash = StacksBlockHeader::make_index_block_hash(
-                    &consensus_hash,
-                    &mblocks[0].block_hash(),
+                    &parent_consensus_hash,
+                    &mblocks.last().as_ref().unwrap().block_hash(),
                 );
 
                 for mblock in mblocks.iter() {
                     store_staging_microblock(
                         peer_server.chainstate(),
-                        &consensus_hash,
-                        &anchored_block_hash,
+                        &parent_consensus_hash,
+                        &parent_block.block_hash(),
                         &mblock,
                     );
                 }
 
-                set_microblocks_confirmed(
+                set_microblocks_processed(
                     peer_server.chainstate(),
-                    &consensus_hash,
-                    &anchored_block_hash,
-                    mblocks.last().unwrap().header.sequence,
+                    &child_consensus_hash,
+                    &child_block.block_hash(),
+                    &mblocks.last().as_ref().unwrap().block_hash()
                 );
 
                 *server_microblocks_cell.borrow_mut() = mblocks;
@@ -2833,14 +2931,15 @@ mod test {
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
-                match http_response {
-                    HttpResponseType::Microblocks(response_md, microblocks) => {
+                match (*http_response).clone() {
+                    HttpResponseType::Microblocks(_, mut microblocks) => {
+                        microblocks.reverse();
                         assert_eq!(microblocks.len(), (*server_microblocks_cell.borrow()).len());
-                        assert_eq!(*microblocks, *server_microblocks_cell.borrow());
+                        assert_eq!(microblocks, *server_microblocks_cell.borrow());
                         true
                     }
                     _ => {
-                        error!("Invalid response: {:?}", &http_response);
+                        error!("Invalid response: {:?}", http_response);
                         false
                     }
                 }
@@ -2868,40 +2967,81 @@ mod test {
                 )
                 .unwrap();
 
-                let consensus_hash = ConsensusHash([0x02; 20]);
-                let anchored_block_hash = BlockHeaderHash([0x03; 32]);
-                let index_block_hash =
-                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
+                let parent_block = make_codec_test_block(25);
+                let parent_consensus_hash = ConsensusHash([0x02; 20]);
 
-                let mut mblocks = make_sample_microblock_stream(&privk, &anchored_block_hash);
+                let mut mblocks = make_sample_microblock_stream(&privk, &parent_block.block_hash());
                 mblocks.truncate(15);
+                
+                let mut child_block = make_codec_test_block(25);
+                let child_consensus_hash = ConsensusHash([0x03; 20]);
+
+                child_block.header.parent_block = parent_block.block_hash();
+                child_block.header.parent_microblock = mblocks.last().as_ref().unwrap().block_hash();
+                child_block.header.parent_microblock_sequence = mblocks.last().as_ref().unwrap().header.sequence;
+                
+                let child_index_block_hash = StacksBlockHeader::make_index_block_hash(
+                    &child_consensus_hash,
+                    &child_block.block_hash(),
+                );
+
+                store_staging_block(
+                    peer_server.chainstate(),
+                    &parent_consensus_hash,
+                    &parent_block,
+                    &ConsensusHash([0x01; 20]),
+                    456,
+                    123,
+                );
+                set_block_processed(
+                    peer_server.chainstate(),
+                    &parent_consensus_hash,
+                    &parent_block.block_hash(),
+                    true,
+                );
+
+                store_staging_block(
+                    peer_server.chainstate(),
+                    &child_consensus_hash,
+                    &child_block,
+                    &parent_consensus_hash,
+                    456,
+                    123,
+                );
+                set_block_processed(
+                    peer_server.chainstate(),
+                    &child_consensus_hash,
+                    &child_block.block_hash(),
+                    true,
+                );
 
                 for mblock in mblocks.iter() {
                     store_staging_microblock(
                         peer_server.chainstate(),
-                        &consensus_hash,
-                        &anchored_block_hash,
+                        &parent_consensus_hash,
+                        &parent_block.block_hash(),
                         &mblock,
                     );
                 }
 
-                set_microblocks_confirmed(
+                set_microblocks_processed(
                     peer_server.chainstate(),
-                    &consensus_hash,
-                    &anchored_block_hash,
-                    mblocks.last().unwrap().header.sequence,
+                    &child_consensus_hash,
+                    &child_block.block_hash(),
+                    &mblocks.last().as_ref().unwrap().block_hash()
                 );
 
                 *server_microblocks_cell.borrow_mut() = mblocks;
 
-                convo_client.new_getmicroblocks_confirmed(index_block_hash)
+                convo_client.new_getmicroblocks_confirmed(child_index_block_hash)
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
-                match http_response {
-                    HttpResponseType::Microblocks(response_md, microblocks) => {
+                match (*http_response).clone() {
+                    HttpResponseType::Microblocks(_, mut microblocks) => {
+                        microblocks.reverse();
                         assert_eq!(microblocks.len(), (*server_microblocks_cell.borrow()).len());
-                        assert_eq!(*microblocks, *server_microblocks_cell.borrow());
+                        assert_eq!(microblocks, *server_microblocks_cell.borrow());
                         true
                     }
                     _ => {
