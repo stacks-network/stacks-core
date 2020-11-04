@@ -26,12 +26,12 @@ use stacks::net::{
     db::PeerDB, atlas::AtlasDB, p2p::PeerNetwork, rpc::RPCHandlerArgs, Error as NetError, PeerAddress,
 };
 
+use stacks::chainstate::stacks::index::TrieHash;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
-
-use stacks::chainstate::stacks::index::TrieHash;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
@@ -305,7 +305,7 @@ impl Node {
             my_private_key
         };
 
-        let peerdb = PeerDB::connect(
+        let mut peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(),
             true,
             TESTNET_CHAIN_ID,
@@ -320,6 +320,21 @@ impl Node {
         )
         .unwrap();
 
+        println!("DENY NEIGHBORS {:?}", &self.config.node.deny_nodes);
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            for denied in self.config.node.deny_nodes.iter() {
+                PeerDB::set_deny_peer(
+                    &mut tx,
+                    denied.addr.network_id,
+                    &denied.addr.addrbytes,
+                    denied.addr.port,
+                    get_epoch_time_secs() + 24 * 365 * 3600,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
         let atlasdb = AtlasDB::connect(
             &self.config.get_peer_db_path(),
             true
