@@ -11,7 +11,7 @@ use net::p2p::PeerNetwork;
 use chainstate::burn::{ConsensusHash, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 use chainstate::stacks::{StacksBlockId, StacksBlockHeader};
-
+use vm::types::QualifiedContractIdentifier;
 use std::collections::{HashSet, HashMap};
 use std::collections::hash_map::Entry;
 
@@ -40,6 +40,7 @@ pub struct AttachmentInstance {
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub metadata: String,
+    pub contract_id: QualifiedContractIdentifier,
 }
 
 impl AttachmentInstance {

@@ -20,6 +20,8 @@ use util::macros::is_big_endian;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 
+use vm::types::QualifiedContractIdentifier;
+
 use net::StacksMessageCodec;
 use chainstate::stacks::StacksBlockId;
 use chainstate::burn::{ConsensusHash, BlockHeaderHash};
@@ -47,7 +49,8 @@ const ATLASDB_SETUP: &'static [&'static str] = &[
         page_index INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         is_available INTEGER NOT NULL,
-        metadata STRING NOT NULL
+        metadata STRING NOT NULL,
+        contract_id STRING NOT NULL
     );"#,
     r#"
     CREATE TABLE inboxed_attachments(
@@ -85,6 +88,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
         let metadata: String = row.get("metadata");
+        let contract_id = QualifiedContractIdentifier::from_column(row, "contract_id")?;
 
         Ok(AttachmentInstance {
             content_hash,
@@ -94,6 +98,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
             block_header_hash,
             block_height,
             metadata,
+            contract_id,
         })
     }
 }
@@ -284,7 +289,7 @@ impl AtlasDB {
         let tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
         let res = tx.execute(
-            "INSERT INTO attachment_instances (content_hash, created_at, block_id, position_in_page, page_index, block_height, is_available, metadata, consensus_hash, block_header_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO attachment_instances (content_hash, created_at, block_id, position_in_page, page_index, block_height, is_available, metadata, consensus_hash, block_header_hash, contract_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             &[
                 &hex_content_hash as &dyn ToSql, 
                 &now as &dyn ToSql,
@@ -296,6 +301,7 @@ impl AtlasDB {
                 &attachment.metadata as &dyn ToSql,
                 &attachment.consensus_hash as &dyn ToSql,
                 &attachment.block_header_hash as &dyn ToSql,
+                &attachment.contract_id.to_string() as &dyn ToSql,
             ]
         );
         res.map_err(db_error::SqliteError)?;

@@ -641,7 +641,8 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                                             page_index: *page_index as u32,
                                                             position_in_page: *position_in_page as u32,
                                                             block_height: block_receipt.header.block_height,
-                                                            metadata
+                                                            metadata,
+                                                            contract_id: contract_call.to_clarity_contract_id().clone()
                                                         };
                                                         attachments_requests.insert(request);                
                                                     }
