@@ -601,7 +601,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     increment_stx_blocks_processed_counter();
                     let block_hash = block_receipt.header.anchored_header.block_hash();
 
-                    let mut attachments_requests = HashSet::new();
+                    let mut attachments_instances = HashSet::new();
                     let atlas_config = AtlasConfig::default();
                     for receipt in block_receipt.tx_receipts.iter() {
                         if let TransactionPayload::ContractCall(ref contract_call) =
@@ -661,7 +661,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                                                 }
                                                                 _ => String::new(),
                                                             };
-                                                        let request = AttachmentInstance {
+                                                        let instance = AttachmentInstance {
                                                             consensus_hash: block_receipt
                                                                 .header
                                                                 .consensus_hash
@@ -680,7 +680,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                                             metadata,
                                                             contract_id: contract_id.clone(),
                                                         };
-                                                        attachments_requests.insert(request);
+                                                        attachments_instances.insert(instance);
                                                     }
                                                     _ => {}
                                                 }
@@ -691,8 +691,8 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             }
                         }
                     }
-                    if !attachments_requests.is_empty() {
-                        match self.attachments_tx.send(attachments_requests) {
+                    if !attachments_instances.is_empty() {
+                        match self.attachments_tx.send(attachments_instances) {
                             Ok(_) => {}
                             Err(e) => {
                                 error!("Error dispatching attachments {}", e);

@@ -2266,7 +2266,7 @@ pub mod test {
             .unwrap();
 
             let atlasdb_path = format!("{}/atlas.db", &test_path);
-            let mut atlasdb = AtlasDB::connect(&atlasdb_path, true).unwrap();
+            let atlasdb = AtlasDB::connect(&atlasdb_path, true).unwrap();
 
             let init_code = config.setup_code.clone();
             let (chainstate, _) = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()),
@@ -2304,7 +2304,7 @@ pub mod test {
                 },
                 ExecutionCost::max_value()).unwrap();
 
-            let (tx, _) = sync_channel(1);
+            let (tx, _) = sync_channel(1000);
             let mut coord =
                 ChainsCoordinator::test_new(&burnchain, &test_path, OnChainRewardSetProvider(), tx);
             coord.handle_new_burnchain_block().unwrap();

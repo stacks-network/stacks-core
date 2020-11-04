@@ -243,7 +243,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
 pub fn make_coordinator<'a>(
     path: &str,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
-    let (tx, _) = sync_channel(1);
+    let (tx, _) = sync_channel(1000);
     ChainsCoordinator::test_new(&get_burnchain(path), path, OnChainRewardSetProvider(), tx)
 }
 
@@ -266,7 +266,7 @@ fn make_reward_set_coordinator<'a>(
     path: &str,
     addrs: Vec<StacksAddress>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider> {
-    let (tx, _) = sync_channel(1);
+    let (tx, _) = sync_channel(1000);
     ChainsCoordinator::test_new(
         &get_burnchain(path),
         path,
