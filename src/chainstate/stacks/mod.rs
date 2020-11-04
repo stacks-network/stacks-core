@@ -849,7 +849,7 @@ pub struct StacksBlockBuilder {
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
-    miner_payouts: Option<Vec<MinerReward>>,
+    miner_payouts: Option<(MinerReward, Vec<MinerReward>)>,
     miner_id: usize,
 }
 
