@@ -630,9 +630,9 @@ impl StacksBlockBuilder {
         assert!(!self.anchored_done);
 
         // add miner payments
-        if let Some(ref mature_miner_rewards) = self.miner_payouts {
+        if let Some((ref miner_reward, ref user_rewards)) = self.miner_payouts {
             // grant in order by miner, then users
-            StacksChainState::process_matured_miner_rewards(clarity_tx, mature_miner_rewards)
+            StacksChainState::process_matured_miner_rewards(clarity_tx, miner_reward, user_rewards)
                 .expect("FATAL: failed to process miner rewards");
         }
 
@@ -742,8 +742,9 @@ impl StacksBlockBuilder {
     ) -> Result<ClarityTx<'a>, Error> {
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_miner_rewards_opt = {
+            let mainnet = chainstate.mainnet;
             let mut tx = chainstate.headers_tx_begin()?;
-            StacksChainState::find_mature_miner_rewards(&mut tx, &self.chain_tip, None)?
+            StacksChainState::find_mature_miner_rewards(mainnet, &mut tx, &self.chain_tip)?
         };
 
         self.miner_payouts = matured_miner_rewards_opt;
@@ -760,20 +761,20 @@ impl StacksBlockBuilder {
             self.header.parent_block
         );
 
-        if let Some(ref _payout) = self.miner_payouts {
-            test_debug!("Miner payout to process: {:?}", _payout);
+        if let Some((ref _miner_payout, ref _user_payouts)) = self.miner_payouts {
+            test_debug!("Miner payout to process: {:?}; user payouts: {:?}", _miner_payout, _user_payouts);
         }
 
         let parent_consensus_hash = self.chain_tip.consensus_hash.clone();
         let parent_header_hash = self.header.parent_block.clone();
 
         // apply all known parent microblocks before beginning our tenure
-        let parent_microblocks = match StacksChainState::load_staging_microblock_stream(
+        // TODO: poison microblock
+        let parent_microblocks = match StacksChainState::load_descendant_staging_microblock_stream(
             &chainstate.blocks_db,
-            &chainstate.blocks_path,
-            &parent_consensus_hash,
-            &parent_header_hash,
-            u16::max_value(),
+            &StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash),
+            0,
+            u16::MAX
         )? {
             Some(mblocks) => mblocks,
             None => vec![],
@@ -1099,8 +1100,8 @@ pub mod test {
     pub const COINBASE: u128 = 500 * 1_000_000;
 
     pub fn coinbase_total_at(stacks_height: u64) -> u128 {
-        if stacks_height > MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-            COINBASE * ((stacks_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW) as u128)
+        if stacks_height > MINER_REWARD_MATURITY {
+            COINBASE * ((stacks_height - MINER_REWARD_MATURITY) as u128)
         } else {
             0
         }
@@ -1840,9 +1841,9 @@ pub mod test {
         prev_block_rewards: &Vec<Vec<MinerPaymentSchedule>>,
     ) -> bool {
         let mut total: u128 = 0;
-        if block_height >= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
+        if block_height >= MINER_REWARD_MATURITY {
             for (i, prev_block_reward) in prev_block_rewards.iter().enumerate() {
-                if i as u64 > block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW {
+                if i as u64 > block_height - MINER_REWARD_MATURITY {
                     break;
                 }
                 for recipient in prev_block_reward {
@@ -4257,19 +4258,18 @@ pub mod test {
             if all_microblocks_1[i].2.len() == 0 {
                 continue;
             }
-            let chunk_1_opt = StacksChainState::load_staging_microblock_stream(
+            
+            let chunk_1_opt = StacksChainState::load_descendant_staging_microblock_stream(
                 &ch1.blocks_db,
-                &ch1.blocks_path,
-                &all_microblocks_1[i].0,
-                &all_microblocks_1[i].1,
+                &StacksBlockHeader::make_index_block_hash(&all_microblocks_1[i].0, &all_microblocks_1[i].1),
+                0,
                 u16::max_value(),
             )
             .unwrap();
-            let chunk_2_opt = StacksChainState::load_staging_microblock_stream(
+            let chunk_2_opt = StacksChainState::load_descendant_staging_microblock_stream(
                 &ch1.blocks_db,
-                &ch2.blocks_path,
-                &all_microblocks_2[i].0,
-                &all_microblocks_2[i].1,
+                &StacksBlockHeader::make_index_block_hash(&all_microblocks_2[i].0, &all_microblocks_2[i].1),
+                0,
                 u16::max_value(),
             )
             .unwrap();
