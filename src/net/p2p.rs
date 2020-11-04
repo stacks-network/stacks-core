@@ -52,6 +52,7 @@ use net::server::*;
 use net::relay::*;
 
 use net::atlas::inv::{AttachmentsInvState, NeighborAttachmentStats, AttachmentInstance};
+use net::atlas::download::AttachmentsDownloader;
 
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -275,6 +276,9 @@ pub struct PeerNetwork {
     // peer block download state
     pub block_downloader: Option<BlockDownloader>,
 
+    // peer attachment downloader
+    pub attachments_downloader: Option<AttachmentsDownloader>,
+
     // do we need to do a prune at the end of the work state cycle?
     pub do_prune: bool,
 
@@ -365,6 +369,7 @@ impl PeerNetwork {
             header_cache: BlockHeaderCache::new(),
 
             block_downloader: None,
+            attachments_downloader: Some(AttachmentsDownloader::new()),
 
             do_prune: false,
 
@@ -438,6 +443,25 @@ impl PeerNetwork {
         res
     }
 
+    /// Run a closure with the attachments_downloader
+    pub fn with_attachments_downloader<F, R>(
+        peer_network: &mut PeerNetwork,
+        closure: F,
+    ) -> Result<R, net_error>
+    where
+        F: FnOnce(&mut PeerNetwork, &mut AttachmentsDownloader) -> Result<R, net_error>,
+    {
+        let mut attachments_downloader = peer_network.attachments_downloader.take();
+        let res = match attachments_downloader {
+            Some(ref mut attachments_downloader) => closure(peer_network, attachments_downloader),
+            None => {
+                return Err(net_error::NotConnected);
+            }
+        };
+        peer_network.attachments_downloader = attachments_downloader;
+        res
+    }
+    
     /// Create a network handle for another thread to use to communicate with remote peers
     pub fn new_handle(&mut self, bufsz: usize) -> NetworkHandle {
         let (server, client) = NetworkHandleServer::pair(bufsz);
@@ -2536,6 +2560,12 @@ impl PeerNetwork {
                     // go fetch blocks
                     match dns_client_opt {
                         Some(ref mut dns_client) => {
+                            PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+                                let mut attachments = attachments_downloader.run(dns_client, chainstate, network)?;
+                                network_result.attachments.append(&mut attachments);
+                                Ok(())
+                            });
+
                             if self.do_network_block_download(
                                 sortdb,
                                 chainstate,
@@ -3316,7 +3346,12 @@ impl PeerNetwork {
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
-        match self.update_attachments_inventory(&mut network_result, attachment_requests) {
+
+        match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+            let mut known_attachments = attachments_downloader.enqueue_new_attachments(attachment_requests, &mut network.atlasdb)?;
+            network_result.attachments.append(&mut known_attachments);
+            Ok(())
+        }) {
             Ok(_) => {},
             Err(e) => {
                 error!("Atlas: updating attachment inventory failed {}", e);

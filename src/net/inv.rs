@@ -1553,61 +1553,6 @@ impl PeerNetwork {
         }
     }
 
-    pub fn update_attachments_inventory(&mut self, 
-                                        network_result: &mut NetworkResult,
-                                        new_attachments: &mut HashSet<AttachmentInstance>) -> Result<(), net_error> 
-    {
-        if new_attachments.is_empty() {
-            return Ok(())
-        }
-
-        PeerNetwork::with_inv_states(self, |network, _, attachments_inv_state| {
-            let mut inv_request = AttachmentsInvRequest::new();
-            for attachment in new_attachments.drain() {
-                // Are we dealing with an empty hash - allowed for undoing onchain binding
-                if attachment.content_hash == Hash160::empty() {
-                    // todo(ludo) insert or update ?
-                    network.atlasdb.insert_new_attachment_instance(&attachment, true)
-                        .map_err(|e| net_error::DBError(e))?;
-                    debug!("Atlas: inserting and pairing new attachment instance with empty hash");
-                    network_result.attachments.push(attachment);
-                    continue;
-                }
-                
-                // Do we already have a matching validated attachment
-                if let Ok(Some(_entry)) = network.atlasdb.find_attachment(&attachment.content_hash) {
-                    network.atlasdb.insert_new_attachment_instance(&attachment, true)
-                        .map_err(|e| net_error::DBError(e))?;
-                    debug!("Atlas: inserting and pairing new attachment instance to existing attachment");
-                    network_result.attachments.push(attachment);
-                    continue;
-                }
-
-                // Do we already have a matching inboxed attachment
-                if let Ok(Some(_entry)) = network.atlasdb.find_inboxed_attachment(&attachment.content_hash) {
-                    network.atlasdb.import_attachment_from_inbox(&attachment.content_hash)
-                        .map_err(|e| net_error::DBError(e))?;
-                    network.atlasdb.insert_new_attachment_instance(&attachment, true)
-                        .map_err(|e| net_error::DBError(e))?;
-                    debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
-                    network_result.attachments.push(attachment);
-                    continue;
-                }
-
-                // This attachment in refering to an unknown attachment. 
-                // Let's append it to the inv_request being formulated in this routine.
-                inv_request.add_request(&attachment);
-                network.atlasdb.insert_new_attachment_instance(&attachment, false)
-                    .map_err(|e| net_error::DBError(e))?;
-            }
-
-            if !inv_request.missing_attachments.is_empty() {
-                attachments_inv_state.inv_request_queue.insert(inv_request);
-            }
-            Ok(())
-        })
-    }
-
     /// Start requesting the next batch of PoX inventories
     fn inv_getpoxinv_begin(
         &mut self,
@@ -2080,7 +2025,7 @@ impl PeerNetwork {
     }
 
     /// Get the list of outbound neighbors we can sync with
-    fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
+    pub fn get_outbound_sync_peers(&self) -> HashSet<NeighborKey> {
         let mut cur_neighbors = HashSet::new();
         for (nk, event_id) in self.events.iter() {
             // only outbound authenticated peers

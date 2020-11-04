@@ -1,6 +1,7 @@
 pub mod db;
 pub mod onchain;
 pub mod inv;
+pub mod download;
 
 pub use self::onchain::OnchainInventoryLookup;
 pub use self::db::AtlasDB;
