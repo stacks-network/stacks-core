@@ -1139,34 +1139,58 @@ mod test {
             rewards
         };
 
-        let legacy_rewards = old_find_mature_miner_rewards(&mut tx, &parent_tip)
+        let mut legacy_rewards = old_find_mature_miner_rewards(&mut tx, &parent_tip)
             .unwrap()
             .unwrap();
+        for (legacy_reward, expected_reward) in
+            legacy_rewards.iter_mut().zip(expected_rewards.iter())
+        {
+            legacy_reward.from_stacks_block_hash = expected_reward.from_stacks_block_hash;
+            legacy_reward.from_block_consensus_hash = expected_reward.from_block_consensus_hash;
+        }
+
         assert_eq!(legacy_rewards, expected_rewards);
 
         let rewards_opt =
             StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, None).unwrap();
         assert!(rewards_opt.is_some());
 
-        let rewards = rewards_opt.unwrap();
+        let mut rewards = rewards_opt.unwrap();
         assert_eq!(rewards.len(), 2);
+
+        for (actual, expected_reward) in rewards.iter_mut().zip(expected_rewards.iter()) {
+            actual.from_stacks_block_hash = expected_reward.from_stacks_block_hash;
+            actual.from_block_consensus_hash = expected_reward.from_block_consensus_hash;
+        }
+
         assert_eq!(rewards, expected_rewards);
 
-        let rewards_cached =
+        let mut rewards_cached =
             StacksChainState::find_mature_miner_rewards(&mut tx, &parent_tip, Some(&mut cache))
                 .unwrap()
                 .unwrap();
+
+        for (actual, expected_reward) in rewards_cached.iter_mut().zip(expected_rewards.iter()) {
+            actual.from_stacks_block_hash = expected_reward.from_stacks_block_hash;
+            actual.from_block_consensus_hash = expected_reward.from_block_consensus_hash;
+        }
+
         assert_eq!(rewards_cached, rewards);
         assert_eq!(rewards_cached, expected_rewards);
 
         let mut empty_cache = MinerPaymentCache::new();
-        let rewards_cached = StacksChainState::find_mature_miner_rewards(
+        let mut rewards_cached = StacksChainState::find_mature_miner_rewards(
             &mut tx,
             &parent_tip,
             Some(&mut empty_cache),
         )
         .unwrap()
         .unwrap();
+        for (actual, expected_reward) in rewards_cached.iter_mut().zip(expected_rewards.iter()) {
+            actual.from_stacks_block_hash = expected_reward.from_stacks_block_hash;
+            actual.from_block_consensus_hash = expected_reward.from_block_consensus_hash;
+        }
+
         assert_eq!(rewards_cached, rewards);
         assert_eq!(rewards_cached, expected_rewards);
     }
