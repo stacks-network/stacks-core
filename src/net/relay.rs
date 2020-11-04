@@ -809,19 +809,9 @@ impl Relayer {
                             continue;
                         }
                     };
+                let index_block_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
                 for mblock in mblock_data.microblocks.iter() {
-                    let need_relay = !StacksChainState::has_staging_microblock(
-                        &chainstate.blocks_db,
-                        &consensus_hash,
-                        &anchored_block_hash,
-                        &mblock.block_hash(),
-                    )? && !StacksChainState::has_confirmed_microblock(
-                        &chainstate.blocks_db,
-                        &consensus_hash,
-                        &anchored_block_hash,
-                        &mblock.block_hash(),
-                    )?;
-
+                    let need_relay = !chainstate.has_descendant_microblock_indexed(&index_block_hash, &mblock.block_hash())?;
                     match chainstate.preprocess_streamed_microblock(
                         &consensus_hash,
                         &anchored_block_hash,
