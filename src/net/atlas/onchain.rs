@@ -221,7 +221,9 @@ impl OnchainInventoryLookup {
                 if let Some(content_hash) = Hash160::from_bytes(&buff.data[..]) {
                     content_hash
                 } else {
-                    return Err(net_error::ChainstateError("Unable to reconstruct a valid hash160".to_string()));
+                    return Err(net_error::ChainstateError(
+                        "Unable to reconstruct a valid hash160".to_string(),
+                    ));
                 }
             };
 

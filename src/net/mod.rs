@@ -110,7 +110,7 @@ use vm::clarity::Error as clarity_error;
 
 use self::dns::*;
 
-use net::atlas::{AttachmentInstance, Attachment};
+use net::atlas::{Attachment, AttachmentInstance};
 
 use core::POX_REWARD_CYCLE_LENGTH;
 

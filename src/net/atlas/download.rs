@@ -94,14 +94,17 @@ impl AttachmentsDownloader {
                         .insert_new_attachment(&attachment.hash, &attachment.content, true)
                         .map_err(|e| net_error::DBError(e))?;
                     resolved_attachments.append(&mut attachments_instances);
-                    context.attachments_batch.resolve_attachment(&attachment.hash)
+                    context
+                        .attachments_batch
+                        .resolve_attachment(&attachment.hash)
                 }
 
                 // todo(ludo): update reliability reports
 
                 if !context.attachments_batch.has_fully_succeed() {
                     context.attachments_batch.bump_retry_count();
-                    self.priority_queue.push(context.attachments_batch.clone()); // todo(ludo): deref, instead of cloning.
+                    self.priority_queue.push(context.attachments_batch.clone());
+                    // todo(ludo): deref, instead of cloning.
                     // todo(ludo) should we also apply an exponential backoff?
                 }
             }
@@ -270,7 +273,9 @@ impl AttachmentsBatchStateContext {
                         continue;
                     }
 
-                    let report = self.peers.get(peer_url)
+                    let report = self
+                        .peers
+                        .get(peer_url)
                         .expect("Atlas: unable to retrieve reliability report for peer");
                     sources.insert(peer_url.clone(), report.clone());
                 }
@@ -809,14 +814,13 @@ pub struct AttachmentRequest {
 }
 
 impl AttachmentRequest {
-
     pub fn get_most_reliable_source(&self) -> (&UrlString, &ReliabilityReport) {
-        self.sources.iter()
+        self.sources
+            .iter()
             .max_by_key(|(_, v)| v.score())
             .expect("Atlas: trying to select an Url out of an empty set")
     }
 }
-
 
 impl Hash for AttachmentRequest {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -826,12 +830,11 @@ impl Hash for AttachmentRequest {
 
 impl Ord for AttachmentRequest {
     fn cmp(&self, other: &AttachmentRequest) -> Ordering {
-        other.sources.len().cmp(&self.sources.len())
-            .then_with(|| {
-                let (_, report) = self.get_most_reliable_source();
-                let (_, other_report) = other.get_most_reliable_source();
-                report.cmp(&other_report)
-            })        
+        other.sources.len().cmp(&self.sources.len()).then_with(|| {
+            let (_, report) = self.get_most_reliable_source();
+            let (_, other_report) = other.get_most_reliable_source();
+            report.cmp(&other_report)
+        })
     }
 }
 
@@ -909,7 +912,7 @@ impl AttachmentsBatch {
             }
         };
     }
-    
+
     pub fn bump_retry_count(&mut self) {
         self.retry_count += 1;
     }
@@ -941,7 +944,8 @@ impl AttachmentsBatch {
             }
             for key in keys {
                 missing_attachments.remove(&key);
-                self.attachments_instances_count = self.attachments_instances_count.saturating_sub(1);
+                self.attachments_instances_count =
+                    self.attachments_instances_count.saturating_sub(1);
             }
         }
     }
@@ -954,8 +958,12 @@ impl AttachmentsBatch {
 impl Ord for AttachmentsBatch {
     fn cmp(&self, other: &AttachmentsBatch) -> Ordering {
         other
-            .retry_count.cmp(&self.retry_count)
-            .then_with(|| self.attachments_instances_count.cmp(&other.attachments_instances_count))
+            .retry_count
+            .cmp(&self.retry_count)
+            .then_with(|| {
+                self.attachments_instances_count
+                    .cmp(&other.attachments_instances_count)
+            })
             .then_with(|| other.block_height.cmp(&self.block_height))
     }
 }
@@ -990,15 +998,17 @@ impl ReliabilityReport {
     pub fn score(&self) -> u32 {
         match self.total_requests_sent {
             0 => 0 as u32,
-            n => self.total_requests_success * 1000 / n * 1000
+            n => self.total_requests_success * 1000 / n * 1000,
         }
     }
 }
 
 impl Ord for ReliabilityReport {
     fn cmp(&self, other: &ReliabilityReport) -> Ordering {
-        self.score().cmp(&other.score())
-            .then_with(|| self.total_requests_success.cmp(&other.total_requests_success))
+        self.score().cmp(&other.score()).then_with(|| {
+            self.total_requests_success
+                .cmp(&other.total_requests_success)
+        })
     }
 }
 

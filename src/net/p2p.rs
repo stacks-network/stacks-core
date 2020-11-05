@@ -51,7 +51,7 @@ use net::server::*;
 
 use net::relay::*;
 
-use net::atlas::{AttachmentsDownloader, AttachmentInstance};
+use net::atlas::{AttachmentInstance, AttachmentsDownloader};
 
 use util::db::DBConn;
 use util::db::Error as db_error;
