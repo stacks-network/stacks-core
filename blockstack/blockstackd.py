@@ -3639,12 +3639,14 @@ def run_blockstackd():
                 hash_out.write(file_hash)
                 hash_out.flush()
 
-        print_status("Exporting subdomain zonefiles...")
+        print_status("Aggregating subdomain zonefiles...")
         # Reduce 10GB disk space of zonefiles into a 400MB txt file.
         subdomain_zonefile_txt_path = os.path.join(output_dir, 'subdomain_zonefiles.txt')
+        subdomain_zonefile_hash_txt_path = subdomain_zonefile_txt_path + '.sha256'
         zonefile_dir = os.path.abspath(os.path.join(working_dir, 'zonefiles'))
         # First, try using a csharp script if dotnet is available (this is the fastest option, ~2 minutes)
         if which_tools(['dotnet']):
+            print_status("Using dotnet script for file aggregation...")
             cs_script = """
                 using System.Collections.Generic;
                 using System.IO;
@@ -3655,13 +3657,12 @@ def run_blockstackd():
                             while (!fp.EndOfStream) yield return fp.ReadLine();
                         }
                         using var reader = new StreamReader(args[0]);
-                        using var writer = new StreamWriter(args[2]);
-                        var entries = EnumLines(reader).Skip(1).AsParallel().Select(line => {
+                        var entries = EnumLines(reader).Skip(1).AsParallel().AsOrdered().Select(line => {
                             var hash = line.Substring(0, 40);
                             var zfPath = Path.Join(args[1], hash.Substring(0, 2), hash.Substring(2, 2), hash + ".txt");
-                            return hash + "\\n" + File.ReadAllText(zfPath).Replace("\\n", "\\\\n");
+                            return hash + "\\n" + File.ReadAllText(zfPath).Replace("\\n", "\\\\n") + "\\n";
                         });
-                        foreach (var entry in entries) writer.WriteLine(entry);
+                        foreach (var entry in entries) System.Console.Out.Write(entry);
                     }
                 }"""
             cs_proj = """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>
@@ -3672,21 +3673,24 @@ def run_blockstackd():
                 cs_file.write(cs_script)
             with open(os.path.join(tmpdir, "Program.csproj"), "w") as cs_prog_file:
                 cs_prog_file.write(cs_proj)
-            cs_script_args = ["dotnet", "run", "-c=Release", "--", subdomain_csv_path, zonefile_dir, subdomain_zonefile_txt_path]
-            p = subprocess.Popen(cs_script_args, shell=False, cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            p_res = p.communicate()
-            rc = p.returncode
-            if rc != 0:
-                print_status('Subdomain zonefile export via "dotnet" failed with error {}: {}'.format(rc, p_res[1]))
-                sys.exit(1)
+            cs_script_args = ["dotnet", "run", "-c=Release", "--", subdomain_csv_path, zonefile_dir]
+            with open(subdomain_zonefile_txt_path, 'wb') as writer:
+                p = subprocess.Popen(cs_script_args, shell=False, cwd=tmpdir, stdout=writer, stderr=subprocess.PIPE)
+                p_res = p.communicate()
+                writer.flush()
+                rc = p.returncode
+                if rc != 0:
+                    print_status('Subdomain zonefile export via "dotnet" failed with error {}: {}'.format(rc, p_res[1]))
+                    sys.exit(1)
         # Otherwise, try using an awk script, takes ~25 minutes.
         elif which_tools(['awk']):
+            print_status("Using awk script for file aggregation...")
             awk_export_cmd = """awk -F, 'BEGIN {OFS=","} NR>1 {
                 save_rs = RS
                 RS = "^$"
                 file_path = "%s/" substr($1,0,2) "/" substr($1,3,2) "/" $1 ".txt"
                 getline zonefile < file_path
-                gsub(/\\n/,"/n",zonefile)
+                gsub(/\\n/,"\\\\n",zonefile)
                 close(file_path)
                 print $1
                 print zonefile
@@ -3703,6 +3707,17 @@ def run_blockstackd():
         else:
             print_status('Could not find "awk" or "dotnet" on PATH, subdomain zonefiles cannot be exported')
             sys.exit(1)
+
+        # out sha256 hash of aggregated subdomain subdomain_zonefiles.txt
+        print_status("Writing json file hash for aggregated subdomain zonefiles...")
+        from hashlib import sha256
+        with open(subdomain_zonefile_txt_path, 'rb') as f:
+            file_bytes = f.read()
+            json_hash = sha256(file_bytes).hexdigest()
+            print_status("Aggregated subdomain zonefiles sha256 hash: {}".format(json_hash))
+            with open(subdomain_zonefile_hash_txt_path, 'w') as hash_out:
+                hash_out.write(json_hash)
+                hash_out.flush()
 
         print_status("Querying namespace IDs...")
         namespaces_entries = db.get_all_namespace_ids()
@@ -3792,16 +3807,14 @@ def run_blockstackd():
         if not which_tools(['tar']):
             print_status('Could not find "tar" utility on system path')
             sys.exit(1)
-        cmd = "tar -czSf {} -C {} {} {} {} {} {}".format(
-            pipes.quote(export_archive), 
-            pipes.quote(output_dir),
+        tar_args = ['tar', '-czSf', export_archive, '-C', output_dir, 
             os.path.basename(subdomain_csv_path),
             os.path.basename(subdomain_csv_hash_path),
             os.path.basename(json_output_path),
             os.path.basename(json_hash_output_path),
-            os.path.basename(subdomain_zonefile_txt_path)
-        )
-        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            os.path.basename(subdomain_zonefile_txt_path),
+            os.path.basename(subdomain_zonefile_hash_txt_path)]
+        p = subprocess.Popen(tar_args, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p_res = p.communicate()
         rc = p.returncode
         if rc != 0:
