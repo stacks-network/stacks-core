@@ -1,4 +1,4 @@
-use super::{AtlasDB, AttachmentInstance};
+use super::{AtlasDB, Attachment, AttachmentInstance};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
@@ -83,8 +83,7 @@ impl AttachmentsDownloader {
 
         match progress {
             AttachmentsBatchStateMachine::Done(ref mut context) => {
-                for (_, response) in context.attachments.drain() {
-                    let attachment = response.attachment;
+                for attachment in context.attachments.drain() {
                     let mut attachments_instances = network
                         .atlasdb
                         .find_all_attachment_instances(&attachment.hash)
@@ -99,13 +98,15 @@ impl AttachmentsDownloader {
                         .resolve_attachment(&attachment.hash)
                 }
 
-                // todo(ludo): update reliability reports
+                // Update reliability reports
+                for (peer_url, report) in context.peers.drain() {
+                    self.reliability_reports.insert(peer_url, report);
+                }
 
+                // Re-insert AttachmentsBatch back to the queue if not fully processed
                 if !context.attachments_batch.has_fully_succeed() {
                     context.attachments_batch.bump_retry_count();
                     self.priority_queue.push(context.attachments_batch.clone());
-                    // todo(ludo): deref, instead of cloning.
-                    // todo(ludo) should we also apply an exponential backoff?
                 }
             }
             next_state => {
@@ -188,7 +189,7 @@ struct AttachmentsBatchStateContext {
     pub dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
     pub inventories:
         HashMap<AttachmentsInventoryRequest, HashMap<UrlString, GetAttachmentsInvResponse>>,
-    pub attachments: HashMap<AttachmentRequest, GetAttachmentResponse>,
+    pub attachments: HashSet<Attachment>,
 }
 
 impl AttachmentsBatchStateContext {
@@ -203,7 +204,7 @@ impl AttachmentsBatchStateContext {
             connection_options: connection_options.clone(),
             dns_lookups: HashMap::new(),
             inventories: HashMap::new(),
-            attachments: HashMap::new(),
+            attachments: HashSet::new(),
         }
     }
 
@@ -310,14 +311,21 @@ impl AttachmentsBatchStateContext {
         mut self,
         results: &mut BatchedRequestsResult<AttachmentsInventoryRequest>,
     ) -> AttachmentsBatchStateContext {
-        for (k, mut v) in results.succeeded.drain() {
-            let mut responses = HashMap::new();
-            for (url, response) in v.drain() {
+        for (k, mut responses) in results.succeeded.drain() {
+            let mut inventories = HashMap::new();
+            for (peer_url, response) in responses.drain() {
+                let report = self
+                    .peers
+                    .get_mut(&peer_url)
+                    .expect("Atlas: unable to retrieve reliability report for peer");
                 if let Some(HttpResponseType::GetAttachmentsInv(_, response)) = response {
-                    responses.insert(url, response);
+                    inventories.insert(peer_url, response);
+                    report.bump_successful_requests();
+                } else {
+                    report.bump_failed_requests();
                 }
             }
-            self.inventories.insert(k, responses);
+            self.inventories.insert(k, inventories);
         }
         self
     }
@@ -326,11 +334,17 @@ impl AttachmentsBatchStateContext {
         mut self,
         results: &mut BatchedRequestsResult<AttachmentRequest>,
     ) -> AttachmentsBatchStateContext {
-        for (k, mut v) in results.succeeded.drain() {
-            for (_, response) in v.drain() {
+        for (_, mut responses) in results.succeeded.drain() {
+            for (peer_url, response) in responses.drain() {
+                let report = self
+                    .peers
+                    .get_mut(&peer_url)
+                    .expect("Atlas: unable to retrieve reliability report for peer");
                 if let Some(HttpResponseType::GetAttachment(_, response)) = response {
-                    self.attachments.insert(k, response);
-                    break;
+                    self.attachments.insert(response.attachment);
+                    report.bump_successful_requests();
+                } else {
+                    report.bump_failed_requests();
                 }
             }
         }
@@ -596,7 +610,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                 let mut requests = HashMap::new();
                 while let Some(requestable) = queue.pop() {
                     let mut requestables = VecDeque::new();
-                    requestables.push_back(requestable); // todo(ludo): revisit this design
+                    requestables.push_back(requestable);
                     let res = PeerNetwork::begin_request(
                         network,
                         dns_lookups,
@@ -624,14 +638,8 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                     "Atlas: Request {} failed to connect. Temporarily blocking URL",
                                     request
                                 );
-
-                                // todo(ludo): restore
-                                // self.dead_peers.push(event_id);
-                                // don't try this again for a while
-                                // self.blocked_urls.insert(
-                                //     request_key.data_url,
-                                //     get_epoch_time_secs() + BLOCK_DOWNLOAD_BAN_URL,
-                                // );
+                                let peer_url = request.get_url().clone();
+                                state.faulty_peers.insert(peer_url);
                             }
                         }
                         Some(ref mut convo) => {
@@ -643,47 +651,29 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                         request
                                     );
                                     pending_requests.insert(event_id, request);
+                                    continue;
                                 }
                                 Some(response) => {
+                                    let peer_url = request.get_url().clone();
+
                                     if let HttpResponseType::NotFound(_, _) = response {
-                                        // todo(ludo): restore
-                                        // remote peer didn't have the block
-                                        // info!("Remote neighbor {:?} ({:?}) does not actually have attachment {} indexed at {} ({})", &request_key.neighbor, &request_key.data_url, request_key.sortition_height, &request_key.index_block_hash, &request_key.consensus_hash);
-                                        // the fact that we asked this peer means that it's block inv indicated
-                                        // it was present, so the absence is the mark of a broken peer
-                                        // self.broken_peers.push(event_id);
-                                        // self.broken_neighbors.push(request_key.neighbor.clone());
+                                        state.faulty_peers.insert(peer_url);
                                         continue;
                                     }
-
                                     info!(
                                         "Atlas: Request {} received response {:?}",
                                         request, response
                                     );
-                                    let request_url = request.get_url().clone();
                                     match state.succeeded.entry(request) {
                                         Entry::Occupied(responses) => {
-                                            responses
-                                                .into_mut()
-                                                .insert(request_url, Some(response));
+                                            responses.into_mut().insert(peer_url, Some(response));
                                         }
                                         Entry::Vacant(v) => {
                                             let mut responses = HashMap::new();
-                                            responses.insert(request_url, Some(response));
+                                            responses.insert(peer_url, Some(response));
                                             v.insert(responses);
                                         }
                                     };
-
-                                    // todo(ludo): restore
-                                    // _ => {
-                                    //     // wrong message response
-                                    //     info!(
-                                    //         "Got bad HTTP response from {:?}: {:?}",
-                                    //         &request_key.data_url, &http_response
-                                    //     );
-                                    //     self.broken_peers.push(event_id);
-                                    //     self.broken_neighbors.push(request_key.neighbor.clone());
-                                    // }
                                 }
                             }
                         }
@@ -730,6 +720,7 @@ struct BatchedRequestsResult<T: Requestable> {
     pub remaining: HashMap<usize, T>,
     pub succeeded: HashMap<T, HashMap<UrlString, Option<HttpResponseType>>>,
     pub errors: HashMap<T, HashMap<UrlString, net_error>>,
+    pub faulty_peers: HashSet<UrlString>,
 }
 
 impl<T: Requestable> BatchedRequestsResult<T> {
@@ -738,6 +729,7 @@ impl<T: Requestable> BatchedRequestsResult<T> {
             remaining,
             succeeded: HashMap::new(),
             errors: HashMap::new(),
+            faulty_peers: HashSet::new(),
         }
     }
 
@@ -746,6 +738,7 @@ impl<T: Requestable> BatchedRequestsResult<T> {
             remaining: HashMap::new(),
             succeeded: HashMap::new(),
             errors: HashMap::new(),
+            faulty_peers: HashSet::new(),
         }
     }
 }
@@ -978,6 +971,17 @@ impl PartialOrd for AttachmentsBatch {
 pub struct ReliabilityReport {
     pub total_requests_sent: u32,
     pub total_requests_success: u32,
+}
+
+impl ReliabilityReport {
+    pub fn bump_successful_requests(&mut self) {
+        self.total_requests_sent += 1;
+        self.total_requests_success += 1;
+    }
+
+    pub fn bump_failed_requests(&mut self) {
+        self.total_requests_sent += 1;
+    }
 }
 
 impl ReliabilityReport {

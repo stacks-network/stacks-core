@@ -63,7 +63,7 @@ impl AttachmentInstance {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Attachment {
     pub hash: Hash160,
     pub content: Vec<u8>,
