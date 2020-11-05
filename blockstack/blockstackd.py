@@ -3561,6 +3561,14 @@ def run_blockstackd():
 
     elif args.action == 'export_migration_json':
 
+        import hashlib
+        def sha256(file_path):
+            hash_sha256 = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_sha256.update(chunk)
+            return hash_sha256.hexdigest()
+
         def print_status(msg):
             print "[{}] {}".format(int(round(time.time())), msg)
 
@@ -3626,14 +3634,11 @@ def run_blockstackd():
             sys.exit(1)
 
         print_status("Writing subdomains csv file hash...")
-        from hashlib import sha256
-        with open(subdomain_csv_path, 'rb') as f:
-            file_bytes = f.read()
-            file_hash = sha256(file_bytes).hexdigest()
-            print_status("Subdomain csv data sha256 hash: {}".format(file_hash))
-            with open(subdomain_csv_hash_path, 'w') as hash_out:
-                hash_out.write(file_hash)
-                hash_out.flush()
+        file_hash = sha256(subdomain_csv_path)
+        print_status("Subdomain csv data sha256 hash: {}".format(file_hash))
+        with open(subdomain_csv_hash_path, 'w') as hash_out:
+            hash_out.write(file_hash)
+            hash_out.flush()
 
         print_status("Aggregating subdomain zonefiles...")
         # Reduce 10GB disk space of zonefiles into a 400MB txt file.
@@ -3706,14 +3711,11 @@ def run_blockstackd():
 
         # out sha256 hash of aggregated subdomain subdomain_zonefiles.txt
         print_status("Writing json file hash for aggregated subdomain zonefiles...")
-        from hashlib import sha256
-        with open(subdomain_zonefile_txt_path, 'rb') as f:
-            file_bytes = f.read()
-            json_hash = sha256(file_bytes).hexdigest()
-            print_status("Aggregated subdomain zonefiles sha256 hash: {}".format(json_hash))
-            with open(subdomain_zonefile_hash_txt_path, 'w') as hash_out:
-                hash_out.write(json_hash)
-                hash_out.flush()
+        json_hash = sha256(subdomain_zonefile_txt_path)
+        print_status("Aggregated subdomain zonefiles sha256 hash: {}".format(json_hash))
+        with open(subdomain_zonefile_hash_txt_path, 'w') as hash_out:
+            hash_out.write(json_hash)
+            hash_out.flush()
 
         print_status("Querying namespace IDs...")
         namespaces_entries = db.get_all_namespace_ids()
@@ -3788,14 +3790,11 @@ def run_blockstackd():
 
         # also output the sha256 hash
         print_status("Writing json file hash...")
-        from hashlib import sha256
-        with open(json_output_path, 'rb') as f:
-            file_bytes = f.read()
-            json_hash = sha256(file_bytes).hexdigest()
-            print_status("Migration json data sha256 hash: {}".format(json_hash))
-            with open(json_hash_output_path, 'w') as hash_out:
-                hash_out.write(json_hash)
-                hash_out.flush()
+        json_hash = sha256(json_output_path)
+        print_status("Migration json data sha256 hash: {}".format(json_hash))
+        with open(json_hash_output_path, 'w') as hash_out:
+            hash_out.write(json_hash)
+            hash_out.flush()
         
         # compress into tar.gz
         print_status("Compressing export data into archive file...")
