@@ -28,6 +28,7 @@ pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
     ongoing_batch: Option<AttachmentsBatchStateMachine>,
     processed_batches: Vec<AttachmentsBatch>,
+    reliability_reports: HashMap<UrlString, ReliabilityReport>,
 }
 
 impl AttachmentsDownloader {
@@ -36,6 +37,7 @@ impl AttachmentsDownloader {
             priority_queue: BinaryHeap::new(),
             ongoing_batch: None,
             processed_batches: vec![],
+            reliability_reports: HashMap::new(),
         }
     }
 
@@ -55,7 +57,11 @@ impl AttachmentsDownloader {
                     let mut peers = HashMap::new();
                     for peer in network.get_outbound_sync_peers() {
                         if let Some(peer_url) = network.get_data_url(&peer) {
-                            peers.insert(peer.clone(), peer_url);
+                            let report = match self.reliability_reports.get(&peer_url) {
+                                Some(report) => report.clone(),
+                                None => ReliabilityReport::empty(),
+                            };
+                            peers.insert(peer_url, report);
                         }
                     }
                     let ctx = AttachmentsBatchStateContext::new(
@@ -88,10 +94,16 @@ impl AttachmentsDownloader {
                         .insert_new_attachment(&attachment.hash, &attachment.content, true)
                         .map_err(|e| net_error::DBError(e))?;
                     resolved_attachments.append(&mut attachments_instances);
+                    context.attachments_batch.resolve_attachment(&attachment.hash)
                 }
 
-                // At the end of the process, the batch should be simplified if did not succeed.
-                // Priority queue: combination of retry count and block height.
+                // todo(ludo): update reliability reports
+
+                if !context.attachments_batch.has_fully_succeed() {
+                    context.attachments_batch.bump_retry_count();
+                    self.priority_queue.push(context.attachments_batch.clone()); // todo(ludo): deref, instead of cloning.
+                    // todo(ludo) should we also apply an exponential backoff?
+                }
             }
             next_state => {
                 self.ongoing_batch = Some(next_state);
@@ -168,7 +180,7 @@ impl AttachmentsDownloader {
 #[derive(Debug)]
 struct AttachmentsBatchStateContext {
     pub attachments_batch: AttachmentsBatch,
-    pub peers: HashMap<NeighborKey, UrlString>,
+    pub peers: HashMap<UrlString, ReliabilityReport>,
     pub connection_options: ConnectionOptions,
     pub dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
     pub inventories:
@@ -179,7 +191,7 @@ struct AttachmentsBatchStateContext {
 impl AttachmentsBatchStateContext {
     pub fn new(
         attachments_batch: AttachmentsBatch,
-        peers: HashMap<NeighborKey, UrlString>,
+        peers: HashMap<UrlString, ReliabilityReport>,
         connection_options: &ConnectionOptions,
     ) -> AttachmentsBatchStateContext {
         AttachmentsBatchStateContext {
@@ -193,7 +205,7 @@ impl AttachmentsBatchStateContext {
     }
 
     pub fn get_peers_urls(&self) -> Vec<UrlString> {
-        self.peers.values().map(|e| e.clone()).collect()
+        self.peers.keys().map(|e| e.clone()).collect()
     }
 
     pub fn get_prioritized_attachments_inventory_requests(
@@ -201,9 +213,10 @@ impl AttachmentsBatchStateContext {
     ) -> BinaryHeap<AttachmentsInventoryRequest> {
         let mut queue = BinaryHeap::new();
         for (contract_id, _) in self.attachments_batch.attachments_instances.iter() {
-            for (_, peer_url) in self.peers.iter() {
+            for (peer_url, reliability_report) in self.peers.iter() {
                 let request = AttachmentsInventoryRequest {
                     url: peer_url.clone(),
+                    reliability_report: reliability_report.clone(),
                     contract_id: contract_id.clone(),
                     pages: self
                         .attachments_batch
@@ -230,7 +243,7 @@ impl AttachmentsBatchStateContext {
                 Some(missing_attachments) => missing_attachments,
             };
             for ((page_index, position_in_page), content_hash) in missing_attachments.iter() {
-                let mut urls = vec![];
+                let mut sources = HashMap::new();
 
                 for (peer_url, response) in peers_responses.iter() {
                     let index = response
@@ -257,18 +270,22 @@ impl AttachmentsBatchStateContext {
                         continue;
                     }
 
-                    urls.push(peer_url.clone());
+                    let report = self.peers.get(peer_url)
+                        .expect("Atlas: unable to retrieve reliability report for peer");
+                    sources.insert(peer_url.clone(), report.clone());
                 }
 
-                if urls.len() > 0 {
-                    let request = AttachmentRequest {
-                        urls,
-                        content_hash: content_hash.clone(),
-                    };
-                    queue.push(request);
-                } else {
-                    warn!("Atlas: -"); // todo(ludo)
+                if sources.is_empty() {
+                    warn!("Atlas: could not find a peer including attachment in its inventory");
+                    continue;
                 }
+
+                // Success, we found at least one inventory including the attachment we're looking for.
+                let request = AttachmentRequest {
+                    sources,
+                    content_hash: content_hash.clone(),
+                };
+                queue.push(request);
             }
         }
         queue
@@ -499,7 +516,6 @@ impl BatchedDNSLookupsState {
             BatchedDNSLookupsState::Resolving(ref mut state) => {
                 if let Err(e) = dns_client.try_recv() {
                     warn!("Atlas: DNS client unable to receive data {}", e);
-                    // todo(ludo): retry count?
                     return fsm;
                 }
 
@@ -730,13 +746,14 @@ impl<T: Requestable> BatchedRequestsResult<T> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-struct AttachmentsInventoryRequest {
-    url: UrlString,
-    contract_id: QualifiedContractIdentifier,
-    pages: Vec<u32>,
-    block_height: u64,
-    consensus_hash: ConsensusHash,
-    block_header_hash: BlockHeaderHash,
+pub struct AttachmentsInventoryRequest {
+    pub url: UrlString,
+    pub contract_id: QualifiedContractIdentifier,
+    pub pages: Vec<u32>,
+    pub block_height: u64,
+    pub consensus_hash: ConsensusHash,
+    pub block_header_hash: BlockHeaderHash,
+    pub reliability_report: ReliabilityReport,
 }
 
 impl Hash for AttachmentsInventoryRequest {
@@ -751,7 +768,7 @@ impl Hash for AttachmentsInventoryRequest {
 
 impl Ord for AttachmentsInventoryRequest {
     fn cmp(&self, other: &AttachmentsInventoryRequest) -> Ordering {
-        other.block_height.cmp(&self.block_height)
+        self.reliability_report.cmp(&other.reliability_report)
     }
 }
 
@@ -786,20 +803,35 @@ impl std::fmt::Display for AttachmentsInventoryRequest {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-struct AttachmentRequest {
-    urls: Vec<UrlString>,
-    content_hash: Hash160,
+pub struct AttachmentRequest {
+    pub content_hash: Hash160,
+    pub sources: HashMap<UrlString, ReliabilityReport>,
 }
+
+impl AttachmentRequest {
+
+    pub fn get_most_reliable_source(&self) -> (&UrlString, &ReliabilityReport) {
+        self.sources.iter()
+            .max_by_key(|(_, v)| v.score())
+            .expect("Atlas: trying to select an Url out of an empty set")
+    }
+}
+
 
 impl Hash for AttachmentRequest {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.content_hash.hash(state);
+        self.content_hash.hash(state)
     }
 }
 
 impl Ord for AttachmentRequest {
     fn cmp(&self, other: &AttachmentRequest) -> Ordering {
-        other.urls.len().cmp(&self.urls.len())
+        other.sources.len().cmp(&self.sources.len())
+            .then_with(|| {
+                let (_, report) = self.get_most_reliable_source();
+                let (_, other_report) = other.get_most_reliable_source();
+                report.cmp(&other_report)
+            })        
     }
 }
 
@@ -811,7 +843,8 @@ impl PartialOrd for AttachmentRequest {
 
 impl Requestable for AttachmentRequest {
     fn get_url(&self) -> &UrlString {
-        &self.urls[0] // todo(ludo)
+        let (url, _) = self.get_most_reliable_source();
+        url
     }
 
     fn get_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
@@ -831,6 +864,7 @@ pub struct AttachmentsBatch {
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<(u32, u32), Hash160>>,
+    attachments_instances_count: u64,
     retry_count: u64,
 }
 
@@ -841,6 +875,7 @@ impl AttachmentsBatch {
             consensus_hash: ConsensusHash::empty(),
             block_header_hash: BlockHeaderHash([0u8; 32]),
             attachments_instances: HashMap::new(),
+            attachments_instances_count: 0,
             retry_count: 0,
         }
     }
@@ -856,6 +891,7 @@ impl AttachmentsBatch {
             assert!(self.block_header_hash == attachment.block_header_hash);
         }
 
+        self.attachments_instances_count += 1;
         let inner_key = (attachment.page_index, attachment.position_in_page);
         match self
             .attachments_instances
@@ -873,6 +909,14 @@ impl AttachmentsBatch {
             }
         };
     }
+    
+    pub fn bump_retry_count(&mut self) {
+        self.retry_count += 1;
+    }
+
+    pub fn has_fully_succeed(&self) -> bool {
+        self.attachments_instances_count == 0
+    }
 
     pub fn get_missing_pages_for_contract_id(
         &self,
@@ -887,6 +931,21 @@ impl AttachmentsBatch {
         pages_indexes
     }
 
+    pub fn resolve_attachment(&mut self, content_hash: &Hash160) {
+        for missing_attachments in self.attachments_instances.values_mut() {
+            let mut keys = vec![];
+            for (k, hash) in missing_attachments.iter() {
+                if hash == content_hash {
+                    keys.push(k.clone());
+                }
+            }
+            for key in keys {
+                missing_attachments.remove(&key);
+                self.attachments_instances_count = self.attachments_instances_count.saturating_sub(1);
+            }
+        }
+    }
+
     pub fn get_stacks_block_id(&self) -> StacksBlockId {
         StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
     }
@@ -895,14 +954,56 @@ impl AttachmentsBatch {
 impl Ord for AttachmentsBatch {
     fn cmp(&self, other: &AttachmentsBatch) -> Ordering {
         other
-            .block_height
-            .cmp(&self.block_height)
-            .then_with(|| self.retry_count.cmp(&other.retry_count))
+            .retry_count.cmp(&self.retry_count)
+            .then_with(|| self.attachments_instances_count.cmp(&other.attachments_instances_count))
+            .then_with(|| other.block_height.cmp(&self.block_height))
     }
 }
 
 impl PartialOrd for AttachmentsBatch {
     fn partial_cmp(&self, other: &AttachmentsBatch) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ReliabilityReport {
+    pub total_requests_sent: u32,
+    pub total_requests_success: u32,
+}
+
+impl ReliabilityReport {
+    pub fn new(total_requests_sent: u32, total_requests_success: u32) -> ReliabilityReport {
+        ReliabilityReport {
+            total_requests_sent,
+            total_requests_success,
+        }
+    }
+
+    pub fn empty() -> ReliabilityReport {
+        ReliabilityReport {
+            total_requests_sent: 0,
+            total_requests_success: 0,
+        }
+    }
+
+    pub fn score(&self) -> u32 {
+        match self.total_requests_sent {
+            0 => 0 as u32,
+            n => self.total_requests_success * 1000 / n * 1000
+        }
+    }
+}
+
+impl Ord for ReliabilityReport {
+    fn cmp(&self, other: &ReliabilityReport) -> Ordering {
+        self.score().cmp(&other.score())
+            .then_with(|| self.total_requests_success.cmp(&other.total_requests_success))
+    }
+}
+
+impl PartialOrd for ReliabilityReport {
+    fn partial_cmp(&self, other: &ReliabilityReport) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
