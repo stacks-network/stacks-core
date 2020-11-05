@@ -3572,10 +3572,6 @@ def run_blockstackd():
            print 'fast_sync failed'
            sys.exit(1)
 
-        # treat this as a recovery
-        print_status("Running setup recovery...")
-        setup_recovery(working_dir)
-
         block = int(args.block_height)
         # allow consensus_hash to be provided as a string or within a file
         consensus_hash = args.consensus_hash
