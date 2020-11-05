@@ -294,6 +294,7 @@
           metadata: {
             name: name,
             namespace: namespace,
+            tx-sender: tx-sender
           }
         }})
       ;; Update attachments-inv
@@ -647,12 +648,13 @@
               (update-name-ownership? namespace name previous-owner contract-caller)
               (err ERR_NAME_COULD_NOT_BE_TRANSFERED)))))
       ;; Update name's metadata / properties
-      (map-set name-properties
-        ((namespace namespace) (name name))
-        ((registered-at (some block-height))
-        (imported-at none)
-        (revoked-at none)
-        (zonefile-hash zonefile-hash)))
+      (update-zonefile-and-props
+        namespace 
+        name  
+        (some block-height)
+        none
+        none
+        zonefile-hash)
       (ok true))))
 
 ;; NAME_UPDATE
@@ -906,7 +908,7 @@
 
 ;; Additionals public methods
 
-(define-public (can-name-be-registered (namespace (buff 19)) (name (buff 16)))
+(define-read-only (can-name-be-registered (namespace (buff 19)) (name (buff 16)))
   (let (
       (wrapped-name-props (map-get? name-properties ((namespace namespace) (name name))))
       (current-owner (map-get? owner-name ((owner contract-caller))))
