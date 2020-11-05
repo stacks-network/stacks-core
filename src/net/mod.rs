@@ -1779,7 +1779,7 @@ pub trait Requestable {
 pub mod test {
     use super::*;
     use net::asn::*;
-    use net::atlas::AtlasDB;
+    use net::atlas::*;
     use net::chat::*;
     use net::codec::*;
     use net::connection::*;
