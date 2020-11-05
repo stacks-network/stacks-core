@@ -11,10 +11,12 @@ use chainstate::stacks::{StacksBlockHeader, StacksBlockId};
 
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::{BlockHeaderHash, ConsensusHash};
-use util::hash::Hash160;
-use vm::types::{QualifiedContractIdentifier, TupleData};
+use net::StacksMessageCodec;
+use util::hash::{to_hex, Hash160, MerkleHashFunc};
+use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
 pub const BNS_NAMESPACE_MIN_LEN: usize = 1;
@@ -46,6 +48,18 @@ impl AtlasConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct Attachment {
+    pub hash: Hash160,
+    pub content: Vec<u8>,
+}
+
+impl Attachment {
+    pub fn new(content: Vec<u8>, hash: Hash160) -> Attachment {
+        Attachment { hash, content }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct AttachmentInstance {
     pub content_hash: Hash160,
     pub page_index: u32,
@@ -61,17 +75,61 @@ impl AttachmentInstance {
     pub fn get_stacks_block_id(&self) -> StacksBlockId {
         StacksBlockHeader::make_index_block_hash(&self.consensus_hash, &self.block_header_hash)
     }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct Attachment {
-    pub hash: Hash160,
-    pub content: Vec<u8>,
-}
-
-impl Attachment {
-    pub fn new(content: Vec<u8>, hash: Hash160) -> Attachment {
-        Attachment { hash, content }
+    pub fn try_new_from_value(
+        value: &Value,
+        contract_id: &QualifiedContractIdentifier,
+        consensus_hash: &ConsensusHash,
+        block_header_hash: BlockHeaderHash,
+        block_height: u64,
+    ) -> Result<AttachmentInstance, ()> {
+        if let Value::Tuple(ref attachment) = value {
+            if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
+                match (
+                    attachment_data.get("hash"),
+                    attachment_data.get("page-index"),
+                    attachment_data.get("position-in-page"),
+                ) {
+                    (
+                        Ok(Value::Sequence(SequenceData::Buffer(content_hash))),
+                        Ok(Value::UInt(page_index)),
+                        Ok(Value::UInt(position_in_page)),
+                    ) => {
+                        let content_hash = if content_hash.data.is_empty() {
+                            Hash160::empty()
+                        } else {
+                            match Hash160::from_bytes(&content_hash.data[..]) {
+                                Some(content_hash) => content_hash,
+                                _ => return Err(()),
+                            }
+                        };
+                        let metadata = match attachment_data.get("metadata") {
+                            Ok(metadata) => {
+                                let mut serialized = vec![];
+                                metadata
+                                    .consensus_serialize(&mut serialized)
+                                    .expect("FATAL: invalid metadata");
+                                to_hex(&serialized[..])
+                            }
+                            _ => String::new(),
+                        };
+                        let instance = AttachmentInstance {
+                            consensus_hash: consensus_hash.clone(),
+                            block_header_hash: block_header_hash,
+                            content_hash,
+                            page_index: *page_index as u32,
+                            position_in_page: *position_in_page as u32,
+                            block_height,
+                            metadata,
+                            contract_id: contract_id.clone(),
+                        };
+                        return Ok(instance);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Err(())
     }
 }
 

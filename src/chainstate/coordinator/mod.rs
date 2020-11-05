@@ -38,12 +38,10 @@ use chainstate::stacks::{
 };
 use monitoring::increment_stx_blocks_processed_counter;
 use net::atlas::{AtlasConfig, AttachmentInstance};
-use net::StacksMessageCodec;
 use util::db::Error as DBError;
-use util::hash::{to_hex, Hash160, MerkleHashFunc};
 use vm::{
     costs::ExecutionCost,
-    types::{PrincipalData, QualifiedContractIdentifier, SequenceData},
+    types::{PrincipalData, QualifiedContractIdentifier},
     Value,
 };
 
@@ -613,77 +611,15 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                         ref event_data,
                                     ) = event
                                     {
-                                        if let Value::Tuple(ref attachment) = event_data.value {
-                                            if let Ok(Value::Tuple(ref attachment_data)) =
-                                                attachment.get("attachment")
-                                            {
-                                                match (
-                                                    attachment_data.get("hash"),
-                                                    attachment_data.get("page-index"),
-                                                    attachment_data.get("position-in-page"),
-                                                ) {
-                                                    (
-                                                        Ok(Value::Sequence(SequenceData::Buffer(
-                                                            content_hash,
-                                                        ))),
-                                                        Ok(Value::UInt(page_index)),
-                                                        Ok(Value::UInt(position_in_page)),
-                                                    ) => {
-                                                        let content_hash = if content_hash
-                                                            .data
-                                                            .is_empty()
-                                                        {
-                                                            Hash160::empty()
-                                                        } else {
-                                                            match Hash160::from_bytes(
-                                                                &content_hash.data[..],
-                                                            ) {
-                                                                Some(content_hash) => content_hash,
-                                                                _ => {
-                                                                    error!("Attachment's event was raised, with an invalid hash160. Skipping");
-                                                                    continue;
-                                                                }
-                                                            }
-                                                        };
-                                                        let metadata =
-                                                            match attachment_data.get("metadata") {
-                                                                Ok(metadata) => {
-                                                                    let mut serialized = vec![];
-                                                                    metadata
-                                                                    .consensus_serialize(
-                                                                        &mut serialized,
-                                                                    )
-                                                                    .expect(
-                                                                        "FATAL: invalid metadata",
-                                                                    );
-                                                                    to_hex(&serialized[..])
-                                                                }
-                                                                _ => String::new(),
-                                                            };
-                                                        let instance = AttachmentInstance {
-                                                            consensus_hash: block_receipt
-                                                                .header
-                                                                .consensus_hash
-                                                                .clone(),
-                                                            block_header_hash: block_receipt
-                                                                .header
-                                                                .anchored_header
-                                                                .block_hash(),
-                                                            content_hash,
-                                                            page_index: *page_index as u32,
-                                                            position_in_page: *position_in_page
-                                                                as u32,
-                                                            block_height: block_receipt
-                                                                .header
-                                                                .block_height,
-                                                            metadata,
-                                                            contract_id: contract_id.clone(),
-                                                        };
-                                                        attachments_instances.insert(instance);
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
+                                        let res = AttachmentInstance::try_new_from_value(
+                                            &event_data.value,
+                                            &contract_id,
+                                            &block_receipt.header.consensus_hash,
+                                            block_receipt.header.anchored_header.block_hash(),
+                                            block_receipt.header.block_height,
+                                        );
+                                        if let Ok(attachment_instance) = res {
+                                            attachments_instances.insert(attachment_instance);
                                         }
                                     }
                                 }
