@@ -1,6 +1,5 @@
 pub mod db;
 pub mod download;
-pub mod inv;
 pub mod onchain;
 
 pub use self::db::AtlasDB;
