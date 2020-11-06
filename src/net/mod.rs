@@ -213,6 +213,8 @@ pub enum Error {
     StaleView,
     /// Tried to connect to myself
     ConnectionCycle,
+    /// Requested data not found
+    NotFoundError,
 }
 
 /// Enum for passing data for ClientErrors
@@ -294,6 +296,7 @@ impl fmt::Display for Error {
             Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
             Error::StaleView => write!(f, "State view is stale"),
             Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
+            Error::NotFoundError => write!(f, "Requested data not found"),
         }
     }
 }
@@ -351,6 +354,7 @@ impl error::Error for Error {
             Error::CoordinatorClosed => None,
             Error::StaleView => None,
             Error::ConnectionCycle => None,
+            Error::NotFoundError => None,
         }
     }
 }
@@ -1607,10 +1611,12 @@ pub struct NetworkResult {
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
+    pub num_state_machine_passes: u64,
+    pub num_inv_sync_passes: u64,
 }
 
 impl NetworkResult {
-    pub fn new() -> NetworkResult {
+    pub fn new(num_state_machine_passes: u64, num_inv_sync_passes: u64) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
             download_pox_id: None,
@@ -1621,6 +1627,8 @@ impl NetworkResult {
             pushed_microblocks: HashMap::new(),
             uploaded_transactions: vec![],
             uploaded_microblocks: vec![],
+            num_state_machine_passes: num_state_machine_passes,
+            num_inv_sync_passes: num_inv_sync_passes,
         }
     }
 
@@ -1652,10 +1660,10 @@ impl NetworkResult {
 
     pub fn consume_unsolicited(
         &mut self,
-        mut unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
+        unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     ) -> () {
-        for (neighbor_key, mut messages) in unhandled_messages.drain() {
-            for message in messages.drain(..) {
+        for (neighbor_key, messages) in unhandled_messages.into_iter() {
+            for message in messages.into_iter() {
                 match message.payload {
                     StacksMessageType::Blocks(block_data) => {
                         if let Some(blocks_msgs) = self.pushed_blocks.get_mut(&neighbor_key) {
