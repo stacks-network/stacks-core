@@ -2351,12 +2351,12 @@ impl HttpRequestType {
                         pages_indexes.iter().next().unwrap()
                     ),
                     _n => {
-                        let indexes = pages_indexes
+                        let mut indexes = pages_indexes
                             .iter()
                             .map(|i| format!("{}", i))
-                            .collect::<Vec<String>>()
-                            .join(",");
-                        format!("{}pages_indexes={}", prefix, indexes)
+                            .collect::<Vec<String>>();
+                        indexes.sort();
+                        format!("{}pages_indexes={}", prefix, indexes.join(","))
                     }
                 };
                 format!(

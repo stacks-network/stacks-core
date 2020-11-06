@@ -167,7 +167,7 @@ impl AttachmentsDownloader {
 
             // This attachment in refering to an unknown attachment.
             // Let's append it to the batch being constructed in this routine.
-            attachments_batch.track_attachment_instance(&attachment);
+            attachments_batch.track_attachment(&attachment);
             atlasdb
                 .insert_new_attachment_instance(&attachment, false)
                 .map_err(|e| net_error::DBError(e))?;
@@ -182,7 +182,7 @@ impl AttachmentsDownloader {
 }
 
 #[derive(Debug)]
-struct AttachmentsBatchStateContext {
+pub struct AttachmentsBatchStateContext {
     pub attachments_batch: AttachmentsBatch,
     pub peers: HashMap<UrlString, ReliabilityReport>,
     pub connection_options: ConnectionOptions,
@@ -704,7 +704,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
 }
 
 #[derive(Debug, Default)]
-struct BatchedDNSLookupsResults {
+pub struct BatchedDNSLookupsResults {
     pub parsed_urls: HashMap<UrlString, DNSRequest>,
     pub dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
     pub errors: HashMap<UrlString, net_error>,
@@ -716,7 +716,7 @@ struct BatchedRequestsInitializedState<T: Ord + Requestable> {
 }
 
 #[derive(Debug, Default)]
-struct BatchedRequestsResult<T: Requestable> {
+pub struct BatchedRequestsResult<T: Requestable> {
     pub remaining: HashMap<usize, T>,
     pub succeeded: HashMap<T, HashMap<UrlString, Option<HttpResponseType>>>,
     pub errors: HashMap<T, HashMap<UrlString, net_error>>,
@@ -796,7 +796,8 @@ impl Requestable for AttachmentsInventoryRequest {
 
 impl std::fmt::Display for AttachmentsInventoryRequest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<Request<AttachmentsInventory>: ---- >")
+        let url = &**self.get_url();
+        write!(f, "<Request<AttachmentsInventory>: url={}>", url)
     }
 }
 
@@ -850,7 +851,8 @@ impl Requestable for AttachmentRequest {
 
 impl std::fmt::Display for AttachmentRequest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<Request<Attachment>: ---- >")
+        let url = &**self.get_url();
+        write!(f, "<Request<Attachment>: url={}>", url)
     }
 }
 
@@ -860,8 +862,8 @@ pub struct AttachmentsBatch {
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<(u32, u32), Hash160>>,
-    attachments_instances_count: u64,
-    retry_count: u64,
+    pub attachments_instances_count: u64,
+    pub retry_count: u64,
 }
 
 impl AttachmentsBatch {
@@ -876,7 +878,7 @@ impl AttachmentsBatch {
         }
     }
 
-    pub fn track_attachment_instance(&mut self, attachment: &AttachmentInstance) {
+    pub fn track_attachment(&mut self, attachment: &AttachmentInstance) {
         if self.attachments_instances.is_empty() {
             self.block_height = attachment.block_height.clone();
             self.consensus_hash = attachment.consensus_hash.clone();
@@ -918,13 +920,13 @@ impl AttachmentsBatch {
         &self,
         contract_id: &QualifiedContractIdentifier,
     ) -> Vec<u32> {
-        let mut pages_indexes = vec![];
+        let mut pages_indexes = HashSet::new();
         if let Some(missing_attachments) = self.attachments_instances.get(&contract_id) {
             for ((page_index, _), _) in missing_attachments.iter() {
-                pages_indexes.push(*page_index);
+                pages_indexes.insert(*page_index);
             }
         }
-        pages_indexes
+        pages_indexes.into_iter().collect()
     }
 
     pub fn resolve_attachment(&mut self, content_hash: &Hash160) {
@@ -1002,7 +1004,7 @@ impl ReliabilityReport {
     pub fn score(&self) -> u32 {
         match self.total_requests_sent {
             0 => 0 as u32,
-            n => self.total_requests_success * 1000 / n * 1000,
+            n => (self.total_requests_success * 1000 / n * 1000) + n,
         }
     }
 }

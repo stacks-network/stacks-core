@@ -1091,8 +1091,8 @@ pub struct GetAttachmentResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetAttachmentsInvResponse {
-    block_id: StacksBlockId,
-    pages: Vec<AttachmentPage>,
+    pub block_id: StacksBlockId,
+    pub pages: Vec<AttachmentPage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
