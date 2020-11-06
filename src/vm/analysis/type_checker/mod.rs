@@ -20,10 +20,7 @@ pub mod natives;
 
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
-use vm::costs::{
-    analysis_typecheck_cost, cost_functions, CostErrors, CostOverflowingMath, CostTracker,
-    ExecutionCost, LimitedCostTracker,
-};
+use vm::costs::{analysis_typecheck_cost, cost_functions, CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker, ClarityCostFunctionReference, runtime_cost};
 use vm::functions::define::DefineFunctionsParsed;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpressionType::{
@@ -47,6 +44,8 @@ pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
+use vm::contexts::Environment;
+use vm::costs::cost_functions::ClarityCostFunction;
 
 #[cfg(test)]
 mod tests;
@@ -76,6 +75,13 @@ pub struct TypeChecker<'a, 'b> {
 }
 
 impl CostTracker for TypeChecker<'_, '_> {
+    fn compute_cost(
+        &mut self,
+        cost_function: ClarityCostFunction,
+        input: u64) -> Result<ExecutionCost, CostErrors> {
+        self.cost_track.compute_cost(cost_function, input)
+    }
+
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_cost(cost)
     }
@@ -319,8 +325,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     }
 
     pub fn track_return_type(&mut self, return_type: TypeSignature) -> CheckResult<()> {
-        runtime_cost!(
-            cost_functions::ANALYSIS_TYPE_CHECK,
+        runtime_cost(
+            ClarityCostFunction::AnalysisTypeCheck,
             self,
             return_type.type_size()?
         )?;
@@ -361,7 +367,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             })?;
         }
 
-        runtime_cost!(cost_functions::ANALYSIS_STORAGE, self, size)?;
+        runtime_cost(ClarityCostFunction::AnalysisStorage, self, size)?;
 
         let mut local_context = TypingContext::new();
 
@@ -428,7 +434,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
-        runtime_cost!(cost_functions::ANALYSIS_VISIT, self, 1)?;
+        runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
 
         let mut result = self.inner_type_check(expr, context);
 
@@ -614,7 +620,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     }
 
     fn lookup_variable(&mut self, name: &str, context: &TypingContext) -> TypeResult {
-        runtime_cost!(cost_functions::ANALYSIS_LOOKUP_VARIABLE_CONST, self, 1)?;
+        runtime_cost(ClarityCostFunction::AnalysisLookupVariableConst, self, 0)?;
 
         if let Some(type_result) = type_reserved_variable(name) {
             Ok(type_result)
@@ -623,8 +629,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         } else if let Some(type_result) = context.lookup_trait_reference_type(name) {
             Ok(TypeSignature::TraitReferenceType(type_result.clone()))
         } else {
-            runtime_cost!(
-                cost_functions::ANALYSIS_LOOKUP_VARIABLE_DEPTH,
+            runtime_cost(
+                ClarityCostFunction::AnalysisLookupVariableDepth,
                 self,
                 context.depth
             )?;
@@ -651,8 +657,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             }
         };
 
-        runtime_cost!(
-            cost_functions::ANALYSIS_TYPE_ANNOTATE,
+        runtime_cost(
+            ClarityCostFunction::AnalysisTypeAnnotate,
             self,
             type_sig.type_size()?
         )?;
@@ -731,8 +737,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             match define_type {
                 DefineFunctionsParsed::Constant { name, value } => {
                     let (v_name, v_type) = self.type_check_define_variable(name, value, context)?;
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         v_type.type_size()?
                     )?;
@@ -742,8 +748,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     let (f_name, f_type) =
                         self.type_check_define_function(signature, body, context)?;
 
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         f_type.total_type_size()?
                     )?;
@@ -753,8 +759,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 DefineFunctionsParsed::PublicFunction { signature, body } => {
                     let (f_name, f_type) =
                         self.type_check_define_function(signature, body, context)?;
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         f_type.total_type_size()?
                     )?;
@@ -772,8 +778,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
                     let (f_name, f_type) =
                         self.type_check_define_function(signature, body, context)?;
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         f_type.total_type_size()?
                     )?;
@@ -789,7 +795,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         self.type_check_define_map(name, key_type, value_type)?;
                     let total_type_size = u64::from(map_type.0.type_size()?)
                         .cost_overflow_add(u64::from(map_type.1.type_size()?))?;
-                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, total_type_size)?;
+                    runtime_cost(ClarityCostFunction::AnalysisBindName, self, total_type_size)?;
                     self.contract_context.add_map_type(f_name, map_type)?;
                 }
                 DefineFunctionsParsed::PersistedVariable {
@@ -799,8 +805,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 } => {
                     let (v_name, v_type) = self
                         .type_check_define_persisted_variable(name, data_type, initial, context)?;
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         v_type.type_size()?
                     )?;
@@ -809,8 +815,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 DefineFunctionsParsed::BoundedFungibleToken { name, max_supply } => {
                     let token_name = self.type_check_define_ft(name, Some(max_supply), context)?;
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         TypeSignature::UIntType.type_size()?
                     )?;
@@ -818,8 +824,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 DefineFunctionsParsed::UnboundedFungibleToken { name } => {
                     let token_name = self.type_check_define_ft(name, None, context)?;
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         TypeSignature::UIntType.type_size()?
                     )?;
@@ -828,8 +834,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
                     let (token_name, token_type) =
                         self.type_check_define_nft(name, nft_type, context)?;
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         token_type.type_size()?
                     )?;
@@ -838,8 +844,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 DefineFunctionsParsed::Trait { name, functions } => {
                     let (trait_name, trait_signature) =
                         self.type_check_define_trait(name, functions, context)?;
-                    runtime_cost!(
-                        cost_functions::ANALYSIS_BIND_NAME,
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
                         self,
                         trait_type_size(&trait_signature)?
                     )?;
@@ -857,18 +863,18 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     match result {
                         Some(trait_sig) => {
                             let type_size = trait_type_size(&trait_sig)?;
-                            runtime_cost!(
-                                cost_functions::ANALYSIS_USE_TRAIT_ENTRY,
+                            runtime_cost(
+                                ClarityCostFunction::AnalysisUseTraitEntry,
                                 self,
                                 type_size
                             )?;
-                            runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, type_size)?;
+                            runtime_cost(ClarityCostFunction::AnalysisBindName, self, type_size)?;
                             self.contract_context
                                 .add_trait(trait_identifier.name.clone(), trait_sig)?
                         }
                         None => {
                             // still had to do a db read, even if it didn't exist!
-                            runtime_cost!(cost_functions::ANALYSIS_USE_TRAIT_ENTRY, self, 1)?;
+                            runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, self, 1)?;
                             return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into());
                         }
                     }

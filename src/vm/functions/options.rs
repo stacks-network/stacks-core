@@ -16,13 +16,14 @@
 
 use vm;
 use vm::contexts::{Environment, LocalContext};
-use vm::costs::{cost_functions, CostTracker, MemoryConsumer};
+use vm::costs::{cost_functions, CostTracker, MemoryConsumer, runtime_cost};
 use vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType, ShortReturnType,
 };
 use vm::types::{OptionalData, ResponseData, TypeSignature, Value};
 use vm::{ClarityName, SymbolicExpression};
+use vm::costs::cost_functions::ClarityCostFunction;
 
 fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
     let result = match to_unwrap {
@@ -195,7 +196,7 @@ pub fn special_match(
 
     let input = vm::eval(&args[0], env, context)?;
 
-    runtime_cost!(cost_functions::MATCH, env, 0)?;
+    runtime_cost(ClarityCostFunction::Match, env, 0)?;
 
     match input {
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),

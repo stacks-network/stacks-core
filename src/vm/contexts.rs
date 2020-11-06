@@ -22,7 +22,7 @@ use vm::ast;
 use vm::ast::ContractAST;
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::contracts::Contract;
-use vm::costs::{cost_functions, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
+use vm::costs::{cost_functions, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker, ClarityCostFunctionReference, runtime_cost};
 use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use vm::functions::handle_contract_call_special_cases;
@@ -40,6 +40,7 @@ use chainstate::stacks::events::*;
 use chainstate::stacks::StacksBlockId;
 
 use serde::Serialize;
+use vm::costs::cost_functions::ClarityCostFunction;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -769,7 +770,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             .global_context
             .database
             .get_contract_size(contract_identifier)?;
-        runtime_cost!(cost_functions::LOAD_CONTRACT, self, contract_size)?;
+        runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
         self.global_context.add_memory(contract_size)?;
 
@@ -898,8 +899,8 @@ impl<'a, 'b> Environment<'a, 'b> {
         // wrap in a closure so that `?` can be caught and the global_context can roll_back()
         //  before returning.
         let result = (|| {
-            runtime_cost!(
-                cost_functions::CONTRACT_STORAGE,
+            runtime_cost(
+                ClarityCostFunction::ContractStorage,
                 self,
                 contract_string.len()
             )?;

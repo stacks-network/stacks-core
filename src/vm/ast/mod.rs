@@ -23,7 +23,7 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
-use vm::costs::{cost_functions, CostTracker};
+use vm::costs::{cost_functions, CostTracker, runtime_cost, LimitedCostTracker};
 use vm::errors::{Error, RuntimeErrorType};
 
 use vm::representations::SymbolicExpression;
@@ -37,6 +37,7 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
+use vm::costs::cost_functions::ClarityCostFunction;
 
 /// Legacy function
 pub fn parse(
@@ -52,8 +53,8 @@ pub fn build_ast<T: CostTracker>(
     source_code: &str,
     cost_track: &mut T,
 ) -> ParseResult<ContractAST> {
-    runtime_cost!(
-        cost_functions::AST_PARSE,
+    runtime_cost(
+        ClarityCostFunction::AstParse,
         cost_track,
         source_code.len() as u64
     )?;
