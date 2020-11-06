@@ -1181,6 +1181,8 @@ class BlockstackDB(virtualchain.StateEngine):
             log.warn('v2_migration_data already exists at {}'.format(export_file_path))
             return
 
+        open(os.path.join(migration_dir, 'exporting.lock'), 'a').close()
+
         # override backup frequency to force a backup _now_
         # note: the `make_backup` function subtracts 1 from the given block ID
         old_backup_frequency = self.backup_frequency
@@ -1193,6 +1195,7 @@ class BlockstackDB(virtualchain.StateEngine):
         if snapshot_success:
             with open(consensus_hash_file_path, 'w') as f:
                 f.write(consensus_hash)
+            open(os.path.join(migration_dir, 'exporting.complete'), 'a').close()
         else:
             raise Exception('failed to export v2 datafile')
 
