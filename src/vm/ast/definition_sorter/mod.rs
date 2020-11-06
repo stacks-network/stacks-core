@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use vm::ast::types::{BuildASTPass, ContractAST};
-use vm::costs::{cost_functions, CostTracker, runtime_cost};
+use vm::costs::{cost_functions, CostTracker, runtime_cost, LimitedCostTracker};
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::representations::PreSymbolicExpressionType::{
@@ -58,7 +58,7 @@ impl<'a> DefinitionSorter {
         contract_ast: &mut ContractAST,
     ) -> ParseResult<()> {
         let mut pass = DefinitionSorter::new();
-        pass.run_free(contract_ast)?;
+        pass.run(contract_ast, &mut LimitedCostTracker::new_free())?;
         Ok(())
     }
 
@@ -92,51 +92,6 @@ impl<'a> DefinitionSorter {
             accounting,
             self.graph.edges_count()?
         )?;
-
-        let mut walker = GraphWalker::new();
-        let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
-
-        if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let mut deps_props = vec![];
-            for i in deps.iter() {
-                let exp = &contract_ast.pre_expressions[*i];
-                if let Some(def) = self.find_expression_definition(&exp) {
-                    deps_props.push(def);
-                }
-            }
-            let functions_names = deps_props.iter().map(|i| i.0.to_string()).collect();
-
-            let error = ParseError::new(ParseErrors::CircularReference(functions_names));
-            return Err(error);
-        }
-
-        contract_ast.top_level_expression_sorting = Some(sorted_indexes);
-        Ok(())
-    }
-
-    pub fn run_free(
-        &mut self,
-        contract_ast: &mut ContractAST,
-    ) -> ParseResult<()> {
-        let exprs = contract_ast.pre_expressions[..].to_vec();
-        for (expr_index, expr) in exprs.iter().enumerate() {
-            self.graph.add_node(expr_index);
-
-            match self.find_expression_definition(expr) {
-                Some((definition_name, atom_index, _)) => {
-                    let tle = TopLevelExpressionIndex {
-                        expr_index,
-                        atom_index,
-                    };
-                    self.top_level_expressions_map.insert(definition_name, tle);
-                }
-                None => {}
-            }
-        }
-
-        for (expr_index, expr) in exprs.iter().enumerate() {
-            self.probe_for_dependencies(&expr, expr_index)?;
-        }
 
         let mut walker = GraphWalker::new();
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
