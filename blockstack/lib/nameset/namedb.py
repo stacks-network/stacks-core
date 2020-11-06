@@ -149,6 +149,7 @@ class BlockstackDB(virtualchain.StateEngine):
 
         self.v2_migration_export = blockstack_opts['v2_migration_export']
         self.v2_migration_export_test_interval = blockstack_opts['v2_migration_export_test_interval']
+        self.v2_migration_export_dir = blockstack_opts['v2_migration_export_dir']
 
     @classmethod
     def get_readonly_instance(cls, working_dir, expected_snapshots={}):
@@ -1167,8 +1168,15 @@ class BlockstackDB(virtualchain.StateEngine):
         if not self.v2_migration_export:
             return
 
-        export_file_path = os.path.abspath(os.path.join( self.working_dir, 'v2_migration_data.tar.gz'))
-        consensus_hash_file_path = os.path.abspath(os.path.join( self.working_dir, 'v2_migration_data.consensus_hash.txt'))
+        migration_dir = os.path.abspath(self.working_dir)
+        if self.v2_migration_export_dir:
+            migration_dir = os.path.abspath(self.v2_migration_export_dir)
+
+        if not os.path.exists(migration_dir):
+            os.makedirs(migration_dir)
+
+        export_file_path = os.path.join(migration_dir, 'v2_migration_data.tar.gz')
+        consensus_hash_file_path = os.path.join(migration_dir, 'v2_migration_data.consensus_hash.txt')
         if os.path.exists(export_file_path):
             log.warn('v2_migration_data already exists at {}'.format(export_file_path))
             return

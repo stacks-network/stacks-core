@@ -3412,7 +3412,8 @@ def run_blockstackd():
 
                # have old state.  keep it around for later inspection
                target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
-               os.makedirs(target_dir)
+               if not os.path.exists( target_dir ):
+                   os.makedirs(target_dir)
                for sp in state_paths:
                    if os.path.exists(sp):
                       target = os.path.join( target_dir, os.path.basename(sp) )
