@@ -68,6 +68,21 @@ pub fn build_ast<T: CostTracker>(
     Ok(contract_ast)
 }
 
+pub fn build_ast_free(
+    contract_identifier: &QualifiedContractIdentifier,
+    source_code: &str,
+) -> ParseResult<ContractAST> {
+    let pre_expressions = parser::parse(source_code)?;
+    let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
+    StackDepthChecker::run_pass(&mut contract_ast)?;
+    ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast)?;
+    DefinitionSorter::run_pass_free(&mut contract_ast)?;
+    TraitsResolver::run_pass(&mut contract_ast)?;
+    SugarExpander::run_pass(&mut contract_ast)?;
+    ExpressionIdentifier::run_expression_pass(&mut contract_ast)?;
+    Ok(contract_ast)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

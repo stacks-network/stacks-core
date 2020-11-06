@@ -30,9 +30,7 @@ use vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use vm::errors::{
-    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
-};
+use vm::errors::{CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType, InterpreterResult};
 use vm::types::QualifiedContractIdentifier;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
@@ -53,6 +51,8 @@ pub struct MarfedKV {
 pub struct MemoryBackingStore {
     side_store: SqliteConnection,
 }
+
+pub struct NullBackingStore {}
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
@@ -592,5 +592,61 @@ impl ClarityBackingStore for MemoryBackingStore {
         for (key, value) in items.drain(..) {
             self.side_store.put(&key, &value);
         }
+    }
+}
+
+impl NullBackingStore {
+    pub fn new() -> Self {
+        NullBackingStore {}
+    }
+
+    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    }
+
+    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+        AnalysisDatabase::new(self)
+    }
+}
+
+impl ClarityBackingStore for NullBackingStore {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+    }
+
+    fn get(&mut self, key: &str) -> Option<String> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
+    fn get_side_store(&mut self) -> &mut SqliteConnection {
+        panic!("NullBackingStore has no side store")
+    }
+
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+        if height == 0 {
+            Some(StacksBlockId::sentinel())
+        } else {
+            None
+        }
+    }
+
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        StacksBlockId::sentinel()
+    }
+
+    fn get_open_chain_tip_height(&mut self) -> u32 {
+        0
+    }
+
+    fn get_current_block_height(&mut self) -> u32 {
+        0
+    }
+
+    fn put_all(&mut self, mut items: Vec<(String, String)>) {
+        panic!("NullBackingStore cannot put")
     }
 }

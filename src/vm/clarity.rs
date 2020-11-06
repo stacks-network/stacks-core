@@ -320,7 +320,7 @@ impl ClarityInstance {
             .as_mut()
             .unwrap()
             .as_clarity_db(header_db, burn_state_db);
-        let mut env = OwnedEnvironment::new(clarity_db);
+        let mut env = OwnedEnvironment::new_free(clarity_db);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
