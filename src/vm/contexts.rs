@@ -432,6 +432,14 @@ impl<'a> OwnedEnvironment<'a> {
         }
     }
 
+    pub fn new_free(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        OwnedEnvironment {
+            context: GlobalContext::new(database, LimitedCostTracker::new_free()),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            call_stack: CallStack::new(),
+        }
+    }
+
     pub fn new_cost_limited(
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
