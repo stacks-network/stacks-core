@@ -598,6 +598,12 @@ impl<'a> OwnedEnvironment<'a> {
 }
 
 impl CostTracker for Environment<'_, '_> {
+    fn compute_cost(
+        &mut self,
+        cost_function: ClarityCostFunction,
+        input: u64) -> std::result::Result<ExecutionCost, CostErrors> {
+        self.global_context.cost_track.compute_cost(cost_function, input)
+    }
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.global_context.cost_track.add_cost(cost)
     }
@@ -613,6 +619,13 @@ impl CostTracker for Environment<'_, '_> {
 }
 
 impl CostTracker for GlobalContext<'_> {
+    fn compute_cost(
+        &mut self,
+        cost_function: ClarityCostFunction,
+        input: u64) -> std::result::Result<ExecutionCost, CostErrors> {
+        self.cost_track.compute_cost(cost_function, input)
+    }
+
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_cost(cost)
     }
