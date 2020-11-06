@@ -26,7 +26,8 @@ use vm::analysis::type_checker::{
     TypingContext,
 };
 
-use vm::costs::{analysis_typecheck_cost, cost_functions};
+use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use vm::costs::cost_functions::ClarityCostFunction;
 
 fn check_and_type_map_arg_tuple(
     checker: &mut TypeChecker,
@@ -37,8 +38,8 @@ fn check_and_type_map_arg_tuple(
         Explicit => checker.type_check(expr, context),
         Implicit(ref inner_expr) => {
             let type_result = check_special_tuple_cons(checker, inner_expr, context)?;
-            runtime_cost!(
-                cost_functions::ANALYSIS_TYPE_ANNOTATE,
+            runtime_cost(
+                ClarityCostFunction::AnalysisTypeAnnotate,
                 checker,
                 type_result.type_size()?
             )?;
@@ -64,13 +65,13 @@ pub fn check_special_fetch_entry(
         .get_map_type(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
         expected_key_type.type_size()?
     )?;
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
         value_type.type_size()?
     )?;
@@ -104,8 +105,8 @@ pub fn check_special_delete_entry(
         .get_map_type(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
         expected_key_type.type_size()?
     )?;
@@ -138,13 +139,13 @@ fn check_set_or_insert_entry(
         .get_map_type(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
         expected_key_type.type_size()?
     )?;
-    runtime_cost!(
-        cost_functions::ANALYSIS_TYPE_LOOKUP,
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
         value_type.type_size()?
     )?;

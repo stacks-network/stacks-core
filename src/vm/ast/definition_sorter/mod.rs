@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use vm::ast::types::{BuildASTPass, ContractAST};
-use vm::costs::{cost_functions, CostTracker};
+use vm::costs::{cost_functions, CostTracker, runtime_cost};
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::representations::PreSymbolicExpressionType::{
@@ -27,6 +27,7 @@ use vm::representations::PreSymbolicExpressionType::{
 };
 use vm::representations::{ClarityName, PreSymbolicExpression};
 use vm::types::Value;
+use vm::costs::cost_functions::ClarityCostFunction;
 
 #[cfg(test)]
 mod tests;
@@ -86,8 +87,8 @@ impl<'a> DefinitionSorter {
             self.probe_for_dependencies(&expr, expr_index)?;
         }
 
-        runtime_cost!(
-            cost_functions::AST_CYCLE_DETECTION,
+        runtime_cost(
+            ClarityCostFunction::AstCycleDetection,
             accounting,
             self.graph.edges_count()?
         )?;

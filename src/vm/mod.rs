@@ -45,9 +45,7 @@ pub mod tests;
 use vm::callables::CallableType;
 use vm::contexts::GlobalContext;
 use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
-use vm::costs::{
-    cost_functions, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer,
-};
+use vm::costs::{cost_functions, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost};
 use vm::database::MemoryBackingStore;
 use vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -60,9 +58,10 @@ pub use vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
 
-use std::convert::TryInto;
+use std::convert::{TryInto, TryFrom};
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
 pub use vm::functions::{get_stx_balance_snapshot, stx_transfer_consolidated};
+use vm::costs::cost_functions::ClarityCostFunction;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -77,12 +76,12 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
         if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
             Ok(value)
         } else {
-            runtime_cost!(cost_functions::LOOKUP_VARIABLE_DEPTH, env, context.depth())?;
+            runtime_cost(ClarityCostFunction::LookupVariableDepth, env, context.depth())?;
             if let Some(value) = context
                 .lookup_variable(name)
                 .or_else(|| env.contract_context.lookup_variable(name))
             {
-                runtime_cost!(cost_functions::LOOKUP_VARIABLE_SIZE, env, value.size())?;
+                runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
                 Ok(value.clone())
             } else if let Some(value) = context.lookup_callable_contract(name) {
                 let contract_identifier = &value.0;
@@ -97,7 +96,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
 }
 
 pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
-    runtime_cost!(cost_functions::LOOKUP_FUNCTION, env, 0)?;
+    runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
 
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
@@ -176,9 +175,9 @@ pub fn apply(
         }
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
-                let arg_size = evaluated_args.len();
-                runtime_cost!(cost_function, env, arg_size)?;
-                function.apply(evaluated_args)
+                runtime_cost(*cost_function, env, evaluated_args.len())
+                    .map_err(Error::from)
+                    .and_then(|_| function.apply(evaluated_args))
             }
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
             _ => panic!("Should be unreachable."),
@@ -252,7 +251,7 @@ fn eval_all(
             })?;
             match try_define {
                 DefineResult::Variable(name, value) => {
-                    runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+                    runtime_cost(ClarityCostFunction::BindName, global_context, 0)?;
                     let value_memory_use = value.get_memory_use();
                     global_context.add_memory(value_memory_use)?;
                     total_memory_use += value_memory_use;
@@ -260,12 +259,12 @@ fn eval_all(
                     contract_context.variables.insert(name, value);
                 },
                 DefineResult::Function(name, value) => {
-                    runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+                    runtime_cost(ClarityCostFunction::BindName, global_context, 0)?;
 
                     contract_context.functions.insert(name, value);
                 },
                 DefineResult::PersistedVariable(name, value_type, value) => {
-                    runtime_cost!(cost_functions::CREATE_VAR, global_context, value_type.size())?;
+                    runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size())?;
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(value_type.type_size()
@@ -277,7 +276,7 @@ fn eval_all(
                     global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
                 },
                 DefineResult::Map(name, key_type, value_type) => {
-                    runtime_cost!(cost_functions::CREATE_MAP, global_context,
+                    runtime_cost(ClarityCostFunction::CreateMap, global_context,
                                   u64::from(key_type.size()).cost_overflow_add(
                                       u64::from(value_type.size()))?)?;
                     contract_context.persisted_names.insert(name.clone());
@@ -290,7 +289,7 @@ fn eval_all(
                     global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
                 },
                 DefineResult::FungibleToken(name, total_supply) => {
-                    runtime_cost!(cost_functions::CREATE_FT, global_context, 0)?;
+                    runtime_cost(ClarityCostFunction::CreateFt, global_context, 0)?;
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(TypeSignature::UIntType.type_size()
@@ -299,7 +298,7 @@ fn eval_all(
                     global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
                 },
                 DefineResult::NonFungibleAsset(name, asset_type) => {
-                    runtime_cost!(cost_functions::CREATE_NFT, global_context, asset_type.size())?;
+                    runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_type.size())?;
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(asset_type.type_size()
