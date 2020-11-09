@@ -1,10 +1,26 @@
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::VecDeque;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
 
 use burnchains::{
     db::{BurnchainBlockData, BurnchainDB},
-    Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError,
+    Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Error as BurnchainError, Txid,
 };
 use chainstate::burn::{
     db::sortdb::{PoxId, SortitionDB, SortitionId},
@@ -12,13 +28,18 @@ use chainstate::burn::{
     BlockHeaderHash, BlockSnapshot, ConsensusHash,
 };
 use chainstate::stacks::{
+    boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS,
     db::{ClarityTx, StacksChainState, StacksHeaderInfo},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
 use monitoring::increment_stx_blocks_processed_counter;
 use util::db::Error as DBError;
-use vm::{costs::ExecutionCost, types::PrincipalData};
+use vm::{
+    costs::ExecutionCost,
+    types::{PrincipalData, QualifiedContractIdentifier},
+    Value,
+};
 
 pub mod comm;
 use chainstate::stacks::index::MarfTrieId;
@@ -86,6 +107,7 @@ pub trait BlockEventDispatcher {
         metadata: StacksHeaderInfo,
         receipts: Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
+        winner_txid: Txid,
     );
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
@@ -161,10 +183,35 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<Vec<StacksAddress>, Error> {
-        let res =
+        let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
-        let addresses = res.iter().map(|a| a.0).collect::<Vec<StacksAddress>>();
-        Ok(addresses)
+
+        let liquid_ustx = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+            chainstate.headers_db(),
+            block_id,
+        )?
+        .expect("CORRUPTION: Failed to look up block header info for PoX anchor block")
+        .total_liquid_ustx;
+
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            &burnchain.pox_constants,
+            &registered_addrs,
+            liquid_ustx,
+        );
+
+        if !burnchain
+            .pox_constants
+            .enough_participation(participation, liquid_ustx)
+        {
+            info!("PoX reward cycle did not have enough participation. Defaulting to burn. participation={}, liquid_ustx={}, burn_height={}",
+                  participation, liquid_ustx, current_burn_height);
+            return Ok(vec![]);
+        }
+
+        Ok(StacksChainState::make_reward_set(
+            threshold,
+            registered_addrs,
+        ))
     }
 }
 
@@ -196,7 +243,32 @@ impl<'a, T: BlockEventDispatcher>
             stacks_chain_id,
             chain_state_path,
             initial_balances,
-            boot_block_exec,
+            |clarity_tx| {
+                let burnchain = burnchain.clone();
+                let contract = QualifiedContractIdentifier::parse(&format!(
+                    "{}.pox",
+                    STACKS_BOOT_CODE_CONTRACT_ADDRESS
+                ))
+                .expect("Failed to construct boot code contract address");
+                let sender = PrincipalData::from(contract.clone());
+
+                clarity_tx.connection().as_transaction(|conn| {
+                    conn.run_contract_call(
+                        &sender,
+                        &contract,
+                        "set-burnchain-parameters",
+                        &[
+                            Value::UInt(burnchain.first_block_height as u128),
+                            Value::UInt(burnchain.pox_constants.prepare_length as u128),
+                            Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
+                            Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
+                        ],
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX contract");
+                });
+                boot_block_exec(clarity_tx)
+            },
             block_limit,
         )
         .unwrap();
@@ -501,15 +573,16 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     &block_receipt.header.anchored_header.block_hash(),
                 )?;
                 if in_sortition_set {
-                    let new_canonical_stacks_block = SortitionDB::get_block_snapshot(
+                    let new_canonical_block_snapshot = SortitionDB::get_block_snapshot(
                         self.sortition_db.conn(),
                         canonical_sortition_tip,
                     )?
                     .expect(&format!(
                         "FAIL: could not find data for the canonical sortition {}",
                         canonical_sortition_tip
-                    ))
-                    .get_canonical_stacks_block_id();
+                    ));
+                    let new_canonical_stacks_block =
+                        new_canonical_block_snapshot.get_canonical_stacks_block_id();
                     self.canonical_chain_tip = Some(new_canonical_stacks_block);
                     debug!("Bump blocks processed");
                     self.notifier.notify_stacks_block_processed();
@@ -518,6 +591,15 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
                     if let Some(dispatcher) = self.dispatcher {
                         let metadata = &block_receipt.header;
+                        let winner_txid = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &self.sortition_db.index_conn(),
+                            canonical_sortition_tip,
+                            &block_hash,
+                        )
+                        .expect("FAIL: could not find block snapshot for winning block hash")
+                        .expect("FAIL: could not find block snapshot for winning block hash")
+                        .winning_block_txid;
+
                         let block: StacksBlock = {
                             let block_path = StacksChainState::get_block_path(
                                 &self.chain_state_db.blocks_path,
@@ -538,6 +620,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             block_receipt.header,
                             block_receipt.tx_receipts,
                             &parent,
+                            winner_txid,
                         );
                     }
 

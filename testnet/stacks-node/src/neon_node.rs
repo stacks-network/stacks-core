@@ -2,13 +2,14 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use crate::config::HELIUM_BLOCK_LIMIT;
 use crate::run_loop::RegisteredKey;
 
+use std::cmp;
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, PublicKey, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionId};
 use stacks::chainstate::burn::operations::{
     leader_block_commit::RewardSetInfo, BlockstackOperationType, LeaderBlockCommitOp,
@@ -35,6 +36,7 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, NetworkResult, PeerAddress, StacksMessageCodec,
 };
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::strings::UrlString;
@@ -42,6 +44,8 @@ use stacks::util::vrf::VRFPublicKey;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
+use crate::syncctl::PoxSyncWatchdogComms;
+
 use crate::ChainTip;
 use stacks::burnchains::BurnchainSigner;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -63,6 +67,7 @@ struct AssembledAnchorBlock {
     anchored_block: StacksBlock,
     consumed_execution: ExecutionCost,
     bytes_so_far: u64,
+    attempt: u64,
 }
 
 enum RelayerDirective {
@@ -85,6 +90,7 @@ pub struct NeonGenesisNode {
     pub config: Config,
     keychain: Keychain,
     event_dispatcher: EventDispatcher,
+    burnchain: Burnchain,
 }
 
 #[cfg(test)]
@@ -192,7 +198,7 @@ fn rotate_vrf_and_register(
     );
 
     let mut one_off_signer = keychain.generate_op_signer();
-    btc_controller.submit_operation(op, &mut one_off_signer);
+    btc_controller.submit_operation(op, &mut one_off_signer, 1);
 }
 
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
@@ -208,12 +214,7 @@ fn inner_generate_block_commit_op(
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
 
-    let commit_outs = if let Some(recipient_set) = recipients {
-        let (addr, _) = recipient_set.recipient;
-        vec![addr]
-    } else {
-        vec![]
-    };
+    let commit_outs = RewardSetInfo::into_commit_outs(recipients, false);
 
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
@@ -240,6 +241,7 @@ fn spawn_peer(
     config: Config,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
+    mut sync_comms: PoxSyncWatchdogComms,
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path();
@@ -271,6 +273,9 @@ fn spawn_peer(
         };
 
         let mut disconnected = false;
+        let mut num_p2p_state_machine_passes = 0;
+        let mut num_inv_sync_passes = 0;
+
         while !disconnected {
             let download_backpressure = results_with_data.len() > 0;
             let poll_ms = if !download_backpressure && this.has_more_downloads() {
@@ -312,6 +317,18 @@ fn spawn_peer(
                     panic!();
                 }
             };
+
+            if num_p2p_state_machine_passes < network_result.num_state_machine_passes {
+                // p2p state-machine did a full pass. Notify anyone listening.
+                sync_comms.notify_p2p_state_pass();
+                num_p2p_state_machine_passes = network_result.num_state_machine_passes;
+            }
+
+            if num_inv_sync_passes < network_result.num_inv_sync_passes {
+                // inv-sync state-machine did a full pass. Notify anyone listening.
+                sync_comms.notify_inv_sync_pass();
+                num_inv_sync_passes = network_result.num_inv_sync_passes;
+            }
 
             if network_result.has_data_to_store() {
                 results_with_data.push_back(RelayerDirective::HandleNetResult(network_result));
@@ -383,7 +400,7 @@ fn spawn_miner_relayer(
     let mut mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
         .map_err(NetError::DBError)?;
 
-    let mut last_mined_block: Option<AssembledAnchorBlock> = None;
+    let mut last_mined_blocks = vec![];
     let burn_fee_cap = config.burnchain.burn_fee_cap;
     let mine_microblocks = config.node.mine_microblocks;
 
@@ -412,14 +429,15 @@ fn spawn_miner_relayer(
                 }
                 RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
                     debug!("Relayer: Process tenure");
-                    if let Some(my_mined) = last_mined_block.take() {
+                    for last_mined_block in last_mined_blocks.drain(..) {
                         let AssembledAnchorBlock {
                             parent_consensus_hash,
                             anchored_block: mined_block,
                             my_burn_hash: mined_burn_hash,
                             consumed_execution,
                             bytes_so_far,
-                        } = my_mined;
+                            attempt: _,
+                        } = last_mined_block;
                         if mined_block.block_hash() == block_header_hash
                             && burn_hash == mined_burn_hash
                         {
@@ -549,14 +567,18 @@ fn spawn_miner_relayer(
                                 }
                             }
                         } else {
-                            warn!("Did not win sortition, my blocks [burn_hash= {}, block_hash= {}], their blocks [parent_consenus_hash= {}, burn_hash= {}, block_hash ={}]",
+                            debug!("Did not win sortition, my blocks [burn_hash= {}, block_hash= {}], their blocks [parent_consenus_hash= {}, burn_hash= {}, block_hash ={}]",
                                   mined_burn_hash, mined_block.block_hash(), parent_consensus_hash, burn_hash, block_header_hash);
                         }
                     }
+                    last_mined_blocks.clear();
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block) => {
-                    debug!("Relayer: Run tenure");
-                    last_mined_block = InitializedNeonNode::relayer_run_tenure(
+                    debug!(
+                        "Relayer: Run tenure at height {} ({})",
+                        last_burn_block.block_height, &last_burn_block.burn_header_hash
+                    );
+                    let last_mined_block_opt = InitializedNeonNode::relayer_run_tenure(
                         &config,
                         registered_key,
                         &mut chainstate,
@@ -567,8 +589,15 @@ fn spawn_miner_relayer(
                         &mut mem_pool,
                         burn_fee_cap,
                         &mut bitcoin_controller,
+                        &last_mined_blocks,
                     );
-                    bump_processed_counter(&blocks_processed);
+                    if let Some(last_mined_block) = last_mined_block_opt {
+                        if last_mined_blocks.len() == 0 {
+                            // (for testing) only bump once per epoch
+                            bump_processed_counter(&blocks_processed);
+                        }
+                        last_mined_blocks.push(last_mined_block);
+                    }
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
                     debug!("Relayer: Register key");
@@ -596,18 +625,13 @@ impl InitializedNeonNode {
         miner: bool,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        sync_comms: PoxSyncWatchdogComms,
+        burnchain: Burnchain,
     ) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
             .expect("Error while instantiating sortition db");
-
-        let burnchain = Burnchain::new(
-            &config.get_burn_db_path(),
-            &config.burnchain.chain,
-            "regtest",
-        )
-        .expect("Error while instantiating burnchain");
 
         let view = {
             let ic = sortdb.index_conn();
@@ -652,7 +676,7 @@ impl InitializedNeonNode {
             my_private_key
         };
 
-        let peerdb = PeerDB::connect(
+        let mut peerdb = PeerDB::connect(
             &config.get_peer_db_path(),
             true,
             TESTNET_CHAIN_ID,
@@ -666,6 +690,22 @@ impl InitializedNeonNode {
             Some(&initial_neighbors),
         )
         .unwrap();
+
+        println!("DENY NEIGHBORS {:?}", &config.node.deny_nodes);
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            for denied in config.node.deny_nodes.iter() {
+                PeerDB::set_deny_peer(
+                    &mut tx,
+                    denied.addr.network_id,
+                    &denied.addr.addrbytes,
+                    denied.addr.port,
+                    get_epoch_time_secs() + 24 * 365 * 3600,
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -712,6 +752,7 @@ impl InitializedNeonNode {
             config.clone(),
             5000,
             relay_send.clone(),
+            sync_comms,
         )
         .expect("Failed to initialize mine/relay thread");
 
@@ -833,35 +874,8 @@ impl InitializedNeonNode {
         mem_pool: &mut MemPoolDB,
         burn_fee_cap: u64,
         bitcoin_controller: &mut BitcoinRegtestController,
+        last_mined_blocks: &Vec<AssembledAnchorBlock>,
     ) -> Option<AssembledAnchorBlock> {
-        // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = match keychain.generate_proof(
-            &registered_key.vrf_public_key,
-            burn_block.sortition_hash.as_bytes(),
-        ) {
-            Some(vrfp) => vrfp,
-            None => {
-                error!(
-                    "Failed to generate proof with {:?}",
-                    &registered_key.vrf_public_key
-                );
-                return None;
-            }
-        };
-
-        debug!(
-            "Generated VRF Proof: {} over {} with key {}",
-            vrf_proof.to_hex(),
-            &burn_block.sortition_hash,
-            &registered_key.vrf_public_key.to_hex()
-        );
-
-        // Generates a new secret key for signing the trail of microblocks
-        // of the upcoming tenure.
-        let microblock_secret_key = keychain.rotate_microblock_keypair();
-        let mblock_pubkey_hash =
-            Hash160::from_data(&StacksPublicKey::from_private(&microblock_secret_key).to_bytes());
-
         let (
             stacks_parent_header,
             parent_consensus_hash,
@@ -924,9 +938,18 @@ impl InitializedNeonNode {
                     }
                 };
 
-            debug!("Mining tenure's last consensus hash: {} (height {}), stacks tip consensus hash: {} (height {})",
-                       &burn_block.consensus_hash, burn_block.block_height,
-                       &stacks_tip.consensus_hash, parent_snapshot.block_height);
+            // don't mine off of an old burnchain block
+            let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
+                .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+
+            if burn_chain_tip.consensus_hash != burn_block.consensus_hash {
+                debug!("New canonical burn chain tip detected: {} ({}) > {} ({}). Will not try to mine.", burn_chain_tip.consensus_hash, burn_chain_tip.block_height, &burn_block.consensus_hash, &burn_block.block_height);
+                return None;
+            }
+
+            debug!("Mining tenure's last consensus hash: {} (height {} hash {}), stacks tip consensus hash: {} (height {} hash {})",
+                       &burn_block.consensus_hash, burn_block.block_height, &burn_block.burn_header_hash,
+                       &stacks_tip.consensus_hash, parent_snapshot.block_height, &parent_snapshot.burn_header_hash);
 
             let coinbase_nonce = {
                 let principal = keychain.origin_address().unwrap().into();
@@ -963,6 +986,57 @@ impl InitializedNeonNode {
             )
         };
 
+        // has the tip changed from our previously-mined block for this epoch?
+        let attempt = {
+            let mut best_attempt = 1;
+            for prev_block in last_mined_blocks.iter() {
+                if prev_block.parent_consensus_hash == parent_consensus_hash
+                    && prev_block.my_burn_hash == burn_block.burn_header_hash
+                    && prev_block.anchored_block.header.parent_block
+                        == stacks_parent_header.anchored_header.block_hash()
+                {
+                    // the chain tip hasn't changed since we attempted to build a block.  Use what we
+                    // already have.
+                    debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {})",
+                           &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
+                           prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
+
+                    return None;
+                } else {
+                    best_attempt = cmp::max(best_attempt, prev_block.attempt + 1);
+                }
+            }
+            best_attempt
+        };
+
+        // Generates a proof out of the sortition hash provided in the params.
+        let vrf_proof = match keychain.generate_proof(
+            &registered_key.vrf_public_key,
+            burn_block.sortition_hash.as_bytes(),
+        ) {
+            Some(vrfp) => vrfp,
+            None => {
+                error!(
+                    "Failed to generate proof with {:?}",
+                    &registered_key.vrf_public_key
+                );
+                return None;
+            }
+        };
+
+        debug!(
+            "Generated VRF Proof: {} over {} with key {}",
+            vrf_proof.to_hex(),
+            &burn_block.sortition_hash,
+            &registered_key.vrf_public_key.to_hex()
+        );
+
+        // Generates a new secret key for signing the trail of microblocks
+        // of the upcoming tenure.
+        let microblock_secret_key = keychain.rotate_microblock_keypair();
+        let mblock_pubkey_hash =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
+
         let coinbase_tx = inner_generate_coinbase_tx(keychain, coinbase_nonce);
 
         let (anchored_block, consumed_execution, bytes_so_far) =
@@ -985,14 +1059,15 @@ impl InitializedNeonNode {
             };
 
         info!(
-            "{} block assembled: {}, with {} txs",
+            "{} block assembled: {}, with {} txs, attempt {}",
             if parent_block_total_burn == 0 {
                 "Genesis"
             } else {
                 "Stacks"
             },
             anchored_block.block_hash(),
-            anchored_block.txs.len()
+            anchored_block.txs.len(),
+            attempt
         );
 
         // let's figure out the recipient set!
@@ -1023,7 +1098,7 @@ impl InitializedNeonNode {
             recipients,
         );
         let mut op_signer = keychain.generate_op_signer();
-        bitcoin_controller.submit_operation(op, &mut op_signer);
+        bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
 
         Some(AssembledAnchorBlock {
             parent_consensus_hash: parent_consensus_hash,
@@ -1031,11 +1106,13 @@ impl InitializedNeonNode {
             consumed_execution,
             anchored_block,
             bytes_so_far,
+            attempt,
         })
     }
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
     /// and inspecting if a sortition was won.
+    /// `ibd`: boolean indicating whether or not we are in the initial block download
     pub fn process_burnchain_state(
         &mut self,
         sortdb: &SortitionDB,
@@ -1117,7 +1194,12 @@ impl InitializedNeonNode {
 
 impl NeonGenesisNode {
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: Config, mut event_dispatcher: EventDispatcher, boot_block_exec: F) -> Self
+    pub fn new<F>(
+        config: Config,
+        mut event_dispatcher: EventDispatcher,
+        burnchain: Burnchain,
+        boot_block_exec: F,
+    ) -> Self
     where
         F: FnOnce(&mut ClarityTx) -> (),
     {
@@ -1151,6 +1233,7 @@ impl NeonGenesisNode {
             keychain,
             config,
             event_dispatcher,
+            burnchain,
         }
     }
 
@@ -1159,6 +1242,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        sync_comms: PoxSyncWatchdogComms,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1172,6 +1256,8 @@ impl NeonGenesisNode {
             true,
             blocks_processed,
             coord_comms,
+            sync_comms,
+            self.burnchain,
         )
     }
 
@@ -1180,6 +1266,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         coord_comms: CoordinatorChannels,
+        sync_comms: PoxSyncWatchdogComms,
     ) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
@@ -1193,6 +1280,8 @@ impl NeonGenesisNode {
             false,
             blocks_processed,
             coord_comms,
+            sync_comms,
+            self.burnchain,
         )
     }
 }

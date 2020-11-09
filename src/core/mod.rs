@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // This module contains the "main loop" that drives everything
 use burnchains::Error as burnchain_error;
@@ -61,8 +58,18 @@ pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20
 
 pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
+pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
+
 pub const POX_PREPARE_WINDOW_LENGTH: u32 = 240;
 pub const POX_REWARD_CYCLE_LENGTH: u32 = 1000;
+/// The maximum amount that PoX rewards can be scaled by.
+///  That is, if participation is very low, rewards are:
+///      POX_MAXIMAL_SCALING x (rewards with 100% participation)
+///  Set a 4x, this implies the lower bound of participation for scaling
+///   is 25%
+pub const POX_MAXIMAL_SCALING: u128 = 4;
+/// This is the amount that PoX threshold adjustments are stepped by.
+pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u128);
 
 /// Synchronize burn transactions from the Bitcoin blockchain
 pub fn sync_burnchain_bitcoin(

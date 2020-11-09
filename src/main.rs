@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(unused_imports)]
 #![allow(dead_code)]
@@ -26,6 +23,9 @@
 #[macro_use]
 extern crate blockstack_lib;
 extern crate rusqlite;
+
+#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
+extern crate slog;
 
 use blockstack_lib::burnchains::db::BurnchainBlockData;
 use blockstack_lib::*;
@@ -57,8 +57,6 @@ use rusqlite::Connection;
 use rusqlite::OpenFlags;
 
 fn main() {
-    log::set_loglevel(log::LOG_INFO).unwrap();
-
     let mut argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
         eprintln!("Usage: {} command [args...]", argv[0]);
@@ -343,6 +341,14 @@ fn main() {
 
     if argv[1] == "docgen" {
         println!("{}", vm::docs::make_json_api_reference());
+        return;
+    }
+
+    if argv[1] == "docgen_boot" {
+        println!(
+            "{}",
+            vm::docs::contracts::make_json_boot_contracts_reference()
+        );
         return;
     }
 

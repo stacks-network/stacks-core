@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::db::{blocks::MemPoolRejection, ClarityTx, StacksChainState};
@@ -121,7 +118,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         miner_key: &Secp256k1PrivateKey,
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
-            Hash160::from_data(&StacksPublicKey::from_private(miner_key).to_bytes());
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
         if txs_to_broadcast.len() == 0 {
             return Err(Error::NoTransactionsToMine);
         }
@@ -389,7 +386,7 @@ impl StacksBlockBuilder {
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
             miner_id,
@@ -445,7 +442,7 @@ impl StacksBlockBuilder {
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+        let pubkh = Hash160::from_node_public_key(&pubk);
 
         let mut builder = StacksBlockBuilder::first_pubkey_hash(
             miner_id,
@@ -530,6 +527,8 @@ impl StacksBlockBuilder {
                     }
                     _ => e,
                 })?;
+
+            debug!("Include tx {}", tx.txid());
 
             // save
             self.txs.push(tx.clone());
@@ -671,8 +670,9 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {}, parent block {}, state root = {}",
+            "Miner: mined anchored block {} with {} txs, parent block {}, state root = {}",
             block.block_hash(),
+            block.txs.len(),
             &self.header.parent_block,
             state_root_hash
         );
@@ -865,7 +865,7 @@ impl StacksBlockBuilder {
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {
-                    test_debug!("Included {}", &tx.txid());
+                    debug!("Included {}", &tx.txid());
                 }
                 Err(Error::BlockTooBigError) => {
                     // done mining -- our execution budget is exceeded.

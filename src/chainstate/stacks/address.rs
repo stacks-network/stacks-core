@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::prelude::*;
 use std::io::{Read, Write};
@@ -41,10 +38,10 @@ use burnchains::PublicKey;
 
 use address::c32::c32_address_decode;
 
-use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
-
 use deps::bitcoin::blockdata::opcodes::All as BtcOp;
+use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use deps::bitcoin::blockdata::transaction::TxOut;
+use std::cmp::{Ord, Ordering};
 
 use burnchains::bitcoin::address::{
     address_type_to_version_byte, to_b52_version_byte, to_c32_version_byte,
@@ -78,6 +75,21 @@ impl From<StandardPrincipalData> for StacksAddress {
         StacksAddress {
             version: o.0,
             bytes: Hash160(o.1),
+        }
+    }
+}
+
+impl PartialOrd for StacksAddress {
+    fn partial_cmp(&self, other: &StacksAddress) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for StacksAddress {
+    fn cmp(&self, other: &StacksAddress) -> Ordering {
+        match self.version.cmp(&other.version) {
+            Ordering::Equal => self.bytes.cmp(&other.bytes),
+            inequality => inequality,
         }
     }
 }

@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blocstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
 use std::fmt;
@@ -24,6 +21,7 @@ use std::mem;
 
 use util::log;
 use util::pair::*;
+use util::secp256k1::Secp256k1PublicKey;
 use util::HexError;
 
 use ripemd160::Ripemd160;
@@ -31,6 +29,8 @@ use sha2::{Digest, Sha256, Sha512, Sha512Trunc256};
 use sha3::Keccak256;
 
 use util::uint::Uint256;
+
+use net::StacksPublicKeyBuffer;
 
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
@@ -185,6 +185,14 @@ impl Hash160 {
         let sha2_result = Sha256::digest(data);
         let ripe_160_result = Ripemd160::digest(sha2_result.as_slice());
         Hash160::from(ripe_160_result.as_slice())
+    }
+
+    pub fn from_node_public_key(pubkey: &Secp256k1PublicKey) -> Hash160 {
+        Hash160::from_data(&pubkey.to_bytes_compressed())
+    }
+
+    pub fn from_node_public_key_buffer(pubkey_buf: &StacksPublicKeyBuffer) -> Hash160 {
+        Hash160::from_data(pubkey_buf.as_bytes())
     }
 }
 

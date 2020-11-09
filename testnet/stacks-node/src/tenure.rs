@@ -4,7 +4,6 @@ use super::{BurnchainTip, Config};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use stacks::burnchains::PublicKey;
 use stacks::chainstate::burn::VRFSeed;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
@@ -50,7 +49,7 @@ impl<'a> Tenure {
     ) -> Tenure {
         let mut microblock_pubkey = StacksPublicKey::from_private(&microblock_secret_key);
         microblock_pubkey.set_compressed(true);
-        let microblock_pubkeyhash = Hash160::from_data(&microblock_pubkey.to_bytes());
+        let microblock_pubkeyhash = Hash160::from_node_public_key(&microblock_pubkey);
 
         let parent_block_total_burn = burnchain_tip.block_snapshot.total_burn;
 
