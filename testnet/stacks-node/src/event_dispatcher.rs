@@ -18,7 +18,7 @@ use stacks::chainstate::stacks::events::{
     FTEventType, NFTEventType, STXEventType, StacksTransactionEvent,
 };
 use stacks::chainstate::stacks::{
-    db::accounts::MinerReward, StacksAddress, StacksBlockId, StacksTransaction,
+    db::accounts::MinerReward, db::MinerRewardInfo, StacksAddress, StacksBlockId, StacksTransaction,
 };
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::bytes_to_hex;
@@ -270,13 +270,20 @@ impl BlockEventDispatcher for EventDispatcher {
         parent: &StacksBlockId,
         winner_txid: Txid,
         mature_rewards: Vec<MinerReward>,
+        mature_rewards_info: Option<MinerRewardInfo>,
     ) {
         let chain_tip = ChainTip {
             metadata,
             block,
             receipts,
         };
-        self.process_chain_tip(&chain_tip, parent, winner_txid, mature_rewards)
+        self.process_chain_tip(
+            &chain_tip,
+            parent,
+            winner_txid,
+            mature_rewards,
+            mature_rewards_info,
+        )
     }
 
     fn announce_burn_block(
@@ -340,6 +347,7 @@ impl EventDispatcher {
         parent_index_hash: &StacksBlockId,
         winner_txid: Txid,
         mature_rewards: Vec<MinerReward>,
+        mature_rewards_info: Option<MinerRewardInfo>,
     ) {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
@@ -416,21 +424,26 @@ impl EventDispatcher {
         }
 
         if dispatch_matrix.len() > 0 {
-            let mature_rewards_vec = mature_rewards
-                .iter()
-                .map(|reward| {
-                    json!({
-                        "recipient": reward.address.to_string(),
-                        "coinbase_amount": reward.coinbase.to_string(),
-                        "tx_fees_anchored_shared": reward.tx_fees_anchored_shared.to_string(),
-                        "tx_fees_anchored_exclusive": reward.tx_fees_anchored_exclusive.to_string(),
-                        "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),
-                        "from_stacks_block_hash": format!("0x{}", &reward.from_stacks_block_hash),
-                        "from_index_consensus_hash": format!("0x{}", StacksBlockId::new(&reward.from_block_consensus_hash,
-                                                                                        &reward.from_stacks_block_hash)),
+            let mature_rewards_vec = if let Some(rewards_info) = mature_rewards_info {
+                mature_rewards
+                    .iter()
+                    .map(|reward| {
+                        json!({
+                            "recipient": reward.address.to_string(),
+                            "coinbase_amount": reward.coinbase.to_string(),
+                            "tx_fees_anchored_shared": reward.tx_fees_anchored_shared.to_string(),
+                            "tx_fees_anchored_exclusive": reward.tx_fees_anchored_exclusive.to_string(),
+                            "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),
+                            "from_stacks_block_hash": format!("0x{}", &rewards_info.from_stacks_block_hash),
+                            "from_index_consensus_hash": format!("0x{}", StacksBlockId::new(&rewards_info.from_block_consensus_hash,
+                                                                                            &rewards_info.from_stacks_block_hash)),
+                        })
                     })
-                })
-                .collect();
+                    .collect()
+            } else {
+                vec![]
+            };
+
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
 
             for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {

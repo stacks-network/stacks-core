@@ -744,6 +744,7 @@ impl StacksBlockBuilder {
         let matured_miner_rewards_opt = {
             let mut tx = chainstate.headers_tx_begin()?;
             StacksChainState::find_mature_miner_rewards(&mut tx, &self.chain_tip, None)?
+                .map(|(rewards, _)| rewards)
         };
 
         self.miner_payouts = matured_miner_rewards_opt;

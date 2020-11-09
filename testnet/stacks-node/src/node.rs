@@ -652,6 +652,7 @@ impl Node {
             &parent_index_hash,
             Txid([0; 32]),
             vec![],
+            None,
         );
 
         self.chain_tip = Some(chain_tip.clone());

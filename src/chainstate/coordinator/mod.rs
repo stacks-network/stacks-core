@@ -30,7 +30,7 @@ use chainstate::burn::{
 };
 use chainstate::stacks::{
     boot::STACKS_BOOT_CODE_CONTRACT_ADDRESS,
-    db::{accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo},
+    db::{accounts::MinerReward, ClarityTx, MinerRewardInfo, StacksChainState, StacksHeaderInfo},
     events::StacksTransactionReceipt,
     Error as ChainstateError, StacksAddress, StacksBlock, StacksBlockHeader, StacksBlockId,
 };
@@ -110,6 +110,7 @@ pub trait BlockEventDispatcher {
         parent: &StacksBlockId,
         winner_txid: Txid,
         matured_rewards: Vec<MinerReward>,
+        matured_rewards_info: Option<MinerRewardInfo>,
     );
 
     /// called whenever a burn block is about to be
@@ -666,6 +667,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             &parent,
                             winner_txid,
                             block_receipt.matured_rewards,
+                            block_receipt.matured_rewards_info,
                         );
                     }
 

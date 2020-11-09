@@ -57,8 +57,6 @@ pub struct MinerReward {
     pub tx_fees_streamed_produced: u128,
     pub tx_fees_streamed_confirmed: u128,
     pub vtxindex: u32, // will be 0 for the reward to the miner, and >0 for user burn supports
-    pub from_block_consensus_hash: ConsensusHash,
-    pub from_stacks_block_hash: BlockHeaderHash,
 }
 
 impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
@@ -592,8 +590,6 @@ impl StacksChainState {
             tx_fees_streamed_produced: 0,
             tx_fees_streamed_confirmed: 0,
             vtxindex: miner.vtxindex,
-            from_stacks_block_hash: miner.block_hash.clone(),
-            from_block_consensus_hash: miner.consensus_hash.clone(),
         };
         miner_reward
     }
@@ -604,11 +600,11 @@ impl StacksChainState {
     /// scheduled miner payments to the cache.  Miner payments are immutable once written, and are
     /// keyed to the index block hash (which is globally unique), so once cached, no invalidation
     /// should be necessary.
-    pub fn find_mature_miner_rewards<'a>(
-        tx: &mut StacksDBTx<'a>,
+    pub fn find_mature_miner_rewards(
+        tx: &mut StacksDBTx,
         tip: &StacksHeaderInfo,
         mut cache: Option<&mut MinerPaymentCache>,
-    ) -> Result<Option<Vec<MinerReward>>, Error> {
+    ) -> Result<Option<(Vec<MinerReward>, MinerRewardInfo)>, Error> {
         if tip.block_height <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
             // no mature rewards exist
             return Ok(None);
@@ -716,6 +712,11 @@ impl StacksChainState {
             assert_eq!(*scheduled_payments.last().unwrap(), rs_miners_after);
         }
 
+        let matured_rewards_info = MinerRewardInfo {
+            from_stacks_block_hash: matured_miners.0.block_hash.clone(),
+            from_block_consensus_hash: matured_miners.0.consensus_hash.clone(),
+        };
+
         let mut rewards = vec![];
         let miner_reward =
             StacksChainState::calculate_miner_reward(&matured_miners.0, &scheduled_payments);
@@ -725,7 +726,7 @@ impl StacksChainState {
             let reward = StacksChainState::calculate_miner_reward(user_reward, &scheduled_payments);
             rewards.push(reward);
         }
-        Ok(Some(rewards))
+        Ok(Some((rewards, matured_rewards_info)))
     }
 }
 
