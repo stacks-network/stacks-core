@@ -3746,10 +3746,15 @@ def run_blockstackd():
         names = []
         for name_str in name_entries:
             name_info = load_name_info(db, name_str, block)
+            if name_info['revoked']:
+                continue
+            if name_info['expired']:
+                continue
             name = {}
             name['name'] = name_info['name']
             name['address'] = b58ToC32(str(name_info['address']))
             name['expire_block'] = name_info['expire_block']
+            name['registered_at'] = max(name_info['first_registered'], name_info['last_renewed'])
             if 'zonefile' not in name_info or name_info['zonefile'] is None:
                 # print 'missing zonefile for {}'.format(name)
                 name['zonefile'] = ""
