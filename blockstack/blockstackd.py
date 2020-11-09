@@ -3790,7 +3790,7 @@ def run_blockstackd():
         json_output_path = os.path.join(output_dir, 'chainstate.json')
         json_hash_output_path = json_output_path + '.sha256'
         with open(json_output_path, 'w') as json_out:
-            json.dump(json_data, json_out, separators=(',', ':'), check_circular=False, ensure_ascii=False)
+            json.dump(json_data, json_out, separators=(',', ':'), check_circular=False)
             json_out.flush()
 
         # also output the sha256 hash
