@@ -3729,8 +3729,15 @@ def run_blockstackd():
         for namespace_str in namespaces_entries:
             namespace_info = db.get_namespace(namespace_str)
             namespace = {}
+            namespace['ready_block'] = namespace_info['ready_block']
+            namespace['reveal_block'] = namespace_info['reveal_block']
             namespace['namespace_id'] = namespace_info['namespace_id']
             namespace['address'] = b58ToC32(str(namespace_info['address']))
+            namespace['buckets'] = ';'.join(str(x) for x in namespace_info['buckets'])
+            namespace['base'] = namespace_info['base']
+            namespace['coeff'] = namespace_info['coeff']
+            namespace['nonalpha_discount'] = namespace_info['nonalpha_discount']
+            namespace['no_vowel_discount'] = namespace_info['no_vowel_discount']
             namespaces.append(namespace)
 
         print_status("Querying names...")
