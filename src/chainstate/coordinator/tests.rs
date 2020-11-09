@@ -232,6 +232,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _parent: &StacksBlockId,
         _winner_txid: Txid,
         _rewards: Vec<MinerReward>,
+        _rewards_info: Option<MinerRewardInfo>,
     ) {
         assert!(
             false,
